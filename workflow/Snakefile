@@ -1,0 +1,276 @@
+from pathlib import Path
+import glob
+
+
+""" Assign taxonomy to NCDLV contigs or MAGs """
+
+"""
+Input is single file with contig or collection of contigs
+File ending ".fna" (nucleic acid) or ".faa" (amino acid)
+No special characters in filename, no additional "."
+Recommended assembly size is 50kb
+
+Example run:
+snakemake -j 8 --use-conda --config querydir="example"
+"""
+
+
+# input and output dirs
+querydir = Path(config["querydir"])
+gvog9dir="resources/gvog9/"
+outdir = config["querydir"] + "/results/"
+# query file bases = query names without suffix
+QUERYBASENAMES = [x.stem for x in querydir.iterdir() if x.is_file() and x.suffix in [".faa", ".fna"]]
+# model names
+GVOG9 = [x.split("/")[-1].split(".")[0] for x in glob.glob(gvog9dir + "*.hmm")]
+# labels file for tax assignments
+labels = "resources/ncldvApril22_labels.txt"
+
+
+rule all:
+  input:
+    expand(outdir + "{querybase}.tar.gz", querybase=QUERYBASENAMES)
+    #expand(outdir + "{querybase}/{querybase}.summary.tab", querybase=QUERYBASENAMES)
+
+
+""" 
+Step 0 
+Genecalling to find optimal translation table 
+"""
+
+rule reformat_faa:
+  """
+  check format of faa input and reformat
+  reformat headers to ><filenamebase>|<proteinid> 
+  create summary stats, asssembly size, GC, coding density, gene count
+  if faa provided add gene count only
+  """
+  conda:
+    "envs/gvclass.yml"
+  input:
+    str(querydir) + "/{querybase}.faa"
+  log:
+    outdir + "{querybase}/log/reformat/{querybase}.log"
+  output:
+    outdir + "{querybase}/query_faa/{querybase}.faa",
+    outdir + "{querybase}/stats/{querybase}.stats.tab"
+  shell:
+    """
+    (python workflow/scripts/00reformat.py {input} {output[0]} {output[1]}) &> {log}
+    """
+
+
+rule genecalling:
+  """
+  Genecalling with different translation tables
+  Find code that optimizes coding density
+  """
+  conda:
+    "envs/gvclass.yml"
+  input:
+    str(querydir) + "/{querybase}.fna"
+  log:
+    outdir + "{querybase}/log/genecalling/{querybase}.log"
+  output:
+    gffout = outdir + "{querybase}/genecalling/{querybase}.gff",
+    genecalling_statsout = outdir + "{querybase}/stats/{querybase}.genecalling.tab",
+    best_statsout = outdir + "{querybase}/stats/{querybase}.stats.tab",
+    faafinalout = outdir + "{querybase}/query_faa/{querybase}.faa",
+    fnafinalout = outdir + "{querybase}/query_fna/{querybase}.fna"
+  shell:
+    """
+    python workflow/scripts/01genecalling_single.py {input} {output.gffout} {output.genecalling_statsout} {output.best_statsout} {output.faafinalout} &> {log}
+    cp {input} {output.fnafinalout}
+    """
+
+
+"""
+Step 1 
+Identify markers, extract, align
+"""
+
+rule run_hmmsearch_GVOG9:
+  """
+  hmmsearch to identify 9 conserved GVOGs in query sequences
+  """
+  conda:
+    "envs/gvclass.yml"
+  input:
+    queryfaa = outdir + "{querybase}/query_faa/{querybase}.faa",
+    models = "resources/GVOG9.hmm"
+  log:
+    outdir + "{querybase}/log/hmmsearch/{querybase}.log"
+  output:
+    GVOG9out = outdir + "{querybase}/hmmout/GVOG9.out",
+    hitcounts = outdir + "{querybase}/hmmout/GVOG9.counts"
+  shell:
+    """
+    (python workflow/scripts/02hmmsearch.py {input.queryfaa} {input.models} {output.GVOG9out} GVOG9 {output.hitcounts}) &> {log}
+    """
+
+
+rule run_hmmsearch_UNI:
+  """
+  hmmsearch to identify UNI56 in query sequences
+  mainly to estimate cellular contamination
+  """
+  conda:
+    "envs/gvclass.yml"
+  input:
+    queryfaa = outdir + "{querybase}/query_faa/{querybase}.faa",
+    models = "resources/UNI56.hmm"
+  log:
+    outdir + "{querybase}/log/hmmsearch/{querybase}_UNI56.log"
+  output:
+    UNI56out = outdir + "{querybase}/hmmout/UNI56.out",
+    hitcounts = outdir + "{querybase}/hmmout/UNI56.counts"
+  shell:
+    """
+    (python workflow/scripts/02hmmsearch.py {input.queryfaa} {input.models} {output.UNI56out} UNI56 {output.hitcounts}) &> {log}
+    """
+
+
+rule extract_qhits:
+  """
+  extract hits from hmmsearch, one file per marker, merge with refs
+  """
+  conda:
+    "envs/gvclass.yml"
+  input:
+    hmmout = outdir + "{querybase}/hmmout/GVOG9.out",
+    queryfaa = outdir + "{querybase}/query_faa/{querybase}.faa"
+  output:
+    queryhitsfaa = outdir + "{querybase}/query_hits_faa/{modelbase}.faa"
+  shell:
+    """
+    python workflow/scripts/03extract_qhits.py {input.hmmout} {input.queryfaa} {output.queryhitsfaa}
+    touch {output.queryhitsfaa}
+    """
+
+
+rule blastp_reduce_merge:
+  """
+  blastp vs databases of representative genomes
+  extract up to top 100 hits
+  """
+  conda:
+    "envs/gvclass.yml"
+  log:
+    outdir + "{querybase}/log/diamond/{querybase}_{modelbase}.log"
+  input:
+    queryhitsfaa = outdir + "{querybase}/query_hits_faa/{modelbase}.faa",
+    reffaa = "resources/refsGVOG9/faa/{modelbase}.faa",
+    refdb = "resources/refsGVOG9/dmnd/{modelbase}.dmnd"
+  output:
+    blastpout = outdir + "{querybase}/blastp_out/{modelbase}.m8",
+    mergedfaa = outdir + "{querybase}/query_hits_merged_faa/{modelbase}.faa"
+  shell:
+    """
+    (python workflow/scripts/04blastp_reduce_merge.py {input.queryhitsfaa} {input.reffaa} {input.refdb} {output.blastpout} {output.mergedfaa}) >& {log}
+    touch {output.blastpout} {output.mergedfaa}
+    """
+
+
+rule align_trim:
+  """
+  align extracted GVOGs together with refs
+  """
+  conda:
+    "envs/gvclass.yml"
+  log:
+    outdir + "{querybase}/log/hmmsearch/{querybase}_{modelbase}.log"
+  input:
+    mergedfaa = outdir + "{querybase}/query_hits_merged_faa/{modelbase}.faa"
+  output:
+    aln = outdir + "{querybase}/queryrefs_aligned/{modelbase}.mafft",
+    trimmedaln = outdir + "{querybase}/queryrefs_aligned/{modelbase}.mafft01"
+  shell:
+    """
+    (python workflow/scripts/05align_trim.py {input.mergedfaa} {output.aln} {output.trimmedaln}) >& {log}
+    touch {output.aln} {output.trimmedaln}
+    """
+
+
+"""
+Step 2 - Tree based
+Build protein trees, get nearest neighbor in trees
+"""
+
+rule build_trees:
+  """
+  build single protein trees for GVOG
+  """
+  conda:
+    "envs/gvclass.yml"
+  log:
+    outdir + "{querybase}/log/trees/{querybase}_{modelbase}.log"
+  input:
+    trimmedaln = outdir + "{querybase}/queryrefs_aligned/{modelbase}.mafft01"
+  output:
+    tree = outdir + "{querybase}/queryrefs_fasttree/{modelbase}.FTWAG"
+  shell:
+    """
+    (python workflow/scripts/06build_tree.py {input.trimmedaln} {output.tree}) >& {log}
+    touch {output.tree}
+    """
+
+
+rule get_nn:
+  """
+  infer nearest neighbor in each tree
+  """
+  conda:
+    "envs/gvclass.yml"
+  params:
+    queryname="{querybase}",
+    fdir = outdir + "{querybase}"
+  input:
+    ft = expand(outdir + "{querybase}/queryrefs_fasttree/{modelbase}.FTWAG", querybase="{querybase}", modelbase=GVOG9),
+    alnt = expand(outdir + "{querybase}/queryrefs_aligned/{modelbase}.mafft01", querybase="{querybase}", modelbase=GVOG9)
+  log:
+    outdir + "{querybase}/log/nn/{querybase}.log"
+  output:
+    tree_out = outdir + "{querybase}/stats/{querybase}.tree_nn",
+    aln_out = outdir + "{querybase}/stats/{querybase}.aln_nn"
+  shell: 
+    """
+    (python workflow/scripts/07get_nn_aln.py {params.queryname} {params.fdir}/queryrefs_aligned/ {output.aln_out} {labels}
+    python workflow/scripts/08get_nn_tree.py {params.queryname} {params.fdir}/queryrefs_fasttree/ {output.tree_out} {labels}) &> {log}
+    """
+
+
+rule summarize:
+  """
+  combine different outputs
+  """
+  conda:
+    "envs/gvclass.yml"
+  input:
+    nn_tree = outdir + "{querybase}/stats/{querybase}.tree_nn",
+    gvog9_count = outdir + "{querybase}/hmmout/GVOG9.counts",
+    uni56_count = outdir + "{querybase}/hmmout/UNI56.counts",
+    querystats = outdir + "{querybase}/stats/{querybase}.stats.tab"
+  output:
+    outdir + "{querybase}/{querybase}.summary.tab",
+    outdir + "{querybase}.summary.tab"
+  shell:
+    """
+    python workflow/scripts/09summarize.py {input.nn_tree} {input.gvog9_count} {input.uni56_count} {input.querystats} {output[0]} {output[1]}
+    """
+
+
+rule cleanup:
+  """
+  intermediate files are kept including empty files, compress output 
+  """
+  input:
+    outdir + "{querybase}/{querybase}.summary.tab"
+  params:
+    fdir = outdir + "{querybase}"
+  output:
+    outdir + "{querybase}.tar.gz"
+  shell:
+    """
+    #find {params.fdir} -type f -empty -print -delete
+    python workflow/scripts/10cleanup.py {params.fdir} {output}
+    """
