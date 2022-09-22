@@ -1,4 +1,33 @@
-n environmental microbiomes. GVClass assigns taxonomy to putative giant virus contigs or metagenome assembled genomes ([GVMAGs](https://doi.org/10.1038/s41586-020-1957-x)). It uses a conservative approach based on the consensus of single protein trees built from up to 9 giant virus orthologous groups ([GVOGs](https://doi.org/10.1371/journal.pbio.3001430)). These 9 GVOGs are often conserved across different lineages in the viral phylum Nucleocytoviricota.
+```
+                                                       ``,:'-                     
+                                                    `-'~^*r?^^_'`                 
+                                                -',~";*>>*r|r?rr:,-              
+                                            `.',,"_:>\>\?>|r\r|r?^>;:'`          
+                                         ``',~~_:;;>LL?/||\r|*?*?>r*rr^r;,-       
+                                      -':;;^>*\cziy9Uhqqh66PXeauujzf7vLL\\|?;:-`  
+                                   `;>\LLL//c77z1f6N6UH9KRPR6URPRZHw966kPP6PPeet' 
+                                   `*\Li///cvvzJ76Ne&6ZdRw8UqWw&PdU9K6OPOhqhqUKz` 
+                                   `>\\\\L77vz1vHR6#ODWwXgUK&PH6OK9d6H6H6OPOPKei  
+                                ______ _    _ _______        _______ _______ _______ 
+                               |  ____  \  /  |       |      |_____| |______ |______
+                               |_____|   \/   |_____  |_____ |     | ______| ______| 
+                                    ^zzztzza9RdH8KgdHDqNOdN99R9DqHHUDUH6H6OPqOu`  
+                                    ;tttJzjq89&DON9RRdNU8W6NdwOKK&hR689H9d6KOq/   
+                                    ;Jttzj68UNdOg9NHOg6BOKQ6H#mKgXghDKqO699RKU^   
+                                     :zyUR9R6gDHN9BRDBU#qd8HRDROWqhqUW9DqkgOgq?    
+                                       ,S9D6H9gRDNKQKRN6gKRHDODDqRhd89OOORhDRar-     
+                                        `:7{N9B9NNKQqNgqNOHHRK&OORkgOON96RUqS_        
+                                          `:7U@@@@@@@@@@@@Q@QQQBQgQNW#P\:-         `
+                                             -;LOB@@@@@@@@@@@@@@@QDJ:`             
+                                               `:vwQ@@@@@Q@@Bk^'                 
+                                                  `;1hQQKv:`              `     
+```
+
+# GVClass
+_version 0.92_
+
+Giant viruses are abundant and diverse and frequently found in environmental microbiomes. GVClass assigns taxonomy to putative giant virus contigs or metagenome assembled genomes ([GVMAGs](https://doi.org/10.1038/s41586-020-1957-x)). It uses a conservative approach based on the consensus of single protein trees built from up to 9 giant virus orthologous groups ([GVOGs](https://doi.org/10.1371/journal.pbio.3001430)). These 9 GVOGs are often conserved across different lineages in the viral phylum Nucleocytoviricota.
+
 ## Running GVClass
 
 ### Requirements
@@ -8,7 +37,7 @@ n environmental microbiomes. GVClass assigns taxonomy to putative giant virus co
 * No special characters (".", ";", ":") in filebase name, "\_" or "-" are okay
 * No whitespace in sequence headers
 * Recommended sequence header format if faa provided: <filenamebase>|<proteinid>
-* Input will be checked and reformatted
+* Input will be checked and reformatted if necessary
 
 ### IMG/VR
 * Upload you metagenome assembled genome or single contig to [IMG/VR](https://img.jgi.doe.gov/vr/) using the GVClass feature
@@ -19,11 +48,11 @@ n environmental microbiomes. GVClass assigns taxonomy to putative giant virus co
 ```
 docker pull fschulzjgi/gvclass:0.9.2
 ```
-* Query genomes to test GVClass are in this example in a directory called "test"
+* Query genomes to test GVClass in a directory called "test"
 ```
 docker run -t -i -v $(pwd)/test:/gvclass/querydir --user $(id -u):$(id -g) fschulzjgi/gvclass:0.9.2 snakemake --use-conda -j 4 --config querydir="querydir"
 ```
-* If this completes successfully, run it using your own directory of query genomes
+* If this completes successfully, run it on a directory that contains query genomes (fna and/or faa)
 ```
 docker run -t -i -v <path to query dir>:/gvclass/querydir --user $(id -u):$(id -g) fschulzjgi/gvclass:0.9.2 snakemake --use-conda -j 64 --config querydir="querydir"
 ```
