@@ -15,7 +15,13 @@ def parse_result(tabout):
     with open(tabout) as infile:
         for line in infile:
             line = line.strip()
-            if line.startswith("GVOG"):
+            if line.startswith("GVOGm0461"):
+                # cutoff of 1.5 for GVOGm0461 to avoid FP from Caudovirales
+                if float(line.split()[-1]) < 1.2: # most phages > 1.7
+                    results.append(line.split("\t"))
+                else:
+                    print (line.split()[0] + " tree distance to neighbor above threshold, hit removed")
+            elif line.startswith("GVOG"):
                 # cutoff of 2 for distance to nearest neighbor in tree
                 if float(line.split()[-1]) < 2:
                     results.append(line.split("\t"))
@@ -230,8 +236,8 @@ def main():
             df_results_tree.to_csv(summary_out, sep="\t", index=False)
             df_results_tree.to_csv(summary_out2, sep="\t", index=False)
         else:
-            allresults = [[query, "missing_markers", "missing_markers", "missing_markers", "missing_markers", "missing_markers", "missing_markers", "missing_markers", "no_hits", "avgdist", "0", "0", "0", "0", "0", "0", "0"]]
-            cols = ["query", "species", "genus", "family", "order", "class", "phylum", "domain", "stringency", "avgdist", "GVOG9u", "GVOG9t", "GVOG9df", "MCP", "UNI56u", "UNI56t", "UNI56df"]
+            allresults = [[query, "missing_markers", "missing_markers", "missing_markers", "missing_markers", "missing_markers", "missing_markers", "missing_markers", "no_hits", "missing_markers", "0", "0", "0", "0", "0", "0", "0"]]
+            cols = ["query", "species", "genus", "family", "order", "class", "phylum", "domain", "stringency", "avgdist", "GVOG7u", "GVOG7t", "GVOG7df", "MCP", "UNI56u", "UNI56t", "UNI56df"]
             df_results_tree = pd.DataFrame(allresults, columns=cols)
             df_results_tree = pd.merge(df_results_tree, querystats_df, on='query')
             df_results_tree.to_csv(summary_out, sep="\t", index=False)
