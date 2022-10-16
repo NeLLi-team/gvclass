@@ -8,7 +8,6 @@ gvog9_count = sys.argv[2]
 uni56_count = sys.argv[3]
 querystats = sys.argv[4]
 summary_out = sys.argv[5]
-summary_out2 = sys.argv[6]
 
 def parse_result(tabout):
     results = []
@@ -17,7 +16,7 @@ def parse_result(tabout):
             line = line.strip()
             if line.startswith("GVOGm0461"):
                 # cutoff of 1.5 for GVOGm0461 to avoid FP from Caudovirales
-                if float(line.split()[-1]) < 1.2: # most phages > 1.7
+                if float(line.split()[-1]) < 1.8:
                     results.append(line.split("\t"))
                 else:
                     print (line.split()[0] + " tree distance to neighbor above threshold, hit removed")
@@ -30,15 +29,18 @@ def parse_result(tabout):
     return results
 
 def process_gvog9(gvog9_count):
+    gvog9_models = ["GVOGm0003","GVOGm0013","GVOGm0022","GVOGm0023","GVOGm0054","GVOGm0172","GVOGm0461","GVOGm0760","GVOGm0890"]
     gvog7_models = ["GVOGm0013","GVOGm0023","GVOGm0054","GVOGm0172","GVOGm0461","GVOGm0760","GVOGm0890"]
     gvogsout_df = pd.read_csv(gvog9_count, sep="\t", index_col=0)
     gvogsout_df['GVOG7u'] = (gvogsout_df[gvog7_models] > 0).sum(axis=1)
     gvogsout_df['GVOG7t'] = (gvogsout_df[gvog7_models]).sum(axis=1)
+    gvogsout_df['GVOG9u'] = (gvogsout_df[gvog9_models] > 0).sum(axis=1)
+    gvogsout_df['GVOG9t'] = (gvogsout_df[gvog9_models]).sum(axis=1)
     if list(gvogsout_df.GVOG7u)[0] > 0:
         gvogsout_df['GVOG7df'] = gvogsout_df['GVOG7t'] / gvogsout_df['GVOG7u']
     else:
         gvogsout_df['GVOG7df'] = 0
-    return list(gvogsout_df.GVOG7u)[0], list(gvogsout_df.GVOG7t)[0], list(gvogsout_df.GVOG7df)[0], list(gvogsout_df.GVOGm0003)[0]
+    return list(gvogsout_df.GVOG9u)[0], list(gvogsout_df.GVOG9t)[0], list(gvogsout_df.GVOG7u)[0], list(gvogsout_df.GVOG7t)[0], list(gvogsout_df.GVOG7df)[0], list(gvogsout_df.GVOGm0003)[0]
 
 
 def process_uni56(uni56_count):
@@ -72,43 +74,43 @@ def most_frequent(taxstrings, taxlevel):
 
 
 def tax_species(row):
-    if row["subject"].split("__")[0] in ["EUK", "ARC", "BAC"]:
+    if row["subject"].split("__")[0] in ["EUK", "ARC", "BAC", "PHAGE"]:
         return  row["subject"].split("__")[0] + "__" + row["taxannot"].split("|")[6]
     else:
         return row["taxannot"].split("|")[-1] # species
 
 def tax_genus(row):
-    if row["subject"].split("__")[0] in ["EUK", "ARC", "BAC"]:
+    if row["subject"].split("__")[0] in ["EUK", "ARC", "BAC", "PHAGE"]:
         return  row["subject"].split("__")[0] + "__" + row["taxannot"].split("|")[5]
     else:
         return row["taxannot"].split("|")[1] # genus
 
 def tax_family(row):
-    if row["subject"].split("__")[0] in ["EUK", "ARC", "BAC"]:
+    if row["subject"].split("__")[0] in ["EUK", "ARC", "BAC", "PHAGE"]:
         return  row["subject"].split("__")[0] + "__" + row["taxannot"].split("|")[4]
     else:
-        return (row["taxannot"].split("|")[2] + "--" +  row["taxannot"].split("|")[0]).replace("---", "") # family
+        return (row["taxannot"].split("|")[2]) # family
 
 def tax_order(row):
-    if row["subject"].split("__")[0] in ["EUK", "ARC", "BAC"]:
+    if row["subject"].split("__")[0] in ["EUK", "ARC", "BAC", "PHAGE"]:
         return  row["subject"].split("__")[0] + "__" + row["taxannot"].split("|")[3]
     else:
         return row["taxannot"].split("|")[3] # order
 
 def tax_class(row):
-    if row["subject"].split("__")[0] in ["EUK", "ARC", "BAC"]:
+    if row["subject"].split("__")[0] in ["EUK", "ARC", "BAC", "PHAGE"]:
         return  row["subject"].split("__")[0] + "__" + row["taxannot"].split("|")[2]
     else:
         return row["taxannot"].split("|")[4] # class
     
 def tax_phylum(row):
-    if row["subject"].split("__")[0] in ["EUK", "ARC", "BAC"]:
+    if row["subject"].split("__")[0] in ["EUK", "ARC", "BAC", "PHAGE"]:
         return  row["subject"].split("__")[0] + "__" + row["taxannot"].split("|")[1]
     else:
         return row["taxannot"].split("|")[5] # phylum
     
 def tax_domains(row):
-    if row["subject"].split("__")[0] in ["EUK", "ARC", "BAC"]:
+    if row["subject"].split("__")[0] in ["EUK", "ARC", "BAC", "PHAGE"]:
         return  row["subject"].split("__")[0]
     elif row["taxannot"].split("|")[5] == "Nucleocytoviricota":
         return "NCLDV"
@@ -178,6 +180,10 @@ def get_final_tax(df, query, stringency_s):
                 finaltax.append("d_" + "ARC-EUK")
             elif "BAC" in domainlist and "EUK" in domainlist:
                 finaltax.append("d_" + "BAC-EUK")
+            elif "PHAGE" in domainlist and "NCLDV" in domainlist:
+                finaltax.append("d_" + "NCLDV-PHAGE")
+            elif "PHAGE" in domainlist and not "NCLDV" in domainlist:
+                finaltax.append("d_" + "PHAGE")
             else:
                 finaltax.append("d__")
         else:
@@ -215,16 +221,19 @@ def summarize(df):
 def main():
     try:
         query = summary_out.split("/")[-1].split(".")[0]
+        print (query)
         treehits = []
         treehits.extend(parse_result(nn_tree))
+        print (treehits)
         querystats_df = pd.read_csv(querystats, sep="\t")
         if len(treehits) > 0:
             df_tree = pd.DataFrame(treehits, columns=["GVOG", "query", "subject", "taxannot", "distance"])
             df_tree["distance"] = df_tree["distance"].astype(float)
-            # maximum distance in tree to yield nn in the final output, parameter can be further tested and adjusted
             df_results_tree = summarize(df_tree)
-            GVOG7u, GVOG7t, GVOG7df, MCP = process_gvog9(gvog9_count)
+            GVOG9u, GVOG9t, GVOG7u, GVOG7t, GVOG7df, MCP = process_gvog9(gvog9_count)
             UNI56u, UNI56t, UNI56df = process_uni56(uni56_count)
+            df_results_tree["GVOG9u"] = GVOG9u
+            df_results_tree["GVOG9t"] = GVOG9t
             df_results_tree["GVOG7u"] = GVOG7u
             df_results_tree["GVOG7t"] = GVOG7t
             df_results_tree["GVOG7df"] = GVOG7df
@@ -234,16 +243,15 @@ def main():
             df_results_tree["UNI56df"] = UNI56df
             df_results_tree = pd.merge(df_results_tree, querystats_df, on='query')
             df_results_tree.to_csv(summary_out, sep="\t", index=False)
-            df_results_tree.to_csv(summary_out2, sep="\t", index=False)
         else:
-            allresults = [[query, "missing_markers", "missing_markers", "missing_markers", "missing_markers", "missing_markers", "missing_markers", "missing_markers", "no_hits", "missing_markers", "0", "0", "0", "0", "0", "0", "0"]]
-            cols = ["query", "species", "genus", "family", "order", "class", "phylum", "domain", "stringency", "avgdist", "GVOG7u", "GVOG7t", "GVOG7df", "MCP", "UNI56u", "UNI56t", "UNI56df"]
+            allresults = [[query, "missing_markers", "missing_markers", "missing_markers", "missing_markers", "missing_markers", "missing_markers", "missing_markers", "no_hits", "missing_markers", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0"]]
+            cols = ["query", "species", "genus", "family", "order", "class", "phylum", "domain", "stringency", "avgdist", "GVOG9u", "GVOG9t", "GVOG7u", "GVOG7t", "GVOG7df", "MCP", "UNI56u", "UNI56t", "UNI56df"]
             df_results_tree = pd.DataFrame(allresults, columns=cols)
             df_results_tree = pd.merge(df_results_tree, querystats_df, on='query')
             df_results_tree.to_csv(summary_out, sep="\t", index=False)
             df_results_tree.to_csv(summary_out2, sep="\t", index=False)
     except:
-        print ("something went wrong with " + summary_out.split("/")[-1].split(".")[0] )
+        print ("Empty output for " + summary_out.split("/")[-1].split(".")[0] )
         with open(summary_out, "w") as outfile:
             pass
 

@@ -106,6 +106,7 @@ for ftree in glob.glob(tree_outpath + "/*.FTWAG"):
 # this is the summary result, show number of best hits per tax string
 # cutoff for order: tree dist 2, aln 30 idperc --> needs further evaluation
 
+print (str(tree_dict_all_best) + "@@@@@@@" + str(query))
 final_tree_dict = Counter(flattenkeys_to_list(tree_dict_all_best, labels_dict, "order"))
 tree_result = "|".join([":".join([str(x) for x in pair]) for pair in list(final_tree_dict.items())])
 

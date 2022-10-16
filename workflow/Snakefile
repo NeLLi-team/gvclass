@@ -24,13 +24,13 @@ QUERYBASENAMES = [x.stem for x in querydir.iterdir() if x.is_file() and x.suffix
 # model names
 GVOG9 = [x.split("/")[-1].split(".")[0] for x in glob.glob(gvog9dir + "*.hmm")]
 # labels file for tax assignments
-labels = "resources/ncldvApril22_labels.txt"
+labels = "resources/ncldvOct22_labels.txt"
 
 
 rule all:
   input:
-    expand(outdir + "{querybase}.tar.gz", querybase=QUERYBASENAMES)
-    #expand(outdir + "{querybase}/{querybase}.summary.tab", querybase=QUERYBASENAMES)
+    expand(outdir + "{querybase}.tar.gz", querybase=QUERYBASENAMES),
+    outdir + "gvclass_out.tab"
 
 
 """ 
@@ -250,12 +250,31 @@ rule summarize:
     gvog9_count = outdir + "{querybase}/hmmout/GVOG9.counts",
     uni56_count = outdir + "{querybase}/hmmout/UNI56.counts",
     querystats = outdir + "{querybase}/stats/{querybase}.stats.tab"
+  log:
+    outdir + "{querybase}/log/summarize/{querybase}.log"
   output:
-    outdir + "{querybase}/{querybase}.summary.tab",
-    outdir + "{querybase}.summary.tab"
+    outdir + "{querybase}/{querybase}.summary.tab"
   shell:
     """
-    python workflow/scripts/09summarize.py {input.nn_tree} {input.gvog9_count} {input.uni56_count} {input.querystats} {output[0]} {output[1]}
+    (python workflow/scripts/09summarize.py {input.nn_tree} {input.gvog9_count} {input.uni56_count} {input.querystats} {output}
+    touch {output}) &> {log}
+    """
+
+
+rule combinedout:
+  """
+  combined output of highest stringency for predicted giant viruses
+  """
+  input:
+    expand(outdir + "{querybase}/{querybase}.summary.tab", querybase=QUERYBASENAMES)
+  params:
+    fdirp = outdir
+  output:
+    combined = outdir + "gvclass_out.tab"
+  shell:
+    """
+    python workflow/scripts/10combinedout.py {params.fdirp} {output.combined}
+    touch {output.combined}
     """
 
 
@@ -264,7 +283,7 @@ rule cleanup:
   intermediate files are kept including empty files, compress output 
   """
   input:
-    outdir + "{querybase}/{querybase}.summary.tab"
+    combined = outdir + "gvclass_out.tab"
   params:
     fdir = outdir + "{querybase}"
   output:
@@ -272,5 +291,6 @@ rule cleanup:
   shell:
     """
     #find {params.fdir} -type f -empty -print -delete
-    python workflow/scripts/10cleanup.py {params.fdir} {output}
+    python workflow/scripts/11cleanup.py {params.fdir} {output}
     """
+
