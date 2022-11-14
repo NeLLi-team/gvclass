@@ -24,7 +24,7 @@
 ```
 
 # GVClass
-_version 0.92_
+_version 0.9.3_
 
 Giant viruses are abundant and diverse and frequently found in environmental microbiomes. GVClass assigns taxonomy to putative giant virus contigs or metagenome assembled genomes ([GVMAGs](https://doi.org/10.1038/s41586-020-1957-x)). It uses a conservative approach based on the consensus of single protein trees built from up to 9 giant virus orthologous groups ([GVOGs](https://doi.org/10.1371/journal.pbio.3001430)). These 9 GVOGs are often conserved across different lineages in the viral phylum Nucleocytoviricota.
 
@@ -46,22 +46,22 @@ Giant viruses are abundant and diverse and frequently found in environmental mic
 * The recommended way to run GVClass (especially on Windows or Mac) is to use the Docker image [fschulzjgi/gvclass](https://hub.docker.com/repository/docker/fschulzjgi/gvclass)
 
 ```
-docker pull fschulzjgi/gvclass:0.9.2
+docker pull fschulzjgi/gvclass:0.9.3
 ```
 * Query genomes to test GVClass in a directory called "test"
 ```
-docker run -t -i -v $(pwd)/test:/gvclass/querydir --user $(id -u):$(id -g) fschulzjgi/gvclass:0.9.2 snakemake --use-conda -j 4 --config querydir="querydir"
+docker run -t -i -v $(pwd)/test:/gvclass/querydir --user $(id -u):$(id -g) fschulzjgi/gvclass:0.9.3 snakemake --use-conda -j 4 --config querydir="querydir"
 ```
 * If this completes successfully, run it on a directory that contains query genomes (fna and/or faa)
 ```
-docker run -t -i -v <path to query dir>:/gvclass/querydir --user $(id -u):$(id -g) fschulzjgi/gvclass:0.9.2 snakemake --use-conda -j 64 --config querydir="querydir"
+docker run -t -i -v <path to query dir>:/gvclass/querydir --user $(id -u):$(id -g) fschulzjgi/gvclass:0.9.3 snakemake --use-conda -j 64 --config querydir="querydir"
 ```
 * An alternative way to run GVClass is to use Shifter instead of Docker
 ```
-shifterimg pull fschulzjgi/gvclass:0.9.2
+shifterimg pull fschulzjgi/gvclass:0.9.3
 shifter \
   --volume=<path to query dir>:/gvclass/example \
-  --image=fschulzjgi/gvclass:0.9.2 \
+  --image=fschulzjgi/gvclass:0.9.3 \
   bash -c \
   "snakemake \
   --snakefile /gvclass/workflow/Snakefile \
