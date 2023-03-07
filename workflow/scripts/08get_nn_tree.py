@@ -6,8 +6,6 @@ from collections import Counter
 import pandas as pd
 
 
-
-
 def flattenkeys_to_list(dict1, labels_dict, taxlevel):
     if taxlevel=="order":
         level = 3
