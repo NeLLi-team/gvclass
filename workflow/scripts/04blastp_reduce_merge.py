@@ -1,18 +1,9 @@
-import sys
+import click
 import subprocess
 from Bio import SeqIO
 from collections import defaultdict
 import os
 
-"""
-Blastp of query(s) vs refs of respective marker
-Extract top 100 hits from refs and merge with query(s) 
-"""
-queryfaa = sys.argv[1] # query sequences from hmmsearch for a single marker
-reffaa = sys.argv[2] # ref seqs for a single marker
-refdb = sys.argv[3] # diamond formatted db for a single marker
-blastpout = sys.argv[4]
-reduced_reffaa_merged = sys.argv[5] # outfile name
 
 def run_cmd(cmd):
     sp = subprocess.Popen(cmd,
@@ -26,16 +17,14 @@ def run_cmd(cmd):
 
 def run_blastp(queryfaa, refdb, blastpout):
     # no evalue set, what is the default?
-    dblastp = ["diamond blastp --threads 8 \
-                --quiet --outfmt 6 \
-                --more-sensitive --query-cover 30 \
-                --subject-cover 30 \
-                -e 1e-10 \
-                -d " + refdb + 
-                " -q " + queryfaa + 
-                " -o " + blastpout]
-    #print ("RUNNING: " + str(dblastp))
+    dblastp = ["diamond blastp --threads 8 "
+               "--quiet --outfmt 6 "
+               "--more-sensitive --query-cover 30 "
+               "--subject-cover 30 "
+               "-e 1e-10 "
+               "-d {} -q {} -o {}".format(refdb, queryfaa, blastpout)]
     run_cmd(dblastp)
+
 
 def parse_blastp(blastpout):
     queryids_hits_dict = defaultdict(list)
@@ -73,7 +62,18 @@ def reduce_ref(queryfaa, reffaa, reduced_reffaa_merged, refdb, blastpout):
             seenids.append(seq_record.id)
     SeqIO.write(outseqs, reduced_reffaa_merged, "fasta")
 
-if os.path.getsize(queryfaa) > 0:
-    reduce_ref(queryfaa, reffaa, reduced_reffaa_merged, refdb, blastpout)
-else: 
-    print (queryfaa + " is empty, no hits, omitting blastp")
+
+@click.command()
+@click.option('--queryfaa', '-q', required=True, help='Query sequences from hmmsearch for a single marker')
+@click.option('--reffaa', '-r', required=True, help='Ref seqs for a single marker')
+@click.option('--refdb', '-d', required=True, help='Diamond formatted db for a single marker')
+@click.option('--blastpout', '-b', required=True, help='Output file name for diamond blastp')
+@click.option('--reduced_reffaa_merged', '-o', required=True, help='Output file name for reduced reference sequences')
+def main(queryfaa, reffaa, refdb, blastpout, reduced_reffaa_merged):
+    if os.path.getsize(queryfaa) > 0:
+        reduce_ref(queryfaa, reffaa, reduced_reffaa_merged, refdb, blastpout)
+    else: 
+        print (f"{queryfaa} is empty, no hits, omitting blast")
+
+if __name__ == '__main__':
+    main()

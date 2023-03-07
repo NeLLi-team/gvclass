@@ -1,38 +1,39 @@
+import click
 from Bio import SeqIO
 import pandas as pd
-import sys
 import os
 
-faain = sys.argv[1]
-faaout = sys.argv[2]
-faastats = sys.argv[3]
 
-# header in format ><filebasename|<proteinid>
+@click.command()
+@click.option('--input', '-i', type=click.Path(exists=True), help='Input FASTA file')
+@click.option('--output', '-o', type=click.Path(), help='Output FASTA file')
+@click.option('--stats', '-s', type=click.Path(), help='Statistics file')
+def main(input, output, stats):
+    # read in the input file
+    records = list(SeqIO.parse(input, "fasta"))
 
-reformatted = []
-protcount = 0
+    # modify the sequence IDs and descriptions
+    protcount = 0
+    for record in records:
+        protcount += 1
+        if "|" in record.id:
+            record.id = record.id.split("|")[-1]
+        record.id = f"{os.path.splitext(os.path.basename(input))[0]}|{record.id}"
+        record.description = ""
 
-for seq_record in SeqIO.parse(faain, "fasta"):
-    querybase = faain.split("/")[-1].split(".")[0]
-    protcount += 1
-    if "|" in seq_record.id:
-        if seq_record.id.split("|")[0] == querybase:
-            seq_record.id = seq_record.id.split()[0]
-            seq_record.description = ""
-            reformatted.append(seq_record)
-        else:
-            seq_record.id= querybase + "|" + seq_record.id.split()[0]
-            seq_record.description = ""
-            reformatted.append(seq_record)
-    else:
-        seq_record.id= querybase + "|" + seq_record.id.split()[0]
-        seq_record.description = ""
-        reformatted.append(seq_record)
+    # write the reformatted sequences to the output file
+    SeqIO.write(records, output, "fasta")
 
-if not os.path.isfile(faastats):
-    # stats if only faa file provided, only contains gene count
-    cols = ["query", "LENbp", "GCperc", "genecount", "CODINGperc", "ttable"]
-    faastats_list = [[querybase, "no_fna", "no_fna", protcount, "no_fna", "no_fna"]]
-    pd.DataFrame(faastats_list, columns=cols).to_csv(faastats, sep="\t", index=False)
+    # calculate statistics and write them to the stats file
+    stats_dict = {
+        'query': os.path.splitext(os.path.basename(input))[0],
+        'LENbp': 'no_fna',
+        'GCperc': 'no_fna',
+        'genecount': protcount,
+        'CODINGperc': 'no_fna',
+        'ttable': 'no_fna'
+    }
+    pd.DataFrame.from_dict(stats_dict, orient='index').T.to_csv(stats, sep="\t", index=False)
 
-SeqIO.write(reformatted, faaout, "fasta")
+if __name__ == '__main__':
+    main()

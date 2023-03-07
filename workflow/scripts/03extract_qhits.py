@@ -1,36 +1,37 @@
 import os
-import sys
 from Bio import SeqIO
 import shutil
 from collections import defaultdict
+import click
 
-"""
-Extract protein sequences of hits in hmmsearch output
-And merge with matching ref proteins 
-"""
-hmmout = sys.argv[1] # contains hits for any number of models or no hits
-queryfaa = sys.argv[2] # query faa file 
-queryhitsfaa = sys.argv[3] # extracted hits 
+@click.command()
+@click.option('--hmmout', '-h', required=True, help='Path to HMM output file.')
+@click.option('--queryfaa', '-q', required=True, help='Path to query protein FASTA file.')
+@click.option('--queryhitsfaa', '-o', required=True, help='Path to output file containing hits.')
+def main(hmmout, queryfaa, queryhitsfaa):
+    outmodel = os.path.splitext(os.path.basename(queryhitsfaa))[0]
+    hits_model_dict = get_qhits(hmmout, outmodel)
+    export_hitsfaa(hits_model_dict, queryfaa, queryhitsfaa)
 
 def export_hitsfaa(hits_model_dict, queryfaa, queryhitsfaa):
-    for model, hits in hits_model_dict.items():
-        if len(hits) > 0:
-             SeqIO.write([seq_record for seq_record in SeqIO.parse(queryfaa, "fasta") \
-                          if seq_record.description in hits], queryhitsfaa, "fasta")
+    query_ids = set()
+    with click.progressbar(hits_model_dict.values(), label='Exporting hits to file') as bar1:
+        for hits in bar1:
+            query_ids |= set(hits)
+    with open(queryhitsfaa, "w") as outfile:
+        with click.progressbar(SeqIO.parse(queryfaa, "fasta"), label='Writing hits to file') as bar2:
+            for seq_record in bar2:
+                if seq_record.description in query_ids:
+                    SeqIO.write(seq_record, outfile, "fasta")
 
 def get_qhits(hmmout, outmodel):
-    # one or more hits per model
-    hits_model_dict = defaultdict(list)
+    hits_model_dict = defaultdict(set)
     with open(hmmout, "r") as infile:
-        for line in infile:
-            if not line.startswith("#"):
-                queryid = line.split()[0]
-                model = line.split()[3]
-                if queryid not in hits_model_dict[model] and model == outmodel:
-                    hits_model_dict[model].append(queryid)
+        with click.progressbar(infile, label='Parsing HMM output') as bar:
+            for line in bar:
+                if not line.startswith("#") and outmodel in line:
+                    hits_model_dict[line.split()[3]].add(line.split()[0])
     return hits_model_dict
 
-
-outmodel = queryhitsfaa.split("/")[-1].split(".")[0]
-hits_model_dict = get_qhits(hmmout, outmodel)
-export_hitsfaa(hits_model_dict, queryfaa, queryhitsfaa)
+if __name__ == '__main__':
+    main()

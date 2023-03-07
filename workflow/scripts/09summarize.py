@@ -1,31 +1,20 @@
-import sys
+import click
 import pandas as pd
 import glob
 from collections import Counter
 
-nn_tree = sys.argv[1]
-gvog9_count = sys.argv[2]
-uni56_count = sys.argv[3]
-querystats = sys.argv[4]
-summary_out = sys.argv[5]
 
 def parse_result(tabout):
     results = []
     with open(tabout) as infile:
         for line in infile:
-            line = line.strip()
-            if line.startswith("GVOGm0461"):
-                # cutoff of 1.5 for GVOGm0461 to avoid FP from Caudovirales
-                if float(line.split()[-1]) < 1.8:
-                    results.append(line.split("\t"))
-                else:
-                    print (line.split()[0] + " tree distance to neighbor above threshold, hit removed")
-            elif line.startswith("GVOG"):
-                # cutoff of 2 for distance to nearest neighbor in tree
-                if float(line.split()[-1]) < 2:
-                    results.append(line.split("\t"))
-                else:
-                    print (line.split()[0] + " tree distance to neighbor above threshold, hit removed")
+            line = line.strip().split()
+            if line[0].startswith("GVOGm0461") and float(line[-1]) < 1.8:
+                results.append(line)
+            elif line[0].startswith("GVOG") and float(line[-1]) < 2.2:
+                results.append(line)
+            else:
+                print(f"{line[0]} tree distance to neighbor above threshold, hit removed")
     return results
 
 def process_gvog9(gvog9_count):
@@ -46,68 +35,32 @@ def process_gvog9(gvog9_count):
 def process_uni56(uni56_count):
     UNI56out_df = pd.read_csv(uni56_count, sep="\t", index_col=0)
     UNI56out_models = list(UNI56out_df.columns)
-    UNI56out_df['UNI56u'] = (UNI56out_df[UNI56out_models] > 0).sum(axis=1)
-    UNI56out_df['UNI56t'] = (UNI56out_df[UNI56out_models]).sum(axis=1)
-    if list(UNI56out_df.UNI56u)[0] > 0:
-        UNI56out_df['UNI56df'] = UNI56out_df['UNI56t'] / UNI56out_df['UNI56u']
-    else:
-        UNI56out_df['UNI56df'] = 0
-    return list(UNI56out_df.UNI56u)[0], list(UNI56out_df.UNI56t)[0], list(UNI56out_df.UNI56df)[0]
+    UNI56u = (UNI56out_df[UNI56out_models] > 0).sum(axis=1)
+    UNI56t = (UNI56out_df[UNI56out_models]).sum(axis=1)
+    UNI56df = UNI56t / UNI56u if UNI56u.any() else 0
+    return UNI56u.iloc[0], UNI56t.iloc[0], UNI56df.iloc[0]
 
 
 def most_frequent(taxstrings, taxlevel):
-    frequencies = Counter(taxstrings)
-    # dereplicate list to see if there is only a single count
-    check = list(set([value for value in frequencies.values()]))
-    # at least two different counts, one is majority
-    if len(check)>1:
-        return frequencies.most_common(1)[0][0]
-    # single element in list is also a majority, yield it
-    # but at least two markers that yielded that single element!
-    elif len(check)==1 and taxlevel and len(list(set(taxstrings))) == 1 and len(taxstrings) >= 2:
-        return taxstrings[0]
-    # multiple elements with equal counts but domain level
-    elif len(check)==1 and len(list(set(taxstrings))) > 1 and taxlevel == "domain":
+    freq = Counter(taxstrings)
+    if len(freq) == 1:
+        if len(taxstrings) >= 2:
+            return taxstrings[0]
+        else:
+            return "_"
+    most_common = freq.most_common(1)[0]
+    if most_common[1] > len(taxstrings) // 2:
+        return most_common[0]
+    elif taxlevel == "domain":
         return "-".join(sorted(list(set(taxstrings))))
     else:
         return "_"
 
-
-def tax_species(row):
+def tax_annotation(row, level_other, level_ncldv):
     if row["subject"].split("__")[0] in ["EUK", "ARC", "BAC", "PHAGE"]:
-        return  row["subject"].split("__")[0] + "__" + row["taxannot"].split("|")[6]
+        return  row["subject"].split("__")[0] + "__" + row["taxannot"].split("|")[level_other]
     else:
-        return row["taxannot"].split("|")[-1] # species
-
-def tax_genus(row):
-    if row["subject"].split("__")[0] in ["EUK", "ARC", "BAC", "PHAGE"]:
-        return  row["subject"].split("__")[0] + "__" + row["taxannot"].split("|")[5]
-    else:
-        return row["taxannot"].split("|")[1] # genus
-
-def tax_family(row):
-    if row["subject"].split("__")[0] in ["EUK", "ARC", "BAC", "PHAGE"]:
-        return  row["subject"].split("__")[0] + "__" + row["taxannot"].split("|")[4]
-    else:
-        return (row["taxannot"].split("|")[2]) # family
-
-def tax_order(row):
-    if row["subject"].split("__")[0] in ["EUK", "ARC", "BAC", "PHAGE"]:
-        return  row["subject"].split("__")[0] + "__" + row["taxannot"].split("|")[3]
-    else:
-        return row["taxannot"].split("|")[3] # order
-
-def tax_class(row):
-    if row["subject"].split("__")[0] in ["EUK", "ARC", "BAC", "PHAGE"]:
-        return  row["subject"].split("__")[0] + "__" + row["taxannot"].split("|")[2]
-    else:
-        return row["taxannot"].split("|")[4] # class
-    
-def tax_phylum(row):
-    if row["subject"].split("__")[0] in ["EUK", "ARC", "BAC", "PHAGE"]:
-        return  row["subject"].split("__")[0] + "__" + row["taxannot"].split("|")[1]
-    else:
-        return row["taxannot"].split("|")[5] # phylum
+        return row["taxannot"].split("|")[level_ncldv]
     
 def tax_domains(row):
     if row["subject"].split("__")[0] in ["EUK", "ARC", "BAC", "PHAGE"]:
@@ -118,113 +71,92 @@ def tax_domains(row):
         return "CONFLICT"
     
 def get_final_tax(df, query, stringency_s):
-    # stringency defines the number of tax strings that have to be present
-    # these tax strings need to strictly match at the same tax level
-    # stringency majority tolerates deviations at tax levels if there is a majority
-    df_q = df[ (df.queryname==query) ]
-    domainlist = list(df_q["domain"])
-    phylumlist= list(df_q["phylum"])
-    classlist= list(df_q["class"])
-    orderlist= list(df_q["order"])
-    familylist= list(df_q["family"])
-    genuslist= list(df_q["genus"])
-    specieslist= list(df_q["species"])
-    finaltax = []
-    finaltax.append(query)
+    df_q = df[df.queryname == query]
+    tax_levels = ["species", "genus", "family", "order", "class", "phylum", "domain"]
+    tax_lists = [list(df_q[tax]) for tax in tax_levels]
+    final_tax = [query]
     if stringency_s == "majority":
-        finaltax.append("s_" + most_frequent(specieslist, "species"))
-        finaltax.append("g_" + most_frequent(genuslist, "genus"))
-        finaltax.append("f_" + most_frequent(familylist, "family"))
-        finaltax.append("o_" + most_frequent(orderlist, "order"))
-        finaltax.append("c_" + most_frequent(classlist, "class"))
-        finaltax.append("p_" + most_frequent(phylumlist, "phylum"))
-        finaltax.append("d_" + most_frequent(domainlist, "domain"))
+        for level, lst in zip(tax_levels, tax_lists):
+            final_tax.append(f"{level[0]}_{most_frequent(lst, level)}")
     else:
         stringency = int(stringency_s.replace("gte", ""))
-        if stringency <= len(specieslist):
-            if len(set(specieslist)) == 1:
-                finaltax.append("s_" + specieslist[0])
+        for level, lst in zip(tax_levels, tax_lists):
+            if len(set(lst)) == 1:
+                final_tax.append(f"{level[0]}_{lst[0]}")
+            elif len(lst) >= stringency:
+                final_tax.append(f"{level[0]}__")
             else:
-                finaltax.append("s__")
-            if len(set(genuslist)) == 1:
-                finaltax.append("g_" + genuslist[0])
-            else:
-                finaltax.append("g__")
-            if len(set(familylist)) == 1:
-                finaltax.append("f_" + familylist[0])
-            else:
-                finaltax.append("f__")
-            if len(set(orderlist)) == 1:
-                finaltax.append("o_" + orderlist[0])
-            else:
-                finaltax.append("o__")
-            if  len(set(classlist)) == 1:
-                finaltax.append("c_" + classlist[0])
-            else:
-                finaltax.append("c__")
-            if len(set(phylumlist)) == 1:
-                finaltax.append("p_" + phylumlist[0])
-            else:
-                finaltax.append("p__")
-            if len(set(domainlist)) == 1:
-                finaltax.append("d_" + domainlist[0])
-            elif "EUK" in domainlist and "NCLDV" in domainlist:
-                finaltax.append("d_" + "EUK-NCLDV")
-            elif "BAC" in domainlist and "NCLDV" in domainlist:
-                finaltax.append("d_" + "NCLDV-BAC")
-            elif "ARC" in domainlist and "NCLDV" in domainlist:
-                finaltax.append("d_" + "NCLDV-ARC")
-            elif "ARC" in domainlist and "BAC" in domainlist:
-                finaltax.append("d_" + "ARC-BAC")
-            elif "ARC" in domainlist and "EUK" in domainlist:
-                finaltax.append("d_" + "ARC-EUK")
-            elif "BAC" in domainlist and "EUK" in domainlist:
-                finaltax.append("d_" + "BAC-EUK")
-            elif "PHAGE" in domainlist and "NCLDV" in domainlist:
-                finaltax.append("d_" + "NCLDV-PHAGE")
-            elif "PHAGE" in domainlist and not "NCLDV" in domainlist:
-                finaltax.append("d_" + "PHAGE")
-            else:
-                finaltax.append("d__")
+                final_tax.extend(["missing_markers"] * (7 - len(final_tax)))
+                break
         else:
-            finaltax.extend(["missing_markers"] * 7)
-    finaltax.append(stringency_s)
-    avgdist = sum(list(df_q["distance"]))/len((df_q["distance"]))
-    finaltax.append(avgdist)
-    return finaltax
+            final_tax.extend(["missing_markers"] * (7 - len(final_tax)))
+        if len(set(tax_lists[-1])) == 1:
+            final_tax[-1] = f"{tax_levels[-1][0]}_{tax_lists[-1][0]}"
+        else:
+            for lst, domain in zip(tax_lists[:-1], df_q["domain"]):
+                if domain == "EUK" and "NCLDV" in lst:
+                    final_tax[-1] = "d_NCLDV-EUK"
+                    break
+                elif domain == "BAC" and "NCLDV" in lst:
+                    final_tax[-1] = "d_NCLDV-BAC"
+                    break
+                elif domain == "ARC" and "NCLDV" in lst:
+                    final_tax[-1] = "d_NCLDV-ARC"
+                    break
+                elif domain == "ARC" and "BAC" in lst:
+                    final_tax[-1] = "d_ARC-BAC"
+                    break
+                elif domain == "ARC" and "EUK" in lst:
+                    final_tax[-1] = "d_ARC-EUK"
+                    break
+                elif domain == "BAC" and "EUK" in lst:
+                    final_tax[-1] = "d_BAC-EUK"
+                    break
+                elif domain == "PHAGE" and "NCLDV" in lst:
+                    final_tax[-1] = "d_NCLDV-PHAGE"
+                    break
+            else:
+                final_tax[-1] = "d__"
+    final_tax.append(stringency_s)
+    final_tax.append(df_q["distance"].mean())
+    return final_tax
 
 
 def summarize(df):
     try:
-        df["queryname"] = df["query"].apply(lambda x : x.split("|")[0])
-        df["species"] =  df.apply(tax_species, axis=1)
-        df["genus"] =  df.apply(tax_genus, axis=1)
-        df["family"] =  df.apply(tax_family, axis=1)
-        df["order"] =  df.apply(tax_order, axis=1)
-        df["class"] =  df.apply(tax_class, axis=1)
-        df["phylum"] =  df.apply(tax_phylum, axis=1)
+        # Split the query column and extract the queryname
+        df["queryname"] = df["query"].str.split("|", expand=True)[0]
+        df["species"] =  df.apply(lambda row: tax_annotation(row, 6, -1), axis=1)
+        df["genus"] =  df.apply(lambda row: tax_annotation(row, 5, 1), axis=1)
+        df["family"] =  df.apply(lambda row: tax_annotation(row, 4, 2), axis=1)
+        df["order"] =  df.apply(lambda row: tax_annotation(row, 3, 3), axis=1)
+        df["class"] =  df.apply(lambda row: tax_annotation(row, 2, 4), axis=1)
+        df["phylum"] =  df.apply(lambda row: tax_annotation(row, 1, 5), axis=1)
         df["domain"] =  df.apply(tax_domains, axis=1)
         df = df[["queryname","species", "genus","family","order", "class", "phylum", "domain", "GVOG", "distance"]]
+        # Get the top hit
         df_tophit = df.drop_duplicates(subset=['GVOG'])
-        query = list(df.queryname)[0]
-        allresults = []
-        allresults.append(get_final_tax(df_tophit, query, "gte1"))
-        allresults.append(get_final_tax(df_tophit, query, "gte2"))
-        allresults.append(get_final_tax(df_tophit, query, "gte3"))
-        allresults.append(get_final_tax(df_tophit, query, "majority"))
-        df_results  = pd.DataFrame(allresults, columns=["query", "species", "genus", "family", "order", "class", "phylum", "domain", "stringency", "avgdist"])
+        # Get results for different stringencies
+        stringencies = ["gte1", "gte2", "gte3", "majority"]
+        allresults = [get_final_tax(df_tophit, list(df.queryname)[0], stringency) for stringency in stringencies]
+        # Create results dataframe
+        df_results = pd.DataFrame(allresults, columns=["query", "species", "genus", "family", "order", "class", "phylum", "domain", "stringency", "avgdist"])
         return df_results
     except:
         pass
 
 
-def main():
+@click.command()
+@click.option('-n', '--nn_tree', required=True, help='Path to the nearest neighbor tree file.')
+@click.option('-g', '--gvog9_count', required=True, help='Path to the GVOG9 count file.')
+@click.option('-u', '--uni56_count', required=True, help='Path to the UNI56 count file.')
+@click.option('-q', '--querystats', required=True, help='Path to the query stats file.')
+@click.option('-s', '--summary_out', required=True, help='Path to the output summary file.')
+def main(nn_tree, gvog9_count, uni56_count, querystats, summary_out):
     try:
         query = summary_out.split("/")[-1].split(".")[0]
-        print (query)
         treehits = []
         treehits.extend(parse_result(nn_tree))
-        print (treehits)
         querystats_df = pd.read_csv(querystats, sep="\t")
         if len(treehits) > 0:
             df_tree = pd.DataFrame(treehits, columns=["GVOG", "query", "subject", "taxannot", "distance"])
@@ -249,10 +181,10 @@ def main():
             df_results_tree = pd.DataFrame(allresults, columns=cols)
             df_results_tree = pd.merge(df_results_tree, querystats_df, on='query')
             df_results_tree.to_csv(summary_out, sep="\t", index=False)
-            df_results_tree.to_csv(summary_out2, sep="\t", index=False)
     except:
-        print ("Empty output for " + summary_out.split("/")[-1].split(".")[0] )
+        print(f"Empty output for {summary_out.split('/')[-1].split('.')[0]}")
         with open(summary_out, "w") as outfile:
             pass
 
-main()
+if __name__ == '__main__':
+    main()

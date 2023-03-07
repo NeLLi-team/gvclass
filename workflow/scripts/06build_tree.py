@@ -1,8 +1,6 @@
-import sys
+import click
 import subprocess
 
-aln = sys.argv[1]
-treeout = sys.argv[2]
 
 def run_cmd(cmd):
     sp = subprocess.Popen(cmd,
@@ -14,6 +12,13 @@ def run_cmd(cmd):
     print('std_out: ', std_out)
 
 
-runtree = ["fasttree -lg < " +
-           aln + ">" + treeout]
-run_cmd(runtree)
+@click.command()
+@click.option("--aln", "-a", type=click.Path(exists=True), help='Alignment file in FASTA format')
+@click.option("--treeout", "-t",  type=click.Path(), help='Output file for the tree')
+def main(aln, treeout):
+    runtree = f"fasttree -lg < {aln} > {treeout}"
+    run_cmd(runtree)
+
+
+if __name__ == "__main__":
+    main()
