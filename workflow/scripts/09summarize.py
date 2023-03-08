@@ -151,13 +151,16 @@ def summarize(df):
 @click.option('-g', '--gvog9_count', required=True, help='Path to the GVOG9 count file.')
 @click.option('-u', '--uni56_count', required=True, help='Path to the UNI56 count file.')
 @click.option('-q', '--querystats', required=True, help='Path to the query stats file.')
+@click.option('-c', '--xgb_out', required=True, help='Path to the classifier output file.')
 @click.option('-s', '--summary_out', required=True, help='Path to the output summary file.')
-def main(nn_tree, gvog9_count, uni56_count, querystats, summary_out):
+def main(nn_tree, gvog9_count, uni56_count, querystats, xgb_out, summary_out):
     try:
         query = summary_out.split("/")[-1].split(".")[0]
         treehits = []
         treehits.extend(parse_result(nn_tree))
         querystats_df = pd.read_csv(querystats, sep="\t")
+        with open(xgb_out) as f:
+            prediction = [line.split('\t')[1].strip() for line in f if line.strip()]
         if len(treehits) > 0:
             df_tree = pd.DataFrame(treehits, columns=["GVOG", "query", "subject", "taxannot", "distance"])
             df_tree["distance"] = df_tree["distance"].astype(float)
@@ -173,11 +176,21 @@ def main(nn_tree, gvog9_count, uni56_count, querystats, summary_out):
             df_results_tree["UNI56u"] = UNI56u
             df_results_tree["UNI56t"] = UNI56t
             df_results_tree["UNI56df"] = UNI56df
+            if len(prediction)>0:
+                df_results_tree["domain_xgb"] = prediction[0]
+            else:
+                df_results_tree["domain_xgb"] = "no_fna"
+            df_results_tree = pd.merge(df_results_tree, querystats_df, on='query')
+            df_results_tree.to_csv(summary_out, sep="\t", index=False)
+        elif len(prediction)>0:
+            allresults = [[query, "missing_markers", "missing_markers", "missing_markers", "missing_markers", "missing_markers", "missing_markers", "missing_markers", prediction[0], "no_hits", "missing_markers", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0"]]
+            cols = ["query", "species", "genus", "family", "order", "class", "phylum", "domain", "domain_xgb", "stringency", "avgdist", "GVOG9u", "GVOG9t", "GVOG7u", "GVOG7t", "GVOG7df", "MCP", "UNI56u", "UNI56t", "UNI56df"]
+            df_results_tree = pd.DataFrame(allresults, columns=cols)
             df_results_tree = pd.merge(df_results_tree, querystats_df, on='query')
             df_results_tree.to_csv(summary_out, sep="\t", index=False)
         else:
-            allresults = [[query, "missing_markers", "missing_markers", "missing_markers", "missing_markers", "missing_markers", "missing_markers", "missing_markers", "no_hits", "missing_markers", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0"]]
-            cols = ["query", "species", "genus", "family", "order", "class", "phylum", "domain", "stringency", "avgdist", "GVOG9u", "GVOG9t", "GVOG7u", "GVOG7t", "GVOG7df", "MCP", "UNI56u", "UNI56t", "UNI56df"]
+            allresults = [[query, "missing_markers", "missing_markers", "missing_markers", "missing_markers", "missing_markers", "missing_markers", "missing_markers", "no_fna", "no_hits", "missing_markers", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0"]]
+            cols = ["query", "species", "genus", "family", "order", "class", "phylum", "domain", "domain_xgb", "stringency", "avgdist", "GVOG9u", "GVOG9t", "GVOG7u", "GVOG7t", "GVOG7df", "MCP", "UNI56u", "UNI56t", "UNI56df"]
             df_results_tree = pd.DataFrame(allresults, columns=cols)
             df_results_tree = pd.merge(df_results_tree, querystats_df, on='query')
             df_results_tree.to_csv(summary_out, sep="\t", index=False)
