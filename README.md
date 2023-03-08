@@ -31,7 +31,7 @@ Giant viruses are abundant and diverse and frequently found in environmental mic
 ## Running gvclass
 
 ### Requirements
-* Conda environment wih snakemake
+* Conda environment wih snakemake, check here: https://snakemake.readthedocs.io/en/stable/getting_started/installation.html
 * Input is a directory that contains single contigs or MAGs as nucleic acid (fna) or proteins (faa)
 * File extensions .fna or .faa
 * Recommended length for single contigs is 50kb, but at least 20kb
@@ -44,7 +44,7 @@ Giant viruses are abundant and diverse and frequently found in environmental mic
 * Upload you metagenome assembled genome or single contig to [IMG/VR](https://img.jgi.doe.gov/vr/) using the gvclass feature
 
 ### Snakemake workflow
-* Conda environment wih snakemake
+* Clone the repository
 ```
 git clone https://github.com/NeLLi-team/gvclass
 ```
@@ -56,6 +56,10 @@ snakemake -j 24 --use-conda --config querydir="example"
 ```
 snakemake -j <number of processes> --use-conda --config querydir="<path to query dir>"
 ```
+
+### Docker / Shifter
+
+* Will be provided soon
 
 ## Interpretation of the results
 * The classification result is summarized in a tab separated file \<query name\>.summary.tab
@@ -75,6 +79,12 @@ snakemake -j <number of processes> --use-conda --config querydir="<path to query
 * Giant viruses may break any of these rules and novel giant virus genomes are often full of surprises. Thus, GVClass does not perform automatic quality filtering based on marker gene counts.
 
 ## Benchmarking
+
+* Will be provided soon
+
+## Citation
+
+* Will be provided soon
 
 ## References
 1. [Schulz F, Roux S, Paez-Espino D, Jungbluth S, Walsh DA, Denef VJ, McMahon KD, Konstantinidis KT, Eloe-Fadrosh EA, Kyrpides NC, Woyke T. Giant virus diversity and host interactions through global metagenomics. Nature. 2020 Feb;578(7795):432-6.](https://doi.org/10.1038/s41586-020-1957-x)
