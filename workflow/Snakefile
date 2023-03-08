@@ -21,6 +21,8 @@ gvog9dir="resources/gvog9/"
 outdir = config["querydir"] + "/results/"
 # query file bases = query names without suffix
 QUERYBASENAMES = [x.stem for x in querydir.iterdir() if x.is_file() and x.suffix in [".faa", ".fna"]]
+FNAQUERY = [x.stem for x in querydir.iterdir() if x.is_file() and x.suffix in [".fna"]]
+FAAQUERY = [x.stem for x in querydir.iterdir() if x.is_file() and x.suffix in [".faa"]]
 # model names
 GVOG9 = [x.split("/")[-1].split(".")[0] for x in glob.glob(gvog9dir + "*.hmm")]
 # labels file for tax assignments
@@ -37,6 +39,7 @@ rule all:
 Step 0 
 Genecalling to find optimal translation table 
 """
+
 
 rule reformat_faa:
   """
@@ -56,7 +59,7 @@ rule reformat_faa:
     outdir + "{querybase}/stats/{querybase}.stats.tab"
   shell:
     """
-    (python workflow/scripts/00reformat.py {input} {output[0]} {output[1]}) &> {log}
+    (python workflow/scripts/00reformat.py -i {input} -o {output[0]} -s {output[1]}) &> {log}
     """
 
 
@@ -79,8 +82,32 @@ rule genecalling:
     fnafinalout = outdir + "{querybase}/query_fna/{querybase}.fna"
   shell:
     """
-    python workflow/scripts/01genecalling_single.py {input} {output.gffout} {output.genecalling_statsout} {output.best_statsout} {output.faafinalout} &> {log}
+    python workflow/scripts/01genecalling_single.py -f {input} -g {output.gffout} -gs {output.genecalling_statsout} -ss {output.best_statsout} -fa {output.faafinalout} &> {log}
     cp {input} {output.fnafinalout}
+    """
+
+
+rule predict_fna:
+  """
+  Predict if fna is NCDLV and if yes predict order level lineage
+  """
+  conda:
+    "envs/xgb.yml"
+  input:
+    xgbD = "resources/classifier/domain_xgb.sav",
+    featuresD = "resources/classifier/domain_features.txt",
+    mappingsD = "resources/classifier/domain_mapping.tab"
+  params:
+    infilebase = str(querydir) + "/{querybase}"
+  log:
+    outdir + "{querybase}/log/xgb/{fnaquerybase}.log"
+  output:
+    outdir + "{querybase}/xgb/{fnaquerybase}.xgb.tab"
+  shell:
+    """
+    if [ -f {params.infilebase}.fna ]; then
+    python workflow/scripts/01predict.py -q {params.infilebase}.fna -m {input.xgbD} -k {input.featuresD} -l {input.mappingsD} -o {output} &> {log};
+    else touch {output}; fi
     """
 
 
@@ -105,7 +132,7 @@ rule run_hmmsearch_GVOG9:
     hitcounts = outdir + "{querybase}/hmmout/GVOG9.counts"
   shell:
     """
-    (python workflow/scripts/02hmmsearch.py {input.queryfaa} {input.models} {output.GVOG9out} GVOG9 {output.hitcounts}) &> {log}
+    (python workflow/scripts/02hmmsearch.py -q {input.queryfaa} -m {input.models} -h {output.GVOG9out} -t GVOG9 -c {output.hitcounts}) &> {log}
     """
 
 
@@ -126,7 +153,7 @@ rule run_hmmsearch_UNI:
     hitcounts = outdir + "{querybase}/hmmout/UNI56.counts"
   shell:
     """
-    (python workflow/scripts/02hmmsearch.py {input.queryfaa} {input.models} {output.UNI56out} UNI56 {output.hitcounts}) &> {log}
+    (python workflow/scripts/02hmmsearch.py -q {input.queryfaa} -m {input.models} -h {output.UNI56out} -t UNI56 -c {output.hitcounts}) &> {log}
     """
 
 
@@ -143,7 +170,7 @@ rule extract_qhits:
     queryhitsfaa = outdir + "{querybase}/query_hits_faa/{modelbase}.faa"
   shell:
     """
-    python workflow/scripts/03extract_qhits.py {input.hmmout} {input.queryfaa} {output.queryhitsfaa}
+    python workflow/scripts/03extract_qhits.py -h {input.hmmout} -q {input.queryfaa} -o {output.queryhitsfaa}
     touch {output.queryhitsfaa}
     """
 
@@ -166,7 +193,7 @@ rule blastp_reduce_merge:
     mergedfaa = outdir + "{querybase}/query_hits_merged_faa/{modelbase}.faa"
   shell:
     """
-    (python workflow/scripts/04blastp_reduce_merge.py {input.queryhitsfaa} {input.reffaa} {input.refdb} {output.blastpout} {output.mergedfaa}) >& {log}
+    (python workflow/scripts/04blastp_reduce_merge.py -q {input.queryhitsfaa} -r {input.reffaa} -d {input.refdb} -b {output.blastpout} -o {output.mergedfaa}) >& {log}
     touch {output.blastpout} {output.mergedfaa}
     """
 
@@ -186,7 +213,7 @@ rule align_trim:
     trimmedaln = outdir + "{querybase}/queryrefs_aligned/{modelbase}.mafft01"
   shell:
     """
-    (python workflow/scripts/05align_trim.py {input.mergedfaa} {output.aln} {output.trimmedaln}) >& {log}
+    (python workflow/scripts/05align_trim.py -q {input.mergedfaa} -a {output.aln} -t {output.trimmedaln}) >& {log}
     touch {output.aln} {output.trimmedaln}
     """
 
@@ -210,7 +237,7 @@ rule build_trees:
     tree = outdir + "{querybase}/queryrefs_fasttree/{modelbase}.FTWAG"
   shell:
     """
-    (python workflow/scripts/06build_tree.py {input.trimmedaln} {output.tree}) >& {log}
+    (python workflow/scripts/06build_tree.py -a {input.trimmedaln} -t {output.tree}) >& {log}
     touch {output.tree}
     """
 
@@ -234,8 +261,8 @@ rule get_nn:
     aln_out = outdir + "{querybase}/stats/{querybase}.aln_nn"
   shell: 
     """
-    (python workflow/scripts/07get_nn_aln.py {params.queryname} {params.fdir}/queryrefs_aligned/ {output.aln_out} {labels}
-    python workflow/scripts/08get_nn_tree.py {params.queryname} {params.fdir}/queryrefs_fasttree/ {output.tree_out} {labels}) &> {log}
+    (python workflow/scripts/07get_nn_aln.py -q {params.queryname} -a {params.fdir}/queryrefs_aligned/ -o {output.aln_out} -l {labels}
+    python workflow/scripts/08get_nn_tree.py -q {params.queryname} -t {params.fdir}/queryrefs_fasttree/ -o {output.tree_out} -l {labels}) &> {log}
     """
 
 
@@ -249,14 +276,15 @@ rule summarize:
     nn_tree = outdir + "{querybase}/stats/{querybase}.tree_nn",
     gvog9_count = outdir + "{querybase}/hmmout/GVOG9.counts",
     uni56_count = outdir + "{querybase}/hmmout/UNI56.counts",
-    querystats = outdir + "{querybase}/stats/{querybase}.stats.tab"
+    querystats = outdir + "{querybase}/stats/{querybase}.stats.tab",
+    xgbout = outdir + "{querybase}/xgb/{querybase}.xgb.tab"
   log:
     outdir + "{querybase}/log/summarize/{querybase}.log"
   output:
     outdir + "{querybase}/{querybase}.summary.tab"
   shell:
     """
-    (python workflow/scripts/09summarize.py {input.nn_tree} {input.gvog9_count} {input.uni56_count} {input.querystats} {output}
+    (python workflow/scripts/09summarize.py -n {input.nn_tree} -g {input.gvog9_count} -u {input.uni56_count} -q {input.querystats} -s {output} -c {input.xgbout}
     touch {output}) &> {log}
     """
 
@@ -273,7 +301,7 @@ rule combinedout:
     combined = outdir + "gvclass_out.tab"
   shell:
     """
-    python workflow/scripts/10combinedout.py {params.fdirp} {output.combined}
+    python workflow/scripts/10combinedout.py -r {params.fdirp} -o {output.combined}
     touch {output.combined}
     """
 
@@ -291,6 +319,6 @@ rule cleanup:
   shell:
     """
     #find {params.fdir} -type f -empty -print -delete
-    python workflow/scripts/11cleanup.py {params.fdir} {output}
+    python workflow/scripts/11cleanup.py -r {params.fdir} -o {output}
     """
 
