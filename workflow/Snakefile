@@ -293,6 +293,8 @@ rule combinedout:
   """
   combined output of highest stringency for predicted giant viruses
   """
+  conda:
+    "envs/gvclass.yml"
   input:
     expand(outdir + "{querybase}/{querybase}.summary.tab", querybase=QUERYBASENAMES)
   params:
@@ -310,6 +312,8 @@ rule cleanup:
   """
   intermediate files are kept including empty files, compress output 
   """
+  conda:
+    "envs/gvclass.yml"
   input:
     combined = outdir + "gvclass_out.tab"
   params:
