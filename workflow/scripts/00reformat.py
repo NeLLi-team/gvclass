@@ -7,7 +7,7 @@ import os
 @click.command()
 @click.option('--input', '-i', type=click.Path(exists=True), help='Input FASTA file')
 @click.option('--output', '-o', type=click.Path(), help='Output FASTA file')
-@click.option('--stats', '-s', type=click.Path(), help='Statistics file')
+@click.option('--stats', '-s', type=click.Path(), help='Genome stats outfile')
 def main(input, output, stats):
     # read in the input file
     records = list(SeqIO.parse(input, "fasta"))
@@ -27,6 +27,7 @@ def main(input, output, stats):
     # calculate statistics and write them to the stats file
     stats_dict = {
         'query': os.path.splitext(os.path.basename(input))[0],
+        'contigs': 'no_fna',
         'LENbp': 'no_fna',
         'GCperc': 'no_fna',
         'genecount': protcount,

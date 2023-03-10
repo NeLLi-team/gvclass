@@ -16,16 +16,18 @@ def calc_stats(fnain, faain):
     cumulative_len = 0
     cumulative_len_aa = 0
     gene_count = 0
+    contigs = 0
 
     for seq_record in SeqIO.parse(fnain, "fasta"):
         cumulative_gc += seq_record.seq.upper().count('G') + seq_record.seq.upper().count('C')
         cumulative_len += len(seq_record.seq)
+        contigs += 1
 
     for seq_record in SeqIO.parse(faain, "fasta"):
         cumulative_len_aa += len(seq_record.seq)
         gene_count += 1
 
-    return [cumulative_len, round(cumulative_gc / cumulative_len * 100, 2), gene_count, round(cumulative_len_aa * 3 / cumulative_len * 100, 2)]
+    return [contigs, cumulative_len, round(cumulative_gc / cumulative_len * 100, 2), gene_count, round(cumulative_len_aa * 3 / cumulative_len * 100, 2)]
 
 
 def check_filename(fnafile):
@@ -81,7 +83,7 @@ def run_genecalling_codes(fnafile, code, gffout):
 @click.option('--fnafile', '-f', type=click.Path(exists=True), help='Input FNA file')
 @click.option('--gffout', '-g', type=click.Path(), help='Output GFF file')
 @click.option('--genecalling_statsout', '-gs', '--genecalling-statsout', type=click.Path(), help='Genecalling statistics file')
-@click.option('--summary_statsout', '-ss', type=click.Path(), help='Summary statistics file')
+@click.option('--summary_statsout', '-ss', type=click.Path(), help='Genome stats outfile')
 @click.option('--finalfaa', '-fa', type=click.Path(), help='Output FASTA file')
 def main(fnafile, gffout, genecalling_statsout, summary_statsout, finalfaa):
     # check input
@@ -98,7 +100,7 @@ def main(fnafile, gffout, genecalling_statsout, summary_statsout, finalfaa):
         stats_dict[genome_id] = calc_stats(fnafile, faain)
 
     # gene calling stats to select ttable that yields highest coding density
-    stats_df = pd.DataFrame.from_dict(stats_dict, columns=["LENbp", "GCperc", "genecount", "CODINGperc"], orient="index")
+    stats_df = pd.DataFrame.from_dict(stats_dict, columns=["contigs", "LENbp", "GCperc", "genecount", "CODINGperc"], orient="index")
     stats_df = stats_df.sort_values("CODINGperc", ascending=False)
     stats_df["ttable"] = stats_df.index.map(lambda x: x.split("_")[-1])
     stats_df.insert(0, "query", stats_df.index.map(lambda x: os.path.splitext(x)[0]))

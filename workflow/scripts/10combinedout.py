@@ -24,7 +24,9 @@ def main(resultsdirparent, combinedout):
     df_results_f_gt3 = df_results_f[(df_results_f['domain'].str.startswith('d_NCLDV')) & (df_results_f['stringency'] == 'gte3')]
     df_results_f_gt2 = df_results_f[(df_results_f['domain'].str.startswith('d_NCLDV')) & (df_results_f['stringency'] == 'gte2')]
     df_results_f_gt1 = df_results_f[(df_results_f['domain'].str.startswith('d_NCLDV')) & (df_results_f['stringency'] == 'gte1')]
-    df_results_f_combined = pd.concat([df_results_f_gt3, df_results_f_gt2, df_results_f_gt1])
+    df_results_f_majority = df_results_f[(df_results_f['domain'].str.startswith('d_NCLDV')) & (df_results_f['stringency'] == 'majority')]
+    df_results_f_xgb = df_results_f[(df_results_f['xgb'].str.endswith('NCLDV'))]
+    df_results_f_combined = pd.concat([df_results_f_gt3, df_results_f_gt2, df_results_f_gt1, df_results_f_majority, df_results_f_xgb])
     df_results_f_combined = df_results_f_combined.drop_duplicates(subset=['query'])
     df_results_f_combined.to_csv(combinedout, sep='\t', index=None)
 

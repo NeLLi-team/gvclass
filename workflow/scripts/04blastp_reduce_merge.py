@@ -36,8 +36,9 @@ def parse_blastp(blastpout):
             for line in infile:
                 queryname = line.split()[0]
                 subjectname = line.split()[1]
+                pident = float(line.split()[2])
                 # Yield equal number of subject ids per query
-                if subjectname not in seen and len(queryids_hits_dict[queryname]) <= 100/num_queries:
+                if subjectname not in seen and len(queryids_hits_dict[queryname]) <= 100/num_queries and pident!=100:
                     queryids_hits_dict[queryname].append(subjectname)
                     seen.append(subjectname)
     except:

@@ -29,13 +29,7 @@ def count_kmers(kmers, fna):
     return kmer_counts_genome_dict
 
 
-@click.command()
-@click.option('--queryseq', '-q', type=click.Path(exists=True), required=True, help='Path to query sequence')
-@click.option('--model', '-m', type=click.Path(exists=True), required=True, help='Path to prebuilt model')
-@click.option('--kmers', '-k', type=click.Path(exists=True), required=True, help='Path to kmer file')
-@click.option('--labels', '-l', type=click.Path(exists=True), required=True, help='Path to labels')
-@click.option('--out', '-o', type=click.Path(exists=False), required=True, help='Path to labels')
-def main(queryseq, model, kmers, labels, out):
+def predict(model, kmers, labels, queryseq):
     # Load XGBoost model
     xgbmodel = pickle.load(open(model, 'rb'))
 
@@ -56,9 +50,37 @@ def main(queryseq, model, kmers, labels, out):
     # Make prediction and print result
     y_pred = xgbmodel.predict(df_qcounts.head(1))
     prediction = inv_mapping[y_pred[0]]
-    with open(out, "w") as outfile:
-        outfile.write(f"{queryseq.split('/')[-1].split('.f')[0]}\t{prediction}")
+    prob_val = xgbmodel.predict_proba(df_qcounts.head(1))
+    print (prob_val)
+    proba_dict = {inv_mapping[x]:[prob_val[0,x]] for x,y in inv_mapping.items()}
+    return prediction, proba_dict
 
+
+@click.command()
+@click.option('--queryseq', '-q', type=click.Path(exists=True), required=True, help='Path to query sequence')
+@click.option('--model', '-m', type=click.Path(exists=True), required=True, help='Path to prebuilt model')
+@click.option('--kmers', '-k', type=click.Path(exists=True), required=True, help='Path to kmer file')
+@click.option('--labels', '-l', type=click.Path(exists=True), required=True, help='Path to labels')
+@click.option('--out', '-o', type=click.Path(exists=False), required=True, help='Path to prediction output')
+def main(queryseq, model, kmers, labels, out):
+    # get domain level prediction
+    prediction_domain, proba_dict_domain = predict(model, kmers, labels, queryseq)
+    # if NCDLV then also get order level prediction
+    if prediction_domain == "NCLDV":
+        model_order = model.replace("domain", "order")
+        kmers_order = kmers.replace("domain", "order")
+        labels_order = labels.replace("domain", "order")
+        prediction_order, proba_dict_order = predict(model_order, kmers_order, labels_order, queryseq)
+    else:
+        prediction_order = ""
+        proba_dict_order = {}
+    with open(out, "w") as outfile:
+        outfile.write(f"{queryseq.split('/')[-1].split('.f')[0]}\t{prediction_order}___{prediction_domain}")
+    proba_dict = {**proba_dict_domain, **proba_dict_order}
+    df_proba = pd.DataFrame(proba_dict)
+    #print (df_proba)
+    #df_proba.to_csv("test.tab", sep="\t", index=None)
+    df_proba.to_csv(f"{out}.proba", sep="\t", index=None)
 
 if __name__ == "__main__":
     main()

@@ -9,36 +9,40 @@ def parse_result(tabout):
     with open(tabout) as infile:
         for line in infile:
             line = line.strip().split()
-            if line[0].startswith("GVOGm0461") and float(line[-1]) < 1.8:
-                results.append(line)
-            elif line[0].startswith("GVOG") and float(line[-1]) < 2.2:
-                results.append(line)
-            else:
-                print(f"{line[0]} tree distance to neighbor above threshold, hit removed")
+            if line[0].startswith("GVOG"):
+                if line[0] == "GVOGm0461" and float(line[-1]) < 1.8:
+                    results.append(line)
+                elif line[0] != "GVOGm0461" and float(line[-1]) < 2.2:
+                    results.append(line)
+                else:
+                    print(f"{line[0]} tree distance to neighbor above threshold, hit removed")
     return results
 
 def process_gvog9(gvog9_count):
-    gvog9_models = ["GVOGm0003","GVOGm0013","GVOGm0022","GVOGm0023","GVOGm0054","GVOGm0172","GVOGm0461","GVOGm0760","GVOGm0890"]
-    gvog7_models = ["GVOGm0013","GVOGm0023","GVOGm0054","GVOGm0172","GVOGm0461","GVOGm0760","GVOGm0890"]
-    gvogsout_df = pd.read_csv(gvog9_count, sep="\t", index_col=0)
-    gvogsout_df['GVOG7u'] = (gvogsout_df[gvog7_models] > 0).sum(axis=1)
-    gvogsout_df['GVOG7t'] = (gvogsout_df[gvog7_models]).sum(axis=1)
-    gvogsout_df['GVOG9u'] = (gvogsout_df[gvog9_models] > 0).sum(axis=1)
-    gvogsout_df['GVOG9t'] = (gvogsout_df[gvog9_models]).sum(axis=1)
-    if list(gvogsout_df.GVOG7u)[0] > 0:
-        gvogsout_df['GVOG7df'] = gvogsout_df['GVOG7t'] / gvogsout_df['GVOG7u']
-    else:
-        gvogsout_df['GVOG7df'] = 0
-    return list(gvogsout_df.GVOG9u)[0], list(gvogsout_df.GVOG9t)[0], list(gvogsout_df.GVOG7u)[0], list(gvogsout_df.GVOG7t)[0], list(gvogsout_df.GVOG7df)[0], list(gvogsout_df.GVOGm0003)[0]
+    try:
+        gvog9_models = ["GVOGm0003","GVOGm0013","GVOGm0022","GVOGm0023","GVOGm0054","GVOGm0172","GVOGm0461","GVOGm0760","GVOGm0890"]
+        gvog7_models = ["GVOGm0013","GVOGm0023","GVOGm0054","GVOGm0172","GVOGm0461","GVOGm0760","GVOGm0890"]
+        gvogsout_df = pd.read_csv(gvog9_count, sep="\t", index_col=0)
+        gvogsout_df['GVOG7u'] = (gvogsout_df[gvog7_models] > 0).sum(axis=1)
+        gvogsout_df['GVOG7t'] = (gvogsout_df[gvog7_models]).sum(axis=1)
+        gvogsout_df['GVOG9u'] = (gvogsout_df[gvog9_models] > 0).sum(axis=1)
+        gvogsout_df['GVOG9t'] = (gvogsout_df[gvog9_models]).sum(axis=1)
+        gvogsout_df['GVOG7df'] = gvogsout_df['GVOG7t'] / gvogsout_df['GVOG7u'] if gvogsout_df['GVOG7t'].any() else 0
+        return list(gvogsout_df.GVOG9u)[0], list(gvogsout_df.GVOG9t)[0], list(gvogsout_df.GVOG7u)[0], list(gvogsout_df.GVOG7t)[0], list(gvogsout_df.GVOG7df)[0], list(gvogsout_df.GVOGm0003)[0]
+    except:
+        return 0,0,0,0,0,0
 
 
 def process_uni56(uni56_count):
-    UNI56out_df = pd.read_csv(uni56_count, sep="\t", index_col=0)
-    UNI56out_models = list(UNI56out_df.columns)
-    UNI56u = (UNI56out_df[UNI56out_models] > 0).sum(axis=1)
-    UNI56t = (UNI56out_df[UNI56out_models]).sum(axis=1)
-    UNI56df = UNI56t / UNI56u if UNI56u.any() else 0
-    return UNI56u.iloc[0], UNI56t.iloc[0], UNI56df.iloc[0]
+    try:
+        UNI56out_df = pd.read_csv(uni56_count, sep="\t", index_col=0)
+        UNI56out_models = list(UNI56out_df.columns)
+        UNI56out_df['UNI56u'] = (UNI56out_df[UNI56out_models] > 0).sum(axis=1)
+        UNI56out_df['UNI56t'] = (UNI56out_df[UNI56out_models]).sum(axis=1)
+        UNI56out_df['UNI56df'] = UNI56out_df['UNI56t'] / UNI56out_df['UNI56u'] if UNI56out_df['UNI56t'].any() else 0
+        return list(UNI56out_df.UNI56u)[0], list(UNI56out_df.UNI56t)[0], list(UNI56out_df.UNI56df)[0]
+    except:
+        return 0, 0, 0
 
 
 def most_frequent(taxstrings, taxlevel):
@@ -177,20 +181,20 @@ def main(nn_tree, gvog9_count, uni56_count, querystats, xgb_out, summary_out):
             df_results_tree["UNI56t"] = UNI56t
             df_results_tree["UNI56df"] = UNI56df
             if len(prediction)>0:
-                df_results_tree["domain_xgb"] = prediction[0]
+                df_results_tree["xgb"] = prediction[0]
             else:
-                df_results_tree["domain_xgb"] = "no_fna"
+                df_results_tree["xgb"] = "no_fna"
             df_results_tree = pd.merge(df_results_tree, querystats_df, on='query')
             df_results_tree.to_csv(summary_out, sep="\t", index=False)
         elif len(prediction)>0:
             allresults = [[query, "missing_markers", "missing_markers", "missing_markers", "missing_markers", "missing_markers", "missing_markers", "missing_markers", prediction[0], "no_hits", "missing_markers", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0"]]
-            cols = ["query", "species", "genus", "family", "order", "class", "phylum", "domain", "domain_xgb", "stringency", "avgdist", "GVOG9u", "GVOG9t", "GVOG7u", "GVOG7t", "GVOG7df", "MCP", "UNI56u", "UNI56t", "UNI56df"]
+            cols = ["query", "species", "genus", "family", "order", "class", "phylum", "domain", "xgb", "stringency", "avgdist", "GVOG9u", "GVOG9t", "GVOG7u", "GVOG7t", "GVOG7df", "MCP", "UNI56u", "UNI56t", "UNI56df"]
             df_results_tree = pd.DataFrame(allresults, columns=cols)
             df_results_tree = pd.merge(df_results_tree, querystats_df, on='query')
             df_results_tree.to_csv(summary_out, sep="\t", index=False)
         else:
             allresults = [[query, "missing_markers", "missing_markers", "missing_markers", "missing_markers", "missing_markers", "missing_markers", "missing_markers", "no_fna", "no_hits", "missing_markers", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0"]]
-            cols = ["query", "species", "genus", "family", "order", "class", "phylum", "domain", "domain_xgb", "stringency", "avgdist", "GVOG9u", "GVOG9t", "GVOG7u", "GVOG7t", "GVOG7df", "MCP", "UNI56u", "UNI56t", "UNI56df"]
+            cols = ["query", "species", "genus", "family", "order", "class", "phylum", "domain", "xgb", "stringency", "avgdist", "GVOG9u", "GVOG9t", "GVOG7u", "GVOG7t", "GVOG7df", "MCP", "UNI56u", "UNI56t", "UNI56df"]
             df_results_tree = pd.DataFrame(allresults, columns=cols)
             df_results_tree = pd.merge(df_results_tree, querystats_df, on='query')
             df_results_tree.to_csv(summary_out, sep="\t", index=False)
