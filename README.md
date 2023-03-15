@@ -70,13 +70,14 @@ snakemake -j <number of processes> --use-conda --config querydir="<path to query
 *  Depending on the number of identified unique GVOGs an assignment is provided if at least 1 GVOG (stringency "gte1"), 2 GVOGs (stringency "gte2") or 3 GVOGs (stringency "gte3") were found.
 *  Less stringent is the "majority" approach, here more than 50% of identified markers have to yield the same taxonomy to enable and assignment. 
 *  If taxonomy assignments are not in agreement at a low taxonomy level (e.g. species, genus, or family) then the next higher taxonomy level will be evaluated, up to the domain level.
+* March 2023: Added experimental feature xgboost classifier based on kmers. Provides assignment of provided sequences (fna) to cellular domains, phages or NCLDV together with order level assignment (if NCLDV). 
 
 ### Contamination
 * Giant virus genomes typically have less than 10 out of a set of 56 universal cellular housekeeping genes (UNI56). Higher UNI56 counts indicate cellular contamination, or giant virus sequences that are located on host contigs.
   * UNI56u (unique counts), UNI56t(total counts), UNI56df (duplication factor) are provided and can be used for further quality filtering
 * Giant virus genomes typically have a duplication factor of GVOG7 (as subset of GVOG9) of below 3. Higher GVOG7 duplication factors indicate the presence mixed viral populations.
   * GVOG7u (unique counts), GVOG7t(total counts), GVOG7df (duplication factor) are provided and can be used for further quality filtering 
-* Giant viruses may break any of these rules and novel giant virus genomes are often full of surprises. Thus, GVClass does not perform automatic quality filtering based on marker gene counts.
+* Giant viruses may break any of these rules, thus, gvclass does not perform automatic quality filtering based on marker gene counts.
 
 ## Benchmarking
 

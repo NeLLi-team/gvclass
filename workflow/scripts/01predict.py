@@ -78,9 +78,11 @@ def main(queryseq, model, kmers, labels, out):
         outfile.write(f"{queryseq.split('/')[-1].split('.f')[0]}\t{prediction_order}___{prediction_domain}")
     proba_dict = {**proba_dict_domain, **proba_dict_order}
     df_proba = pd.DataFrame(proba_dict)
+    df_proba["query"] = queryseq.split('/')[-1].split('.f')[0]
+    df_proba = df_proba.set_index("query")
     #print (df_proba)
     #df_proba.to_csv("test.tab", sep="\t", index=None)
-    df_proba.to_csv(f"{out}.proba", sep="\t", index=None)
+    df_proba.to_csv(f"{out}.proba", sep="\t", index=True)
 
 if __name__ == "__main__":
     main()
