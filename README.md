@@ -24,9 +24,10 @@
 ```
 
 # gvclass
-_version 0.9.4 March 7, 2023_
+_version 0.9.5 December 30, 2023_
 
-Giant viruses are abundant and diverse and frequently found in environmental microbiomes. gvclass assigns taxonomy to putative giant virus contigs or metagenome assembled genomes ([GVMAGs](https://doi.org/10.1038/s41586-020-1957-x)). It uses a conservative approach based on the consensus of single protein trees built from up to 9 giant virus orthologous groups ([GVOGs](https://doi.org/10.1371/journal.pbio.3001430)). These 9 GVOGs are conserved across different lineages in the viral phylum Nucleocytoviricota.
+Giant viruses are abundant and diverse and frequently found in environmental microbiomes. gvclass assigns taxonomy to putative giant virus contigs or metagenome assembled genomes ([GVMAGs](https://doi.org/10.1038/s41586-020-1957-x)). It uses a conservative approach based on the consensus of single protein trees built from up to 7 giant virus orthologous groups ([GVOGs](https://doi.org/10.1371/journal.pbio.3001430)). Most of the 7 GVOGs are conserved in the viral phylum Nucleocytoviricota.
+
 
 ## Running gvclass
 
@@ -65,18 +66,18 @@ snakemake -j <number of processes> --use-conda --config querydir="<path to query
 * The classification result is summarized in a tab separated file \<query name\>.summary.tab
 
 ### Taxonomy assignments
-*  Taxonomy assignments are provided on different taxonomic levels. 
-*  To yield an assignments all nearest neighbors in GVOG phylogenetic tree have to be in agreement. 
-*  Depending on the number of identified unique GVOGs an assignment is provided if at least 1 GVOG (stringency "gte1"), 2 GVOGs (stringency "gte2") or 3 GVOGs (stringency "gte3") were found.
-*  Less stringent is the "majority" approach, here more than 50% of identified markers have to yield the same taxonomy to enable and assignment. 
-*  If taxonomy assignments are not in agreement at a low taxonomy level (e.g. species, genus, or family) then the next higher taxonomy level will be evaluated, up to the domain level.
-* March 2023: Added experimental feature xgboost classifier based on kmers. Provides assignment of provided sequences (fna) to cellular domains, phages or NCLDV together with order level assignment (if NCLDV). 
+*  Taxonomy assignments are provided on different taxonomic levels
+*  To yield an assignments all nearest neighbors in GVOG phylogenetic tree have to be in agreement
+*  Depending on the number of identified unique GVOGs an assignment is provided if at least 1 GVOG (stringency "gte1"), 2 GVOGs (stringency "gte2") or 3 GVOGs (stringency "gte3") were found
+*  Less stringent is the "majority" approach, here more than 50% of identified markers have to yield the same taxonomy to enable and assignment
+*  If taxonomy assignments are not in agreement at a low taxonomy level (e.g. species, genus, or family) then the next higher taxonomy level will be evaluated, up to the domain level
+* March 2023: Added experimental feature xgboost classifier based on kmers (xgb). Provides assignment of provided sequences (fna) to cellular domains, phages or Nucleocytoviricota together with order level assignment. It is not recommended to rely on this output, it will be replaced by a more powerful classifier in the next major update.
 
 ### Contamination
 * Giant virus genomes typically have less than 10 out of a set of 56 universal cellular housekeeping genes (UNI56). Higher UNI56 counts indicate cellular contamination, or giant virus sequences that are located on host contigs.
   * UNI56u (unique counts), UNI56t(total counts), UNI56df (duplication factor) are provided and can be used for further quality filtering
-* Giant virus genomes typically have a duplication factor of GVOG7 (as subset of GVOG9) of below 3. Higher GVOG7 duplication factors indicate the presence mixed viral populations.
-  * GVOG7u (unique counts), GVOG7t(total counts), GVOG7df (duplication factor) are provided and can be used for further quality filtering 
+* Giant virus genomes typically have a duplication factor of GVOG7 and  GVOG9 of below 3. Higher GVOG7 duplication factors indicate the presence mixed viral populations.
+  * GVOG9u, GVOG7u (unique counts), GVOG7t, GVOG7t(total counts), GVOG9df, GVOG7df (duplication factor) are provided and can be used for further quality filtering 
 * Giant viruses may break any of these rules, thus, gvclass does not perform automatic quality filtering based on marker gene counts.
 
 ## Benchmarking

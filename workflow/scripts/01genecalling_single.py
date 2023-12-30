@@ -78,7 +78,6 @@ def run_genecalling_codes(fnafile, code, gffout):
         call(run_command, shell=True)
         shutil.copy(gffout, gffout + "_codemeta")
 
-
 @click.command()
 @click.option('--fnafile', '-f', type=click.Path(exists=True), help='Input FNA file')
 @click.option('--gffout', '-g', type=click.Path(), help='Output GFF file')
@@ -104,7 +103,11 @@ def main(fnafile, gffout, genecalling_statsout, summary_statsout, finalfaa):
     stats_df = stats_df.sort_values("CODINGperc", ascending=False)
     stats_df["ttable"] = stats_df.index.map(lambda x: x.split("_")[-1])
     stats_df.insert(0, "query", stats_df.index.map(lambda x: os.path.splitext(x)[0]))
+    coding_dens_code1 =  stats_df[ stats_df["ttable"] == "code1"]["CODINGperc"]
     bestcode = os.path.join(faaoutdir, stats_df.index[0])  # genome id with code appended that had highest coding density
+    coding_dens_best =  stats_df[ stats_df["query"] == bestcode]["CODINGperc"]
+    stats_df["delta"] = stats_df["CODINGperc"] - float(coding_dens_code1)
+    stats_df["delta"] = stats_df["delta"].round(2)
     stats_df.to_csv(genecalling_statsout, sep="\t", index=None)
     stats_df.head(1).to_csv(summary_statsout, sep="\t", index=None)
 
@@ -115,7 +118,6 @@ def main(fnafile, gffout, genecalling_statsout, summary_statsout, finalfaa):
         faaout = tempout.replace(".gff", ".faa")
         if os.path.isfile(faaout):
             os.remove(faaout)
-
 
 if __name__ == '__main__':
     main()
