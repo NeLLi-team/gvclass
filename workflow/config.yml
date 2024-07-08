@@ -1,0 +1,5 @@
+database_path: "resources"
+keep_temp: False
+mafftoption: "linsi" # "ginsi", or "" for -auto
+treeoption: "iqtree"  # "iqtree",  "fasttree", model for iqtree is LG4X -fast
+mode_fast: True # True to only get trees from general models, False to also get tree from order level models

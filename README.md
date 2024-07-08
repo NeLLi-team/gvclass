@@ -24,10 +24,9 @@
 ```
 
 # gvclass
-_version 0.9.5 December 30, 2023_
+_version 1.0 29 March 2024_
 
-Giant viruses are abundant and diverse and frequently found in environmental microbiomes. gvclass assigns taxonomy to putative giant virus contigs or metagenome assembled genomes ([GVMAGs](https://doi.org/10.1038/s41586-020-1957-x)). It uses a conservative approach based on the consensus of single protein trees built from up to 7 giant virus orthologous groups ([GVOGs](https://doi.org/10.1371/journal.pbio.3001430)). Most of the 7 GVOGs are conserved in the viral phylum Nucleocytoviricota.
-
+Giant viruses are abundant and diverse and frequently found in environmental microbiomes. gvclass assigns taxonomy to putative giant virus contigs or metagenome assembled genomes ([GVMAGs](https://doi.org/10.1038/s41586-020-1957-x)). It uses a conservative approach based on the consensus of single protein trees built from giant virus orthologous groups ([GVOGs](https://doi.org/10.1371/journal.pbio.3001430)), additional Mirusvirus, Mryavirus and Poxvirus hallmark genes and cellular single copy panorthologs. Further, a gene content based classifier predicts giant virus order-level affiliation and genome completeness and contamination is then estimated based on copy numbers of a larger set of genes typically conserved at order-level.
 
 ## Running gvclass
 
@@ -40,6 +39,12 @@ Giant viruses are abundant and diverse and frequently found in environmental mic
 * No whitespace in sequence headers
 * Recommended sequence header format if faa provided: <filenamebase>|<proteinid>
 * Input will be checked and reformatted if necessary
+* Domain- and order-level classifier will only be used on genomes that have at least 3 features
+
+
+### Settings
+* Config file allows to specify options for MAFFT (default is mafft-linsi), iqtree (default) or fasttree
+* fast_mode (default) can be set to False in config file, in that case single protein trees are also built for all conserved order-level marker genes
 
 ### IMG/VR
 * Upload you metagenome assembled genome or single contig to [IMG/VR](https://img.jgi.doe.gov/vr/) using the gvclass feature
@@ -47,7 +52,7 @@ Giant viruses are abundant and diverse and frequently found in environmental mic
 ### Snakemake workflow
 * Clone the repository
 ```
-git clone https://github.com/NeLLi-team/gvclass
+git clone --recurse-submodules https://github.com/NeLLi-team/gvclass
 ```
 * Test gvclass using the provided giant virus assemblies
 ```
@@ -65,20 +70,27 @@ snakemake -j <number of processes> --use-conda --config querydir="<path to query
 ## Interpretation of the results
 * The classification result is summarized in a tab separated file \<query name\>.summary.tab
 
+### Gene calling
+* Different genetic codes are tested and evaluated based on hmmsearch using the general models
+* Genetic code that yields the largest number of matches to general models with the highest average bitscore and the highest coding density is selected
+
 ### Taxonomy assignments
-*  Taxonomy assignments are provided on different taxonomic levels
-*  To yield an assignments all nearest neighbors in GVOG phylogenetic tree have to be in agreement
-*  Depending on the number of identified unique GVOGs an assignment is provided if at least 1 GVOG (stringency "gte1"), 2 GVOGs (stringency "gte2") or 3 GVOGs (stringency "gte3") were found
-*  Less stringent is the "majority" approach, here more than 50% of identified markers have to yield the same taxonomy to enable and assignment
-*  If taxonomy assignments are not in agreement at a low taxonomy level (e.g. species, genus, or family) then the next higher taxonomy level will be evaluated, up to the domain level
-* March 2023: Added experimental feature xgboost classifier based on kmers (xgb). Provides assignment of provided sequences (fna) to cellular domains, phages or Nucleocytoviricota together with order level assignment. It is not recommended to rely on this output, it will be replaced by a more powerful classifier in the next major update.
+* Taxonomy assignments are provided on different taxonomic levels
+* To yield an assignments all nearest neighbors in GVOG phylogenetic tree have to be in agreement
 
 ### Contamination
 * Giant virus genomes typically have less than 10 out of a set of 56 universal cellular housekeeping genes (UNI56). Higher UNI56 counts indicate cellular contamination, or giant virus sequences that are located on host contigs.
   * UNI56u (unique counts), UNI56t(total counts), UNI56df (duplication factor) are provided and can be used for further quality filtering
 * Giant virus genomes typically have a duplication factor of GVOG7 and  GVOG9 of below 3. Higher GVOG7 duplication factors indicate the presence mixed viral populations.
-  * GVOG9u, GVOG7u (unique counts), GVOG7t, GVOG7t(total counts), GVOG9df, GVOG7df (duplication factor) are provided and can be used for further quality filtering 
-* Giant viruses may break any of these rules, thus, gvclass does not perform automatic quality filtering based on marker gene counts.
+  * GVOG8u, GVOG4u (unique counts), GVOG8t, GVOG4t (total counts), GVOG8df (duplication factor) are provided and can be used for further quality filtering
+     * GVOG8df < 2 and order_dup < 1.5: low chance of representing mixed bin [high quality]
+     * GVOG8df 2-3 and order_dup 1.5-2: medium chance of representing mixed bin [medium quality]
+     * GVOG8df >3 and order_dup >3: high chance of representing mixed bin [low quality]
+### Completeness
+* Genome completeness estimate based on count of genes conserved in 50% of genomes of the respective Nucleocytoviricota order. 
+  * \< 30%: low completeness  [low quality]
+  * 30-70%: medium completeness [medium quality]
+  * \> 70% high completeness [high quality]
 
 ## Benchmarking
 
