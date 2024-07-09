@@ -2,3 +2,4 @@
 .snakemake
 example/results
 update
+resources/
