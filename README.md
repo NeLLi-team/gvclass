@@ -76,8 +76,6 @@ wget https://portal.nersc.gov/cfs/nelli/gvclass.sif
 bash gvclass_apptainer.sh <querydir>
 ```
 
-* Or 
-
 ## Interpretation of the results
 * The classification result is summarized in a tab separated file \<query name\>.summary.tab
 
