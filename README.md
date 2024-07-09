@@ -24,7 +24,7 @@
 ```
 
 # gvclass
-_version 1.0 29 March 2024_
+_version 1.0 8 July 2024_
 
 Giant viruses are abundant and diverse and frequently found in environmental microbiomes. gvclass assigns taxonomy to putative giant virus contigs or metagenome assembled genomes ([GVMAGs](https://doi.org/10.1038/s41586-020-1957-x)). It uses a conservative approach based on the consensus of single protein trees built from giant virus orthologous groups ([GVOGs](https://doi.org/10.1371/journal.pbio.3001430)), additional Mirusvirus, Mryavirus and Poxvirus hallmark genes and cellular single copy panorthologs. Further, a gene content based classifier predicts giant virus order-level affiliation and genome completeness and contamination is then estimated based on copy numbers of a larger set of genes typically conserved at order-level.
 
