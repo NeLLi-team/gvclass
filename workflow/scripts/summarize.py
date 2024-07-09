@@ -212,7 +212,7 @@ def main(nn_tree: str, marker_count: str, querystats: str, conversiontable: str,
         "order_dup", "order_completeness", "gvog4_unique", "gvog8_unique", "gvog8_total", "gvog8_dup", 
         "mcp_total", "mirus_unique","mirus_total", "mirus_dup", "mrya_unique", "mrya_total", 
         "phage_unique", "phage_total", "cellular_unique", "cellular_total", "cellular_dup",
-        "contigs", "LENbp", "GCperc", "genecount", "CODINGperc", "ttable", "delta"
+        "contigs", "LENbp", "GCperc", "genecount", "CODINGperc", "ttable"
     ]
     try:
         query = summary_out.split("/")[-1].split(".")[0]

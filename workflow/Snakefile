@@ -39,7 +39,8 @@ def log_run_info(log_file):
         json.dump(config_to_log, f, indent=2)
         f.write("\n")
 
-workflow_dir = Path(workflow.basedir)
+# Get the directory of the Snakefile
+workflow_dir = Path(workflow.basedir).resolve()
 configfile: workflow_dir / "config.yml"
 
 # input and output dirs
@@ -114,12 +115,6 @@ rule log_info:
 
 
 rule reformat_faa:
-    """
-    check format of faa input and reformat
-    reformat headers to ><filenamebase>|<proteinid> 
-    create summary stats, asssembly size, GC, coding density, gene count
-    if faa provided add gene count only
-    """
     conda:
         str(conda_env)
     input:
@@ -136,7 +131,7 @@ rule reformat_faa:
         script = workflow_dir / "scripts/reformat.py"
     shell:
         """
-        python workflow/scripts/reformat.py -i {input} -o {output[0]} -s {output[1]} &> {log}
+        python {params.script} -i {input[0]} -o {output[0]} -s {output[1]} &> {log}
         """
 
 rule genecalling:
