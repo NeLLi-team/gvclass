@@ -8,8 +8,6 @@ import datetime
 import json
 import os
 
-from snakemake.io import load_configfile
-
 
 """ Assign taxonomy to NCDLV contigs or MAGs """
 
