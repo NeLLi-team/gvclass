@@ -63,9 +63,20 @@ snakemake -j 24 --use-conda --config querydir="example"
 snakemake -j <number of processes> --use-conda --config querydir="<path to query dir>"
 ```
 
-### Docker / Shifter
+### Docker / Apptainer
 
-* Will be provided soon
+* Get the sif from
+```
+wget https://portal.nersc.gov/cfs/nelli/gvclass.sif
+```
+
+* Run it like this
+
+```
+bash gvclass_apptainer.sh <querydir>
+```
+
+* Or 
 
 ## Interpretation of the results
 * The classification result is summarized in a tab separated file \<query name\>.summary.tab
