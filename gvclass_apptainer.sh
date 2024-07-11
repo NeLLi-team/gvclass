@@ -1,4 +1,3 @@
-#!/bin/bash
 QUERYDIR=$1
 PROCESSES=$2
 
