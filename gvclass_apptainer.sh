@@ -9,3 +9,4 @@ apptainer run \
            --conda-frontend mamba \
            --conda-prefix /gvclass/.snakemake/conda \
            --config querydir="$QUERYDIR"
+           database_path="/gvclass/resources"
