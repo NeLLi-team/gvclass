@@ -1,15 +1,12 @@
+#!/bin/bash
 QUERYDIR=$1
+PROCESSES=$2
 
-apptainer exec --writable-tmpfs \
-  --bind ./$QUERYDIR:/gvclass/input \
-  gvclass.sif \
-  bash -c "source /opt/conda/etc/profile.d/conda.sh && \
-           conda activate snk && \
-           cd /gvclass && \
-           snakemake --snakefile workflow/Snakefile \
-           -j 24 \
+apptainer run \
+  docker://docker.io/doejgi/gvclass:latest \
+  snakemake --snakefile /gvclass/workflow/Snakefile \
+           -j $PROCESSES \
            --use-conda \
            --conda-frontend mamba \
            --conda-prefix /gvclass/.snakemake/conda \
-           --config querydir='/gvclass/input' \
-           database_path='/gvclass/resources'"
+           --config querydir="$QUERYDIR"
