@@ -50,9 +50,33 @@ Giant viruses are abundant and diverse and frequently found in environmental mic
 * Upload you metagenome assembled genome or single contig to [IMG/VR](https://img.jgi.doe.gov/vr/) using the gvclass feature
 
 ### Snakemake workflow
+
+* The preferred way to run it is with apptainer, for snakemake our modified version of pyrodigal has to be set up first
+
+### Docker / Apptainer
+
+* Run it like this with apptainer using the providing gvclass_apptainer.sh
+
+```
+bash gvclass_apptainer.sh <querydir>
+```
+
+* Alternatively pull the image and use docker or shifter
+
+* ```
+  docker pull doejgi/gvclass:latest
+  ```
+  
 * Clone the repository
 ```
 git clone --recurse-submodules https://github.com/NeLLi-team/gvclass
+```
+
+* Activate snakemake (8.14.0) conda environment, install cython and pyrodigal
+```
+pip install cython
+cd workflow/scripts/
+pip install --user ./pyrodigal
 ```
 * Test gvclass using the provided giant virus assemblies
 ```
@@ -61,19 +85,6 @@ snakemake -j 24 --use-conda --config querydir="example"
 * If this completes successfully, run it using your own directory of query genomes
 ```
 snakemake -j <number of processes> --use-conda --config querydir="<path to query dir>"
-```
-
-### Docker / Apptainer
-
-* Get the sif from
-```
-wget https://portal.nersc.gov/cfs/nelli/gvclass.sif
-```
-
-* Run it like this
-
-```
-bash gvclass_apptainer.sh <querydir>
 ```
 
 ## Interpretation of the results
