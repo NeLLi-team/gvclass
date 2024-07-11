@@ -58,7 +58,7 @@ Giant viruses are abundant and diverse and frequently found in environmental mic
 * Run it like this with apptainer using the providing gvclass_apptainer.sh
 
 ```
-bash gvclass_apptainer.sh <querydir>
+bash gvclass_apptainer.sh <querydir> <n processes>
 ```
 
 * Alternatively pull the image and use docker or shifter
