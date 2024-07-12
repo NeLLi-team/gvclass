@@ -61,6 +61,22 @@ Giant viruses are abundant and diverse and frequently found in environmental mic
 bash gvclass_apptainer.sh <querydir> <n processes>
 ```
 
+* Or directly
+
+```
+PROCESSES=<number of processes, e.g. 8>
+QUERYDIR=<dir with query genomes, e.g. example>
+
+apptainer run docker://docker.io/doejgi/gvclass:latest \
+  snakemake --snakefile /gvclass/workflow/Snakefile \
+           -j $PROCESSES \
+           --use-conda \
+           --conda-frontend mamba \
+           --conda-prefix /gvclass/.snakemake/conda \
+           --config querydir="$QUERYDIR"
+           database_path="/gvclass/resources"
+```
+
 * Alternatively pull the image and use docker or shifter
 
 * ```
