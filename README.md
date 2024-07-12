@@ -79,9 +79,9 @@ apptainer run docker://docker.io/doejgi/gvclass:latest \
 
 * Alternatively pull the image and use docker or shifter
 
-* ```
-  docker pull doejgi/gvclass:latest
-  ```
+```
+docker pull doejgi/gvclass:latest
+```
   
 * Clone the repository
 ```
