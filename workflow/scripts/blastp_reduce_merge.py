@@ -61,7 +61,8 @@ def parse_blastp(blastpout: str) -> List[str]:
             for line in infile:
                 queryname, subjectname, pident = line.split()[0], line.split()[1], float(line.split()[2])
 
-                if subjectname not in seen and len(queryids_hits_dict[queryname]) <= 100 / num_queries and pident != 100:
+                #if subjectname not in seen and len(queryids_hits_dict[queryname]) <= 100 / num_queries and pident != 100:
+                if subjectname not in seen and len(queryids_hits_dict[queryname]) <= 100 / num_queries:
                     queryids_hits_dict[queryname].append(subjectname)
                     seen.append(subjectname)
     except Exception as e:
