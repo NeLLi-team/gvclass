@@ -72,7 +72,10 @@ def run_hmmsearch(faain: str, modelscombined: str, completeCutoff: float = 0.66)
         avg_score = round(total_score / hit_count, 2)
         avg_bestHitScore = round(sum(protein_bestHit_scores.values()) / len(protein_bestHit_scores.values()), 2)
         avg_bestHitCoverage = round(sum(protein_bestHit_hmmCoverages.values()) / len(protein_bestHit_hmmCoverages.values()), 3)
-        avg_completeBestHitScore = round(sum(protein_completeBestHit_scores.values()) / len(protein_completeBestHit_scores.values()), 2)
+        if len(protein_completeBestHit_scores.values()) > 0:
+            avg_completeBestHitScore = round(sum(protein_completeBestHit_scores.values()) / len(protein_completeBestHit_scores.values()), 2)
+        else:
+            avg_completeBestHitScore = 0
         avg_proteinsPerProfile = round(len(unique_protein2profiles) / len(unique_profiles), 2)
     else:
         avg_score = 0
