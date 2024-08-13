@@ -26,7 +26,7 @@
 # gvclass
 _version 1.0 8 July 2024_
 
-Giant viruses are abundant and diverse and frequently found in environmental microbiomes. gvclass assigns taxonomy to putative giant virus contigs or metagenome assembled genomes ([GVMAGs](https://doi.org/10.1038/s41586-020-1957-x)). It uses a conservative approach based on the consensus of single protein trees built from giant virus orthologous groups ([GVOGs](https://doi.org/10.1371/journal.pbio.3001430)), additional Mirusvirus, Mryavirus and Poxvirus hallmark genes and cellular single copy panorthologs. Further, a gene content based classifier predicts giant virus order-level affiliation and genome completeness and contamination is then estimated based on copy numbers of a larger set of genes typically conserved at order-level.
+Giant viruses are abundant and diverse and frequently found in environmental microbiomes. gvclass assigns taxonomy to putative giant virus contigs or metagenome assembled genomes ([GVMAGs](https://doi.org/10.1038/s41586-020-1957-x)). It uses a conservative approach based on the consensus of single protein trees built from giant virus orthologous groups ([GVOGs](https://doi.org/10.1371/journal.pbio.3001430)), additional Mirusvirus, Mryavirus and Poxvirus hallmark genes and cellular single copy panorthologs. Genome completeness and contamination is then estimated based on copy numbers of a larger set of genes typically conserved in single copy at order-level.
 
 ## Running gvclass
 
@@ -34,13 +34,10 @@ Giant viruses are abundant and diverse and frequently found in environmental mic
 * Conda environment wih snakemake, check here: https://snakemake.readthedocs.io/en/stable/getting_started/installation.html
 * Input is a directory that contains single contigs or MAGs as nucleic acid (fna) or proteins (faa)
 * File extensions .fna or .faa
-* Recommended length for single contigs is 50kb, but at least 20kb
+* Recommended length for assembly size is 50kb, but at least 20kb
 * No special characters (".", ";", ":") in filebase name, "\_" or "-" are okay
-* No whitespace in sequence headers
 * Recommended sequence header format if faa provided: <filenamebase>|<proteinid>
 * Input will be checked and reformatted if necessary
-* Domain- and order-level classifier will only be used on genomes that have at least 3 features
-
 
 ### Settings
 * Config file allows to specify options for MAFFT (default is mafft-linsi), iqtree (default) or fasttree
@@ -104,7 +101,7 @@ snakemake -j <number of processes> --use-conda --config querydir="<path to query
 ```
 
 ## Interpretation of the results
-* The classification result is summarized in a tab separated file \<query name\>.summary.tab
+* The classification result is summarized in a tab separated file in a subdir "results" in the the query dir
 
 ### Gene calling
 * Different genetic codes are tested and evaluated based on hmmsearch using the general models
@@ -112,7 +109,7 @@ snakemake -j <number of processes> --use-conda --config querydir="<path to query
 
 ### Taxonomy assignments
 * Taxonomy assignments are provided on different taxonomic levels
-* To yield an assignments all nearest neighbors in GVOG phylogenetic tree have to be in agreement
+* To yield an assignments all nearest neighbors in GVOG phylogenetic trees have to be in agreement
 
 ### Contamination
 * Giant virus genomes typically have less than 10 out of a set of 56 universal cellular housekeeping genes (UNI56). Higher UNI56 counts indicate cellular contamination, or giant virus sequences that are located on host contigs.
