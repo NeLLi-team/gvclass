@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="GVClass_logo.png" alt="Description" width="100%">
+  <img src="GVClass_logo.png" alt="Description" width="50%">
 </p>
 
 
