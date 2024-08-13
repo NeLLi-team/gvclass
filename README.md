@@ -8,7 +8,7 @@ _version 1.0 8 July 2024_
 
 Giant viruses are abundant and diverse and frequently found in environmental microbiomes. gvclass assigns taxonomy to putative giant virus contigs or metagenome assembled genomes ([GVMAGs](https://doi.org/10.1038/s41586-020-1957-x)). It uses a conservative approach based on the consensus of single protein trees built from giant virus orthologous groups ([GVOGs](https://doi.org/10.1371/journal.pbio.3001430)), additional Mirusvirus, Mryavirus and Poxvirus hallmark genes and cellular single copy panorthologs. Genome completeness and contamination is then estimated based on copy numbers of a larger set of genes typically conserved in single copy at order-level.
 
-## Running gvclass
+## Running GVClass
 
 ### Requirements
 * Conda environment wih snakemake, check here: https://snakemake.readthedocs.io/en/stable/getting_started/installation.html
@@ -24,7 +24,7 @@ Giant viruses are abundant and diverse and frequently found in environmental mic
 * fast_mode (default) can be set to False in config file, in that case single protein trees are also built for all conserved order-level marker genes
 
 ### IMG/VR
-* Upload you metagenome assembled genome or single contig to [IMG/VR](https://img.jgi.doe.gov/vr/) using the gvclass feature
+* Upload you metagenome assembled genome or single contig to [IMG/VR](https://img.jgi.doe.gov/vr/) using the GVClass feature
 
 ### Snakemake workflow
 
@@ -71,7 +71,7 @@ pip install cython
 cd workflow/scripts/
 pip install --user ./pyrodigal
 ```
-* Test gvclass using the provided giant virus assemblies
+* Test GVClass using the provided giant virus assemblies
 ```
 snakemake -j 24 --use-conda --config querydir="example"
 ```
