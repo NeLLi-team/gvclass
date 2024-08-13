@@ -13,7 +13,7 @@ Giant viruses are abundant and diverse and frequently found in environmental mic
 ### Overview of the GVClass framework
 
 <p align="center">
-  <img src="GVClass_workflow.png" alt="Description" width="100%">
+  <img src="Workflow_GVClass.png" alt="Description" width="100%">
 </p>
 
 ### Requirements
