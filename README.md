@@ -1,4 +1,6 @@
-![screenshot](GVClass_logo.png)
+<p align="center">
+  <img src="GVClass_logo.png" alt="Description" width="100%">
+</p>
 
 
 # gvclass
