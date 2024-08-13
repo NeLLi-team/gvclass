@@ -23,6 +23,7 @@
                                                   `;1hQQKv:`              `     
 ```
 
+![screenshot](GVClass_log.png)
 # gvclass
 _version 1.0 8 July 2024_
 
