@@ -1,29 +1,6 @@
-```
-                                                       ``,:'-                     
-                                                    `-'~^*r?^^_'`                 
-                                                -',~";*>>*r|r?rr:,-              
-                                            `.',,"_:>\>\?>|r\r|r?^>;:'`          
-                                         ``',~~_:;;>LL?/||\r|*?*?>r*rr^r;,-       
-                                      -':;;^>*\cziy9Uhqqh66PXeauujzf7vLL\\|?;:-`  
-                                   `;>\LLL//c77z1f6N6UH9KRPR6URPRZHw966kPP6PPeet' 
-                                   `*\Li///cvvzJ76Ne&6ZdRw8UqWw&PdU9K6OPOhqhqUKz` 
-                                   `>\\\\L77vz1vHR6#ODWwXgUK&PH6OK9d6H6H6OPOPKei  
-                                ______ _    _ _______        _______ _______ _______ 
-                               |  ____  \  /  |       |      |_____| |______ |______
-                               |_____|   \/   |_____  |_____ |     | ______| ______| 
-                                    ^zzztzza9RdH8KgdHDqNOdN99R9DqHHUDUH6H6OPqOu`  
-                                    ;tttJzjq89&DON9RRdNU8W6NdwOKK&hR689H9d6KOq/   
-                                    ;Jttzj68UNdOg9NHOg6BOKQ6H#mKgXghDKqO699RKU^   
-                                     :zyUR9R6gDHN9BRDBU#qd8HRDROWqhqUW9DqkgOgq?    
-                                       ,S9D6H9gRDNKQKRN6gKRHDODDqRhd89OOORhDRar-     
-                                        `:7{N9B9NNKQqNgqNOHHRK&OORkgOON96RUqS_        
-                                          `:7U@@@@@@@@@@@@Q@QQQBQgQNW#P\:-         `
-                                             -;LOB@@@@@@@@@@@@@@@QDJ:`             
-                                               `:vwQ@@@@@Q@@Bk^'                 
-                                                  `;1hQQKv:`              `     
-```
+![screenshot](GVClass_logo.png)
 
-![screenshot](GVClass_log.png)
+
 # gvclass
 _version 1.0 8 July 2024_
 
