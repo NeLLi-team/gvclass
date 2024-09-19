@@ -117,7 +117,11 @@ snakemake -j <number of processes> --use-conda --config querydir="<path to query
 
 ## Citation
 
-* Will be provided soon
+https://www.biorxiv.org/content/10.1101/2024.08.15.607234v1
+
+## Requested updates
+
+* Add Egoviruses and Proculoviruses
 
 ## References
 1. [Schulz F, Roux S, Paez-Espino D, Jungbluth S, Walsh DA, Denef VJ, McMahon KD, Konstantinidis KT, Eloe-Fadrosh EA, Kyrpides NC, Woyke T. Giant virus diversity and host interactions through global metagenomics. Nature. 2020 Feb;578(7795):432-6.](https://doi.org/10.1038/s41586-020-1957-x)
