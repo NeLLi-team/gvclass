@@ -71,6 +71,7 @@ git clone --recurse-submodules https://github.com/NeLLi-team/gvclass
 
 * Activate snakemake (8.14.0) conda environment, install cython and pyrodigal
 ```
+conda config --set channel_priority flexible  # gvclass needs flexible priorities
 pip install cython
 cd gvclass/workflow/scripts/
 pip install --user ./pyrodigal
