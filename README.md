@@ -72,8 +72,9 @@ git clone --recurse-submodules https://github.com/NeLLi-team/gvclass
 * Activate snakemake (8.14.0) conda environment, install cython and pyrodigal
 ```
 pip install cython
-cd workflow/scripts/
+cd gvclass/workflow/scripts/
 pip install --user ./pyrodigal
+cd ../../
 ```
 * Test GVClass using the provided giant virus assemblies
 ```
