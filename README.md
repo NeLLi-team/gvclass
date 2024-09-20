@@ -14,8 +14,8 @@ Giant viruses are abundant and diverse and frequently found in environmental mic
   <img src="Workflow_GVClass.png" alt="Description" width="100%">
 </p>
 
-### Requirements
-* Conda environment wih snakemake, check here: https://snakemake.readthedocs.io/en/stable/getting_started/installation.html
+### Input Requirements
+
 * Input is a directory that contains single contigs or MAGs as nucleic acid (fna) or proteins (faa)
 * File extensions .fna or .faa
 * Recommended length for assembly size is 50kb, but at least 20kb
@@ -23,26 +23,22 @@ Giant viruses are abundant and diverse and frequently found in environmental mic
 * Recommended sequence header format if faa provided: <filenamebase>|<proteinid>
 * Input will be checked and reformatted if necessary
 
-### Settings
-* Config file allows to specify options for MAFFT (default is mafft-linsi), iqtree (default) or fasttree
-* fast_mode (default) can be set to False in config file, in that case single protein trees are also built for all conserved order-level marker genes
-
-### IMG/VR
+### Running via IMG/VR
 * Upload you metagenome assembled genome or single contig to [IMG/VR](https://img.jgi.doe.gov/vr/) using the GVClass feature
 
-### Snakemake workflow
+### Running with Docker / Apptainer container
 
-* The preferred way to run it is with apptainer, for snakemake our modified version of pyrodigal has to be set up first
+Using containers is the recommended way of running GVClass.
 
-### Docker / Apptainer
+#### Apptainer
 
-* Run it like this with apptainer using the providing gvclass_apptainer.sh
+* Use the provided `gvclass_apptainer.sh` script. For testing, use the `example` dir (available in this repository) as the `querydir`
 
 ```
 bash gvclass_apptainer.sh <querydir> <n processes>
 ```
 
-* Or directly
+* Alternatively, run Apptainer directly:
 
 ```
 PROCESSES=<number of processes, e.g. 8>
@@ -58,12 +54,17 @@ apptainer run docker://docker.io/doejgi/gvclass:latest \
            database_path="/gvclass/resources"
 ```
 
-* Alternatively pull the image and use docker or shifter
+#### Docker
 
-```
-docker pull doejgi/gvclass:latest
-```
-  
+TODO
+
+#### Shifter
+
+TODO
+
+### Manual installation and running with Snakemake
+
+* First, install a conda environment with snakemake, check here: https://snakemake.readthedocs.io/en/stable/getting_started/installation.html
 * Clone the repository
 ```
 git clone --recurse-submodules https://github.com/NeLLi-team/gvclass
@@ -85,6 +86,10 @@ snakemake -j 24 --use-conda --config querydir="example"
 ```
 snakemake -j <number of processes> --use-conda --config querydir="<path to query dir>"
 ```
+
+#### Advanced Settings
+* Config file allows to specify options for MAFFT (default is mafft-linsi), iqtree (default) or fasttree
+* fast_mode (default) can be set to False in config file, in that case single protein trees are also built for all conserved order-level marker genes
 
 ## Interpretation of the results
 * The classification result is summarized in a tab separated file in a subdir "results" in the the query dir
