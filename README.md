@@ -32,7 +32,7 @@ Using containers is the recommended way of running GVClass.
 
 #### Apptainer
 
-* Use the provided `gvclass_apptainer.sh` script. For testing, use the `example` dir (available in this repository) as the `querydir`
+* Use the provided `gvclass_apptainer.sh` script. The `querydir` should be located under the current working directory. For testing, use the `example` dir (available in this repository) as the `querydir`. 
 
 ```
 bash gvclass_apptainer.sh <querydir> <n processes>
@@ -56,7 +56,27 @@ apptainer run docker://docker.io/doejgi/gvclass:latest \
 
 #### Docker
 
-TODO
+* Use the provided `gvclass_apptainer.sh` script. The `querydir` should be located under the current working directory. For testing, use the `example` dir (available in this repository) as the `querydir`.
+
+```
+bash gvclass_docker.sh <querydir> <n processes>
+```
+
+* Alternatively, run Docker directly:
+
+```
+QUERYDIR=$1
+PROCESSES=$2
+
+docker run -v $(pwd):$(pwd) -w $(pwd) doejgi/gvclass:latest \
+  snakemake --snakefile /gvclass/workflow/Snakefile \
+           -j $PROCESSES \
+           --use-conda \
+           --conda-frontend mamba \
+           --conda-prefix /gvclass/.snakemake/conda \
+           --config querydir="$QUERYDIR" \
+           database_path="/gvclass/resources"
+```
 
 #### Shifter
 
@@ -88,8 +108,10 @@ snakemake -j <number of processes> --use-conda --config querydir="<path to query
 ```
 
 #### Advanced Settings
+
 * Config file allows to specify options for MAFFT (default is mafft-linsi), iqtree (default) or fasttree
 * fast_mode (default) can be set to False in config file, in that case single protein trees are also built for all conserved order-level marker genes
+* These parameters can also be passed on the command line via the `--config` command line option. E.g., `--config querydir=example treeoption=fasttree`.
 
 ## Interpretation of the results
 * The classification result is summarized in a tab separated file in a subdir "results" in the the query dir
