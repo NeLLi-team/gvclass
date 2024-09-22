@@ -56,7 +56,7 @@ apptainer run docker://docker.io/doejgi/gvclass:latest \
 
 #### Docker
 
-* Use the provided `gvclass_apptainer.sh` script. The `querydir` should be located under the current working directory. For testing, use the `example` dir (available in this repository) as the `querydir`.
+* Use the provided `gvclass_docker.sh` script. The `querydir` should be located under the current working directory. For testing, use the `example` dir (available in this repository) as the `querydir`.
 
 ```
 bash gvclass_docker.sh <querydir> <n processes>
@@ -84,7 +84,6 @@ docker run -v $(pwd):$(pwd) -w $(pwd) doejgi/gvclass:latest \
 
 ```
 bash gvclass_shifter.sh <querydir> <n processes>
-
 ```
 
 * Alternatively, run Shifter directly:
