@@ -40,7 +40,7 @@ bash gvclass_apptainer.sh <querydir> <n processes>
 
 * Alternatively, run Apptainer directly:
 
-```
+```bash
 PROCESSES=<number of processes, e.g. 8>
 QUERYDIR=<dir with query genomes, e.g. example>
 
@@ -50,7 +50,7 @@ apptainer run docker://docker.io/doejgi/gvclass:latest \
            --use-conda \
            --conda-frontend mamba \
            --conda-prefix /gvclass/.snakemake/conda \
-           --config querydir="$QUERYDIR"
+           --config querydir="$QUERYDIR" \
            database_path="/gvclass/resources"
 ```
 
@@ -64,9 +64,9 @@ bash gvclass_docker.sh <querydir> <n processes>
 
 * Alternatively, run Docker directly:
 
-```
-QUERYDIR=$1
-PROCESSES=$2
+```bash
+PROCESSES=<number of processes, e.g. 8>
+QUERYDIR=<dir with query genomes, e.g. example>
 
 docker run -v $(pwd):$(pwd) -w $(pwd) doejgi/gvclass:latest \
   snakemake --snakefile /gvclass/workflow/Snakefile \
@@ -80,7 +80,30 @@ docker run -v $(pwd):$(pwd) -w $(pwd) doejgi/gvclass:latest \
 
 #### Shifter
 
-TODO
+* Use the provided `gvclass_shifter` script. The `querydir` should be located under the current working directory. For testing, use the `example` dir (available in this repository) as the `querydir`.
+
+```
+bash gvclass_shifter.sh <querydir> <n processes>
+
+```
+
+* Alternatively, run Shifter directly:
+
+```bash
+PROCESSES=<number of processes, e.g. 8>
+QUERYDIR=<dir with query genomes, e.g. example>
+
+shifterimg pull docker:doejgi/gvclass:latest
+shifter --image=docker:doejgi/gvclass:latest  \
+  snakemake --snakefile /gvclass/workflow/Snakefile \
+           -j $PROCESSES \
+           --use-conda \
+           --conda-frontend mamba \
+           --conda-prefix /gvclass/.snakemake/conda \
+           --config querydir="$QUERYDIR" \
+           database_path="/gvclass/resources"
+
+```
 
 ### Manual installation and running with Snakemake
 
