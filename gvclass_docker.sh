@@ -1,8 +1,8 @@
 QUERYDIR=$1
 PROCESSES=$2
 
-apptainer run \
-  docker://docker.io/doejgi/gvclass:latest \
+docker run \
+  -v $(pwd):$(pwd) -w $(pwd) doejgi/gvclass:latest \
   snakemake --snakefile /gvclass/workflow/Snakefile \
            -j $PROCESSES \
            --use-conda \
