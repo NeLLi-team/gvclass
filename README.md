@@ -166,9 +166,8 @@ snakemake -j <number of processes> --use-conda --config querydir="<path to query
 * Will be provided soon
 
 ## Citation
+https://www.nature.com/articles/s44298-024-00069-7
 
-[https://www.biorxiv.org/content/10.1101/2024.08.15.607234v1
-](https://www.nature.com/articles/s44298-024-00069-7)
 ## Requested updates
 
 * Add Egoviruses and Proculoviruses
