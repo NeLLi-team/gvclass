@@ -24,7 +24,7 @@ def process_model_hitcounts(models_count: str) -> Tuple[int, ...]:
         busco_models = ["1003258at2759", "1019762at2759", "1032689at2759", "1038775at2759", "1057950at2759"]
         phage_models = ["genomad000023", "genomad000026", "genomad000172", "genomad000217", "genomad000254"]
         gvog4m_models = ["GVOGm0461", "GVOGm0022", "GVOGm0023", "GVOGm0054"]
-        gvog8m_models = ["GVOGm0013", "GVOGm0022", "GVOGm0023", "GVOGm0054", "GVOGm0172", "GVOGm0461"]
+        gvog8m_models = ["GVOGm0013", "GVOGm0022", "GVOGm0023", "GVOGm0054", "GVOGm0172", "GVOGm0461", "GVOGm0760", "GVOGm0890"]
         uni56_models = ["COG0013", "COG0016", "COG0018", "COG0048", "COG0049"]
         mcp_models = ["gamadvirusMCP", "yaravirusMCP", "PoxMCP", "GVOGm0003", "mOG0000014"]
         mrya_models = ["HUH", "HUHlong", "VLTF2", "VLTF3", "ATPase", "gamadvirusMCP"]
