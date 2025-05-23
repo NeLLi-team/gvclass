@@ -1,5 +1,9 @@
 .dir_bash_history
 .snakemake
-example/results
+.nextflow
+.nextflow.log*
+work/
+*_results/
 update
 resources/
+.pixi/

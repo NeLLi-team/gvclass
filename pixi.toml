@@ -1,0 +1,32 @@
+[project]
+name = "gvclass"
+version = "1.0.0"
+description = "GVClass Pipeline for viral classification"
+authors = ["Original: fschulz@lbl.gov"]
+channels = ["conda-forge", "bioconda"]
+platforms = ["linux-64"]
+
+[tasks]
+run = "nextflow run main.nf -profile standard"
+run_docker = "nextflow run main.nf -profile docker"
+run_singularity = "nextflow run main.nf -profile singularity"
+
+[dependencies]
+nextflow = ">=22.10.0"
+python = ">=3.10"
+biopython = ">=1.79"
+diamond = ">=2.0.15"
+ete3 = ">=3.1.2"
+fasttree = ">=2.1.11"
+hmmer = ">=3.3.2"
+iqtree = ">=2.2.0.3"
+mafft = ">=7.505"
+pandas = ">=1.4.3"
+numpy = ">=1.23.0"
+scipy = ">=1.8.1"
+trimal = ">=1.4.1"
+joblib = ">=1.4.0"
+click = "*"
+cython = "*"
+pip = "*"
+pyrodigal = "*"
