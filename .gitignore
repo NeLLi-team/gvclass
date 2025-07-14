@@ -10,3 +10,4 @@ resources/
 allbins
 CLAUDE.md
 .nextflow*
+logs

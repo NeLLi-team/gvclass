@@ -1,7 +1,0 @@
-error: unexpected argument '-C' found
-
-  tip: to pass '-C' as a value, use '-- -C'
-
-Usage: pixi run [OPTIONS] [TASK]...
-
-For more information, try '--help'.
