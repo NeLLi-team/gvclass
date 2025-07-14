@@ -1,0 +1,9 @@
+Found 2 query files
+Creating 1 chunks with up to 50 queries each
+Creating chunk directories...
+Chunk 0: 2 files
+Running chunk 0 on n0031.dori0
+Start time: Mon Jul 14 09:40:03 PDT 2025
+ERROR: No module path defined
+Executing: nextflow run /var/spool/slurmd/job18049868/main.nf --querydir /clusterfs/jgi/scratch/science/mgs/nelli/frederik/projects/21cavegv/data/gvclass/example_results/chunks/chunk_0 --outdir /clusterfs/jgi/scratch/science/mgs/nelli/frederik/projects/21cavegv/data/gvclass/example_results/chunk_0_results --database_path /clusterfs/jgi/scratch/science/mgs/nelli/frederik/projects/21cavegv/data/gvclass/resources --mode_fast true --mafftoption linsi --treeoption iqtree -process.cpus=8 -process.memory=32768MB  --chunks 50
+Chunk 0 failed with exit code 1

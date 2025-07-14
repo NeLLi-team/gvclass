@@ -1,0 +1,173 @@
+Found 3712 query files
+Creating 75 chunks with up to 50 queries each
+Creating chunk directories...
+Chunk 0: 50 files
+Chunk 1: 50 files
+Chunk 2: 50 files
+Chunk 3: 50 files
+Chunk 4: 50 files
+Chunk 5: 50 files
+Chunk 6: 50 files
+Chunk 7: 50 files
+Chunk 8: 50 files
+Chunk 9: 50 files
+Chunk 10: 50 files
+Chunk 11: 50 files
+Chunk 12: 50 files
+Chunk 13: 50 files
+Chunk 14: 50 files
+Chunk 15: 50 files
+Chunk 16: 50 files
+Chunk 17: 50 files
+Chunk 18: 50 files
+Chunk 19: 50 files
+Chunk 20: 50 files
+Chunk 21: 50 files
+Chunk 22: 50 files
+Chunk 23: 50 files
+Chunk 24: 50 files
+Chunk 25: 50 files
+Chunk 26: 50 files
+Chunk 27: 50 files
+Chunk 28: 50 files
+Chunk 29: 50 files
+Chunk 30: 50 files
+Chunk 31: 50 files
+Chunk 32: 50 files
+Chunk 33: 50 files
+Chunk 34: 50 files
+Chunk 35: 50 files
+Chunk 36: 50 files
+Chunk 37: 50 files
+Chunk 38: 50 files
+Chunk 39: 50 files
+Chunk 40: 50 files
+Chunk 41: 50 files
+Chunk 42: 50 files
+Chunk 43: 50 files
+Chunk 44: 50 files
+Chunk 45: 50 files
+Chunk 46: 50 files
+Chunk 47: 50 files
+Chunk 48: 50 files
+Chunk 49: 50 files
+Chunk 50: 50 files
+Chunk 51: 50 files
+Chunk 52: 50 files
+Chunk 53: 50 files
+Chunk 54: 50 files
+Chunk 55: 50 files
+Chunk 56: 50 files
+Chunk 57: 50 files
+Chunk 58: 50 files
+Chunk 59: 50 files
+Chunk 60: 50 files
+Chunk 61: 50 files
+Chunk 62: 50 files
+Chunk 63: 50 files
+Chunk 64: 50 files
+Chunk 65: 50 files
+Chunk 66: 50 files
+Chunk 67: 50 files
+Chunk 68: 50 files
+Chunk 69: 50 files
+Chunk 70: 50 files
+Chunk 71: 50 files
+Chunk 72: 50 files
+Chunk 73: 50 files
+Chunk 74: 12 files
+Running chunk 20 on n0051.dori0
+Start time: Mon Jul 14 11:32:55 PDT 2025
+Project directory: /clusterfs/jgi/scratch/science/mgs/nelli/frederik/projects/21cavegv/data/gvclass
+Using pixi environment for Nextflow execution
+Executing: pixi run nextflow run /clusterfs/jgi/scratch/science/mgs/nelli/frederik/projects/21cavegv/data/gvclass/main.nf --querydir /clusterfs/jgi/scratch/science/mgs/nelli/frederik/projects/21cavegv/data/gvclass/allbins_results/chunks/chunk_20 --outdir /clusterfs/jgi/scratch/science/mgs/nelli/frederik/projects/21cavegv/data/gvclass/allbins_results/chunk_20_results --database_path /clusterfs/jgi/scratch/science/mgs/nelli/frederik/projects/21cavegv/data/gvclass/resources --mode_fast true --mafftoption linsi --treeoption iqtree -process.cpus=24 -process.memory=131072MB 
+
+ N E X T F L O W   ~  version 25.04.2
+
+Launching `/clusterfs/jgi/scratch/science/mgs/nelli/frederik/projects/21cavegv/data/gvclass/main.nf` [mad_pesquet] DSL2 - revision: ed9c5d126e
+
+
+GVClass Pipeline v1.0.0
+===================================
+querydir       : /clusterfs/jgi/scratch/science/mgs/nelli/frederik/projects/21cavegv/data/gvclass/allbins_results/chunks/chunk_20
+outdir         : /clusterfs/jgi/scratch/science/mgs/nelli/frederik/projects/21cavegv/data/gvclass/allbins_results/chunk_20_results
+database_path  : /clusterfs/jgi/scratch/science/mgs/nelli/frederik/projects/21cavegv/data/gvclass/resources
+keep_temp      : true
+mafft option   : linsi
+tree option    : iqtree
+mode_fast      : true
+
+[-        ] CHECK_RESOURCES -
+[-        ] LOG_INFO        -
+[-        ] GENECALLING     -
+[-        ] REFORMAT_FAA    -
+
+[-        ] CHECK_RESOURCES     -
+[-        ] LOG_INFO            -
+[-        ] GENECALLING         -
+[-        ] REFORMAT_FAA        -
+[-        ] RUN_HMMSEARCH       -
+[-        ] GET_MODEL_NAMES     -
+[-        ] EXTRACT_QHITS       -
+[-        ] BLASTP_REDUCE_MERGE -
+[-        ] ALIGN_TRIM          -
+[-        ] BUILD_TREES         -
+[-        ] GET_NN              -
+[-        ] SUMMARIZE           -
+[-        ] COMBINEDOUT         -
+
+[-        ] CHECK_RESOURCES     -
+[-        ] LOG_INFO            -
+[-        ] GENECALLING         -
+[-        ] REFORMAT_FAA        -
+[-        ] RUN_HMMSEARCH       -
+[-        ] GET_MODEL_NAMES     -
+[-        ] EXTRACT_QHITS       -
+[-        ] BLASTP_REDUCE_MERGE -
+[-        ] ALIGN_TRIM          -
+[-        ] BUILD_TREES         -
+[-        ] GET_NN              -
+[-        ] SUMMARIZE           -
+[-        ] COMBINEDOUT         -
+[-        ] FORCE_COMBINEDOUT   -
+[-        ] CLEANUP             -
+
+[-        ] CHECK_RESOURCES     -
+[-        ] LOG_INFO            -
+[-        ] GENECALLING         -
+[-        ] REFORMAT_FAA        -
+[-        ] RUN_HMMSEARCH       -
+[-        ] GET_MODEL_NAMES     -
+[-        ] EXTRACT_QHITS       -
+[-        ] BLASTP_REDUCE_MERGE -
+[-        ] ALIGN_TRIM          -
+[-        ] BUILD_TREES         -
+[-        ] GET_NN              -
+[-        ] SUMMARIZE           -
+[-        ] COMBINEDOUT         -
+[-        ] FORCE_COMBINEDOUT   -
+[-        ] CLEANUP             -
+ERROR ~ No files match pattern `*.fna` at path: /clusterfs/jgi/scratch/science/mgs/nelli/frederik/projects/21cavegv/data/gvclass/allbins_results/chunks/chunk_20/
+
+ -- Check '.nextflow.log' file for details
+
+[-        ] CHECK_RESOURCES     | 0 of 1
+[-        ] LOG_INFO            | 0 of 1
+[-        ] GENECALLING         -
+[-        ] REFORMAT_FAA        -
+[-        ] RUN_HMMSEARCH       -
+[-        ] GET_MODEL_NAMES     -
+[-        ] EXTRACT_QHITS       -
+[-        ] BLASTP_REDUCE_MERGE -
+[-        ] ALIGN_TRIM          -
+[-        ] BUILD_TREES         -
+[-        ] GET_NN              -
+[-        ] SUMMARIZE           -
+[-        ] COMBINEDOUT         -
+[-        ] FORCE_COMBINEDOUT   -
+[-        ] CLEANUP             -
+ERROR ~ No files match pattern `*.fna` at path: /clusterfs/jgi/scratch/science/mgs/nelli/frederik/projects/21cavegv/data/gvclass/allbins_results/chunks/chunk_20/
+
+ -- Check '.nextflow.log' file for details
+
+Chunk 20 failed with exit code 1

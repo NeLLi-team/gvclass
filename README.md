@@ -235,6 +235,28 @@ The classification result is summarized in a tab-separated file in the output di
   * 30-70%: medium completeness [medium quality]
   * > 70% high completeness [high quality]
 
+## 🚀 Large-Scale Processing with SLURM Array Jobs
+
+For processing hundreds or thousands of genomes, use the task array submission script:
+
+```bash
+# Process genomes with 50 queries per chunk (default)
+bin/submit_gvclass_array.sh --querydir /path/to/genomes
+#example
+./submit_gvclass_array.sh --querydir example --chunks 50
+
+# Custom settings
+bin/submit_gvclass_array.sh --querydir /path/to/genomes \
+    --queries-per-chunk 20 \
+    --time 12:00:00 \
+    --mem 512G
+
+# After completion, merge results
+bin/merge_array_results.py --outdir /path/to/genomes_results
+```
+
+This approach splits your queries into chunks and processes each as a separate SLURM task, dramatically reducing job count and improving throughput.
+
 ## 🛠️ Troubleshooting
 
 If you encounter issues with the pipeline, try the following:
