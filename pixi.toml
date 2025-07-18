@@ -50,9 +50,6 @@ veryfasttree = ">=3.0.0"
 click = ">=8.0.0"
 
 [tasks]
-# Installation tasks
-setup-db = "python scripts/setup_database.py"
-
 # Development and testing tasks
 install = "pixi install"
 test = "pixi run python -m pytest tests/ -v"
@@ -60,21 +57,11 @@ lint = "pixi run python -m flake8 workflow/scripts/"
 format = "pixi run python -m black workflow/scripts/"
 
 # Main execution tasks
-run-example = "pixi run snakemake -j 8 --config querydir=example"
-run-pipeline = "pixi run snakemake -j"
+run-example = "python run_clean.py -j 8 --config querydir=example"
+run-pipeline = "python run_clean.py"
 
 # Container build tasks
 build-container = "docker build -t gvclass:latest ."
-
-# CLI commands
-gvclass = "python -m src.bin.gvclass"
-gvclass-prefect = "python -m src.bin.gvclass_prefect"
-gvclass-dask = "python -m src.bin.gvclass_cli"
-
-# Prefect shortcuts
-prefect-run = "python -m src.bin.gvclass_prefect run"
-prefect-deploy = "python -m src.bin.gvclass_prefect deploy"
-prefect-serve = "python -m src.bin.gvclass_prefect serve-local"
 
 [feature.dev.dependencies]
 pytest = "*"

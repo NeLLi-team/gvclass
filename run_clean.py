@@ -5,6 +5,7 @@ Simple clean output wrapper for Snakemake pipeline
 import subprocess
 import sys
 import os
+from pathlib import Path
 
 def main():
     # Parse command line arguments
@@ -53,6 +54,26 @@ def main():
     print("🚀 Starting GVClass Pipeline v1.1.0")
     print("=" * 50)
     
+    # Check for database
+    workflow_dir = Path(__file__).parent / "workflow"
+    database_path = None
+    
+    # Check if custom database_path is specified
+    for arg in config_args:
+        if arg.startswith("database_path="):
+            database_path = Path(arg.split("=")[1].strip('"'))
+            break
+    
+    # Default database path if not specified
+    if database_path is None:
+        database_path = workflow_dir / "resources"
+    
+    # Check database status
+    if database_path.exists() and (database_path / "models" / "combined.hmm").exists():
+        print("  ✅ Database found")
+    else:
+        print("  📦 Database not found. Will be downloaded (~3GB)...")
+    
     # Build command
     cmd = ["pixi", "run", "snakemake", "-j", threads]
     
@@ -60,7 +81,14 @@ def main():
     if config_args:
         cmd.extend(["--config"] + config_args)
     
-    print(f"  Configuration: {' '.join(config_args)}")
+    # Add database_path to config_args display if not already present
+    has_database_path = any("database_path=" in arg for arg in config_args)
+    if not has_database_path:
+        config_display = config_args + [f"database_path=resources"]
+    else:
+        config_display = config_args
+    
+    print(f"  Configuration: {' '.join(config_display)}")
     print(f"  Threads: {threads}")
     print("=" * 50)
     
@@ -72,22 +100,46 @@ def main():
         bufsize=1
     )
     
-    # Track progress
+    # Track progress and state
     errors = []
+    database_downloaded = False
+    database_verified = False
+    last_progress = ""
     
     for line in iter(process.stdout.readline, ''):
         line = line.strip()
         
+        # Handle database messages with state tracking
+        if "Resources directory not found" in line and not database_downloaded:
+            # Clear progress line if exists
+            if last_progress:
+                print("\r" + " " * len(last_progress), end="\r")
+            print("  📦 Downloading database (~3GB)...")
+            database_downloaded = True
+        elif "Resources downloaded and extracted" in line and database_downloaded:
+            print("  ✅ Database downloaded successfully!")
+        elif "Resources directory found" in line and not database_verified:
+            # Only show if we didn't already show it in pre-flight check
+            pass  # Skip this as we already showed it above
+        elif "Resources verified" in line and not database_verified:
+            if not database_downloaded:  # Only show if we didn't download
+                pass  # Skip as we showed it in pre-flight
+            database_verified = True
+        
         # Show progress updates
-        if "steps" in line and "done" in line:
-            # Clear previous line and show new progress
-            print(f"\r  Progress: {line}", end="        ", flush=True)
+        elif "steps" in line and "done" in line:
+            # Store progress for potential clearing
+            last_progress = f"  Progress: {line}        "
+            print(f"\r{last_progress}", end="", flush=True)
         
         # Capture errors
         elif "Error" in line or "failed" in line:
             errors.append(line)
             if "Error in rule" in line or "CalledProcessError" in line:
-                print(f"\n  ❌ {line}")
+                # Clear progress line if exists
+                if last_progress:
+                    print("\r" + " " * len(last_progress), end="\r")
+                print(f"  ❌ {line}")
     
     # Wait for completion
     process.wait()

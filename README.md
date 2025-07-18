@@ -127,13 +127,20 @@ pip install --user ./pyrodigal
 cd ../../
 ```
 * Test GVClass using the provided giant virus assemblies
-```
+```bash
+# Using pixi (recommended)
+pixi run run-example
+
+# Or directly
 python run_clean.py
 ```
 
 * Run with custom parameters
-```
-# Basic usage with custom querydir and CPU count
+```bash
+# Using pixi with custom querydir
+pixi run run-pipeline -j <number of processes> --config querydir="<path to query dir>"
+
+# Direct usage with custom querydir and CPU count
 python run_clean.py -j <number of processes> --config querydir="<path to query dir>"
 
 # With custom output directory (default: <querydir_basename>_results in current directory)
@@ -144,8 +151,8 @@ python run_clean.py -j 8 --configfile myconfig.yml --config querydir="mygenomes"
 ```
 
 * Alternative: Run directly with Snakemake (verbose output)
-```
-snakemake -j <number of processes> --use-conda --config querydir="<path to query dir>" outdir="<output dir>"
+```bash
+pixi run snakemake -j <number of processes> --config querydir="<path to query dir>" outdir="<output dir>"
 ```
 
 #### Advanced Settings
