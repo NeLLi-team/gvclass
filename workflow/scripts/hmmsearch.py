@@ -1,22 +1,105 @@
-import subprocess
 from typing import List, Tuple, Dict
 from collections import defaultdict
 import os
 import click
 import pandas as pd
+import pyhmmer
+
+# Add the scripts directory to the Python path
+import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from utils import validate_file_path, GVClassError
+from error_handling import error_handler, ProcessingError
+
+# Add the parent directory to import marker sets
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
-def run_cmd(cmd: str) -> None:
+def run_pyhmmer_search(hmm_file: str, query_file: str, output_file: str, threads: int = 4) -> None:
     """
-    Run a command in the shell and print standard output and error.
-
+    Run HMM search using pyhmmer instead of external hmmsearch command.
+    
     Args:
-        cmd (str): Command to run.
+        hmm_file: Path to HMM model file
+        query_file: Path to query sequence file
+        output_file: Path to output file
+        threads: Number of threads to use
     """
-    sp = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    std_out, std_err = sp.communicate()
-    print('std_err:', std_err.decode())
-    print('std_out:', std_out.decode())
+    try:
+        error_handler.log_info(f"Running pyhmmer search on {query_file} with {hmm_file}")
+        
+        # Read HMM profiles
+        with pyhmmer.plan7.HMMFile(hmm_file) as hmm_handle:
+            profiles = list(hmm_handle)
+        
+        # Read query sequences
+        with pyhmmer.easel.SequenceFile(query_file, digital=True) as seq_handle:
+            sequences = list(seq_handle)
+        
+        # Run search with E-value threshold
+        results = pyhmmer.hmmsearch(
+            profiles, 
+            sequences, 
+            cpus=threads,
+            E=10.0,  # E-value threshold
+            domE=10.0  # Domain E-value threshold
+        )
+        
+        # Write results in simplified domtblout format
+        with open(output_file, 'w') as out_handle:
+            # Write header
+            out_handle.write("# target name\taccession\ttlen\tquery name\taccession\tqlen\tE-value\tscore\tbias\t#\tof\tc-Evalue\ti-Evalue\tscore\tbias\tfrom\tto\tfrom\tto\tfrom\tto\tacc\n")
+            
+            # Iterate through results - each TopHits corresponds to one query HMM
+            for i, (hmm, top_hits) in enumerate(zip(profiles, results)):
+                hmm_name = hmm.name.decode() if isinstance(hmm.name, bytes) else hmm.name
+                hmm_accession = hmm.accession.decode() if hmm.accession and isinstance(hmm.accession, bytes) else (hmm.accession or "-")
+                hmm_length = hmm.M
+                
+                # Process hits for this HMM
+                for hit in top_hits:
+                    target_name = hit.name.decode() if isinstance(hit.name, bytes) else hit.name
+                    target_accession = "-"  # Simplified
+                    target_length = 1000  # Placeholder - will be parsed differently downstream
+                    
+                    # Process domains
+                    for domain_idx, domain in enumerate(hit.domains):
+                        # Get alignment for coordinate information
+                        if domain.alignment:
+                            ali = domain.alignment
+                            hmm_from = ali.hmm_from
+                            hmm_to = ali.hmm_to
+                            target_from = ali.target_from
+                            target_to = ali.target_to
+                            target_length = ali.target_length
+                        else:
+                            # Fallback if no alignment
+                            hmm_from = 1
+                            hmm_to = hmm_length
+                            target_from = domain.env_from
+                            target_to = domain.env_to
+                            
+                        # Simplified output - focus on essential fields
+                        out_handle.write(f"{target_name}\t{target_accession}\t{target_length}\t")
+                        out_handle.write(f"{hmm_name}\t{hmm_accession}\t{hmm_length}\t")
+                        out_handle.write(f"{hit.evalue:.2e}\t{hit.score:.1f}\t{hit.bias:.1f}\t")
+                        out_handle.write(f"{domain_idx+1}\t{len(hit.domains)}\t")
+                        out_handle.write(f"{domain.c_evalue:.2e}\t{domain.i_evalue:.2e}\t")
+                        out_handle.write(f"{domain.score:.1f}\t{domain.bias:.1f}\t")
+                        # Use 1-based coordinates
+                        out_handle.write(f"{hmm_from+1}\t{hmm_to}\t")
+                        out_handle.write(f"{target_from+1}\t{target_to}\t")
+                        out_handle.write(f"{domain.env_from+1}\t{domain.env_to}\t")
+                        out_handle.write("0.90\n")  # Default accuracy
+        
+        error_handler.log_info(f"pyhmmer search completed. Results written to {output_file}")
+        
+    except Exception as e:
+        raise ProcessingError(
+            f"pyhmmer search failed: {str(e)}",
+            step="pyhmmer_search",
+            input_file=query_file
+        ) from e
 
 
 def get_models(modelsin: str) -> List[str]:
@@ -141,7 +224,8 @@ def load_cutoffs(cutoff_file: str) -> Dict[str, Tuple[float, float]]:
 @click.option('--countout', '-c', type=click.Path(), required=True, help='Output file for marker gene counts')
 @click.option('--scoreout', '-s', type=click.Path(), required=True, help='Output file for highest bitscore matrix')
 @click.option('--cutoff_file', '-f', type=click.Path(exists=True), help='Cutoff file for filtering HMM hits')
-def main(queryfaa: str, modelscombined: str, hmmout: str, filtered_hmmout: str, countout: str, scoreout: str, cutoff_file: str = None) -> None:
+@click.option('--threads', '-t', default=4, help='Number of CPU threads to use')
+def main(queryfaa: str, modelscombined: str, hmmout: str, filtered_hmmout: str, countout: str, scoreout: str, cutoff_file: str = None, threads: int = 4) -> None:
     """
     Main function to run HMM search and process the output.
 
@@ -153,17 +237,30 @@ def main(queryfaa: str, modelscombined: str, hmmout: str, filtered_hmmout: str, 
         countout (str): Path to the output file for marker gene counts.
         scoreout (str): Path to the output file for highest bitscore matrix.
         cutoff_file (str, optional): Path to the cutoff file for filtering HMM hits. Defaults to None.
+        threads (int): Number of CPU threads to use.
     """
-    os.makedirs(os.path.dirname(hmmout), exist_ok=True)
-    # Define hmmsearch command
-    hmmsearch_cmd = f"hmmsearch --noali --domtblout {hmmout} --cpu 4 {modelscombined} {queryfaa}"
-
-    # Check if the hmmsearch output file already exists
-    if not os.path.exists(hmmout) or os.path.getsize(hmmout) == 0:
-        # Run hmmsearch command
-        run_cmd(hmmsearch_cmd)
-    else:
-        print(f"Skipping hmmsearch as the output file {hmmout} already exists.")
+    try:
+        # Validate input files
+        query_file = validate_file_path(queryfaa, must_exist=True)
+        models_file = validate_file_path(modelscombined, must_exist=True)
+        output_file = validate_file_path(hmmout, must_exist=False)
+        
+        # Validate threads parameter
+        if not isinstance(threads, int) or threads < 1:
+            raise ValueError("Threads must be a positive integer")
+        
+        os.makedirs(os.path.dirname(output_file), exist_ok=True)
+        
+        # Check if the hmmsearch output file already exists
+        if not os.path.exists(output_file) or os.path.getsize(output_file) == 0:
+            # Run hmmsearch using pyhmmer
+            run_pyhmmer_search(str(models_file), str(query_file), str(output_file), threads)
+        else:
+            print(f"Skipping hmmsearch as the output file {output_file} already exists.")
+            
+    except (ValueError, FileNotFoundError, GVClassError) as e:
+        print(f"Error: {e}")
+        raise click.ClickException(str(e))
         
     models = get_models(modelscombined)
     

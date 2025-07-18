@@ -1,4 +1,4 @@
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 """fschulz@lbl.gov"""
 
 from pathlib import Path
@@ -18,8 +18,8 @@ No special characters in filename, no additional "."
 Recommended assembly size is 50kb
 
 Example run:
-snakemake -j 8 --use-conda --config querydir="example"
-snakemake -j 8 --use-conda --config querydir="<path to dir with query fna or faa>" database_path="<path to db>"
+pixi run snakemake -j 8 --config querydir="example"
+pixi run snakemake -j 8 --config querydir="<path to dir with query fna or faa>" database_path="<path to db>"
 """
 
 def log_run_info(log_file):
@@ -43,9 +43,16 @@ configfile: workflow_dir / "config.yml"
 
 # input and output dirs
 querydir = Path(config["querydir"]).resolve()
-outdir = querydir / "results"
+
+# Output directory configuration
+if "outdir" in config:
+    # Use specified output directory
+    outdir = Path(config["outdir"]).resolve()
+else:
+    # Default: use querydir basename + "_results" in current working directory
+    outdir = Path.cwd() / f"{querydir.name}_results"
+
 database_path = Path(config.get("database_path", workflow_dir / "resources")).resolve()
-conda_env = workflow_dir / "envs/gvclass.yml"
 
 # query file bases = query names without suffix
 QUERYBASENAMES = [x.stem for x in querydir.iterdir() if x.is_file() and x.suffix in [".faa", ".fna"]]
@@ -74,8 +81,10 @@ def check_and_download_resources(database_path):
 
     missing_files = [f for f in required_files if not (database_path / f).exists()]
     if missing_files:
-        raise ValueError(f"The following required files are missing from {database_path}:\n" + "\n".join(missing_files))
+        raise ValueError(f"The following required files are missing from {database_path}:\n" + "\n".join(missing_files) + 
+                        "\n\nPlease run 'pixi run setup-db' to download the database.")
 
+    print(f"✅ Resources verified at {database_path}")
     return database_path
 
 
@@ -113,8 +122,6 @@ rule log_info:
 
 
 rule reformat_faa:
-    conda:
-        str(conda_env)
     input:
         querydir / "{querybase}.faa",
         log_file = outdir / "run_info.log"
@@ -133,8 +140,6 @@ rule reformat_faa:
         """
 
 rule genecalling:
-    conda:
-        str(conda_env)
     input:
         queryfna = querydir / "{querybase}.fna",
         models = database_path / "models/combined.hmm",
@@ -168,8 +173,6 @@ Identify markers, extract, align
 """
 
 rule run_hmmsearch:
-    conda:
-        str(conda_env)
     input:
         queryfaa = outdir / "{querybase}/query_faa/{querybase}.faa",
         models = database_path / "models/combined.hmm",
@@ -201,8 +204,6 @@ rule extract_qhits:
     """
     extract hits from hmmsearch, one file per marker, merge with refs
     """
-    conda:
-        str(conda_env)
     input:
         hmmout = outdir / "{querybase}/hmmout/models.out.filtered",
         queryfaa = outdir / "{querybase}/query_faa/{querybase}.faa"
@@ -226,8 +227,6 @@ rule blastp_reduce_merge:
     blastp vs databases of representative genomes
     extract up to top 100 hits
     """
-    conda:
-        str(conda_env)
     input:
         queryhitsfaa = outdir / "{querybase}/query_hits_faa/{modelbase}.faa",
         reffaa = database_path / "database/faa/{modelbase}.faa",
@@ -250,8 +249,6 @@ rule align_trim:
     """
     align extracted proteins together with refs
     """
-    conda:
-        str(conda_env)
     input:
         mergedfaa = outdir / "{querybase}/query_hits_merged_faa/{modelbase}.faa"
     output:
@@ -276,8 +273,6 @@ rule build_trees:
     build single protein trees for models
     no log to reduce temp files
     """
-    conda:
-        str(conda_env)
     input:
         trimmedaln = outdir / "{querybase}/queryrefs_aligned/{modelbase}.mafft01"
     output:
@@ -295,8 +290,6 @@ rule get_nn:
     """
     infer nearest neighbor in each tree
     """
-    conda:
-        str(conda_env)
     params:
         queryname="{querybase}",
         fdir = lambda wildcards: outdir / wildcards.querybase,
@@ -320,8 +313,6 @@ rule summarize:
     """
     combine different outputs
     """
-    conda:
-        str(conda_env)
     input:
         nn_tree = outdir / "{querybase}/stats/{querybase}.tree_nn",
         models_count = outdir / "{querybase}/hmmout/models.counts",
@@ -352,8 +343,6 @@ rule summarize:
         """
 
 rule combinedout:
-    conda:
-        str(conda_env)
     input:
         expand(outdir / "{querybase}/{querybase}.summary.tab", querybase=QUERYBASENAMES)
     params:
@@ -369,8 +358,6 @@ rule combinedout:
         """
 
 rule cleanup:
-    conda:
-        str(conda_env)
     input:
         summary = outdir / "{querybase}/{querybase}.summary.tab",
         combined = str(outdir / f"gvclass_out_v{__version__}.tab")
@@ -389,9 +376,7 @@ rule cleanup:
         else
             echo "Warning: {params.faaout} not found. Skipping copy."
         fi
-        # Remove empty dirs
-        find {params.fdir} -type f -size 0 -delete
-        find {params.fdir} -type d -empty -delete
+        # Note: Not removing empty files/dirs as they may be needed for pipeline tracking
         # Ensure the output directory exists before trying to write the .tar.gz file
         mkdir -p $(dirname {output})
         # Change to the parent directory of the target directory to keep directory structure in the tar file

@@ -3,3 +3,6 @@
 example/results
 update
 resources/
+*_results
+.pixi*
+pixi.lock

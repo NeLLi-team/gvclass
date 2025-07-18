@@ -1,5 +1,6 @@
 database_path: "resources"
 keep_temp: True
 mafftoption: "linsi" # "ginsi", or "" for -auto
-treeoption: "iqtree"  # "iqtree",  "fasttree", model for iqtree is LG4X -fast
+treeoption: "fasttree"  # "iqtree",  "fasttree", model for iqtree is LG4X -fast
 mode_fast: True # True to only get trees from general models, False to also get tree from order level models
+# outdir: "custom_output_dir"  # Optional: specify output directory (default: <querydir_basename>_results in current directory)

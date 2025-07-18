@@ -1,8 +1,13 @@
 <p align="center">
-  <img src="GVClass_logo.png" alt="Description" width="50%">
+  <img src="images/GVClass_logo.png" alt="Description" width="50%">
 </p>
 
-_version 1.0 8 July 2024_
+<p align="center">
+  <img src="https://img.shields.io/badge/version-1.1.0-blue" alt="Version">
+  <img src="https://img.shields.io/badge/status-development-orange" alt="Status">
+</p>
+
+_version 1.1.0 - January 2025_
 
 Giant viruses are abundant and diverse and frequently found in environmental microbiomes. GVClass assigns taxonomy to putative giant virus contigs or metagenome assembled genomes ([GVMAGs](https://doi.org/10.1038/s41586-020-1957-x)). It uses a conservative approach based on the consensus of single protein trees built from giant virus orthologous groups ([GVOGs](https://doi.org/10.1371/journal.pbio.3001430)), additional Mirusvirus, Mryavirus and Poxvirus hallmark genes and cellular single copy panorthologs. Genome completeness and contamination is then estimated based on copy numbers of a larger set of genes typically conserved in single copy at order-level.
 
@@ -11,7 +16,7 @@ Giant viruses are abundant and diverse and frequently found in environmental mic
 ### Overview of the GVClass framework
 
 <p align="center">
-  <img src="Workflow_GVClass.png" alt="Description" width="100%">
+  <img src="images/Workflow_GVClass.png" alt="Description" width="100%">
 </p>
 
 ### Input Requirements
@@ -123,21 +128,37 @@ cd ../../
 ```
 * Test GVClass using the provided giant virus assemblies
 ```
-snakemake -j 24 --use-conda --config querydir="example"
+python run_clean.py
 ```
-* If this completes successfully, run it using your own directory of query genomes
+
+* Run with custom parameters
 ```
-snakemake -j <number of processes> --use-conda --config querydir="<path to query dir>"
+# Basic usage with custom querydir and CPU count
+python run_clean.py -j <number of processes> --config querydir="<path to query dir>"
+
+# With custom output directory (default: <querydir_basename>_results in current directory)
+python run_clean.py -j 8 --config querydir="mygenomes" outdir="my_custom_output"
+
+# Using a custom config file
+python run_clean.py -j 8 --configfile myconfig.yml --config querydir="mygenomes"
+```
+
+* Alternative: Run directly with Snakemake (verbose output)
+```
+snakemake -j <number of processes> --use-conda --config querydir="<path to query dir>" outdir="<output dir>"
 ```
 
 #### Advanced Settings
 
 * Config file allows to specify options for MAFFT (default is mafft-linsi), iqtree (default) or fasttree
 * fast_mode (default) can be set to False in config file, in that case single protein trees are also built for all conserved order-level marker genes
-* These parameters can also be passed on the command line via the `--config` command line option. E.g., `--config querydir=example treeoption=fasttree`.
+* outdir: specify custom output directory name (default: `<querydir_basename>_results` in current working directory)
+* These parameters can also be passed on the command line via the `--config` command line option. E.g., `--config querydir=example treeoption=fasttree outdir=my_results`.
 
 ## Interpretation of the results
-* The classification result is summarized in a tab separated file in a subdir "results" in the the query dir
+* The classification result is summarized in a tab separated file `gvclass_out_v1.1.0.tab` in the output directory
+* By default, results are written to `<querydir_basename>_results` in the current working directory
+* Use the `outdir` config parameter to specify a custom output location
 
 ### Gene calling
 * Different genetic codes are tested and evaluated based on hmmsearch using the general models

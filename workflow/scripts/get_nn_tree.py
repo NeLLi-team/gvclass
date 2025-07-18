@@ -2,7 +2,7 @@ import glob
 from typing import List, Dict, Tuple
 import click
 from ete3 import Tree
-from collections import Counter, defaultdict
+from collections import Counter
 
 def flatten_keys_to_list(dict1: Dict[str, Dict[str, float] | Tuple[str, float]], labels_dict: Dict[str, List[str]], taxlevel: str) -> List[str]:
     """

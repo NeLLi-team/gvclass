@@ -1,8 +1,24 @@
+import os
+import sys
 import click
 import pandas as pd
-import glob
 from collections import Counter
 from typing import List, Tuple, Union
+
+# Add the parent directory to the Python path to import from config
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Import marker sets from configuration
+from config.marker_sets import (
+    MIRUS_MODELS,
+    BUSCO_MODELS,
+    PHAGE_MODELS,
+    GVOG4M_MODELS,
+    GVOG8M_MODELS,
+    UNI56_MODELS,
+    MCP_MODELS,
+    MRYA_MODELS,
+)
 
 def parse_result(tabout: str) -> List[List[str]]:
     results = []
@@ -20,43 +36,40 @@ def format_floats(df: pd.DataFrame) -> pd.DataFrame:
 
 def process_model_hitcounts(models_count: str) -> Tuple[int, ...]:
     try:
-        mirus_models = ["mOG0000040", "mOG0000014", "mOG0000019", "mOG0000030", "mOG0000020"]
-        busco_models = ["1003258at2759", "1019762at2759", "1032689at2759", "1038775at2759", "1057950at2759"]
-        phage_models = ["genomad000023", "genomad000026", "genomad000172", "genomad000217", "genomad000254"]
-        gvog4m_models = ["GVOGm0461", "GVOGm0022", "GVOGm0023", "GVOGm0054"]
-        gvog8m_models = ["GVOGm0013", "GVOGm0022", "GVOGm0023", "GVOGm0054", "GVOGm0172", "GVOGm0461", "GVOGm0760", "GVOGm0890"]
-        uni56_models = ["COG0013", "COG0016", "COG0018", "COG0048", "COG0049"]
-        mcp_models = ["gamadvirusMCP", "yaravirusMCP", "PoxMCP", "GVOGm0003", "mOG0000014"]
-        mrya_models = ["HUH", "HUHlong", "VLTF2", "VLTF3", "ATPase", "gamadvirusMCP"]
-
         models_count_df = pd.read_csv(models_count, sep="\t", index_col=0)
 
         def calculate_metrics(model_list):
-            unique = models_count_df[model_list].gt(0).sum(axis=1).sum()
-            total = models_count_df[model_list].sum(axis=1).sum()
+            # Filter to only include models that exist in the dataframe
+            existing_models = [model for model in model_list if model in models_count_df.columns]
+            
+            if not existing_models:
+                return 0, 0, 0
+            
+            unique = models_count_df[existing_models].gt(0).sum(axis=1).sum()
+            total = models_count_df[existing_models].sum(axis=1).sum()
             duplication = total / unique if unique > 0 else 0
             return unique, total, duplication
 
-        gvog4_unique, gvog4_total, gvog4_dup = calculate_metrics(gvog4m_models)
-        gvog8_unique, gvog8_total, gvog8_dup = calculate_metrics(gvog8m_models)
-        mirus_unique, mirus_total, mirus_dup = calculate_metrics(mirus_models)
-        mrya_unique, mrya_total, mrya_dup = calculate_metrics(mrya_models)
-        mcp_unique, mcp_total, mcp_dup = calculate_metrics(mcp_models)
-        uni56_unique, uni56_total, uni56_dup = calculate_metrics(uni56_models)
-        busco_unique, busco_total, busco_dup = calculate_metrics(busco_models)
-        phage_unique, phage_total, phage_dup = calculate_metrics(phage_models)
+        gvog4_unique, gvog4_total, gvog4_dup = calculate_metrics(GVOG4M_MODELS)
+        gvog8_unique, gvog8_total, gvog8_dup = calculate_metrics(GVOG8M_MODELS)
+        mirus_unique, mirus_total, mirus_dup = calculate_metrics(MIRUS_MODELS)
+        mrya_unique, mrya_total, mrya_dup = calculate_metrics(MRYA_MODELS)
+        mcp_unique, mcp_total, mcp_dup = calculate_metrics(MCP_MODELS)
+        uni56_unique, uni56_total, uni56_dup = calculate_metrics(UNI56_MODELS)
+        busco_unique, busco_total, busco_dup = calculate_metrics(BUSCO_MODELS)
+        phage_unique, phage_total, phage_dup = calculate_metrics(PHAGE_MODELS)
 
         cellular_unique = uni56_unique + busco_unique
         cellular_total = uni56_total + busco_total
         cellular_dup = cellular_total / cellular_unique if cellular_unique > 0 else 0
 
-        return gvog4_unique, gvog8_unique, gvog8_total, gvog8_dup, mirus_unique, mirus_total, \
-               mirus_dup, mrya_unique, mrya_total, mcp_unique, mcp_total, uni56_unique, uni56_total, \
-               uni56_dup, busco_unique, busco_total, busco_dup, phage_unique, phage_total, \
-               cellular_unique, cellular_total, cellular_dup
+        return gvog4_unique, gvog4_total, gvog4_dup, gvog8_unique, gvog8_total, gvog8_dup, \
+               mirus_unique, mirus_total, mirus_dup, mrya_unique, mrya_total, mcp_unique, mcp_total, \
+               uni56_unique, uni56_total, uni56_dup, busco_unique, busco_total, busco_dup, \
+               phage_unique, phage_total, cellular_unique, cellular_total, cellular_dup
     except Exception as e:
         print(f"Error processing model hit counts: {e}")
-        return (0,) * 23
+        return (0,) * 24
 
 def most_frequent(taxstrings: List[str], taxlevel: str) -> str:
     freq = Counter(taxstrings)
@@ -127,8 +140,6 @@ def tax_annotation(row: pd.Series, level_other: int, level_ncldv: int) -> str:
         return "_"
 
 def process_model_hitcounts_order(marker_count: str, conversiontable: str, ncldv_order: str) -> Tuple[float, ...]:
-    order_models = ["OG0", "OG1023", "OG103", "OG1072", "OG107"]
-
     def get_relevant_ogs(ncldv_order: str, conversiontable: pd.DataFrame) -> List[str]:
         row = conversiontable[conversiontable['Order'] == ncldv_order]
         if not row.empty:
@@ -137,13 +148,14 @@ def process_model_hitcounts_order(marker_count: str, conversiontable: str, ncldv
         print(f"No orthogroups found for {ncldv_order}")
         return []
 
-    def calculate_completeness_and_duplication(df: pd.DataFrame, ogs: List[str]) -> Tuple[float, float]:
+    def calculate_completeness_and_duplication(df: pd.DataFrame, ogs: List[str], total_expected_ogs: List[str]) -> Tuple[float, float]:
         valid_ogs = [og for og in ogs if og in df.columns]
         if not valid_ogs:
             return 0, 0
         
         df_ogs = df[valid_ogs]
-        completeness_percentage = (df_ogs > 0).sum().sum() / (df_ogs.shape[0] * len(valid_ogs)) * 100
+        # Completeness should be based on total expected OGs for the order, not just the ones we have data for
+        completeness_percentage = (df_ogs > 0).sum().sum() / (df_ogs.shape[0] * len(total_expected_ogs)) * 100
         total_counts = df_ogs.sum().sum()
         non_zero_ogs_count = (df_ogs > 0).sum(axis=0).sum()
         duplication_factor = total_counts / non_zero_ogs_count if non_zero_ogs_count > 0 else 0
@@ -155,11 +167,15 @@ def process_model_hitcounts_order(marker_count: str, conversiontable: str, ncldv
         relevant_ogs = get_relevant_ogs(ncldv_order, df_conversiontable)
         
         if relevant_ogs:
-            df_order_counts = pd.read_csv(marker_count, sep="\t")
-            df_relevant_ogs = pd.DataFrame(0, columns=relevant_ogs, index=df_order_counts.index)
-            df_order_counts = pd.concat([df_order_counts, df_relevant_ogs], axis=1)
-            df_order_counts = df_order_counts[relevant_ogs]
-            completeness, duplication = calculate_completeness_and_duplication(df_order_counts, relevant_ogs)
+            df_order_counts = pd.read_csv(marker_count, sep="\t", index_col=0)
+            # Only use OGs that actually exist in the data
+            existing_ogs = [og for og in relevant_ogs if og in df_order_counts.columns]
+            
+            if existing_ogs:
+                # Pass both existing OGs and total expected OGs for proper completeness calculation
+                completeness, duplication = calculate_completeness_and_duplication(df_order_counts, existing_ogs, relevant_ogs)
+            else:
+                completeness, duplication = 0, 0
         else:
             completeness, duplication = 0, 0
             
@@ -228,9 +244,10 @@ def main(nn_tree: str, marker_count: str, querystats: str, conversiontable: str,
             df_tree["distance"] = df_tree["distance"].astype(float)
             df_results_tree = summarize(df_tree)
 
-            gvog4_unique, gvog8_unique, gvog8_total, gvog8_dup, mirus_unique, mirus_total, mirus_dup, mrya_unique, \
-                mrya_total, mcp_unique, mcp_total, uni56_unique, uni56_total, uni56_dup, busco_unique, busco_total, \
-                busco_dup, phage_unique, phage_total, cellular_unique, cellular_total, cellular_dup = process_model_hitcounts(marker_count)
+            gvog4_unique, gvog4_total, gvog4_dup, gvog8_unique, gvog8_total, gvog8_dup, mirus_unique, mirus_total, \
+                mirus_dup, mrya_unique, mrya_total, mcp_unique, mcp_total, uni56_unique, uni56_total, uni56_dup, \
+                busco_unique, busco_total, busco_dup, phage_unique, phage_total, cellular_unique, cellular_total, \
+                cellular_dup = process_model_hitcounts(marker_count)
 
             order_dup = 0
             order_completeness = 0
@@ -285,8 +302,11 @@ def main(nn_tree: str, marker_count: str, querystats: str, conversiontable: str,
             final_results = final_results[final_order]
             final_results.to_csv(summary_out, sep="\t", index=False)
     except Exception as e:
+        import traceback
         print(f"An error occurred: {e}")
-        with open(summary_out, "w") as outfile:
+        print("Full traceback:")
+        traceback.print_exc()
+        with open(summary_out, "w"):
             pass
 
 if __name__ == "__main__":

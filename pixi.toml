@@ -1,0 +1,91 @@
+[project]
+name = "gvclass"
+version = "1.1.0"
+description = "Giant virus classification tool using phylogenetic analysis"
+authors = ["fschulz@lbl.gov"]
+channels = ["conda-forge", "bioconda"]
+platforms = ["linux-64"]
+
+[dependencies]
+python = "3.11.*"
+# Workflow management
+snakemake = ">=9.3"
+# Core Python scientific libraries
+numpy = ">=2.3"  # Latest numpy with full typing support
+pandas = ">=2.3"   # Compatible with numpy 2.3
+scipy = ">=1.16"   # Compatible with numpy 2.3
+biopython = "1.85.*"  # Updated for Python 3.11
+click = "8.1.*"
+
+# Bioinformatics tools - Python replacements will be installed via PyPI
+
+iqtree = ">=3.0.0"
+
+# Phylogenetic analysis
+ete3 = ">=3.1.0"
+
+# System dependencies
+cython = "3.0.*"
+setuptools = ">=62.0"
+wheel = "*"
+
+# Additional dependencies for visualization and data processing
+lxml = ">=4.9.0"
+joblib = ">=1.4.0"
+
+[pypi-dependencies]
+# Python-based bioinformatics tools
+pyhmmer = ">=0.10.0"
+pytrimal = ">=0.8.0"
+pyfamsa = ">=0.5.0"
+# Using tomasbruna's pyrodigal fork for codes 106, 129
+pyrodigal = { git = "https://github.com/tomasbruna/pyrodigal.git" }
+# Python-based sequence alignment tool (Diamond replacement)
+pyswrd = ">=0.1.0"
+# Python-based phylogenetic tree building (FastTree replacement)
+veryfasttree = ">=3.0.0"
+# Python wrapper for IQ-TREE (commented out due to dependency conflicts)
+# piqtree = ">=0.1.0"
+# CLI framework used by scripts
+click = ">=8.0.0"
+
+[tasks]
+# Installation tasks
+setup-db = "python scripts/setup_database.py"
+
+# Development and testing tasks
+install = "pixi install"
+test = "pixi run python -m pytest tests/ -v"
+lint = "pixi run python -m flake8 workflow/scripts/"
+format = "pixi run python -m black workflow/scripts/"
+
+# Main execution tasks
+run-example = "pixi run snakemake -j 8 --config querydir=example"
+run-pipeline = "pixi run snakemake -j"
+
+# Container build tasks
+build-container = "docker build -t gvclass:latest ."
+
+# CLI commands
+gvclass = "python -m src.bin.gvclass"
+gvclass-prefect = "python -m src.bin.gvclass_prefect"
+gvclass-dask = "python -m src.bin.gvclass_cli"
+
+# Prefect shortcuts
+prefect-run = "python -m src.bin.gvclass_prefect run"
+prefect-deploy = "python -m src.bin.gvclass_prefect deploy"
+prefect-serve = "python -m src.bin.gvclass_prefect serve-local"
+
+[feature.dev.dependencies]
+pytest = "*"
+black = "*"
+flake8 = "*"
+mypy = "*"
+pre-commit = "*"
+
+[environments]
+default = ["dev"]
+production = []
+
+[tool.pixi.pypi-options]
+allow-pre-releases = true
