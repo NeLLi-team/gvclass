@@ -1,0 +1,55 @@
+# GVClass Configuration File
+# Command line arguments will override these settings
+
+# Database configuration
+database:
+  # Path to GVClass database (default: resources in the current directory)
+  # If not found, will be downloaded automatically
+  path: resources
+  # URL for automatic download if database not found
+  # Note: Update this URL to the actual database location when available
+  download_url: https://portal.nersc.gov/cfs/m342/GVClass/gvclass_db_v1.1.tar.gz
+  # Expected size for validation (in MB)
+  expected_size: 701
+
+# Pipeline settings
+pipeline:
+  # Tree building method: fasttree or iqtree
+  tree_method: fasttree
+  # Fast mode - skip order-level marker trees when True
+  mode_fast: false
+  # Number of threads for computation
+  threads: 4
+  # Output directory pattern
+  # Variables: {query_dir} = basename of query directory
+  output_pattern: "{query_dir}_results"
+
+# Genetic code settings
+genetic_codes:
+  # List of genetic codes to test
+  codes: [0, 1, 4, 6, 11, 15, 106, 129]
+  # Minimum improvement threshold for selecting alternative genetic codes
+  improvement_threshold: 0.05  # 5%
+
+# Quality thresholds
+quality:
+  # Minimum number of markers required
+  min_markers: 3
+  # Minimum contig length (bp)
+  min_length: 20000
+  # Recommended minimum length (bp)
+  recommended_length: 50000
+
+# Resource allocation
+resources:
+  # Memory limit per worker (GB)
+  memory_limit: 8
+  # Timeout for individual tasks (minutes)
+  task_timeout: 60
+
+# Logging
+logging:
+  # Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  level: ERROR
+  # Keep intermediate files
+  keep_temp: false

@@ -1,5 +1,13 @@
+DEL
 .dir_bash_history
 .snakemake
 example/results
 update
 resources/
+CLAUDE.md
+.pixi*
+.ruff*
+.claude*
+out*
+*_results
+results*

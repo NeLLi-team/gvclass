@@ -1,0 +1,35 @@
+diff --git a/pyrodigal/_sequence.h b/pyrodigal/_sequence.h
+index 1234567..abcdefg 100644
+--- a/pyrodigal/_sequence.h
++++ b/pyrodigal/_sequence.h
+@@ -57,7 +57,8 @@ static inline int _is_start(const uint8_t* digits, const int slen, const int i,
+     if ((x0 == A) && (x1 == T) && (x2 == G))
+         return 1;
+     // Codes that only use ATG
+-    if ((tt == 6) || (tt == 10) || (tt == 14) || (tt == 15) || (tt == 16) || (tt == 2))
++    if ((tt == 6) || (tt == 10) || (tt == 14) || (tt == 15) || (tt == 16) ||
++        (tt == 2) || (tt == 129))
+         return 0;
+     // GTG
+     if ((x0 == G) && (x1 == T) && (x2== G))
+@@ -85,7 +86,10 @@ static inline int _is_stop(const uint8_t* digits, const int slen, const int i, c
+ 
+     // TAG
+     if ((x0 == T) && (x1 == A) && (x2 == G))
+-        return !((tt == 6) || (tt == 15) || (tt == 16) || (tt == 22));
++        return !(
++                (tt == 6)  || (tt == 15) || (tt == 16) || (tt == 22)
++             || (tt == 30) || (tt == 129)
++        );
+     // TGA
+     if ((x0 == T) && (x1 == G) && (x2 == A))
+         return !(
+@@ -95,7 +99,7 @@ static inline int _is_stop(const uint8_t* digits, const int slen, const int i, c
+         );
+     // TAA
+     if ((x0 == T) && (x1 == A) && (x2 == A))
+-        return !((tt == 6) || (tt == 14));
++        return !((tt == 6) || (tt == 14) || (tt == 30));
+ 
+     // Code 2: AGA / AGG
+     if (tt == 2)

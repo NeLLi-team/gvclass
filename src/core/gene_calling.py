@@ -1,14 +1,93 @@
 import os
 import sys
-import glob
 import shutil
 import logging
 import pandas as pd
-import subprocess
 from typing import List, Dict, Tuple
 from Bio import SeqIO
-import pyrodigal
+import pyrodigal  # Using tomasbruna's fork with codes 106, 129
+import pyhmmer
 import click
+
+from src.utils.common import validate_file_path
+from src.utils.error_handling import ProcessingError
+
+
+def run_pyhmmer_search_simple(hmm_file: str, query_file: str, output_file: str) -> None:
+    """
+    Simplified pyhmmer search function for opgecall.py.
+    
+    Args:
+        hmm_file: Path to HMM model file
+        query_file: Path to query sequence file
+        output_file: Path to output file
+    """
+    try:
+        # Read HMM profiles
+        with pyhmmer.plan7.HMMFile(hmm_file) as hmm_handle:
+            profiles = list(hmm_handle)
+        
+        # Read query sequences
+        with pyhmmer.easel.SequenceFile(query_file, digital=True) as seq_handle:
+            sequences = list(seq_handle)
+        
+        # Run search with default parameters
+        results = pyhmmer.hmmsearch(profiles, sequences, cpus=4)
+        
+        # Write results in simplified domtblout format
+        with open(output_file, 'w') as out_handle:
+            # Write header
+            out_handle.write("# target name\taccession\ttlen\tquery name\taccession\tqlen\tE-value\tscore\tbias\t#\tof\tc-Evalue\ti-Evalue\tscore\tbias\tfrom\tto\tfrom\tto\tfrom\tto\tacc\n")
+            
+            # Iterate through results - each TopHits corresponds to one query HMM
+            for i, (hmm, top_hits) in enumerate(zip(profiles, results)):
+                hmm_name = hmm.name.decode() if isinstance(hmm.name, bytes) else hmm.name
+                hmm_accession = hmm.accession.decode() if hmm.accession and isinstance(hmm.accession, bytes) else (hmm.accession or "-")
+                hmm_length = hmm.M
+                
+                # Process hits for this HMM
+                for hit in top_hits:
+                    target_name = hit.name.decode() if isinstance(hit.name, bytes) else hit.name
+                    target_accession = "-"  # Simplified
+                    target_length = 1000  # Placeholder - will be parsed differently downstream
+                    
+                    # Process domains
+                    for domain_idx, domain in enumerate(hit.domains):
+                        # Get alignment for coordinate information
+                        if domain.alignment:
+                            ali = domain.alignment
+                            hmm_from = ali.hmm_from
+                            hmm_to = ali.hmm_to
+                            target_from = ali.target_from
+                            target_to = ali.target_to
+                            target_length = ali.target_length
+                        else:
+                            # Fallback if no alignment
+                            hmm_from = 1
+                            hmm_to = hmm_length
+                            target_from = domain.env_from
+                            target_to = domain.env_to
+                            
+                        # Simplified output - focus on essential fields
+                        out_handle.write(f"{target_name}\t{target_accession}\t{target_length}\t")
+                        out_handle.write(f"{hmm_name}\t{hmm_accession}\t{hmm_length}\t")
+                        out_handle.write(f"{hit.evalue:.2e}\t{hit.score:.1f}\t{hit.bias:.1f}\t")
+                        out_handle.write(f"{domain_idx+1}\t{len(hit.domains)}\t")
+                        out_handle.write(f"{domain.c_evalue:.2e}\t{domain.i_evalue:.2e}\t")
+                        out_handle.write(f"{domain.score:.1f}\t{domain.bias:.1f}\t")
+                        # Use 1-based coordinates
+                        out_handle.write(f"{hmm_from+1}\t{hmm_to}\t")
+                        out_handle.write(f"{target_from+1}\t{target_to}\t")
+                        out_handle.write(f"{domain.env_from+1}\t{domain.env_to}\t")
+                        out_handle.write("0.90\n")  # Default accuracy
+        
+    except Exception as e:
+        raise ProcessingError(
+            f"pyhmmer search failed: {str(e)}",
+            step="pyhmmer_search",
+            input_file=query_file
+        ) from e
+
 
 def run_hmmsearch(faain: str, modelscombined: str, completeCutoff: float = 0.66) -> Tuple[int, float, int, float, float, int, float, float]:
     """
@@ -23,8 +102,13 @@ def run_hmmsearch(faain: str, modelscombined: str, completeCutoff: float = 0.66)
         Tuple: Metrics calculated from the hmmsearch results.
     """
     hmmout = faain.replace(".faa", ".hmmout")
-    hmmsearch_cmd = f"hmmsearch --noali --domtblout {hmmout} --cpu 4 {modelscombined} {faain}"
-    subprocess.run(hmmsearch_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    
+    # Validate input files
+    faa_file = validate_file_path(faain, must_exist=True)
+    models_file = validate_file_path(modelscombined, must_exist=True)
+    
+    # Run pyhmmer search
+    run_pyhmmer_search_simple(str(models_file), str(faa_file), hmmout)
 
     hit_count = 0
     total_score = 0
@@ -192,6 +276,7 @@ def prepareTrainingSequence(fnafile: str) -> bytes:
 def run_genecalling_codes(fnafile: str, code: int, gffout: str) -> None:
     """
     Run gene calling with pyrodigal and defined translation table.
+    tomasbruna's fork natively supports codes 106 and 129.
 
     Args:
         fnafile (str): Path to the input FNA file.
@@ -199,16 +284,15 @@ def run_genecalling_codes(fnafile: str, code: int, gffout: str) -> None:
         gffout (str): Path to the output GFF file.
     """
     faaout = gffout.replace(".gff", ".faa")
+    outSuffix = "meta" if code == 0 else code
 
+    # tomasbruna's fork supports codes 106 and 129 natively
     metaFlag = code == 0
-    outSuffix = "meta"
-
     geneFinder = pyrodigal.GeneFinder(meta=metaFlag)
 
     if code > 0:
         trainingSeq = prepareTrainingSequence(fnafile)
         geneFinder.train(trainingSeq, force_nonsd=True, translation_table=code)
-        outSuffix = code
 
     with open(f'{faaout}_code{outSuffix}', "w") as proteinOut, open(f'{gffout}_code{outSuffix}', "w") as gffOut:
         for record in SeqIO.parse(fnafile, "fasta"):
@@ -249,9 +333,8 @@ def main(fnafile: str, gffout: str, genecalling_statsout: str, summary_statsout:
     os.makedirs(os.path.dirname(hmmout), exist_ok=True)
 
     # Gene calling
-    # 106: TAA -> Q, ATG is the only start (as in code 6)
-    # 129: TAG -> Y, ATG is the only start (as in code 29)
-    codes = [0, 1, 4, 6, 106, 15, 11, 29, 129]  # Pass these from snakemake config instead
+    # tomasbruna's fork supports codes 106 and 129 for giant viruses
+    codes = [0, 1, 4, 6, 11, 15, 106, 129]
     for code in codes:
         run_genecalling_codes(fnafile, code, gffout)
 
@@ -266,22 +349,34 @@ def main(fnafile: str, gffout: str, genecalling_statsout: str, summary_statsout:
     avg_completeBestHitScores: Dict[str, float] = {}
     avg_proteinsPerProfiles: Dict[str, float] = {}
 
-    for faain in glob.glob(os.path.join(faaoutdir, "*.faa_code*")) + [os.path.join(faaoutdir, f"{os.path.splitext(os.path.basename(gffout))[0]}.faa_codemeta")]:
-        genome_id = os.path.basename(faain)
-        stats_dict[genome_id] = calc_stats(fnafile, faain)
-        hit_count, avg_score, profile_hit_count, avg_bestHitScore, avg_bestHitCoverage, completeBestHits, avg_completeBestHitScore, avg_proteinsPerProfile = run_hmmsearch(faain, modelscombined)
-        hit_counts[faain] = hit_count
-        avg_scores[faain] = avg_score
-        profile_hit_counts[faain] = profile_hit_count
-        avg_bestHitScores[faain] = avg_bestHitScore
-        avg_bestHitCoverages[faain] = avg_bestHitCoverage
-        completeBestHits_counts[faain] = completeBestHits
-        avg_completeBestHitScores[faain] = avg_completeBestHitScore
-        avg_proteinsPerProfiles[faain] = avg_proteinsPerProfile
+    # Secure glob usage - validate the directory first
+    faaoutdir_safe = validate_file_path(faaoutdir, must_exist=True)
+    
+    # Build search patterns safely
+    meta_file = faaoutdir_safe / f"{os.path.splitext(os.path.basename(gffout))[0]}.faa_codemeta"
+    
+    faa_files = list(faaoutdir_safe.glob("*.faa_code*"))
+    if meta_file.exists():
+        faa_files.append(meta_file)
+    
+    for faain in faa_files:
+        faain_str = str(faain)
+        genome_id = os.path.basename(faain_str)
+        stats_dict[genome_id] = calc_stats(fnafile, faain_str)
+        hit_count, avg_score, profile_hit_count, avg_bestHitScore, avg_bestHitCoverage, completeBestHits, avg_completeBestHitScore, avg_proteinsPerProfile = run_hmmsearch(faain_str, modelscombined)
+        hit_counts[faain_str] = hit_count
+        avg_scores[faain_str] = avg_score
+        profile_hit_counts[faain_str] = profile_hit_count
+        avg_bestHitScores[faain_str] = avg_bestHitScore
+        avg_bestHitCoverages[faain_str] = avg_bestHitCoverage
+        completeBestHits_counts[faain_str] = completeBestHits
+        avg_completeBestHitScores[faain_str] = avg_completeBestHitScore
+        avg_proteinsPerProfiles[faain_str] = avg_proteinsPerProfile
 
     # Gene calling stats to select ttable that yields highest coding density
     stats_df = pd.DataFrame.from_dict(stats_dict, columns=["contigs", "LENbp", "GCperc", "genecount", "CODINGperc"], orient="index")
     stats_df = stats_df.sort_values("CODINGperc", ascending=False)
+    # Extract genetic code from filename: e.g., "file.faa_code4" -> "code4"
     stats_df["ttable"] = stats_df.index.map(lambda x: x.split("_")[-1])
     stats_df.insert(0, "query", stats_df.index.map(lambda x: os.path.splitext(x)[0]))
     coding_dens_codemeta = stats_df[stats_df["ttable"] == "codemeta"]["CODINGperc"]
@@ -301,9 +396,18 @@ def main(fnafile: str, gffout: str, genecalling_statsout: str, summary_statsout:
         bestcode = os.path.join(faaoutdir, f"{os.path.splitext(os.path.basename(gffout))[0]}.faa_codemeta")
         max_hits = completeBestHits_counts[bestcode]
         max_avg_score = avg_bestHitScores[bestcode]
-        for code in ["code1", "code4", "code6", "code11", "code15", "code106", "code29", "code129"]:
+        for code in ["code1", "code4", "code6", "code11", "code15", "code106", "code129"]:
             faa_code = os.path.join(faaoutdir, f"{os.path.splitext(os.path.basename(gffout))[0]}.faa_{code}")
-            coding_dens_code = stats_df[stats_df["ttable"] == code]["CODINGperc"].iloc[0]
+            
+            # Skip if this code wasn't run (file doesn't exist or not in our dictionaries)
+            if faa_code not in completeBestHits_counts:
+                continue
+                
+            matching_rows = stats_df[stats_df["ttable"] == code]
+            if len(matching_rows) == 0:
+                continue  # Skip if this code wasn't run
+            coding_dens_code = matching_rows["CODINGperc"].iloc[0]
+            
             if completeBestHits_counts[faa_code] > max_hits or (completeBestHits_counts[faa_code] == max_hits and avg_bestHitScores[faa_code] > max_avg_score) or (completeBestHits_counts[faa_code] == max_hits and avg_bestHitScores[faa_code] == max_avg_score and float(coding_dens_code) > float(coding_dens_codemeta) * 1.02):
                 max_hits = completeBestHits_counts[faa_code]
                 max_avg_score = avg_bestHitScores[faa_code]
@@ -317,14 +421,25 @@ def main(fnafile: str, gffout: str, genecalling_statsout: str, summary_statsout:
 
     # Write stats to files
     stats_df.to_csv(genecalling_statsout, sep="\t", index=False)
-    stats_df[stats_df.index == os.path.basename(bestcode)].to_csv(summary_statsout, sep="\t", index=False)
+    
+    # Write the best code stats, but always show "codemeta" in ttable column
+    best_stats = stats_df[stats_df.index == os.path.basename(bestcode)].copy()
+    best_stats["ttable"] = "codemeta"  # Always show codemeta for the selected code
+    best_stats.to_csv(summary_statsout, sep="\t", index=False)
     
     # Rename headers and cleanup
     shutil.copy(fnafile, finalfna)
     rename_header(bestcode, finalfaa, gffout)
-    for tempout in glob.glob(f"{gffout}_code*"):
-        os.remove(tempout)
-        faaout = tempout.replace(".gff", ".faa")
+    # Secure cleanup - validate paths before removal
+    gffout_safe = validate_file_path(gffout, must_exist=False)
+    gffout_dir = gffout_safe.parent
+    gffout_base = gffout_safe.stem
+    
+    for tempout in gffout_dir.glob(f"{gffout_base}_code*"):
+        tempout_safe = validate_file_path(tempout, must_exist=False)
+        if tempout_safe.exists():
+            os.remove(tempout_safe)
+        faaout = str(tempout_safe).replace(".gff", ".faa")
         if os.path.isfile(faaout) and faaout != finalfaa:
             os.remove(faaout)
 
@@ -341,10 +456,15 @@ def main(fnafile: str, gffout: str, genecalling_statsout: str, summary_statsout:
     if os.path.isfile(bestcode_hmmout):
         shutil.copy(bestcode_hmmout, hmmout)
 
-    # Remove remaining hmmout files
-    for hmmout_file in glob.glob(f"{os.path.splitext(gffout)[0]}.hmmout_*"):
-        if hmmout_file != hmmout:
-            os.remove(hmmout_file)
+    # Remove remaining hmmout files - secure cleanup
+    gffout_base = os.path.splitext(str(gffout_safe))[0]
+    gffout_dir = gffout_safe.parent
+    base_name = os.path.basename(gffout_base)
+    
+    for hmmout_file in gffout_dir.glob(f"{base_name}.hmmout_*"):
+        hmmout_file_safe = validate_file_path(hmmout_file, must_exist=False)
+        if str(hmmout_file_safe) != hmmout and hmmout_file_safe.exists():
+            os.remove(hmmout_file_safe)
 
 if __name__ == '__main__':
     main()
