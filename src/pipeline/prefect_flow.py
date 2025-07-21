@@ -280,7 +280,8 @@ def process_query_task(
         marker_files = extract_marker_hits(
             hmm_output=models_out_filtered,
             query_faa=protein_file,
-            output_dir=query_hits_dir
+            output_dir=query_hits_dir,
+            mode_fast=mode_fast
         )
     
     # Process each marker (BLAST, align, tree) in parallel
@@ -516,6 +517,37 @@ def create_final_summary_task(
                 f.write('\t'.join(row_data) + '\n')
     
     logger.info(f"Summary written to: {summary_file}")
+    
+    # Post-processing: Move tree_nn files and compress query directories
+    logger.info("Post-processing: Moving tree_nn files and compressing query directories")
+    
+    import tarfile
+    import shutil
+    
+    for result in results:
+        if result['status'] == 'complete' and 'output_dir' in result:
+            query_dir = Path(result['output_dir'])
+            query_name = result['query']
+            
+            if query_dir.exists():
+                # Move tree_nn file to output root
+                tree_nn_file = query_dir / "stats" / f"{query_name}.tree_nn"
+                if tree_nn_file.exists():
+                    dest_tree_nn = output_dir / f"{query_name}.tree_nn"
+                    shutil.copy2(tree_nn_file, dest_tree_nn)
+                    logger.info(f"Copied tree_nn file to: {dest_tree_nn}")
+                
+                # Create tar.gz archive of the query directory
+                tar_file = output_dir / f"{query_name}.tar.gz"
+                with tarfile.open(tar_file, "w:gz") as tar:
+                    tar.add(query_dir, arcname=query_name)
+                logger.info(f"Created archive: {tar_file}")
+                
+                # Remove the original directory
+                shutil.rmtree(query_dir)
+                logger.info(f"Removed directory: {query_dir}")
+    
+    logger.info("Post-processing complete")
     return summary_file
 
 

@@ -99,7 +99,8 @@ def extract_marker_hits(
     hmm_output: Path,
     query_faa: Path,
     output_dir: Path,
-    min_hits: int = 1
+    min_hits: int = 1,
+    mode_fast: bool = False
 ) -> List[Tuple[str, Path]]:
     """
     Main function to extract marker-specific hits from HMM search results.
@@ -109,12 +110,14 @@ def extract_marker_hits(
         query_faa: Path to query protein sequences
         output_dir: Directory for marker-specific outputs
         min_hits: Minimum number of hits required to process a marker
+        mode_fast: If True, skip OG markers (for tree building)
         
     Returns:
         List of tuples (marker_name, fasta_file_path) for markers with sufficient hits
     """
     logger.info(f"Starting marker extraction from {hmm_output}")
     logger.info(f"Query FAA file: {query_faa}, exists: {query_faa.exists()}")
+    logger.info(f"Mode fast: {mode_fast} (OG markers will {'be skipped' if mode_fast else 'be included'})")
     
     # Parse HMM output
     marker_hits = parse_hmm_output(hmm_output)
@@ -126,6 +129,18 @@ def extract_marker_hits(
         for marker, hits in marker_hits.items() 
         if len(hits) >= min_hits
     }
+    
+    # Skip OG markers in fast mode
+    if mode_fast:
+        og_markers_before = len(filtered_markers)
+        filtered_markers = {
+            marker: hits 
+            for marker, hits in filtered_markers.items() 
+            if not marker.startswith("OG")
+        }
+        og_markers_skipped = og_markers_before - len(filtered_markers)
+        if og_markers_skipped > 0:
+            logger.info(f"Skipped {og_markers_skipped} OG markers in fast mode")
     
     logger.info(f"Processing {len(filtered_markers)} markers with >= {min_hits} hits")
     
