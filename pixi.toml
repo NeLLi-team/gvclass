@@ -7,77 +7,70 @@ channels = ["conda-forge", "bioconda"]
 platforms = ["linux-64"]
 
 [dependencies]
+# Python runtime
 python = "3.11.*"
-# Workflow management
-snakemake = ">=9.3"
-# Core Python scientific libraries
-numpy = ">=2.3"  # Latest numpy with full typing support
-pandas = ">=2.3"   # Compatible with numpy 2.3
-scipy = ">=1.16"   # Compatible with numpy 2.3
-biopython = "1.85.*"  # Updated for Python 3.11
-click = "8.1.*"
 
-# Bioinformatics tools - Python replacements will be installed via PyPI
-
-iqtree = ">=3.0.0"
+# Core scientific libraries used in the code
+pandas = ">=2.3"     # Used for data manipulation
+biopython = "1.85.*" # Used for sequence I/O
 
 # Phylogenetic analysis
-ete3 = ">=3.1.0"
+ete3 = ">=3.1.0"     # Used for tree parsing and analysis
+iqtree = ">=3.0.0"   # External binary for tree building (when selected)
 
-# System dependencies
+# Build dependencies for pyrodigal
 cython = "3.0.*"
 setuptools = ">=62.0"
 wheel = "*"
 
-# Additional dependencies for visualization and data processing
-lxml = ">=4.9.0"
-joblib = ">=1.4.0"
-pyyaml = ">=6.0.0"
-
-# System monitoring
-psutil = ">=7.0.0"
+# System utilities
+pyyaml = ">=6.0.0"   # For config file parsing
+psutil = ">=6.0.0"   # For system monitoring
 
 [pypi-dependencies]
-# Python-based bioinformatics tools
-pyhmmer = ">=0.10.0"
-pytrimal = ">=0.8.0"
-pyfamsa = ">=0.5.0"
-# Using tomasbruna's pyrodigal fork for codes 106, 129
-pyrodigal = { git = "https://github.com/tomasbruna/pyrodigal.git" }
-# Python-based sequence alignment tool (Diamond replacement)
-pyswrd = ">=0.1.0"
-# Python-based phylogenetic tree building (FastTree replacement)
-veryfasttree = ">=3.0.0"
-# CLI framework used by scripts
-click = ">=8.0.0"
+# Bioinformatics tools (Python implementations)
+pyhmmer = ">=0.10.0"          # HMM search
+pytrimal = ">=0.8.0"          # Alignment trimming
+pyfamsa = ">=0.5.0"           # Multiple sequence alignment
+pyrodigal = { git = "https://github.com/tomasbruna/pyrodigal.git" }  # Gene calling with codes 106, 129
+pyswrd = ">=0.1.0"            # BLAST alternative
+veryfasttree = ">=3.0.0"      # FastTree implementation
+
+# CLI framework
+click = ">=8.0.0"             # Command-line interfaces
+
 # Workflow orchestration
-dask = ">=2024.7.0"
-distributed = ">=2024.7.0"
-dask-jobqueue = ">=0.9.0"
-# Prefect for workflow management with state tracking
-prefect = ">=2.21.0"
-prefect-dask = ">=0.3.0"
-# Utility libraries
-networkx = ">=3.0"
-cloudpickle = ">=3.0"
-# Note: We use a custom Python wrapper for IQ-TREE instead of piqtree
-# due to dependency conflicts with numpy 2.3+
+prefect = ">=2.21.0"          # Workflow management
+prefect-dask = ">=0.3.0"      # Dask integration for Prefect
+dask = ">=2024.7.0"           # Parallel computing
+distributed = ">=2024.7.0"    # Dask distributed computing
+dask-jobqueue = ">=0.9.0"     # Cluster job submission
+
+# Utility libraries (dependencies of above)
+networkx = ">=3.0"            # Required by dask
+cloudpickle = ">=3.0"         # Required by dask/prefect
 
 [tasks]
-# Main command - automatically downloads database on first run
+# Main command
 gvclass = "python run_gvclass.py"
 
-# Run example data (good for testing installation)
+# Run example data
 run-example = "python run_gvclass.py example -o example_results --threads 8"
 
-# Manual database setup (optional - gvclass handles this automatically)
+# Manual database setup (database is included in container)
 setup-db = "python -m src.bin.setup_database"
 
-# Performance monitoring
+# Performance monitoring utilities
 monitor-performance = "python src/test/monitor_performance.py"
+
+# Container building
+build-containers = "bash containers/build.sh"
+build-docker = "docker build -t gvclass:1.1.0 -f containers/docker/Dockerfile ."
+build-apptainer = "apptainer build gvclass.sif docker-daemon://gvclass:1.1.0"
 analyze-parallel = "python src/test/analyze_parallelization.py"
 
 [feature.dev.dependencies]
+# Development tools
 pytest = "*"
 black = "*"
 flake8 = "*"

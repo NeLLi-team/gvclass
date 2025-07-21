@@ -102,7 +102,7 @@ database:
 
 pipeline:
   tree_method: fasttree             # or 'iqtree' for more accuracy
-  mode_fast: false                  # Skip some analyses when true
+  mode_fast: false                  # Skip order-level marker trees when true (speeds up analysis)
   threads: 16                       # Default thread count
 ```
 
@@ -120,14 +120,29 @@ pipeline:
 ### Container Execution
 
 ```bash
-# Apptainer/Singularity
+# Build containers (Docker and Apptainer)
+bash containers/build.sh
+
+# Run with Apptainer/Singularity (recommended - no permission issues)
 bash gvclass_apptainer.sh <input_dir> <threads>
 
-# Docker
+# Run with Docker
 bash gvclass_docker.sh <input_dir> <threads>
 
-# Shifter (NERSC)
+# Run with Shifter (NERSC)
 bash gvclass_shifter.sh <input_dir> <threads>
+```
+
+#### Building Containers Manually
+
+```bash
+# Build Docker image
+docker build -t gvclass:1.1.0 -f containers/docker/Dockerfile .
+
+# Build Apptainer/Singularity image from Docker
+apptainer build gvclass.sif docker-daemon://gvclass:1.1.0
+# or
+singularity build gvclass.sif docker-daemon://gvclass:1.1.0
 ```
 
 ### Development Commands
@@ -143,18 +158,121 @@ pixi run python clear_cache_and_run.py
 pixi run python debug_pipeline.py
 ```
 
+## ⚡ Performance Optimization
+
+### Speed Up Analysis
+
+1. **Enable Fast Mode** - Skip order-level marker trees (OG markers):
+   ```bash
+   # Command line option
+   pixi run gvclass <input_directory> --mode-fast
+   
+   # Or in config file
+   pipeline:
+     mode_fast: true  # Skips ~100 order-specific markers, 2-3x faster
+   ```
+
+2. **Use FastTree Instead of IQ-TREE**:
+   ```bash
+   # Default (faster)
+   pixi run gvclass <input_directory> --tree-method fasttree
+   
+   # IQ-TREE (more accurate but slower)
+   pixi run gvclass <input_directory> --tree-method iqtree
+   ```
+
+3. **Optimize Thread Usage**:
+   ```bash
+   # Use all available cores
+   pixi run gvclass <input_directory> -t 32
+   
+   # Parallel processing of multiple queries
+   pixi run gvclass-parallel <input_directory> -t 32 -j 4  # 4 queries × 8 threads each
+   ```
+
+### IQ-TREE Specific Options
+
+When using IQ-TREE (`--tree-method iqtree`), the pipeline automatically uses:
+- Model: `LG+F+G` (fast protein model)
+- `-fast` flag for faster tree search
+- Single thread per marker (parallelization happens at marker level)
+
+To modify IQ-TREE behavior, edit `src/core/marker_processing.py`.
+
+### Understanding Markers
+
+- **Core markers**: Always processed (GVOG4, GVOG8, MCP, etc.)
+- **Order-level markers**: ~100 OG markers specific to viral orders
+  - Processed when `mode_fast: false` (default)
+  - Skipped when `mode_fast: true` (faster but less precise order assignment)
+
 ## 🔬 How It Works
 
-<p align="center">
-  <img src="images/Workflow_GVClass.png" alt="GVClass Workflow" width="100%">
-</p>
-
-1. **Input Validation**: Checks and reformats input sequences
-2. **Gene Calling**: Tests multiple genetic codes to find optimal (nucleic acid input only)
-3. **Marker Search**: Searches against GVOG HMM models using pyhmmer
-4. **Phylogenetic Analysis**: Builds trees for each marker gene
-5. **Taxonomy Assignment**: Consensus classification based on nearest neighbors
-6. **Quality Assessment**: Estimates completeness and contamination
+```mermaid
+flowchart TD
+    subgraph Input
+        FNA[".fna<br/>nucleic acid"]
+        FAA[".faa<br/>amino acid"]
+    end
+    
+    subgraph Database
+        DB[(Reference<br/>Database)]
+        MODELS[GVOG HMMs<br/>+ NCLDV markers]
+        REF[Reference<br/>sequences]
+    end
+    
+    FNA --> OPGC{Optimized<br/>Gene Calling}
+    FAA --> ID1[Identify Markers]
+    
+    subgraph "Gene Calling (pyrodigal)"
+        OPGC --> META[Meta mode<br/>genetic codes:<br/>1, 4, 11]
+        OPGC --> DENOVO[De novo mode<br/>genetic codes:<br/>6, 15, 29, 106, 129]
+        META --> RANK[Rank by<br/>coding density]
+        DENOVO --> RANK
+    end
+    
+    RANK --> ID2[Identify Markers]
+    
+    subgraph "Marker Detection (pyhmmer)"
+        ID1 --> HMM1[HMM search<br/>against GVOGs]
+        ID2 --> HMM2[HMM search<br/>against GVOGs]
+        HMM1 --> HITS1[Extract hits<br/>E-value cutoffs]
+        HMM2 --> HITS2[Extract hits<br/>E-value cutoffs]
+    end
+    
+    HITS1 --> BLAST[BLAST/pyswrd<br/>top 100 hits]
+    HITS2 --> BLAST
+    
+    subgraph "Alignment & Trees"
+        BLAST --> ALIGN[MAFFT/pyfamsa<br/>alignment]
+        ALIGN --> TRIM[TrimAl/pytrimal<br/>trimming]
+        TRIM --> TREE{Tree Building}
+        TREE -->|FastTree| FT[veryfasttree<br/>LG4X model]
+        TREE -->|IQ-TREE| IQ[iqtree<br/>LG+F+G -fast]
+    end
+    
+    FT --> NN[Get nearest<br/>neighbors]
+    IQ --> NN
+    
+    subgraph "Classification"
+        NN --> TAX[Majority/strict<br/>taxonomy<br/>assignment]
+        NN --> QC[Quality metrics:<br/>completeness,<br/>contamination]
+    end
+    
+    TAX --> OUT[Results:<br/>taxonomy,<br/>QC metrics]
+    QC --> OUT
+    
+    MODELS -.-> HMM1
+    MODELS -.-> HMM2
+    REF -.-> BLAST
+    DB -.-> NN
+    
+    style FNA fill:#e8f4f8
+    style FAA fill:#e8f4f8
+    style OUT fill:#d4edda
+    style DB fill:#f8d7da
+    style MODELS fill:#f8d7da
+    style REF fill:#f8d7da
 
 ## 📝 Citation
 

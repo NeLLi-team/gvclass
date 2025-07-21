@@ -1,0 +1,26 @@
+Bootstrap: docker
+From: gvclass:1.1.0
+
+%labels
+    Author fschulz@lbl.gov
+    Version 1.1.0
+    Description GVClass - Giant Virus Classification Tool
+
+%help
+    GVClass - Giant Virus Classification Tool
+    
+    Usage:
+        apptainer run gvclass.sif pixi run gvclass <query_dir> -o <output_dir> -t <threads>
+    
+    Example:
+        apptainer run gvclass.sif pixi run gvclass /data -o /results -t 32
+    
+    For more options:
+        apptainer run gvclass.sif pixi run gvclass --help
+
+%environment
+    export PATH=/app/.pixi/bin:$PATH
+    export PIXI_FROZEN=true
+
+%runscript
+    exec "$@"

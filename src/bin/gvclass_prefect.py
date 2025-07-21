@@ -8,6 +8,12 @@ import sys
 from pathlib import Path
 import logging
 import os
+import tempfile
+
+# Set default Prefect home early to avoid permission issues
+# This will be overridden later with the actual output directory if possible
+default_prefect_home = Path(tempfile.mkdtemp(prefix="prefect_", dir="/tmp"))
+os.environ["PREFECT_HOME"] = str(default_prefect_home)
 
 from src.utils import setup_logging
 
@@ -96,6 +102,22 @@ def main(querydir, output_dir, database, threads, max_workers, threads_per_worke
     click.echo(f"Tree method: {tree_method}")
     click.echo(f"Fast mode: {mode_fast}")
     click.echo("")
+    
+    # Set Prefect home to output directory to avoid conflicts in parallel runs
+    # First ensure output directory exists and is writable
+    output_path.mkdir(parents=True, exist_ok=True)
+    
+    # Try to set Prefect home in output directory, fall back to temp if not writable
+    prefect_home = output_path / ".prefect"
+    try:
+        prefect_home.mkdir(parents=True, exist_ok=True)
+        os.environ["PREFECT_HOME"] = str(prefect_home)
+    except PermissionError:
+        # Fall back to temp directory
+        import tempfile
+        temp_prefect = Path(tempfile.mkdtemp(prefix="prefect_", dir="/tmp"))
+        os.environ["PREFECT_HOME"] = str(temp_prefect)
+        logger.debug(f"Using temporary Prefect home: {temp_prefect}")
     
     try:
         # Run the proper flow

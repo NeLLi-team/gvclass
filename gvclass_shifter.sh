@@ -76,12 +76,16 @@ echo "Query directory: $QUERYDIR"
 echo "Number of processes: $PROCESSES"
 echo "Valid input files found: $VALID_FILES"
 
+# Create output directory name
+OUTPUT_DIR="${QUERYDIR}_results"
+
 echo "Pulling Docker image..."
-shifterimg pull docker:doejgi/gvclass:latest
+shifterimg pull docker:gvclass:1.1.0
 
 echo "Running analysis..."
-shifter --image=docker:doejgi/gvclass:latest \
-  pixi run snakemake --snakefile /gvclass/workflow/Snakefile \
-           -j "$PROCESSES" \
-           --config querydir="$QUERYDIR" \
-           database_path="/gvclass/resources"
+# Shifter automatically handles user permissions
+shifter --image=docker:gvclass:1.1.0 \
+  --volume="$(pwd)/$QUERYDIR:/data:ro" \
+  --volume="$(pwd)/$OUTPUT_DIR:/results" \
+  --workdir="/app" \
+  pixi run gvclass /data -o /results -t "$PROCESSES"

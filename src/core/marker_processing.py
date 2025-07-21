@@ -241,11 +241,11 @@ class MarkerProcessor:
             cmd = [
                 "iqtree",
                 "-s", str(trimmed_alignment),
-                "-m", "TEST",
-                "-mset", "LG,WAG,JTT",
+                "-m", "LG+F+G",
                 "-nt", str(threads),
                 "-pre", str(self.tree_dir / self.marker),
-                "-quiet"
+                "-quiet",
+                "-fast"  # Use fast mode for speed
             ]
             
             result = subprocess.run(cmd, capture_output=True, text=True)

@@ -96,7 +96,21 @@ def process_query_task(
     
     # Create output directory for this query
     query_output_dir = output_base / query_name
-    query_output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Robust directory creation to handle race conditions
+    # Try multiple times with small delays to avoid permission conflicts
+    import time
+    max_attempts = 5
+    for attempt in range(max_attempts):
+        try:
+            query_output_dir.mkdir(parents=True, exist_ok=True)
+            break
+        except PermissionError as e:
+            if attempt < max_attempts - 1:
+                time.sleep(0.1 * (attempt + 1))  # Exponential backoff
+                continue
+            else:
+                raise e
     
     # Step 1: Reformat input
     if query_file.suffix == '.fna':
@@ -647,6 +661,16 @@ def gvclass_flow(
     
     # Step 4: Process queries in parallel
     logger.info("Starting parallel query processing")
+    
+    # Pre-create all query output directories to avoid race conditions
+    # This ensures directories exist before parallel tasks try to create them
+    logger.info("Pre-creating query output directories")
+    for query_file in config["query_files"]:
+        query_output_dir = config["output_path"] / query_file.stem
+        try:
+            query_output_dir.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            logger.warning(f"Failed to pre-create directory {query_output_dir}: {e}")
     
     # Submit all query processing tasks
     with task_runner:

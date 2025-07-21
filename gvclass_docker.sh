@@ -71,9 +71,20 @@ echo "Query directory: $QUERYDIR"
 echo "Number of processes: $PROCESSES"
 echo "Valid input files found: $VALID_FILES"
 
-docker run \
-  -v "$(pwd):$(pwd)" -w "$(pwd)" doejgi/gvclass:latest \
-  pixi run snakemake --snakefile /gvclass/workflow/Snakefile \
-           -j "$PROCESSES" \
-           --config querydir="$QUERYDIR" \
-           database_path="/gvclass/resources"
+# Build the Docker image if it doesn't exist
+if ! docker images | grep -q "gvclass.*1.1.0"; then
+    echo "Building GVClass Docker image..."
+    docker build -t gvclass:1.1.0 .
+fi
+
+# Create output directory name
+OUTPUT_DIR="${QUERYDIR}_results"
+
+# Run GVClass using the new Prefect-based pipeline
+# Use current user to avoid permission issues
+docker run --rm \
+  --user $(id -u):$(id -g) \
+  -v "$(pwd)/$QUERYDIR:/data:ro" \
+  -v "$(pwd)/$OUTPUT_DIR:/results" \
+  gvclass:1.1.0 \
+  pixi run gvclass /data -o /results -t "$PROCESSES"

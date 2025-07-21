@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  gvclass:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        PIXI_VERSION: 0.40.2
+    image: gvclass:1.1.0
+    container_name: gvclass
+    volumes:
+      # Mount input data directory
+      - ${INPUT_DIR:-./example}:/data:ro
+      # Mount output results directory
+      - ${OUTPUT_DIR:-./results}:/results
+      # Database is already included in the image
+    environment:
+      # Set number of threads
+      - THREADS=${THREADS:-8}
+    # Override default CMD to run analysis
+    command: >
+      pixi run gvclass /data 
+      -o /results 
+      -t ${THREADS:-8}
+      ${EXTRA_ARGS}
+    # Allocate pseudo-TTY for colored output
+    tty: true
+    # Keep STDIN open
+    stdin_open: true
+
+# Example usage:
+# INPUT_DIR=/path/to/genomes OUTPUT_DIR=/path/to/results docker-compose up
+# 
+# With custom settings:
+# INPUT_DIR=./mydata OUTPUT_DIR=./myresults THREADS=16 EXTRA_ARGS="--mode-fast --tree-method iqtree" docker-compose up
