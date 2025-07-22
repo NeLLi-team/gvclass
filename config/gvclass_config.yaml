@@ -17,7 +17,7 @@ pipeline:
   # Tree building method: fasttree or iqtree
   tree_method: fasttree
   # Fast mode - skip order-level marker trees when True
-  mode_fast: false
+  mode_fast: true
   # Number of threads for computation
   threads: 4
   # Output directory pattern

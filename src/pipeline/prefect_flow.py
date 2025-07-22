@@ -452,13 +452,49 @@ def process_query_task(
         row_data = [str(summary_data.get(h, '')) for h in headers]
         f.write('\t'.join(row_data) + '\n')
     
+    # Post-processing: Create tar.gz and copy summary.tab
+    logger.info(f"Post-processing results for query {query_name}")
+    try:
+        import tarfile
+        import shutil
+        
+        # Copy summary.tab file to output root - it's in the query directory root
+        summary_tab_file = query_output_dir / f"{query_name}.summary.tab"
+        if summary_tab_file.exists():
+            dest_summary = output_base / f"{query_name}.summary.tab"
+            shutil.copy2(summary_tab_file, dest_summary)
+            logger.info(f"Copied summary.tab to {dest_summary}")
+        else:
+            # Try in stats directory as backup
+            summary_tab_file_stats = query_output_dir / "stats" / f"{query_name}.summary.tab"
+            if summary_tab_file_stats.exists():
+                dest_summary = output_base / f"{query_name}.summary.tab"
+                shutil.copy2(summary_tab_file_stats, dest_summary)
+                logger.info(f"Copied summary.tab from stats dir to {dest_summary}")
+            else:
+                logger.warning(f"Summary tab file not found in {summary_tab_file} or {summary_tab_file_stats}")
+        
+        # Create tar.gz archive of the query directory
+        tar_file = output_base / f"{query_name}.tar.gz"
+        with tarfile.open(tar_file, "w:gz") as tar:
+            tar.add(query_output_dir, arcname=query_name)
+        logger.info(f"Created archive: {tar_file}")
+        
+        # Remove the original directory
+        shutil.rmtree(query_output_dir)
+        logger.info(f"Removed original directory: {query_output_dir}")
+        
+    except Exception as e:
+        logger.error(f"Post-processing failed for {query_name}: {e}")
+        # Don't fail the entire query for post-processing errors
+    
     # Return complete results
     return {
         'query': query_name,
         'status': 'complete',
         'summary_data': summary_data,  # Full data from FullSummarizer
         'genetic_code': best_code if best_code is not None else 'N/A',
-        'output_dir': str(query_output_dir)
+        'output_dir': str(output_base)  # Return base output dir since query dir is removed
     }
 
 
@@ -581,11 +617,23 @@ def calculate_optimal_workers(
         n_workers = n_queries
         threads_per_worker = total_threads // n_workers
     else:
-        # For larger datasets, find optimal balance
-        # Aim for 4-8 threads per worker when possible
-        ideal_threads_per_worker = min(8, max(min_threads_per_worker, total_threads // n_queries))
-        n_workers = min(max_possible_workers, total_threads // ideal_threads_per_worker)
-        threads_per_worker = total_threads // max(1, n_workers)
+        # For larger datasets, be conservative with workers to limit memory usage
+        # Target 4 threads per worker as the sweet spot
+        target_threads_per_worker = 4
+        
+        # Calculate workers based on available threads
+        n_workers = total_threads // target_threads_per_worker
+        
+        # Apply constraints
+        n_workers = min(n_workers, max_possible_workers)
+        
+        # For very large datasets, further limit workers to prevent memory issues
+        if n_queries > 100:
+            # Limit to 10-20 workers max for large datasets
+            n_workers = min(n_workers, 20)
+        
+        n_workers = max(1, n_workers)
+        threads_per_worker = total_threads // n_workers
     
     return max(1, n_workers), max(min_threads_per_worker, threads_per_worker)
 
@@ -607,6 +655,7 @@ def gvclass_flow(
     genetic_codes: List[int] = [0, 1, 4, 6, 11, 15, 106, 129],
     cluster_type: str = "local",
     cluster_config: Optional[Dict[str, Any]] = None,
+    resume: bool = False,
 ):
     """
     Main GVClass pipeline with proper Prefect flow orchestration.
@@ -635,6 +684,28 @@ def gvclass_flow(
     logger.info("Validating inputs and setting up directories")
     config = validate_and_setup_task(query_dir, output_dir, database_path)
     
+    # Filter out completed queries if resume is enabled
+    if resume:
+        output_path = config["output_path"]
+        original_queries = list(config["query_files"])
+        filtered_queries = []
+        skipped_count = 0
+        
+        for query_file in original_queries:
+            query_name = query_file.stem
+            summary_file = output_path / f"{query_name}.summary.tab"
+            tar_file = output_path / f"{query_name}.tar.gz"
+            
+            # Skip if both summary.tab and tar.gz exist
+            if summary_file.exists() and tar_file.exists():
+                logger.info(f"Skipping completed query: {query_name}")
+                skipped_count += 1
+            else:
+                filtered_queries.append(query_file)
+        
+        config["query_files"] = filtered_queries
+        logger.info(f"Resume mode: skipped {skipped_count} completed queries, {len(filtered_queries)} remaining")
+    
     n_queries = len(config["query_files"])
     logger.info(f"Found {n_queries} queries to process")
     
@@ -659,10 +730,16 @@ def gvclass_flow(
         from dask.distributed import LocalCluster
         
         # Create local cluster with calculated workers
+        # Set memory limit based on total available memory divided by workers
+        # This prevents overcommitting memory
+        import psutil
+        total_memory_gb = psutil.virtual_memory().total / (1024**3)
+        memory_per_worker = min(8, max(2, total_memory_gb * 0.8 / n_workers))
+        
         cluster = LocalCluster(
             n_workers=n_workers,
             threads_per_worker=threads_per_worker,
-            memory_limit="8GB",
+            memory_limit=f"{memory_per_worker:.1f}GB",
             silence_logs=logging.WARNING,
         )
         
@@ -694,46 +771,62 @@ def gvclass_flow(
     # Step 4: Process queries in parallel
     logger.info("Starting parallel query processing")
     
-    # Pre-create all query output directories to avoid race conditions
-    # This ensures directories exist before parallel tasks try to create them
-    logger.info("Pre-creating query output directories")
-    for query_file in config["query_files"]:
-        query_output_dir = config["output_path"] / query_file.stem
-        try:
-            query_output_dir.mkdir(parents=True, exist_ok=True)
-        except Exception as e:
-            logger.warning(f"Failed to pre-create directory {query_output_dir}: {e}")
+    # Don't pre-create directories - let each worker create its own
+    # This prevents creating all directories at once
     
-    # Submit all query processing tasks
+    # Process queries with controlled batching
     with task_runner:
-        query_futures = []
-        for query_file in config["query_files"]:
-            future = process_query_task.submit(
-                query_file=query_file,
-                output_base=config["output_path"],
-                database_path=config["database_path"],
-                genetic_codes=genetic_codes,
-                tree_method=tree_method,
-                mode_fast=mode_fast,
-                threads=threads_per_worker
-            )
-            query_futures.append(future)
-        
-        # Collect results as they complete
         results = []
-        for future in query_futures:
-            result = future.result()
-            results.append(result)
-            logger.info(f"Completed: {result['query']} - {result['status']}")
+        query_files = list(config["query_files"])
+        total_queries = len(query_files)
+        
+        # Process in batches to control resource usage
+        # Submit only as many tasks as we have workers
+        batch_size = n_workers  # Exactly one query per worker
+        
+        logger.info(f"Processing {total_queries} queries with {n_workers} workers (batch size: {batch_size})")
+        
+        for batch_start in range(0, total_queries, batch_size):
+            batch_end = min(batch_start + batch_size, total_queries)
+            batch_queries = query_files[batch_start:batch_end]
+            
+            logger.info(f"Processing batch {batch_start//batch_size + 1}: queries {batch_start+1}-{batch_end} of {total_queries}")
+            
+            # Submit batch
+            batch_futures = []
+            for query_file in batch_queries:
+                future = process_query_task.submit(
+                    query_file=query_file,
+                    output_base=config["output_path"],
+                    database_path=config["database_path"],
+                    genetic_codes=genetic_codes,
+                    tree_method=tree_method,
+                    mode_fast=mode_fast,
+                    threads=threads_per_worker
+                )
+                batch_futures.append((query_file, future))
+            
+            # Wait for batch to complete
+            for query_file, future in batch_futures:
+                try:
+                    result = future.result()
+                    results.append(result)
+                    logger.info(f"Completed: {result['query']} - {result['status']}")
+                except Exception as e:
+                    logger.error(f"Query {query_file.stem} failed: {e}")
+                    results.append({
+                        'query': query_file.stem,
+                        'status': 'failed',
+                        'error': str(e)
+                    })
+        
+        logger.info(f"All batches complete. Successfully processed {len([r for r in results if r['status'] == 'complete'])}/{total_queries} queries")
     
-    # Step 5: Create final summary
-    logger.info("Creating final summary")
-    summary_file = create_final_summary_task(results, config["output_path"])
-    
+    # Don't create summary here - it will be done outside the flow
     logger.info(f"Pipeline completed! Results in: {config['output_path']}")
-    logger.info(f"Summary file: {summary_file}")
+    logger.info(f"Successfully processed {len([r for r in results if r['status'] == 'complete'])}/{len(results)} queries")
     
-    return str(summary_file)
+    return results
 
 
 # Deployment configurations for different environments

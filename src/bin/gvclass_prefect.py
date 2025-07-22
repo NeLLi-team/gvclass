@@ -48,9 +48,10 @@ from src.pipeline.prefect_flow import gvclass_flow  # noqa: E402
 @click.option('--cluster-project', help='Project/account for cluster billing')
 @click.option('--cluster-walltime', default='04:00:00', help='Walltime for cluster jobs')
 @click.option('--verbose', '-v', is_flag=True, help='Verbose output')
+@click.option('--resume', is_flag=True, help='Resume from previous run, skipping completed queries')
 def main(querydir, output_dir, database, threads, max_workers, threads_per_worker,
         tree_method, mode_fast, cluster_type, cluster_queue, cluster_project,
-        cluster_walltime, verbose):
+        cluster_walltime, verbose, resume):
     """
     Run GVClass pipeline with proper Prefect+Dask orchestration.
     
@@ -132,6 +133,7 @@ def main(querydir, output_dir, database, threads, max_workers, threads_per_worke
             mode_fast=mode_fast,
             cluster_type=cluster_type,
             cluster_config=cluster_config if cluster_config else None,
+            resume=resume,
         )
         
         click.echo("\nPipeline completed successfully!")

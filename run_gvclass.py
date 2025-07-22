@@ -96,11 +96,12 @@ def check_and_setup_database(db_path, config):
 
 class ResourceMonitor:
     """Monitor progress and resource usage."""
-    def __init__(self, output_dir, total_queries, process_pid):
+    def __init__(self, output_dir, total_queries, process_pid, initial_completed=0):
         self.output_dir = Path(output_dir)
         self.total_queries = total_queries
         self.process_pid = process_pid
         self.current_query = 0
+        self.initial_completed = initial_completed  # For resume mode
         self.current_task = "Starting"
         self.running = True
         self.peak_memory_mb = 0
@@ -115,11 +116,11 @@ class ResourceMonitor:
             process = None
             
         while self.running:
-            # Count completed queries
+            # Count completed queries by looking for summary.tab files in output root
             if self.output_dir.exists():
-                completed = len(list(self.output_dir.glob("*/stats/*.stats.tab")))
-                if completed > self.current_query:
-                    self.current_query = completed
+                total_completed = len(list(self.output_dir.glob("*.summary.tab")))
+                # Subtract initial completed to get queries completed in this run
+                self.current_query = total_completed - self.initial_completed
             
             # Monitor memory usage
             if process:
@@ -176,6 +177,7 @@ def main():
     parser.add_argument('--cluster-project', help='Project/account for cluster billing')
     parser.add_argument('--cluster-walltime', default='04:00:00', help='Walltime for cluster jobs')
     parser.add_argument('-v', '--verbose', action='store_true', help='Verbose output')
+    parser.add_argument('--resume', action='store_true', help='Resume from previous run, skipping completed queries')
     
     args = parser.parse_args()
     
@@ -209,20 +211,42 @@ def main():
     
     # Count input files
     n_queries = count_files_in_directory(args.query_dir)
+    n_skipped = 0
     
-    # Calculate workers if not specified
-    if args.max_workers:
+    # Create output directory if it doesn't exist (needed for resume check)
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
+    
+    # If resume mode, count already completed queries
+    if args.resume:
+        output_path = Path(output_dir)
+        # Count queries that have both summary.tab and tar.gz
+        # Need to remove the full extension for both file types
+        summary_files = set(f.name.replace('.summary.tab', '') for f in output_path.glob("*.summary.tab"))
+        tar_files = set(f.name.replace('.tar.gz', '') for f in output_path.glob("*.tar.gz"))
+        n_skipped = len(summary_files & tar_files)  # Intersection
+    
+    # Calculate workers and threads per worker
+    # If both -j and --threads-per-worker are specified, use them directly
+    if args.max_workers and args.threads_per_worker:
         n_workers = args.max_workers
+        threads_per_worker = args.threads_per_worker
+    # If only -j is specified, use it with remaining threads distributed
+    elif args.max_workers:
+        n_workers = args.max_workers
+        threads_per_worker = max(1, threads // n_workers)
+    # If only --threads-per-worker is specified, calculate workers
+    elif args.threads_per_worker:
+        threads_per_worker = args.threads_per_worker
+        n_workers = min(n_queries, max(1, threads // threads_per_worker))
+    # If neither is specified, use heuristics
     else:
         if n_queries <= 4 and threads >= n_queries * 2:
             n_workers = n_queries
+            threads_per_worker = threads // n_workers
         else:
-            n_workers = min(n_queries, max(1, threads // 4))
-    
-    if args.threads_per_worker:
-        threads_per_worker = args.threads_per_worker
-    else:
-        threads_per_worker = max(1, threads // n_workers) if n_workers else threads
+            # Default to 4 threads per worker as a good balance
+            threads_per_worker = 4
+            n_workers = min(n_queries, max(1, threads // threads_per_worker))
     
     # Print clean header with ASCII art and color gradient
     print("\n")
@@ -261,7 +285,16 @@ def main():
     print(f"Threads: {threads} (Workers: {n_workers} × {threads_per_worker} threads)")
     print(f"Tree method: {tree_method}")
     print(f"Fast mode: {mode_fast}")
-    print(f"Queries to process: {n_queries}")
+    if args.resume:
+        print(f"Resume mode: ENABLED")
+        if n_skipped > 0:
+            print(f"  - Skipping {n_skipped} completed queries")
+            print(f"  - Processing {n_queries - n_skipped} remaining queries")
+        else:
+            print(f"  - No completed queries found")
+    else:
+        print(f"Resume mode: DISABLED")
+    print(f"Total queries: {n_queries}")
     print("="*60)
     
     start_time = datetime.now()
@@ -292,6 +325,8 @@ def main():
         cmd.extend(["--cluster-walltime", args.cluster_walltime])
     if args.verbose:
         cmd.append("--verbose")
+    if args.resume:
+        cmd.append("--resume")
     
     # Set environment
     env = os.environ.copy()
@@ -310,8 +345,9 @@ def main():
             stderr=subprocess.DEVNULL
         )
     
-    # Start resource monitor
-    monitor = ResourceMonitor(output_dir, n_queries, process.pid)
+    # Start resource monitor with actual queries to process
+    queries_to_process = n_queries - n_skipped if args.resume else n_queries
+    monitor = ResourceMonitor(output_dir, queries_to_process, process.pid, initial_completed=n_skipped)
     monitor_thread = threading.Thread(target=monitor.monitor)
     monitor_thread.start()
     
@@ -330,6 +366,39 @@ def main():
             seconds = int(elapsed.total_seconds() % 60)
             
             print("\n✅ Pipeline completed successfully!")
+            
+            # Generate combined summary from individual summary.tab files
+            print("📊 Generating combined summary...")
+            output_path = Path(output_dir)
+            summary_files = list(output_path.glob("*.summary.tab"))
+            
+            if summary_files:
+                # Read all individual summaries and combine them
+                combined_data = []
+                headers = None
+                
+                for summary_file in sorted(summary_files):
+                    with open(summary_file, 'r') as f:
+                        lines = f.readlines()
+                        if lines:
+                            if headers is None and len(lines) > 0:
+                                headers = lines[0].strip()
+                            if len(lines) > 1:  # Has data row
+                                combined_data.append(lines[1].strip())
+                
+                # Write combined summary
+                if combined_data and headers:
+                    combined_summary = output_path / "gvclass_summary.tsv"
+                    with open(combined_summary, 'w') as f:
+                        f.write(headers + '\n')
+                        for data_line in combined_data:
+                            f.write(data_line + '\n')
+                    print(f"✅ Combined summary written to: {combined_summary}")
+                else:
+                    print("⚠️  No summary data found to combine")
+            else:
+                print("⚠️  No individual summary files found")
+            
             print(f"⏱️  Runtime: {minutes}m {seconds}s")
             print(f"💾 Peak memory usage: {monitor.peak_memory_mb:.0f} MB")
             print(f"📊 Results saved to: {output_dir}")
