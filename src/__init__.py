@@ -13,4 +13,4 @@ from . import config
 from . import core
 from . import utils
 
-__all__ = ['config', 'core', 'utils', '__version__']
+__all__ = ["config", "core", "utils", "__version__"]

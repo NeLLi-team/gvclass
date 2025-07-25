@@ -12,12 +12,12 @@ from datetime import datetime
 
 def analyze_pipeline_parallelization():
     """Analyze the parallelization structure of the GVClass pipeline."""
-    
-    print("="*80)
+
+    print("=" * 80)
     print("GVClass Pipeline Parallelization Analysis")
-    print("="*80)
+    print("=" * 80)
     print()
-    
+
     # Level 1: Query-level parallelization
     print("📊 PARALLELIZATION LEVELS:")
     print()
@@ -26,7 +26,7 @@ def analyze_pipeline_parallelization():
     print("   - Number of workers = min(n_queries, threads // threads_per_worker)")
     print("   - Example: 2 queries, 16 threads → 2 workers × 8 threads each")
     print()
-    
+
     # Level 2: Within-query parallelization
     print("2. WITHIN-QUERY PARALLELIZATION:")
     print()
@@ -35,13 +35,13 @@ def analyze_pipeline_parallelization():
     print("      - Each code tested sequentially (not parallel)")
     print("      - ⚠️ BOTTLENECK: Could parallelize genetic code testing")
     print()
-    
+
     print("   B. HMM Search (SINGLE-THREADED per query)")
     print("      - pyhmmer search against all HMM models")
     print("      - Uses 1 thread (pyhmmer is fast but could use more threads)")
     print("      - ⚠️ BOTTLENECK: Could use multi-threaded HMM search")
     print()
-    
+
     print("   C. Marker Processing (PARALLEL within each query)")
     print("      - Each marker (up to 99 GVOGs) processed in parallel")
     print("      - ThreadPoolExecutor with min(threads_per_worker, n_markers)")
@@ -52,7 +52,7 @@ def analyze_pipeline_parallelization():
     print("        • Trimming (pytrimal, 1 thread)")
     print("        • Tree building (fasttree/iqtree, 1 thread)")
     print()
-    
+
     # Performance implications
     print("📈 PERFORMANCE IMPLICATIONS:")
     print()
@@ -73,7 +73,7 @@ def analyze_pipeline_parallelization():
     print("  • Each query can process 8 markers in parallel")
     print("  • Total parallelism: 2 queries × 8 markers = 16 parallel tasks max")
     print()
-    
+
     # Bottlenecks
     print("🚧 IDENTIFIED BOTTLENECKS:")
     print()
@@ -91,7 +91,7 @@ def analyze_pipeline_parallelization():
     print("   - Extra threads only help with marker parallelization")
     print("   - For better scaling: need more queries or different architecture")
     print()
-    
+
     # Recommendations
     print("💡 RECOMMENDATIONS FOR BETTER PARALLELIZATION:")
     print()
@@ -117,84 +117,97 @@ def analyze_pipeline_parallelization():
 
 def run_performance_test(query_dir, threads_list=[4, 8, 16]):
     """Run performance tests with different thread counts."""
-    
-    print("\n" + "="*80)
+
+    print("\n" + "=" * 80)
     print("Running Performance Tests")
-    print("="*80)
+    print("=" * 80)
     print()
-    
+
     results = []
-    
+
     for threads in threads_list:
         print(f"\nTesting with {threads} threads...")
-        
+
         # Create unique output dir
-        output_dir = f"test_output_{threads}threads_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        
+        output_dir = (
+            f"test_output_{threads}threads_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        )
+
         # Run with CPU monitoring
         cmd = [
-            sys.executable, 
+            sys.executable,
             "src/test/monitor_performance.py",
             "--",
-            "pixi", "run", "gvclass",
+            "pixi",
+            "run",
+            "gvclass",
             query_dir,
-            "-o", output_dir,
-            "-t", str(threads)
+            "-o",
+            output_dir,
+            "-t",
+            str(threads),
         ]
-        
+
         start_time = time.time()
         try:
             subprocess.run(cmd, check=True)
             runtime = time.time() - start_time
-            
-            results.append({
-                'threads': threads,
-                'runtime': runtime,
-                'output_dir': output_dir
-            })
-            
+
+            results.append(
+                {"threads": threads, "runtime": runtime, "output_dir": output_dir}
+            )
+
             print(f"✅ Completed in {runtime:.1f} seconds")
-            
+
         except subprocess.CalledProcessError:
             print(f"❌ Failed with {threads} threads")
-    
+
     # Summary
     if results:
-        print("\n" + "="*80)
+        print("\n" + "=" * 80)
         print("Performance Summary")
-        print("="*80)
+        print("=" * 80)
         print()
         print("Threads | Runtime | Speedup")
         print("--------|---------|--------")
-        
-        baseline = results[0]['runtime']
+
+        baseline = results[0]["runtime"]
         for r in results:
-            speedup = baseline / r['runtime']
+            speedup = baseline / r["runtime"]
             print(f"{r['threads']:7d} | {r['runtime']:6.1f}s | {speedup:6.2f}x")
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Analyze GVClass pipeline parallelization')
-    parser.add_argument('--test', action='store_true', 
-                       help='Run performance tests')
-    parser.add_argument('--query-dir', default='example',
-                       help='Query directory for tests')
-    parser.add_argument('--threads', nargs='+', type=int, default=[4, 8, 16],
-                       help='Thread counts to test')
-    
+    parser = argparse.ArgumentParser(
+        description="Analyze GVClass pipeline parallelization"
+    )
+    parser.add_argument("--test", action="store_true", help="Run performance tests")
+    parser.add_argument(
+        "--query-dir", default="example", help="Query directory for tests"
+    )
+    parser.add_argument(
+        "--threads",
+        nargs="+",
+        type=int,
+        default=[4, 8, 16],
+        help="Thread counts to test",
+    )
+
     args = parser.parse_args()
-    
+
     # Always show analysis
     analyze_pipeline_parallelization()
-    
+
     # Run tests if requested
     if args.test:
         run_performance_test(args.query_dir, args.threads)
     else:
         print("\nTo run performance tests, use: --test")
         print("To monitor CPU usage during a run:")
-        print("  python src/test/monitor_cpu_usage.py pixi run gvclass example -o output -t 16")
+        print(
+            "  python src/test/monitor_cpu_usage.py pixi run gvclass example -o output -t 16"
+        )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

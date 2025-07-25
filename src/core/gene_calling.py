@@ -16,7 +16,7 @@ from src.utils.error_handling import ProcessingError
 def run_pyhmmer_search_simple(hmm_file: str, query_file: str, output_file: str) -> None:
     """
     Simplified pyhmmer search function for opgecall.py.
-    
+
     Args:
         hmm_file: Path to HMM model file
         query_file: Path to query sequence file
@@ -26,31 +26,43 @@ def run_pyhmmer_search_simple(hmm_file: str, query_file: str, output_file: str) 
         # Read HMM profiles
         with pyhmmer.plan7.HMMFile(hmm_file) as hmm_handle:
             profiles = list(hmm_handle)
-        
+
         # Read query sequences
         with pyhmmer.easel.SequenceFile(query_file, digital=True) as seq_handle:
             sequences = list(seq_handle)
-        
+
         # Run search with default parameters
         results = pyhmmer.hmmsearch(profiles, sequences, cpus=4)
-        
+
         # Write results in simplified domtblout format
-        with open(output_file, 'w') as out_handle:
+        with open(output_file, "w") as out_handle:
             # Write header
-            out_handle.write("# target name\taccession\ttlen\tquery name\taccession\tqlen\tE-value\tscore\tbias\t#\tof\tc-Evalue\ti-Evalue\tscore\tbias\tfrom\tto\tfrom\tto\tfrom\tto\tacc\n")
-            
+            out_handle.write(
+                "# target name\taccession\ttlen\tquery name\taccession\tqlen\tE-value\tscore\tbias\t#\tof\tc-Evalue\ti-Evalue\tscore\tbias\tfrom\tto\tfrom\tto\tfrom\tto\tacc\n"
+            )
+
             # Iterate through results - each TopHits corresponds to one query HMM
             for i, (hmm, top_hits) in enumerate(zip(profiles, results)):
-                hmm_name = hmm.name.decode() if isinstance(hmm.name, bytes) else hmm.name
-                hmm_accession = hmm.accession.decode() if hmm.accession and isinstance(hmm.accession, bytes) else (hmm.accession or "-")
+                hmm_name = (
+                    hmm.name.decode() if isinstance(hmm.name, bytes) else hmm.name
+                )
+                hmm_accession = (
+                    hmm.accession.decode()
+                    if hmm.accession and isinstance(hmm.accession, bytes)
+                    else (hmm.accession or "-")
+                )
                 hmm_length = hmm.M
-                
+
                 # Process hits for this HMM
                 for hit in top_hits:
-                    target_name = hit.name.decode() if isinstance(hit.name, bytes) else hit.name
+                    target_name = (
+                        hit.name.decode() if isinstance(hit.name, bytes) else hit.name
+                    )
                     target_accession = "-"  # Simplified
-                    target_length = 1000  # Placeholder - will be parsed differently downstream
-                    
+                    target_length = (
+                        1000  # Placeholder - will be parsed differently downstream
+                    )
+
                     # Process domains
                     for domain_idx, domain in enumerate(hit.domains):
                         # Get alignment for coordinate information
@@ -67,29 +79,37 @@ def run_pyhmmer_search_simple(hmm_file: str, query_file: str, output_file: str) 
                             hmm_to = hmm_length
                             target_from = domain.env_from
                             target_to = domain.env_to
-                            
+
                         # Simplified output - focus on essential fields
-                        out_handle.write(f"{target_name}\t{target_accession}\t{target_length}\t")
+                        out_handle.write(
+                            f"{target_name}\t{target_accession}\t{target_length}\t"
+                        )
                         out_handle.write(f"{hmm_name}\t{hmm_accession}\t{hmm_length}\t")
-                        out_handle.write(f"{hit.evalue:.2e}\t{hit.score:.1f}\t{hit.bias:.1f}\t")
+                        out_handle.write(
+                            f"{hit.evalue:.2e}\t{hit.score:.1f}\t{hit.bias:.1f}\t"
+                        )
                         out_handle.write(f"{domain_idx+1}\t{len(hit.domains)}\t")
-                        out_handle.write(f"{domain.c_evalue:.2e}\t{domain.i_evalue:.2e}\t")
+                        out_handle.write(
+                            f"{domain.c_evalue:.2e}\t{domain.i_evalue:.2e}\t"
+                        )
                         out_handle.write(f"{domain.score:.1f}\t{domain.bias:.1f}\t")
                         # Use 1-based coordinates
                         out_handle.write(f"{hmm_from+1}\t{hmm_to}\t")
                         out_handle.write(f"{target_from+1}\t{target_to}\t")
                         out_handle.write(f"{domain.env_from+1}\t{domain.env_to}\t")
                         out_handle.write("0.90\n")  # Default accuracy
-        
+
     except Exception as e:
         raise ProcessingError(
             f"pyhmmer search failed: {str(e)}",
             step="pyhmmer_search",
-            input_file=query_file
+            input_file=query_file,
         ) from e
 
 
-def run_hmmsearch(faain: str, modelscombined: str, completeCutoff: float = 0.66) -> Tuple[int, float, int, float, float, int, float, float]:
+def run_hmmsearch(
+    faain: str, modelscombined: str, completeCutoff: float = 0.66
+) -> Tuple[int, float, int, float, float, int, float, float]:
     """
     Run hmmsearch on the input FAA file and calculate relevant metrics.
 
@@ -102,11 +122,11 @@ def run_hmmsearch(faain: str, modelscombined: str, completeCutoff: float = 0.66)
         Tuple: Metrics calculated from the hmmsearch results.
     """
     hmmout = faain.replace(".faa", ".hmmout")
-    
+
     # Validate input files
     faa_file = validate_file_path(faain, must_exist=True)
     models_file = validate_file_path(modelscombined, must_exist=True)
-    
+
     # Run pyhmmer search
     run_pyhmmer_search_simple(str(models_file), str(faa_file), hmmout)
 
@@ -120,9 +140,9 @@ def run_hmmsearch(faain: str, modelscombined: str, completeCutoff: float = 0.66)
     protein_bestHit_hmmCoverages: Dict[str, float] = {}
     protein_completeBestHit_scores: Dict[str, float] = {}
 
-    with open(hmmout, 'r') as file:
+    with open(hmmout, "r") as file:
         for line in file:
-            if not line.startswith('#'):
+            if not line.startswith("#"):
                 parts = line.split()
                 protein_id = parts[0]
                 model = parts[3]
@@ -136,13 +156,19 @@ def run_hmmsearch(faain: str, modelscombined: str, completeCutoff: float = 0.66)
                     unique_proteins.add(protein_id)
                     hit_count += 1
 
-                if protein_id not in protein_scores or score > protein_scores[protein_id]:
+                if (
+                    protein_id not in protein_scores
+                    or score > protein_scores[protein_id]
+                ):
                     protein_scores[protein_id] = score
 
                 unique_profiles.add(model)
-                unique_protein2profiles.add(f'{protein_id}_{model}')
+                unique_protein2profiles.add(f"{protein_id}_{model}")
 
-                if protein_id not in protein_bestHit_scores or hitScore > protein_bestHit_scores[protein_id]:
+                if (
+                    protein_id not in protein_bestHit_scores
+                    or hitScore > protein_bestHit_scores[protein_id]
+                ):
                     protein_bestHit_scores[protein_id] = hitScore
                     coverage = (profileTo - profileFrom + 1) / profileLen
                     protein_bestHit_hmmCoverages[protein_id] = coverage
@@ -154,13 +180,26 @@ def run_hmmsearch(faain: str, modelscombined: str, completeCutoff: float = 0.66)
     if hit_count > 0:
         total_score = sum(protein_scores.values())
         avg_score = round(total_score / hit_count, 2)
-        avg_bestHitScore = round(sum(protein_bestHit_scores.values()) / len(protein_bestHit_scores.values()), 2)
-        avg_bestHitCoverage = round(sum(protein_bestHit_hmmCoverages.values()) / len(protein_bestHit_hmmCoverages.values()), 3)
+        avg_bestHitScore = round(
+            sum(protein_bestHit_scores.values()) / len(protein_bestHit_scores.values()),
+            2,
+        )
+        avg_bestHitCoverage = round(
+            sum(protein_bestHit_hmmCoverages.values())
+            / len(protein_bestHit_hmmCoverages.values()),
+            3,
+        )
         if len(protein_completeBestHit_scores.values()) > 0:
-            avg_completeBestHitScore = round(sum(protein_completeBestHit_scores.values()) / len(protein_completeBestHit_scores.values()), 2)
+            avg_completeBestHitScore = round(
+                sum(protein_completeBestHit_scores.values())
+                / len(protein_completeBestHit_scores.values()),
+                2,
+            )
         else:
             avg_completeBestHitScore = 0
-        avg_proteinsPerProfile = round(len(unique_protein2profiles) / len(unique_profiles), 2)
+        avg_proteinsPerProfile = round(
+            len(unique_protein2profiles) / len(unique_profiles), 2
+        )
     else:
         avg_score = 0
         avg_bestHitScore = 0
@@ -168,7 +207,17 @@ def run_hmmsearch(faain: str, modelscombined: str, completeCutoff: float = 0.66)
         avg_completeBestHitScore = 0
         avg_proteinsPerProfile = 0
 
-    return hit_count, avg_score, len(unique_profiles), avg_bestHitScore, avg_bestHitCoverage, len(protein_completeBestHit_scores.values()), avg_completeBestHitScore, avg_proteinsPerProfile
+    return (
+        hit_count,
+        avg_score,
+        len(unique_profiles),
+        avg_bestHitScore,
+        avg_bestHitCoverage,
+        len(protein_completeBestHit_scores.values()),
+        avg_completeBestHitScore,
+        avg_proteinsPerProfile,
+    )
+
 
 def calc_stats(fnain: str, faain: str) -> List[float]:
     """
@@ -189,7 +238,9 @@ def calc_stats(fnain: str, faain: str) -> List[float]:
 
     with open(fnain, "r") as fna_file:
         for seq_record in SeqIO.parse(fna_file, "fasta"):
-            cumulative_gc += seq_record.seq.upper().count('G') + seq_record.seq.upper().count('C')
+            cumulative_gc += seq_record.seq.upper().count(
+                "G"
+            ) + seq_record.seq.upper().count("C")
             cumulative_len += len(seq_record.seq)
             contigs += 1
 
@@ -198,8 +249,14 @@ def calc_stats(fnain: str, faain: str) -> List[float]:
             cumulative_len_aa += len(seq_record.seq)
             gene_count += 1
 
-    return [contigs, cumulative_len, round(cumulative_gc / cumulative_len * 100, 2),
-            gene_count, round(cumulative_len_aa * 3 / cumulative_len * 100, 2)]
+    return [
+        contigs,
+        cumulative_len,
+        round(cumulative_gc / cumulative_len * 100, 2),
+        gene_count,
+        round(cumulative_len_aa * 3 / cumulative_len * 100, 2),
+    ]
+
 
 def check_filename(fnafile: str) -> None:
     """
@@ -218,6 +275,7 @@ def check_filename(fnafile: str) -> None:
         logging.error("fnafile ending needs to be .fna")
         sys.exit(1)
 
+
 def rename_header(bestcode: str, finalfaa: str, gffout: str) -> None:
     """
     Rename sequence header to ><filename>|<proteinid>.
@@ -234,7 +292,9 @@ def rename_header(bestcode: str, finalfaa: str, gffout: str) -> None:
         for seq_record in SeqIO.parse(best_file, "fasta"):
             headerbase = seq_record.description.split("|")[0]
             if headerbase != infilebase:
-                seq_record.id = f"{infilebase}|{str(seq_record.id).split()[0].replace(':', '__')}"
+                seq_record.id = (
+                    f"{infilebase}|{str(seq_record.id).split()[0].replace(':', '__')}"
+                )
                 seq_record.description = ""
                 records.append(seq_record)
             elif headerbase == infilebase:
@@ -251,6 +311,7 @@ def rename_header(bestcode: str, finalfaa: str, gffout: str) -> None:
         shutil.copy(gff_best, gffout)
     else:
         shutil.copy(f"{gffout}_codemeta", gffout)
+
 
 def prepareTrainingSequence(fnafile: str) -> bytes:
     """
@@ -271,7 +332,8 @@ def prepareTrainingSequence(fnafile: str) -> bytes:
         sequences.append(str(record.seq))
     if len(sequences) > 1:
         sequences.append("TTAATTAATTAA")
-    return bytes("".join(sequences), 'utf-8')
+    return bytes("".join(sequences), "utf-8")
+
 
 def run_genecalling_codes(fnafile: str, code: int, gffout: str) -> None:
     """
@@ -294,22 +356,72 @@ def run_genecalling_codes(fnafile: str, code: int, gffout: str) -> None:
         trainingSeq = prepareTrainingSequence(fnafile)
         geneFinder.train(trainingSeq, force_nonsd=True, translation_table=code)
 
-    with open(f'{faaout}_code{outSuffix}', "w") as proteinOut, open(f'{gffout}_code{outSuffix}', "w") as gffOut:
+    with (
+        open(f"{faaout}_code{outSuffix}", "w") as proteinOut,
+        open(f"{gffout}_code{outSuffix}", "w") as gffOut,
+    ):
         for record in SeqIO.parse(fnafile, "fasta"):
             genes = geneFinder.find_genes(bytes(record.seq))
             genes.write_translations(proteinOut, record.id)
             genes.write_gff(gffOut, record.id)
 
+
 @click.command()
-@click.option('--fnafile', '-f', type=click.Path(exists=True), required=True, help='Input FNA file')
-@click.option('--gffout', '-g', type=click.Path(), required=True, help='Output GFF file')
-@click.option('--genecalling_statsout', '-gs', '--genecalling-statsout', type=click.Path(), required=True, help='Genecalling statistics file')
-@click.option('--summary_statsout', '-ss', type=click.Path(), required=True, help='Genome stats outfile')
-@click.option('--finalfaa', '-fa', type=click.Path(), required=True, help='Output FASTA file')
-@click.option('--modelscombined', '-m', type=click.Path(exists=True), required=True, help='Combined HMM model file')
-@click.option('--finalfna', '-fn', type=click.Path(), required=True, help='Final FNA path')
-@click.option('--hmmout', '-o', type=click.Path(), required=True, help='Final hmmout from bestcode')
-def main(fnafile: str, gffout: str, genecalling_statsout: str, summary_statsout: str, finalfaa: str, modelscombined: str, finalfna: str, hmmout: str) -> None:
+@click.option(
+    "--fnafile",
+    "-f",
+    type=click.Path(exists=True),
+    required=True,
+    help="Input FNA file",
+)
+@click.option(
+    "--gffout", "-g", type=click.Path(), required=True, help="Output GFF file"
+)
+@click.option(
+    "--genecalling_statsout",
+    "-gs",
+    "--genecalling-statsout",
+    type=click.Path(),
+    required=True,
+    help="Genecalling statistics file",
+)
+@click.option(
+    "--summary_statsout",
+    "-ss",
+    type=click.Path(),
+    required=True,
+    help="Genome stats outfile",
+)
+@click.option(
+    "--finalfaa", "-fa", type=click.Path(), required=True, help="Output FASTA file"
+)
+@click.option(
+    "--modelscombined",
+    "-m",
+    type=click.Path(exists=True),
+    required=True,
+    help="Combined HMM model file",
+)
+@click.option(
+    "--finalfna", "-fn", type=click.Path(), required=True, help="Final FNA path"
+)
+@click.option(
+    "--hmmout",
+    "-o",
+    type=click.Path(),
+    required=True,
+    help="Final hmmout from bestcode",
+)
+def main(
+    fnafile: str,
+    gffout: str,
+    genecalling_statsout: str,
+    summary_statsout: str,
+    finalfaa: str,
+    modelscombined: str,
+    finalfna: str,
+    hmmout: str,
+) -> None:
     """
     Main function to run gene calling and calculate statistics.
 
@@ -323,7 +435,9 @@ def main(fnafile: str, gffout: str, genecalling_statsout: str, summary_statsout:
         finalfna (str): Final FNA path.
         hmmout (str): Final hmmout from bestcode.
     """
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+    )
 
     # Check input
     check_filename(fnafile)
@@ -351,19 +465,30 @@ def main(fnafile: str, gffout: str, genecalling_statsout: str, summary_statsout:
 
     # Secure glob usage - validate the directory first
     faaoutdir_safe = validate_file_path(faaoutdir, must_exist=True)
-    
+
     # Build search patterns safely
-    meta_file = faaoutdir_safe / f"{os.path.splitext(os.path.basename(gffout))[0]}.faa_codemeta"
-    
+    meta_file = (
+        faaoutdir_safe / f"{os.path.splitext(os.path.basename(gffout))[0]}.faa_codemeta"
+    )
+
     faa_files = list(faaoutdir_safe.glob("*.faa_code*"))
     if meta_file.exists():
         faa_files.append(meta_file)
-    
+
     for faain in faa_files:
         faain_str = str(faain)
         genome_id = os.path.basename(faain_str)
         stats_dict[genome_id] = calc_stats(fnafile, faain_str)
-        hit_count, avg_score, profile_hit_count, avg_bestHitScore, avg_bestHitCoverage, completeBestHits, avg_completeBestHitScore, avg_proteinsPerProfile = run_hmmsearch(faain_str, modelscombined)
+        (
+            hit_count,
+            avg_score,
+            profile_hit_count,
+            avg_bestHitScore,
+            avg_bestHitCoverage,
+            completeBestHits,
+            avg_completeBestHitScore,
+            avg_proteinsPerProfile,
+        ) = run_hmmsearch(faain_str, modelscombined)
         hit_counts[faain_str] = hit_count
         avg_scores[faain_str] = avg_score
         profile_hit_counts[faain_str] = profile_hit_count
@@ -374,7 +499,11 @@ def main(fnafile: str, gffout: str, genecalling_statsout: str, summary_statsout:
         avg_proteinsPerProfiles[faain_str] = avg_proteinsPerProfile
 
     # Gene calling stats to select ttable that yields highest coding density
-    stats_df = pd.DataFrame.from_dict(stats_dict, columns=["contigs", "LENbp", "GCperc", "genecount", "CODINGperc"], orient="index")
+    stats_df = pd.DataFrame.from_dict(
+        stats_dict,
+        columns=["contigs", "LENbp", "GCperc", "genecount", "CODINGperc"],
+        orient="index",
+    )
     stats_df = stats_df.sort_values("CODINGperc", ascending=False)
     # Extract genetic code from filename: e.g., "file.faa_code4" -> "code4"
     stats_df["ttable"] = stats_df.index.map(lambda x: x.split("_")[-1])
@@ -382,33 +511,72 @@ def main(fnafile: str, gffout: str, genecalling_statsout: str, summary_statsout:
     coding_dens_codemeta = stats_df[stats_df["ttable"] == "codemeta"]["CODINGperc"]
 
     # Add hit counts and average scores to the stats dataframe
-    stats_df["hits"] = stats_df.index.map(lambda x: hit_counts[os.path.join(faaoutdir, x)])
-    stats_df["avg_score"] = stats_df.index.map(lambda x: avg_scores[os.path.join(faaoutdir, x)])
-    stats_df["profile_hits"] = stats_df.index.map(lambda x: profile_hit_counts[os.path.join(faaoutdir, x)])
-    stats_df["avg_bestHitScore"] = stats_df.index.map(lambda x: avg_bestHitScores[os.path.join(faaoutdir, x)])
-    stats_df["avg_bestHitCoverage"] = stats_df.index.map(lambda x: avg_bestHitCoverages[os.path.join(faaoutdir, x)])
-    stats_df["complete_bestHits"] = stats_df.index.map(lambda x: completeBestHits_counts[os.path.join(faaoutdir, x)])
-    stats_df["avg_completeBestHitScore"] = stats_df.index.map(lambda x: avg_completeBestHitScores[os.path.join(faaoutdir, x)])
-    stats_df["avg_proteins_per_profile"] = stats_df.index.map(lambda x: avg_proteinsPerProfiles[os.path.join(faaoutdir, x)])
+    stats_df["hits"] = stats_df.index.map(
+        lambda x: hit_counts[os.path.join(faaoutdir, x)]
+    )
+    stats_df["avg_score"] = stats_df.index.map(
+        lambda x: avg_scores[os.path.join(faaoutdir, x)]
+    )
+    stats_df["profile_hits"] = stats_df.index.map(
+        lambda x: profile_hit_counts[os.path.join(faaoutdir, x)]
+    )
+    stats_df["avg_bestHitScore"] = stats_df.index.map(
+        lambda x: avg_bestHitScores[os.path.join(faaoutdir, x)]
+    )
+    stats_df["avg_bestHitCoverage"] = stats_df.index.map(
+        lambda x: avg_bestHitCoverages[os.path.join(faaoutdir, x)]
+    )
+    stats_df["complete_bestHits"] = stats_df.index.map(
+        lambda x: completeBestHits_counts[os.path.join(faaoutdir, x)]
+    )
+    stats_df["avg_completeBestHitScore"] = stats_df.index.map(
+        lambda x: avg_completeBestHitScores[os.path.join(faaoutdir, x)]
+    )
+    stats_df["avg_proteins_per_profile"] = stats_df.index.map(
+        lambda x: avg_proteinsPerProfiles[os.path.join(faaoutdir, x)]
+    )
 
     # Select bestcode based on coding density threshold, number of hits, and average score
     if float(coding_dens_codemeta) > 0:
-        bestcode = os.path.join(faaoutdir, f"{os.path.splitext(os.path.basename(gffout))[0]}.faa_codemeta")
+        bestcode = os.path.join(
+            faaoutdir, f"{os.path.splitext(os.path.basename(gffout))[0]}.faa_codemeta"
+        )
         max_hits = completeBestHits_counts[bestcode]
         max_avg_score = avg_bestHitScores[bestcode]
-        for code in ["code1", "code4", "code6", "code11", "code15", "code106", "code129"]:
-            faa_code = os.path.join(faaoutdir, f"{os.path.splitext(os.path.basename(gffout))[0]}.faa_{code}")
-            
+        for code in [
+            "code1",
+            "code4",
+            "code6",
+            "code11",
+            "code15",
+            "code106",
+            "code129",
+        ]:
+            faa_code = os.path.join(
+                faaoutdir, f"{os.path.splitext(os.path.basename(gffout))[0]}.faa_{code}"
+            )
+
             # Skip if this code wasn't run (file doesn't exist or not in our dictionaries)
             if faa_code not in completeBestHits_counts:
                 continue
-                
+
             matching_rows = stats_df[stats_df["ttable"] == code]
             if len(matching_rows) == 0:
                 continue  # Skip if this code wasn't run
             coding_dens_code = matching_rows["CODINGperc"].iloc[0]
-            
-            if completeBestHits_counts[faa_code] > max_hits or (completeBestHits_counts[faa_code] == max_hits and avg_bestHitScores[faa_code] > max_avg_score) or (completeBestHits_counts[faa_code] == max_hits and avg_bestHitScores[faa_code] == max_avg_score and float(coding_dens_code) > float(coding_dens_codemeta) * 1.02):
+
+            if (
+                completeBestHits_counts[faa_code] > max_hits
+                or (
+                    completeBestHits_counts[faa_code] == max_hits
+                    and avg_bestHitScores[faa_code] > max_avg_score
+                )
+                or (
+                    completeBestHits_counts[faa_code] == max_hits
+                    and avg_bestHitScores[faa_code] == max_avg_score
+                    and float(coding_dens_code) > float(coding_dens_codemeta) * 1.02
+                )
+            ):
                 max_hits = completeBestHits_counts[faa_code]
                 max_avg_score = avg_bestHitScores[faa_code]
                 bestcode = faa_code
@@ -421,12 +589,12 @@ def main(fnafile: str, gffout: str, genecalling_statsout: str, summary_statsout:
 
     # Write stats to files
     stats_df.to_csv(genecalling_statsout, sep="\t", index=False)
-    
+
     # Write the best code stats, but always show "codemeta" in ttable column
     best_stats = stats_df[stats_df.index == os.path.basename(bestcode)].copy()
     best_stats["ttable"] = "codemeta"  # Always show codemeta for the selected code
     best_stats.to_csv(summary_statsout, sep="\t", index=False)
-    
+
     # Rename headers and cleanup
     shutil.copy(fnafile, finalfna)
     rename_header(bestcode, finalfaa, gffout)
@@ -434,7 +602,7 @@ def main(fnafile: str, gffout: str, genecalling_statsout: str, summary_statsout:
     gffout_safe = validate_file_path(gffout, must_exist=False)
     gffout_dir = gffout_safe.parent
     gffout_base = gffout_safe.stem
-    
+
     for tempout in gffout_dir.glob(f"{gffout_base}_code*"):
         tempout_safe = validate_file_path(tempout, must_exist=False)
         if tempout_safe.exists():
@@ -460,11 +628,12 @@ def main(fnafile: str, gffout: str, genecalling_statsout: str, summary_statsout:
     gffout_base = os.path.splitext(str(gffout_safe))[0]
     gffout_dir = gffout_safe.parent
     base_name = os.path.basename(gffout_base)
-    
+
     for hmmout_file in gffout_dir.glob(f"{base_name}.hmmout_*"):
         hmmout_file_safe = validate_file_path(hmmout_file, must_exist=False)
         if str(hmmout_file_safe) != hmmout and hmmout_file_safe.exists():
             os.remove(hmmout_file_safe)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

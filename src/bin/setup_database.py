@@ -15,7 +15,7 @@ from src.utils.database_manager import DatabaseManager
 def main():
     """Download and setup the GVClass database."""
     print("Setting up GVClass database...")
-    
+
     try:
         db_path = DatabaseManager.setup_database()
         print(f"✅ Database successfully set up at: {db_path}")
