@@ -174,7 +174,22 @@ class MarkerProcessor:
 
         # Trim alignment
         try:
-            trimmed_aln = pytrimal.Alignment.load(str(align_out))
+            # First clean the alignment by replacing stop codons with gaps
+            # pytrimal doesn't handle stop codons (*) well
+            import tempfile
+
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".fasta", delete=False
+            ) as tmp:
+                with open(align_out) as inf:
+                    for line in inf:
+                        if not line.startswith(">"):
+                            # Replace stop codons with gaps
+                            line = line.replace("*", "-")
+                        tmp.write(line)
+                cleaned_align = Path(tmp.name)
+
+            trimmed_aln = pytrimal.Alignment.load(str(cleaned_align))
 
             # Use automated trimming
             trimmer = pytrimal.AutomaticTrimmer(method="automated1")
@@ -182,6 +197,9 @@ class MarkerProcessor:
 
             # Write trimmed alignment
             trimmed.dump(str(trim_out))
+
+            # Clean up temp file
+            cleaned_align.unlink()
 
         except Exception as e:
             logger.warning(
@@ -247,6 +265,7 @@ class MarkerProcessor:
 
             cmd = [
                 "iqtree",
+                "-fast",  # Fast mode must come early to set optimization parameters
                 "-s",
                 str(trimmed_alignment),
                 "-m",
@@ -256,7 +275,6 @@ class MarkerProcessor:
                 "-pre",
                 str(self.tree_dir / self.marker),
                 "-quiet",
-                "-fast",  # Use fast mode for speed
             ]
 
             result = subprocess.run(cmd, capture_output=True, text=True)

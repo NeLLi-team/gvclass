@@ -29,7 +29,9 @@ class TreeAnalyzer:
         labels = {}
         try:
             with open(self.labels_file, "r") as f:
+                line_count = 0
                 for line in f:
+                    line_count += 1
                     if line.startswith("#"):
                         continue
                     parts = line.strip().split("\t")
@@ -37,8 +39,19 @@ class TreeAnalyzer:
                         genome_id = parts[0]
                         # Store the full taxonomy string
                         labels[genome_id] = parts[1]
+            logger.info(
+                f"Loaded {len(labels)} labels from {line_count} lines in {self.labels_file}"
+            )
+            if len(labels) == 0:
+                logger.warning(f"No labels were loaded from {self.labels_file}!")
+                # Show first few lines for debugging
+                with open(self.labels_file, "r") as f:
+                    first_lines = [f.readline() for _ in range(5)]
+                logger.warning(f"First 5 lines of labels file: {first_lines}")
         except Exception as e:
             logger.error(f"Error loading labels: {e}")
+            logger.error(f"Labels file path: {self.labels_file}")
+            logger.error(f"File exists: {self.labels_file.exists()}")
 
         return labels
 
@@ -60,11 +73,22 @@ class TreeAnalyzer:
         try:
             tree = Tree(str(tree_file))
 
+            # Debug: Log tree parsing
+            leaf_count = len([n for n in tree.iter_leaves()])
+            logger.debug(f"Loaded tree from {tree_file.name} with {leaf_count} leaves")
+
             # Find all query nodes in the tree
             query_nodes = []
             for node in tree.traverse():
                 if node.is_leaf() and node.name.startswith(query_id):
                     query_nodes.append(node)
+
+            if len(query_nodes) == 0:
+                # Debug: Show what leaf names we have
+                sample_leaves = [n.name for n in tree.iter_leaves()][:5]
+                logger.debug(f"No query nodes found for {query_id} in {tree_file.name}")
+                logger.debug(f"Sample leaf names: {sample_leaves}")
+                logger.debug(f"Looking for nodes starting with: {query_id}")
 
             # For each query node, find its nearest non-query neighbor
             for query_node in query_nodes:

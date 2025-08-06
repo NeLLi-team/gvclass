@@ -81,16 +81,24 @@ Results are saved to `<input_name>_results/` containing:
 | query | Input filename |
 | taxonomy_majority | Full taxonomy based on majority rule |
 | taxonomy_strict | Conservative taxonomy (100% agreement) |
-| species → domain | Individual taxonomic levels |
+| species → domain | Individual taxonomic levels with taxon counts |
 | avgdist | Average tree distance to references |
-| *_completeness | Estimated genome completeness |
-| *_unique/*_dup | Marker gene counts |
+| order_dup | Duplication factor indicating contamination level |
+| order_completeness | Order-specific completeness (% unique markers found) |
+| gvog4_unique | Count of unique GVOG4 markers found |
+| gvog8_unique/total/dup | GVOG8 marker counts and duplication |
+| mcp_total | Major capsid protein marker count |
+| mirus_unique/total/dup | Mimiviridae-specific marker counts |
+| mrya_unique/total | Marseilleviridae-specific marker counts |
+| phage_unique/total | Phage marker counts |
+| cellular_unique/total/dup | Cellular contamination markers |
 | contigs | Number of contigs |
 | LENbp | Total length in base pairs |
 | GCperc | GC content percentage |
 | genecount | Number of predicted genes |
 | CODINGperc | Coding density percentage |
 | ttable | Genetic code used |
+| weighted_order_completeness | **NEW**: Weighted completeness score considering marker importance |
 
 ## ⚙️ Configuration (Optional)
 
@@ -120,29 +128,29 @@ pipeline:
 ### Container Execution
 
 ```bash
-# Build containers (Docker and Apptainer)
-bash containers/build.sh
+# Build Apptainer/Singularity container (recommended)
+apptainer build gvclass.sif containers/apptainer/gvclass.def
+# or
+singularity build gvclass.sif containers/apptainer/gvclass.def
 
-# Run with Apptainer/Singularity (recommended - no permission issues)
-bash gvclass_apptainer.sh <input_dir> <threads>
+# Run with Apptainer/Singularity
+singularity run -B /path/to/data:/data gvclass.sif /data/input_dir -t 32
 
-# Run with Docker
-bash gvclass_docker.sh <input_dir> <threads>
-
-# Run with Shifter (NERSC)
-bash gvclass_shifter.sh <input_dir> <threads>
+# Run with bind-mounted external database (optional)
+singularity run \
+    -B /path/to/queries:/input \
+    -B /path/to/database:/opt/gvclass/resources \
+    gvclass.sif /input -t 16
 ```
 
-#### Building Containers Manually
+#### Docker Alternative
 
 ```bash
 # Build Docker image
 docker build -t gvclass:1.1.0 -f containers/docker/Dockerfile .
 
-# Build Apptainer/Singularity image from Docker
-apptainer build gvclass.sif docker-daemon://gvclass:1.1.0
-# or
-singularity build gvclass.sif docker-daemon://gvclass:1.1.0
+# Run with Docker
+docker run -v /path/to/data:/data gvclass:1.1.0 /data -t 32
 ```
 
 ### Development Commands
@@ -202,7 +210,7 @@ To modify IQ-TREE behavior, edit `src/core/marker_processing.py`.
 ### Understanding Markers
 
 - **Core markers**: Always processed (GVOG4, GVOG8, MCP, etc.)
-- **Order-level markers**: ~100 OG markers specific to viral orders
+- **Order-level markers**: 576 OG markers conserved in different viral orders
   - Processed when `mode_fast: false` (default)
   - Skipped when `mode_fast: true` (faster but less precise order assignment)
 
@@ -278,7 +286,7 @@ flowchart TD
 
 If you use GVClass, please cite:
 
-> Schulz et al. (2020) Giant virus diversity and host interactions through global metagenomics. Nature. https://doi.org/10.1038/s41586-020-1957-x
+> Pitot et al. (2024): Conservative taxonomy and quality assessment of giant virus genomes with GVClass. npj Viruses. https://www.nature.com/articles/s44298-024-00069-7
 
 ## 🤝 Support
 
@@ -290,4 +298,4 @@ If you use GVClass, please cite:
 BSD 3-Clause License - see LICENSE file for details
 
 ---
-<sub>Version 1.1.0 - December 2024</sub>
+<sub>Version 1.1.0 - July 2025</sub>

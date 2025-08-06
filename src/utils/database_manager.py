@@ -16,13 +16,37 @@ class DatabaseManager:
     """Manages GVClass reference database."""
 
     REQUIRED_FILES = [
-        "models/combined.hmm",
-        "ncldvApril24_labels.txt",
-        "models_APRIL24--databaseApril24.cutoffs",
+        "models/combined.hmm",  # Combined HMM file with all models
+        "gvclassJuly25_labels.tsv",
         "order_completeness.tab",
     ]
 
-    DATABASE_URL = "https://portal.nersc.gov/cfs/nelli/gvclassDB/resources.tar.gz"
+    DATABASE_URL = (
+        "https://portal.nersc.gov/cfs/nelli/gvclassDB/resources_v1_1_0.tar.gz"
+    )
+    DATABASE_VERSION = "v1.1.0"
+
+    @classmethod
+    def get_database_version(cls, database_path: Path) -> str:
+        """
+        Get the version of the installed database.
+
+        Args:
+            database_path: Path to the database directory
+
+        Returns:
+            Database version string or 'unknown' if not found
+        """
+        version_file = database_path / "DB_VERSION"
+        if version_file.exists():
+            return version_file.read_text().strip()
+        return "unknown"
+
+    @classmethod
+    def write_database_version(cls, database_path: Path) -> None:
+        """Write the database version to a file."""
+        version_file = database_path / "DB_VERSION"
+        version_file.write_text(cls.DATABASE_VERSION)
 
     @classmethod
     def setup_database(cls, database_path: Optional[str] = None) -> Path:
@@ -90,9 +114,16 @@ class DatabaseManager:
             os.chdir(str(db_path))
 
             # Download using wget (could also use requests)
-            logger.info("Downloading resources.tar.gz...")
+            logger.info(
+                f"Downloading resources_{cls.DATABASE_VERSION.replace('.', '_')}.tar.gz..."
+            )
             result = subprocess.run(
-                ["wget", "-O", "resources.tar.gz", cls.DATABASE_URL],
+                [
+                    "wget",
+                    "-O",
+                    f"resources_{cls.DATABASE_VERSION.replace('.', '_')}.tar.gz",
+                    cls.DATABASE_URL,
+                ],
                 capture_output=True,
                 text=True,
             )
@@ -101,7 +132,7 @@ class DatabaseManager:
                 # Try with curl if wget fails
                 logger.warning("wget failed, trying curl...")
                 result = subprocess.run(
-                    ["curl", "-L", "-o", "resources.tar.gz", cls.DATABASE_URL],
+                    ["curl", "-L", "-o", "resources_v1_1.tar.gz", cls.DATABASE_URL],
                     capture_output=True,
                     text=True,
                 )
@@ -111,12 +142,18 @@ class DatabaseManager:
 
             # Extract
             logger.info("Extracting database...")
+            tar_filename = f"resources_{cls.DATABASE_VERSION.replace('.', '_')}.tar.gz"
             subprocess.run(
-                ["tar", "-xzvf", "resources.tar.gz", "--strip-components=1"], check=True
+                ["tar", "-xzvf", tar_filename, "--strip-components=1"],
+                check=True,
             )
 
+            # Write version file
+            cls.write_database_version(db_path)
+            logger.info(f"Database version {cls.DATABASE_VERSION} installed")
+
             # Clean up
-            Path("resources.tar.gz").unlink()
+            Path(tar_filename).unlink()
 
         finally:
             # Return to original directory

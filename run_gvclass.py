@@ -71,7 +71,7 @@ def check_and_setup_database(db_path, config):
     required_checks = [
         db_path / "models" / "combined.hmm",
         db_path / "database",
-        db_path / "ncldvApril24_labels.txt",
+        db_path / "gvclassJuly25_labels.tsv",
     ]
 
     if db_path.exists() and any(check.exists() for check in required_checks):
@@ -163,11 +163,13 @@ class ResourceMonitor:
 
 def main():
     """Run the pipeline with clean output and resource monitoring."""
+    from pathlib import Path
+
     parser = argparse.ArgumentParser(
         description="Run GVClass pipeline with clean output"
     )
     parser.add_argument(
-        "query_dir", help="Query directory containing .fna or .faa files"
+        "query_dir", nargs="?", help="Query directory containing .fna or .faa files"
     )
     parser.add_argument(
         "-o", "--output-dir", help="Output directory (default: <query_dir>_results)"
@@ -212,12 +214,40 @@ def main():
     )
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
     parser.add_argument(
+        "--version",
+        action="store_true",
+        help="Show version information and exit",
+    )
+    parser.add_argument(
         "--resume",
         action="store_true",
         help="Resume from previous run, skipping completed queries",
     )
 
     args = parser.parse_args()
+
+    # Handle --version flag
+    if args.version:
+        from src.utils.database_manager import DatabaseManager
+
+        print("GVClass Pipeline")
+        print("  Software version: v1.1.0")
+
+        # Load config to get database path
+        config = load_config(args.config)
+        db_path = Path(args.database if args.database else config["database"]["path"])
+
+        if db_path.exists():
+            db_version = DatabaseManager.get_database_version(db_path)
+            print(f"  Database version: {db_version}")
+        else:
+            print("  Database version: not installed")
+
+        sys.exit(0)
+
+    # Check if query_dir is provided for non-version commands
+    if not args.query_dir:
+        parser.error("query_dir is required unless using --version")
 
     # Load configuration
     config = load_config(args.config)
@@ -254,6 +284,13 @@ def main():
     # Count input files
     n_queries = count_files_in_directory(args.query_dir)
     n_skipped = 0
+
+    if n_queries == 0:
+        print(
+            f"❌ ERROR: No .fna or .faa files found in {args.query_dir}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     # Create output directory if it doesn't exist (needed for resume check)
     Path(output_dir).mkdir(parents=True, exist_ok=True)
@@ -301,9 +338,9 @@ def main():
     colors = [
         "\033[95m",  # Purple (G)
         "\033[95m",  # Purple (V)
-        "\033[91m",  # Light red/pink (C)
-        "\033[91m",  # Red (L)
-        "\033[38;5;208m",  # Orange (A) - 256 color
+        "\033[91m",  # Pink (C)
+        "\033[31m",  # Red (L)
+        "\033[31m",  # Red (A)
         "\033[38;5;208m",  # Orange (S) - 256 color
         "\033[93m",  # Yellow (S)
     ]
@@ -434,6 +471,25 @@ def main():
 
             print("\n✅ Pipeline completed successfully!")
 
+            # Validate outputs before generating summary
+            print("🔍 Validating pipeline outputs...")
+            from src.utils.output_validator import validate_pipeline_outputs
+
+            validation_results = validate_pipeline_outputs(
+                output_dir=Path(output_dir), verbose=args.verbose
+            )
+
+            if not validation_results["success"]:
+                print(
+                    f"⚠️  Validation found {len(validation_results['issues'])} issue(s):"
+                )
+                for issue in validation_results["issues"][:5]:  # Show first 5 issues
+                    print(f"  - {issue}")
+                if len(validation_results["issues"]) > 5:
+                    print(f"  ... and {len(validation_results['issues']) - 5} more")
+            else:
+                print("✅ All outputs validated successfully")
+
             # Generate combined summary from individual summary.tab files
             print("📊 Generating combined summary...")
             output_path = Path(output_dir)
@@ -469,6 +525,16 @@ def main():
             print(f"⏱️  Runtime: {minutes}m {seconds}s")
             print(f"💾 Peak memory usage: {monitor.peak_memory_mb:.0f} MB")
             print(f"📊 Results saved to: {output_dir}")
+
+            # Final validation summary
+            if validation_results["success"]:
+                print(
+                    f"✅ Output validation: PASSED ({validation_results['queries_validated']} queries)"
+                )
+            else:
+                print(
+                    f"⚠️  Output validation: {validation_results['queries_failed']} queries with issues"
+                )
         else:
             print(f"\n❌ Pipeline failed with exit code: {return_code}")
             sys.exit(1)

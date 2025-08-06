@@ -1,26 +1,85 @@
 Bootstrap: docker
-From: gvclass:1.1.0
+From: ghcr.io/prefix-dev/pixi:latest
 
-%labels
-    Author fschulz@lbl.gov
-    Version 1.1.0
-    Description GVClass - Giant Virus Classification Tool
-
-%help
-    GVClass - Giant Virus Classification Tool
-    
-    Usage:
-        apptainer run gvclass.sif pixi run gvclass <query_dir> -o <output_dir> -t <threads>
-    
-    Example:
-        apptainer run gvclass.sif pixi run gvclass /data -o /results -t 32
-    
-    For more options:
-        apptainer run gvclass.sif pixi run gvclass --help
+%files
+    # Copy the entire project excluding resources (will be bind-mounted)
+    . /opt/gvclass_staging
 
 %environment
-    export PATH=/app/.pixi/bin:$PATH
-    export PIXI_FROZEN=true
+    export PATH=/opt/gvclass/.pixi/envs/default/bin:$PATH
+    export PYTHONPATH=/opt/gvclass:$PYTHONPATH
+
+%post
+    # Install system dependencies
+    # The pixi base image is based on Debian/Ubuntu
+    apt-get update && apt-get install -y \
+        libgomp1 \
+        && apt-get clean \
+        && rm -rf /var/lib/apt/lists/*
+    
+    # Move files from staging to final location, INCLUDING resources
+    mkdir -p /opt/gvclass
+    cd /opt/gvclass_staging
+    
+    # Copy everything INCLUDING resources directory
+    for item in *; do
+        cp -r "$item" /opt/gvclass/
+    done
+    
+    # Copy hidden files (like .gitignore) if they exist
+    cp -r .* /opt/gvclass/ 2>/dev/null || true
+    
+    # Fix permissions on database files to make them readable
+    chmod -R 755 /opt/gvclass/resources/database/ 2>/dev/null || true
+    chmod 644 /opt/gvclass/resources/*.tsv 2>/dev/null || true
+    chmod 644 /opt/gvclass/resources/*.tab 2>/dev/null || true
+    
+    cd /opt/gvclass
+    
+    # Install the environment using pixi
+    pixi install
+    
+    # Clean up pixi cache and staging directory
+    pixi clean cache -y || true
+    rm -rf /opt/gvclass/.pixi/cache 2>/dev/null || true
+    rm -rf /opt/gvclass/__pycache__ 2>/dev/null || true
+    find /opt/gvclass -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+    rm -rf /opt/gvclass_staging
 
 %runscript
-    exec "$@"
+    # Check if first argument looks like a path
+    if [ -z "$1" ] || [[ "$1" == -* ]]; then
+        echo "Error: Please provide input directory as first argument"
+        echo "Usage: singularity run -B /your/data:/data gvclass.sif /data/input_dir [options]"
+        exit 1
+    fi
+    
+    cd /opt/gvclass
+    exec pixi run python run_gvclass.py "$@"
+
+%labels
+    Author fschulz
+    Version 1.1.0
+    Description GVClass - Giant Virus Classification Pipeline with Pixi
+
+%help
+    GVClass Pipeline v1.1.0
+    
+    IMPORTANT: Input data must be bind-mounted!
+    
+    Usage:
+        singularity run -B /path/to/data:/data gvclass.sif /data/query_dir [options]
+    
+    Examples:
+        # Run on example directory
+        singularity run -B $(pwd):/data gvclass.sif /data/example -t 8
+        
+        # Run on any query directory
+        singularity run -B /home/user/genomes:/input gvclass.sif /input/my_queries -t 32
+        
+        # With custom output directory
+        singularity run -B /path/to/data:/data gvclass.sif /data/input -o /data/output -t 16
+    
+    The pipeline will process ALL .fna and .faa files found in the input directory.
+    
+    NOTE: The resources database is included in the container at /opt/gvclass/resources.

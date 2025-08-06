@@ -16,7 +16,7 @@ env/
 ENV/
 
 # Pixi environments (will be created fresh in container)
-.pixi/
+# Note: .pixi/ is not ignored since we install it in the container
 
 # Test files
 test_iqtree/

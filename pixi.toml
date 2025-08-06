@@ -16,7 +16,7 @@ biopython = "1.85.*" # Used for sequence I/O
 
 # Phylogenetic analysis
 ete3 = ">=3.1.0"     # Used for tree parsing and analysis
-iqtree = ">=3.0.0"   # External binary for tree building (when selected)
+iqtree = ">=3.0.0"   # External binary for tree building
 
 # Build dependencies for pyrodigal
 cython = "3.0.*"
@@ -26,6 +26,7 @@ wheel = "*"
 # System utilities
 pyyaml = ">=6.0.0"   # For config file parsing
 psutil = ">=6.0.0"   # For system monitoring
+scikit-learn = ">=1.7.1,<2"
 
 [pypi-dependencies]
 # Bioinformatics tools (Python implementations)

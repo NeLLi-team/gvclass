@@ -18,6 +18,7 @@ from src.config.marker_sets import (
     MCP_MODELS,
     MRYA_MODELS,
 )
+from src.core.weighted_completeness import create_weighted_calculator
 
 logger = logging.getLogger(__name__)
 
@@ -28,9 +29,12 @@ class FullSummarizer:
     def __init__(self, database_path: Path):
         """Initialize with database path."""
         self.database_path = database_path
-        self.labels_file = database_path / "ncldvApril24_labels.txt"
+        self.labels_file = database_path / "gvclassJuly25_labels.tsv"
         self.completeness_table = database_path / "order_completeness.tab"
         self.labels_dict = self.load_labels()
+
+        # Initialize weighted completeness calculator
+        self.weighted_calculator = create_weighted_calculator(database_path)
 
     def load_labels(self) -> Dict[str, List[str]]:
         """Load taxonomy labels from file."""
@@ -43,10 +47,10 @@ class FullSummarizer:
                     parts = line.strip().split("\t")
                     if len(parts) >= 2:
                         genome_id = parts[0]
-                        # Parse taxonomy string: Domain|Class|Order|Family|Genus|Species
+                        # Parse taxonomy string: Domain|Phylum|Class|Order|Family|Genus|Species
                         tax_parts = parts[1].split("|")
-                        if len(tax_parts) >= 6:
-                            # Store as list: [domain, class, order, family, genus, species]
+                        if len(tax_parts) >= 7:
+                            # Store as list: [domain, phylum, class, order, family, genus, species]
                             labels[genome_id] = tax_parts
         except Exception as e:
             logger.error(f"Error loading labels: {e}")
@@ -95,8 +99,12 @@ class FullSummarizer:
 
     def calculate_order_metrics(
         self, counts_file: Path, order_tax: str
-    ) -> Tuple[float, float]:
-        """Calculate order-specific completeness and duplication."""
+    ) -> Tuple[float, float, float, float]:
+        """Calculate order-specific completeness and duplication metrics.
+
+        Returns:
+            Tuple of (completeness, duplication, weighted_completeness, confidence_score)
+        """
         try:
             # Load order completeness table
             comp_df = pd.read_csv(self.completeness_table, sep="\t")
@@ -104,7 +112,7 @@ class FullSummarizer:
             # Find the row for this order
             order_row = comp_df[comp_df["Order"] == order_tax]
             if order_row.empty:
-                return 0.0, 0.0
+                return 0.0, 0.0, 0.0, 0.0
 
             # Get orthogroups for this order
             ogs_str = order_row["Orthogroups"].values[0]
@@ -119,18 +127,36 @@ class FullSummarizer:
                         if len(parts) == 2:
                             marker_counts[parts[0]] = int(parts[1])
 
-            # Calculate metrics
+            # Calculate traditional metrics
             present_ogs = sum(1 for og in order_ogs if marker_counts.get(og, 0) > 0)
             total_hits = sum(marker_counts.get(og, 0) for og in order_ogs)
 
             completeness = (present_ogs / len(order_ogs)) * 100 if order_ogs else 0
             duplication = total_hits / present_ogs if present_ogs > 0 else 0
 
-            return completeness, duplication
+            # Calculate weighted completeness using ML-enhanced approach
+            try:
+                weighted_completeness, confidence_score, _ = (
+                    self.weighted_calculator.calculate_weighted_completeness(
+                        marker_counts=marker_counts,
+                        taxonomic_order=order_tax,
+                        expected_markers=order_ogs,
+                    )
+                )
+                logger.debug(
+                    f"Weighted completeness for {order_tax}: {weighted_completeness:.2f}% "
+                    f"(traditional: {completeness:.2f}%)"
+                )
+            except Exception as e:
+                logger.warning(f"Weighted completeness calculation failed: {e}")
+                weighted_completeness = completeness  # Fallback to traditional
+                confidence_score = 50.0  # Moderate confidence for fallback
+
+            return completeness, duplication, weighted_completeness, confidence_score
 
         except Exception as e:
             logger.error(f"Error calculating order metrics: {e}")
-            return 0.0, 0.0
+            return 0.0, 0.0, 0.0, 0.0
 
     def summarize_query_full(
         self,
@@ -195,13 +221,13 @@ class FullSummarizer:
             "species",
         ]
         tax_level_mapping = {
-            "domain": 0,  # Domain/Kingdom
-            "phylum": 0,  # Using domain for phylum (Nucleocytoviricota)
-            "class": 1,  # Class (e.g., Megaviricetes)
-            "order": 2,  # Order
-            "family": 3,  # Family
-            "genus": 4,  # Genus
-            "species": 5,  # Species
+            "domain": 0,  # Domain (e.g., NCLDV)
+            "phylum": 1,  # Phylum (e.g., Nucleocytoviricota)
+            "class": 2,  # Class (e.g., Megaviricetes)
+            "order": 3,  # Order (e.g., Imitervirales)
+            "family": 4,  # Family
+            "genus": 5,  # Genus
+            "species": 6,  # Species
         }
 
         # Collect all taxonomies by level
@@ -221,12 +247,11 @@ class FullSummarizer:
                         for level, idx in tax_level_mapping.items():
                             if idx < len(tax_info):
                                 tax_value = tax_info[idx]
-                                # For domain/phylum, use the first part
+                                # For domain, use the first part of genome_id
                                 if level == "domain":
                                     tax_counters[level][genome_id.split("__")[0]] += 1
-                                elif level == "phylum":
-                                    tax_counters[level][tax_info[0]] += 1
                                 else:
+                                    # For all other levels, use domain prefix + tax value
                                     tax_counters[level][
                                         f"{genome_id.split('__')[0]}__{tax_value}"
                                     ] += 1
@@ -340,13 +365,17 @@ class FullSummarizer:
                 order_tax = most_common_order.split("__")[1]
 
         if order_tax:
-            completeness, duplication = self.calculate_order_metrics(
-                counts_file, order_tax
+            completeness, duplication, weighted_completeness, confidence_score = (
+                self.calculate_order_metrics(counts_file, order_tax)
             )
             result["order_completeness"] = completeness
             result["order_dup"] = duplication
+            result["order_weighted_completeness"] = weighted_completeness
+            result["order_confidence_score"] = confidence_score
         else:
             result["order_completeness"] = 0.0
             result["order_dup"] = 0.0
+            result["order_weighted_completeness"] = 0.0
+            result["order_confidence_score"] = 0.0
 
         return result

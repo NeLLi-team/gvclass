@@ -1,86 +1,55 @@
-ARG PIXI_VERSION=0.40.2
-ARG BASE_IMAGE=debian:bookworm-slim
+# Use the official Pixi base image (includes Pixi pre-installed)
+FROM ghcr.io/prefix-dev/pixi:latest
 
-# Builder stage
-FROM $BASE_IMAGE AS builder
-# Specify the ARG again to make it available in this stage
-ARG PIXI_VERSION
-
-# Install necessary dependencies, including CA certificates
-RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates && \
-    rm -rf /var/lib/apt/lists/*
-
-# Download Pixi binary (musl-compatible version) and checksum
+# Install build dependencies needed for pyrodigal compilation
+USER root
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl ca-certificates && \
-    curl -Ls \
-    "https://github.com/prefix-dev/pixi/releases/download/v${PIXI_VERSION}/pixi-$(uname -m)-unknown-linux-musl.tar.gz" \
-    -o /pixi-x86_64-unknown-linux-musl.tar.gz && \
-    curl -Ls \
-    "https://github.com/prefix-dev/pixi/releases/download/v${PIXI_VERSION}/pixi-$(uname -m)-unknown-linux-musl.tar.gz.sha256" \
-    -o /pixi-x86_64-unknown-linux-musl.tar.gz.sha256 && \
-    sha256sum -c /pixi-x86_64-unknown-linux-musl.tar.gz.sha256 && \
-    tar -xzf /pixi-x86_64-unknown-linux-musl.tar.gz -C / && \
-    chmod +x /pixi && \
-    rm -rf /pixi-x86_64-unknown-linux-musl.tar.gz* && \
-    rm -rf /var/lib/apt/lists/*
-
-# Verify Pixi version
-RUN /pixi --version
-
-# Final stage
-FROM $BASE_IMAGE
-
-# Copy Pixi binary from builder stage
-COPY --from=builder /pixi /usr/local/bin/pixi
-
-# Install runtime and build dependencies
-# gcc, g++, make are needed for compiling pyrodigal
-# git is needed for pyrodigal installation from github
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    git \
     gcc \
     g++ \
     make \
     libc6-dev \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 # Create application directory
-WORKDIR /app
+WORKDIR /opt/gvclass
 
-# Copy the entire project (excluding files in .dockerignore)
-COPY . /app/
-
-# Set environment variables
-ENV PATH="/root/.pixi/bin:${PATH}"
-ENV PIXI_FROZEN=true
-
-# Verify Pixi installation
-RUN pixi --version
+# Copy the entire project including resources
+COPY . /opt/gvclass/
 
 # Install GVClass dependencies using pixi
-# This will create the environment and install all dependencies
-RUN pixi install --manifest-path /app/pixi.toml
+RUN pixi install
 
-# The database is already included in the resources directory
-# No need to download it separately
+# Clean up pixi cache to reduce image size
+RUN pixi clean cache -y || true && \
+    rm -rf /opt/gvclass/.pixi/cache 2>/dev/null || true && \
+    rm -rf /opt/gvclass/__pycache__ 2>/dev/null || true && \
+    find /opt/gvclass -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 
-# Fix permissions for non-root users
-# Make resources readable by all users
-RUN chmod -R a+rX /app/resources || true
+# Set environment variables
+ENV PATH="/opt/gvclass/.pixi/envs/default/bin:${PATH}"
+ENV PYTHONPATH="/opt/gvclass:${PYTHONPATH}"
 
 # Create mount points for input/output with proper permissions
 RUN mkdir -p /data /results && chmod 777 /data /results
 
-# Set the default command to show help
-CMD ["pixi", "run", "gvclass", "--help"]
+# Create an entrypoint script
+RUN echo '#!/bin/bash\n\
+if [ -z "$1" ] || [[ "$1" == -* ]]; then\n\
+    echo "Error: Please provide input directory as first argument"\n\
+    echo "Usage: docker run -v /your/data:/data gvclass:1.1.0 /data/input_dir [options]"\n\
+    exit 1\n\
+fi\n\
+cd /opt/gvclass\n\
+exec pixi run python run_gvclass.py "$@"' > /entrypoint.sh && \
+    chmod +x /entrypoint.sh
 
-# Example usage labels
+ENTRYPOINT ["/entrypoint.sh"]
+
+# Metadata
 LABEL maintainer="fschulz@lbl.gov"
 LABEL description="GVClass - Giant Virus Classification Tool with pre-installed database"
 LABEL version="1.1.0"
 LABEL database.included="true"
-LABEL database.size="~700MB"
-LABEL usage.docker="docker run -v /path/to/data:/data -v /path/to/results:/results gvclass pixi run gvclass /data -o /results"
-LABEL usage.apptainer="apptainer run -B /path/to/data:/data,/path/to/results:/results gvclass.sif pixi run gvclass /data -o /results"
+LABEL database.size="~850MB"
+LABEL usage.docker="docker run -v /path/to/data:/data gvclass:1.1.0 '/data -t 32'"

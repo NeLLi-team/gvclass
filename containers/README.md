@@ -1,61 +1,88 @@
-# GVClass Container Build Files
+# GVClass Container Images
 
-This directory contains all files needed to build GVClass containers.
+This directory contains container definitions for GVClass v1.1.0.
 
 ## Directory Structure
 
 ```
 containers/
-├── build.sh           # Main build script for all containers
-├── docker/           
-│   ├── Dockerfile     # Docker image definition
-│   ├── docker-compose.yml  # Docker Compose configuration
-│   └── build_containers.sh # Legacy build script
-└── apptainer/
-    └── gvclass.def    # Apptainer/Singularity definition (optional)
+├── build.sh           # Main build script
+├── apptainer/        
+│   └── gvclass.def    # Apptainer/Singularity definition (primary)
+└── docker/           
+    ├── Dockerfile     # Docker image definition (alternative)
+    └── docker-compose.yml  # Docker Compose configuration
 ```
 
-## Building Containers
+## Primary Method: Apptainer/Singularity
 
-### Quick Build (Recommended)
+The recommended container format for HPC environments.
+
+### Quick Build
+
 ```bash
 # From project root
 bash containers/build.sh
+
+# Or build directly
+apptainer build gvclass.sif containers/apptainer/gvclass.def
 ```
 
-This will:
-1. Build Docker image `gvclass:1.1.0` (4.38GB)
-2. Build Apptainer image `gvclass.sif` (1.1GB) if apptainer/singularity is available
+This creates a ~992MB self-contained image including:
+- Complete Pixi environment
+- All Python dependencies  
+- Full 850MB reference database
+- GVClass source code
 
-### Manual Build
+### Usage
 
-#### Docker
+```bash
+# Basic usage
+singularity run -B /path/to/data:/data gvclass.sif /data/input_dir -t 32
+
+# With custom output location
+singularity run -B /data:/data -B /results:/results \
+    gvclass.sif /data/input -o /results -t 32
+
+# Override with external database (optional)
+singularity run \
+    -B /path/to/queries:/input \
+    -B /path/to/database:/opt/gvclass/resources \
+    gvclass.sif /input -t 16
+```
+
+## Alternative: Docker
+
+Docker images are available but less suitable for HPC clusters.
+
+### Build
 ```bash
 # From project root
 docker build -t gvclass:1.1.0 -f containers/docker/Dockerfile .
-docker tag gvclass:1.1.0 gvclass:latest
 ```
 
-#### Apptainer/Singularity
+### Usage
 ```bash
-# From project root (requires Docker image first)
-apptainer build gvclass.sif docker-daemon://gvclass:1.1.0
-# or
-singularity build gvclass.sif docker-daemon://gvclass:1.1.0
+docker run -v /path/to/data:/data gvclass:1.1.0 /data -t 32
 ```
+
+## Container Features
+
+Both formats include:
+- **Database**: 850MB reference database (no download needed)
+- **Dependencies**: All tools installed via Pixi
+- **Python packages**: pyhmmer, pyrodigal, veryfasttree, etc.
+- **Workflow**: Prefect + Dask orchestration
 
 ## Container Sizes
 
-- **Docker**: 4.38GB (uncompressed layers)
-- **Apptainer**: 1.1GB (compressed SIF format)
-
-Both contain:
-- Complete Python environment (~2GB)
-- GVClass database (~832MB)
-- All dependencies and tools
+- **Apptainer**: ~992MB (compressed SIF, recommended)
+- **Docker**: ~4.4GB (uncompressed layers)
 
 ## Notes
 
-- The `.dockerignore` file must remain in the project root for Docker builds
-- Apptainer images are built from the Docker image for consistency
-- Both containers include the full database, no download needed at runtime
+- No sudo/root required for Apptainer
+- Database is embedded (no external downloads)
+- Supports bind mounting for input/output
+- Compatible with HPC schedulers (SLURM, PBS, SGE)
+- The `.dockerignore` file must remain in project root for Docker builds

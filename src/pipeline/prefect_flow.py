@@ -29,6 +29,7 @@ from src.core.marker_processing import MarkerProcessor
 from src.core.hmm_search import run_pyhmmer_search_with_filtering
 from src.core.summarize_full import FullSummarizer
 from src.core.genetic_code_optimizer import GeneticCodeOptimizer
+from src.utils.error_handling import ProcessingError
 
 from Bio import SeqIO
 
@@ -233,9 +234,30 @@ def process_query_task(
     hmmout_dir = query_output_dir / "hmmout"
     hmmout_dir.mkdir(exist_ok=True)
 
-    # Run HMM search with pyhmmer
-    hmm_file = database_path / "models" / "combined.hmm"
-    cutoffs_file = database_path / "models_APRIL24--databaseApril24.cutoffs"
+    # Run HMM search with multiple HMM files
+    hmm_files = [
+        str(database_path / "models" / "busco69.hmm"),
+        str(database_path / "models" / "genomad_hmm_v1.7_selection20.hmm"),
+        str(database_path / "models" / "GVOG9.hmm"),
+        str(database_path / "models" / "mirus.hmm"),
+        str(database_path / "models" / "MRYA.hmm"),
+        str(database_path / "models" / "OGv2_order.hmm"),
+        str(database_path / "models" / "UNI56.hmm"),
+    ]
+
+    # Filter to only existing files
+    hmm_files = [f for f in hmm_files if Path(f).exists()]
+
+    if not hmm_files:
+        # Fallback to single combined.hmm if it exists
+        combined_hmm = database_path / "models" / "combined.hmm"
+        if combined_hmm.exists():
+            hmm_files = [str(combined_hmm)]
+            get_run_logger().info("Using fallback combined.hmm file")
+        else:
+            raise ProcessingError("No HMM model files found", step="hmm_search")
+
+    cutoffs_file = None  # No longer needed - cutoffs are extracted from HMM headers
 
     # Output files matching expected names
     models_out = hmmout_dir / "models.out"
@@ -243,16 +265,39 @@ def process_query_task(
     models_counts = hmmout_dir / "models.counts"
     models_score = hmmout_dir / "models.score"
 
-    run_pyhmmer_search_with_filtering(
-        query_file=str(protein_file),
-        hmm_file=str(hmm_file),
-        output_file=str(models_out),
-        filtered_output=str(models_out_filtered),
-        cutoffs_file=str(cutoffs_file),
-        counts_file=str(models_counts),
-        score_file=str(models_score),
-        threads=threads,
-    )
+    # Check if we should use multi-file search
+    if len(hmm_files) > 1:
+        # Use multi-file HMM search
+        from src.core.hmm_search_multi import run_pyhmmer_search_multi
+
+        run_pyhmmer_search_multi(
+            hmm_files=hmm_files,
+            query_file=str(protein_file),
+            output_file=str(models_out),
+            threads=threads,
+        )
+
+        # For multi-file search, filtering happens during search
+        # Copy output to filtered output
+        shutil.copy2(str(models_out), str(models_out_filtered))
+
+        # Generate counts file from output
+        from src.core.hmm_search import generate_counts_from_output
+
+        generate_counts_from_output(str(models_out_filtered), str(models_counts))
+
+    else:
+        # Use single-file HMM search (original method)
+        run_pyhmmer_search_with_filtering(
+            query_file=str(protein_file),
+            hmm_file=hmm_files[0],
+            output_file=str(models_out),
+            filtered_output=str(models_out_filtered),
+            cutoffs_file=str(cutoffs_file),
+            counts_file=str(models_counts),
+            score_file=str(models_score),
+            threads=threads,
+        )
 
     # Load HMM results
     from src.core.marker_extraction import parse_hmm_output
@@ -302,9 +347,21 @@ def process_query_task(
     tree_nn_results = {}
 
     if marker_files:
-        # Process markers in parallel using ThreadPoolExecutor
+        # Calculate optimal thread distribution for marker processing
+        # Strategy: Balance between parallel markers and threads per marker
+        num_markers = len(marker_files)
+
+        # If we have more threads than markers, give each marker multiple threads
+        if threads >= num_markers * 2:
+            threads_per_marker = min(threads // num_markers, 4)  # Cap at 4
+            max_parallel = num_markers
+        else:
+            # Otherwise, prioritize running more markers in parallel
+            threads_per_marker = 1
+            max_parallel = min(threads, num_markers)
+
         logger.info(
-            f"Processing {len(marker_files)} markers in parallel with {threads} threads"
+            f"Processing {len(marker_files)} markers: {max_parallel} parallel × {threads_per_marker} threads each"
         )
 
         def process_single_marker(marker_data):
@@ -332,7 +389,7 @@ def process_query_task(
                 marker_faa,
                 max_blast_hits=100,
                 tree_method=tree_method,
-                threads=1,  # Each marker uses 1 thread since we're parallelizing at marker level
+                threads=threads_per_marker,  # Dynamic thread allocation based on available resources
             )
 
             logger.debug(f"Marker {marker} processing result: {result is not None}")
@@ -348,10 +405,8 @@ def process_query_task(
                 return None, None
 
         # Use ThreadPoolExecutor to process markers in parallel
-        # Limit workers to available threads to avoid oversubscription
-        with ThreadPoolExecutor(
-            max_workers=min(threads, len(marker_files))
-        ) as executor:
+        # Use calculated max_parallel to avoid oversubscription
+        with ThreadPoolExecutor(max_workers=max_parallel) as executor:
             # Submit all marker processing tasks
             futures = [
                 executor.submit(process_single_marker, marker_data)
@@ -383,27 +438,37 @@ def process_query_task(
                 for i, tf in enumerate(tree_files[:5]):
                     logger.info(f"  Tree file {i+1}: {tf.name}")
 
-                labels_file = database_path / "ncldvApril24_labels.txt"
+                labels_file = database_path / "gvclassJuly25_labels.tsv"
                 logger.info(
                     f"Labels file: {labels_file}, exists: {labels_file.exists()}"
                 )
 
-                analyzer = TreeAnalyzer(labels_file)
+                try:
+                    analyzer = TreeAnalyzer(labels_file)
+                    logger.info(
+                        f"TreeAnalyzer initialized with labels file: {labels_file}"
+                    )
 
-                # Ensure stats directory exists
-                stats_dir = query_output_dir / "stats"
-                stats_dir.mkdir(exist_ok=True, parents=True)
-                logger.info(f"Created stats directory: {stats_dir}")
+                    # Ensure stats directory exists
+                    stats_dir = query_output_dir / "stats"
+                    stats_dir.mkdir(exist_ok=True, parents=True)
+                    logger.info(f"Created stats directory: {stats_dir}")
 
-                tree_nn_file = stats_dir / f"{query_name}.tree_nn"
-                logger.info(f"Will write tree_nn results to {tree_nn_file}")
+                    tree_nn_file = stats_dir / f"{query_name}.tree_nn"
+                    logger.info(f"Will write tree_nn results to {tree_nn_file}")
 
-                tree_nn_results = analyzer.process_marker_trees(
-                    tree_dir, query_name, tree_nn_file
-                )
-                logger.info(
-                    f"Tree analysis complete. Results: {len(tree_nn_results)} markers"
-                )
+                    tree_nn_results = analyzer.process_marker_trees(
+                        tree_dir, query_name, tree_nn_file
+                    )
+                    logger.info(
+                        f"Tree analysis complete. Results: {len(tree_nn_results)} markers"
+                    )
+                except Exception as e:
+                    logger.error(f"Tree analysis failed: {e}")
+                    import traceback
+
+                    logger.error(f"Traceback: {traceback.format_exc()}")
+                    tree_nn_results = {}
 
                 # Check if file was created
                 if tree_nn_file.exists():
@@ -421,16 +486,32 @@ def process_query_task(
     # Step 6: Use FullSummarizer to generate complete results
     logger.info(f"Generating full summary: {query_name}")
 
-    # Initialize the full summarizer
-    summarizer = FullSummarizer(database_path)
+    try:
+        # Initialize the full summarizer
+        summarizer = FullSummarizer(database_path)
 
-    # Generate the full summary with all metrics
-    summary_data = summarizer.summarize_query_full(
-        query_id=query_name,
-        query_output_dir=query_output_dir,
-        tree_nn_results=tree_nn_results,
-        mode_fast=mode_fast,
-    )
+        # Generate the full summary with all metrics
+        summary_data = summarizer.summarize_query_full(
+            query_id=query_name,
+            query_output_dir=query_output_dir,
+            tree_nn_results=tree_nn_results,
+            mode_fast=mode_fast,
+        )
+        logger.info(f"Summary generated successfully for {query_name}")
+    except Exception as e:
+        logger.error(f"Failed to generate summary for {query_name}: {e}")
+        import traceback
+
+        logger.error(traceback.format_exc())
+        # Create minimal summary data to allow pipeline to continue
+        summary_data = {
+            "query": query_name,
+            "length": "",
+            "genecount": "",
+            "coding_density": "",
+            "ttable": "",
+            "classification": "Error during classification",
+        }
 
     # Step 7: Create output directories and files
     query_faa_dir = query_output_dir / "query_faa"
@@ -451,74 +532,153 @@ def process_query_task(
             shutil.copy2(reformatted_file, query_fna_dir / f"{query_name}.fna")
 
         # Copy GFF file if exists
-        gff_file = query_output_dir / "gene_calling" / f"{query_name}.gff"
+        # First try the main gene_calling directory
+        gff_file = (
+            query_output_dir
+            / "gene_calling"
+            / f"{query_name}_reformatted"
+            / f"{query_name}_reformatted.gff"
+        )
         if gff_file.exists():
             shutil.copy2(gff_file, query_gff_dir / f"{query_name}.gff")
         else:
-            # Try looking in output directory for GFF files
-            for gff in query_output_dir.glob("**/*.gff"):
-                shutil.copy2(gff, query_gff_dir / f"{query_name}.gff")
-                break
+            # Try alternative location
+            gff_file = query_output_dir / "gene_calling" / f"{query_name}.gff"
+            if gff_file.exists():
+                shutil.copy2(gff_file, query_gff_dir / f"{query_name}.gff")
+            else:
+                # Try looking in output directory for GFF files
+                for gff in query_output_dir.glob("**/*.gff"):
+                    shutil.copy2(gff, query_gff_dir / f"{query_name}.gff")
+                    break
+                else:
+                    logger.warning(f"No GFF file found for {query_name}")
 
     # Create individual summary file with full data
     individual_summary = query_output_dir / f"{query_name}.summary.tab"
 
-    # Write comprehensive summary file
-    with open(individual_summary, "w") as f:
-        # Write header matching expected format
-        headers = [
-            "query",
-            "taxonomy_majority",
-            "taxonomy_strict",
-            "species",
-            "genus",
-            "family",
-            "order",
-            "class",
-            "phylum",
-            "domain",
-            "avgdist",
-            "order_dup",
-            "order_completeness",
-            "gvog4_unique",
-            "gvog8_unique",
-            "gvog8_total",
-            "gvog8_dup",
-            "mcp_total",
-            "mirus_unique",
-            "mirus_total",
-            "mirus_dup",
-            "mrya_unique",
-            "mrya_total",
-            "phage_unique",
-            "phage_total",
-            "cellular_unique",
-            "cellular_total",
-            "cellular_dup",
-            "contigs",
-            "LENbp",
-            "GCperc",
-            "genecount",
-            "CODINGperc",
-            "ttable",
-        ]
-        f.write("\t".join(headers) + "\n")
+    try:
+        logger.info(f"Writing summary file to {individual_summary}")
+        # Write comprehensive summary file with LEGACY headers for backward compatibility
+        with open(individual_summary, "w") as f:
+            # Headers matching the OLD format exactly (minus taxonomy_strict)
+            headers = [
+                "query",
+                "taxonomy_majority",
+                "species",
+                "genus",
+                "family",
+                "order",
+                "class",
+                "phylum",
+                "domain",
+                "avgdist",
+                "order_dup",
+                "order_completeness",
+                "gvog4_unique",
+                "gvog8_unique",
+                "gvog8_total",
+                "gvog8_dup",
+                "mcp_total",
+                "mirus_unique",
+                "mirus_total",
+                "mirus_dup",
+                "mrya_unique",
+                "mrya_total",
+                "phage_unique",
+                "phage_total",
+                "cellular_unique",
+                "cellular_total",
+                "cellular_dup",
+                "contigs",
+                "LENbp",
+                "GCperc",
+                "genecount",
+                "CODINGperc",
+                "ttable",
+                "weighted_order_completeness",  # Keep the new metric at the end
+            ]
+            f.write("\t".join(headers) + "\n")
 
-        # Write data row from summary_data
-        row_data = [str(summary_data.get(h, "")) for h in headers]
-        f.write("\t".join(row_data) + "\n")
+            # Map from summary_data keys (returned by FullSummarizer) to header names
+            # Updated for LEGACY format - raw counts not percentages
+            key_mapping = {
+                "query": "query",
+                "taxonomy_majority": "taxonomy_majority",
+                "species": "species",
+                "genus": "genus",
+                "family": "family",
+                "order": "order",
+                "class": "class",
+                "phylum": "phylum",
+                "domain": "domain",
+                "avgdist": "avgdist",
+                "order_dup": "order_dup",
+                "order_completeness": "order_completeness",  # Old % based metric
+                "gvog4_unique": "gvog4_unique",  # Raw count
+                "gvog8_unique": "gvog8_unique",  # Raw count
+                "gvog8_total": "gvog8_total",
+                "gvog8_dup": "gvog8_dup",
+                "mcp_total": "mcp_total",
+                "mirus_unique": "mirus_unique",  # Raw count
+                "mirus_total": "mirus_total",
+                "mirus_dup": "mirus_dup",
+                "mrya_unique": "mrya_unique",  # Raw count
+                "mrya_total": "mrya_total",
+                "phage_unique": "phage_unique",  # Raw count
+                "phage_total": "phage_total",
+                "cellular_unique": "cellular_unique",
+                "cellular_total": "cellular_total",
+                "cellular_dup": "cellular_dup",
+                "contigs": "contigs",
+                "LENbp": "LENbp",
+                "GCperc": "GCperc",
+                "genecount": "genecount",
+                "CODINGperc": "CODINGperc",
+                "ttable": "ttable",
+                "order_weighted_completeness": "weighted_order_completeness",  # Keep new metric
+            }
+
+            # Write data row from summary_data
+            row_data = []
+            for header in headers:
+                # Find the corresponding key in summary_data
+                for data_key, header_name in key_mapping.items():
+                    if header_name == header:
+                        value = summary_data.get(data_key, "")
+                        row_data.append(str(value))
+                        break
+                else:
+                    # If no mapping found, try direct match
+                    row_data.append(str(summary_data.get(header, "")))
+
+            f.write("\t".join(row_data) + "\n")
+
+        logger.info(f"Summary file written successfully: {individual_summary}")
+    except Exception as e:
+        logger.error(f"Failed to write summary file for {query_name}: {e}")
+        import traceback
+
+        logger.error(traceback.format_exc())
 
     # Post-processing: Create tar.gz and copy summary.tab
     logger.info(f"Post-processing results for query {query_name}")
+    logger.debug(f"Query output directory: {query_output_dir}")
+    logger.debug(f"Output base directory: {output_base}")
+
+    post_process_start = time.time()
     try:
         import tarfile
 
         # Copy summary.tab file to output root - it's in the query directory root
         summary_tab_file = query_output_dir / f"{query_name}.summary.tab"
+        logger.debug(f"Looking for summary file: {summary_tab_file}")
         if summary_tab_file.exists():
+            file_size = summary_tab_file.stat().st_size
+            logger.debug(f"Found summary file, size: {file_size} bytes")
             dest_summary = output_base / f"{query_name}.summary.tab"
             shutil.copy2(summary_tab_file, dest_summary)
-            logger.info(f"Copied summary.tab to {dest_summary}")
+            logger.info(f"✓ Copied summary.tab to {dest_summary} ({file_size} bytes)")
         else:
             # Try in stats directory as backup
             summary_tab_file_stats = (
@@ -533,26 +693,63 @@ def process_query_task(
                     f"Summary tab file not found in {summary_tab_file} or {summary_tab_file_stats}"
                 )
 
-        # Copy tree_nn file to output root before archiving
+        # tree_nn file stays in the stats directory (inside the tar.gz archive)
+        # No longer copying to output root to keep it cleaner
         tree_nn_file = query_output_dir / "stats" / f"{query_name}.tree_nn"
         if tree_nn_file.exists():
-            dest_tree_nn = output_base / f"{query_name}.tree_nn"
-            shutil.copy2(tree_nn_file, dest_tree_nn)
-            logger.info(f"Copied tree_nn to {dest_tree_nn}")
+            file_size = tree_nn_file.stat().st_size
+            logger.debug(f"Found tree_nn file in stats directory: {file_size} bytes")
 
         # Create tar.gz archive of the query directory
         tar_file = output_base / f"{query_name}.tar.gz"
+        logger.debug(f"Creating archive: {tar_file}")
+
+        # Count files to be archived
+        file_count = sum(1 for _ in query_output_dir.rglob("*") if _.is_file())
+        logger.debug(f"Archiving {file_count} files from {query_output_dir}")
+
         with tarfile.open(tar_file, "w:gz") as tar:
             tar.add(query_output_dir, arcname=query_name)
-        logger.info(f"Created archive: {tar_file}")
+
+        archive_size = tar_file.stat().st_size
+        logger.info(
+            f"✓ Created archive: {tar_file} ({archive_size:,} bytes, {file_count} files)"
+        )
+
+        # Clean up the reformatted file from the output root
+        reformatted_file = output_base / f"{query_name}_reformatted.fna"
+        if reformatted_file.exists():
+            reformatted_file.unlink()
+            logger.info(f"✓ Removed reformatted file: {reformatted_file}")
 
         # Remove the original directory
+        logger.debug(f"Removing original directory: {query_output_dir}")
         shutil.rmtree(query_output_dir)
-        logger.info(f"Removed original directory: {query_output_dir}")
+        logger.info(f"✓ Removed original directory: {query_output_dir}")
+
+        post_process_time = time.time() - post_process_start
+        logger.info(f"✓ Post-processing completed in {post_process_time:.2f} seconds")
 
     except Exception as e:
-        logger.error(f"Post-processing failed for {query_name}: {e}")
-        # Don't fail the entire query for post-processing errors
+        post_process_time = time.time() - post_process_start
+        logger.error(
+            f"❌ Post-processing failed for {query_name} after {post_process_time:.2f} seconds: {e}"
+        )
+        import traceback
+
+        logger.error(f"Traceback: {traceback.format_exc()}")
+
+        # Log what was partially completed
+        logger.debug("Checking partial outputs:")
+        if (output_base / f"{query_name}.summary.tab").exists():
+            logger.debug("  - Summary file was copied")
+        if (output_base / f"{query_name}.tar.gz").exists():
+            logger.debug("  - Archive was created")
+        if query_output_dir.exists():
+            logger.debug("  - Original directory still exists")
+
+        # Re-raise to ensure the error is visible
+        raise RuntimeError(f"Post-processing failed for {query_name}: {e}") from e
 
     # Return complete results
     return {
@@ -589,6 +786,8 @@ def create_final_summary_task(results: List[Dict[str, Any]], output_dir: Path) -
         "avgdist",
         "order_dup",
         "order_completeness",
+        "order_weighted_completeness",
+        "order_confidence_score",
         "gvog4_unique",
         "gvog8_unique",
         "gvog8_total",
@@ -637,7 +836,13 @@ def create_final_summary_task(results: List[Dict[str, Any]], output_dir: Path) -
                             "cellular_dup",
                         ]:
                             value = f"{value:.2f}"
-                        elif col in ["order_completeness", "GCperc", "CODINGperc"]:
+                        elif col in [
+                            "order_completeness",
+                            "order_weighted_completeness",
+                            "order_confidence_score",
+                            "GCperc",
+                            "CODINGperc",
+                        ]:
                             value = f"{value:.2f}"
                         else:
                             value = f"{value:.0f}"
@@ -652,44 +857,8 @@ def create_final_summary_task(results: List[Dict[str, Any]], output_dir: Path) -
     logger.info(f"Summary written to: {summary_file}")
 
     # Post-processing is already done in process_query_task
-    # Just ensure tree_nn files are copied to output root
-    logger.info("Ensuring tree_nn files are in output root")
-
-    import tarfile
-    import shutil
-
-    for result in results:
-        if result["status"] == "complete":
-            query_name = result["query"]
-            tree_nn_file = output_dir / f"{query_name}.tree_nn"
-
-            # If tree_nn file doesn't exist in output root, try to extract from tar.gz
-            if not tree_nn_file.exists():
-                tar_file = output_dir / f"{query_name}.tar.gz"
-                if tar_file.exists():
-                    try:
-                        with tarfile.open(tar_file, "r:gz") as tar:
-                            # Look for tree_nn file in archive
-                            tree_nn_path = f"{query_name}/stats/{query_name}.tree_nn"
-                            if tree_nn_path in tar.getnames():
-                                member = tar.getmember(tree_nn_path)
-                                # Extract to temp location
-                                tar.extract(member, output_dir)
-                                # Move to output root
-                                extracted_file = output_dir / tree_nn_path
-                                if extracted_file.exists():
-                                    shutil.copy2(extracted_file, tree_nn_file)
-                                    logger.info(
-                                        f"Extracted tree_nn file to: {tree_nn_file}"
-                                    )
-                                # Clean up temp extraction
-                                temp_dir = output_dir / query_name
-                                if temp_dir.exists():
-                                    shutil.rmtree(temp_dir)
-                    except Exception as e:
-                        logger.warning(
-                            f"Could not extract tree_nn from {tar_file}: {e}"
-                        )
+    # tree_nn files are kept inside the tar.gz archives to keep output directory clean
+    logger.info("All query processing complete")
 
     logger.info("Post-processing complete")
     return summary_file
@@ -938,13 +1107,17 @@ def gvclass_flow(
             f"All batches complete. Successfully processed {len([r for r in results if r['status'] == 'complete'])}/{total_queries} queries"
         )
 
-    # Don't create summary here - it will be done outside the flow
+    # Create final summary
+    logger.info("Creating final summary...")
+    summary_file = create_final_summary_task(results, config["output_path"])
+
     logger.info(f"Pipeline completed! Results in: {config['output_path']}")
+    logger.info(f"Summary written to: {summary_file}")
     logger.info(
         f"Successfully processed {len([r for r in results if r['status'] == 'complete'])}/{len(results)} queries"
     )
 
-    return results
+    return summary_file
 
 
 # Deployment configurations for different environments

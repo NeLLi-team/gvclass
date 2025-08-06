@@ -1,5 +1,6 @@
 allbins
 .ruff*
+*sif
 DEL
 .dir_bash_history
 gvclass.sif

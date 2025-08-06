@@ -40,12 +40,54 @@ def load_cutoffs_simple(cutoffs_file: str) -> Dict[str, float]:
     return cutoffs
 
 
+def extract_cutoffs_from_hmm(hmm_file: str) -> Dict[str, float]:
+    """
+    Extract cutoff values from HMM model headers.
+
+    Args:
+        hmm_file: Path to HMM models file
+
+    Returns:
+        Dictionary mapping model names to cutoff scores
+    """
+    cutoffs = {}
+    try:
+        with pyhmmer.plan7.HMMFile(hmm_file) as hmm_handle:
+            for hmm in hmm_handle:
+                hmm_name = (
+                    hmm.name.decode() if isinstance(hmm.name, bytes) else hmm.name
+                )
+                # Check for cutoff in HMM attributes
+                # pyhmmer exposes cutoffs as hmm.cutoffs which has ga, nc, tc attributes
+                if hasattr(hmm, "cutoffs") and hmm.cutoffs:
+                    if hasattr(hmm.cutoffs, "ga") and hmm.cutoffs.ga:
+                        # Use gathering threshold (GA) as primary cutoff
+                        cutoffs[hmm_name] = hmm.cutoffs.ga[
+                            0
+                        ]  # GA is (score, dom_score)
+                    elif hasattr(hmm.cutoffs, "tc") and hmm.cutoffs.tc:
+                        # Fallback to trusted cutoff (TC)
+                        cutoffs[hmm_name] = hmm.cutoffs.tc[0]
+                    elif hasattr(hmm.cutoffs, "nc") and hmm.cutoffs.nc:
+                        # Fallback to noise cutoff (NC)
+                        cutoffs[hmm_name] = hmm.cutoffs.nc[0]
+                    else:
+                        # Default cutoff if none found
+                        cutoffs[hmm_name] = 0.0
+                else:
+                    cutoffs[hmm_name] = 0.0
+    except Exception as e:
+        error_handler.log_error(f"Error extracting cutoffs from HMM: {e}")
+
+    return cutoffs
+
+
 def run_pyhmmer_search_with_filtering(
     query_file: str,
     hmm_file: str,
     output_file: str,
     filtered_output: str,
-    cutoffs_file: str,
+    cutoffs_file: str,  # Kept for compatibility but not used
     counts_file: str,
     score_file: str,
     threads: int = 4,
@@ -58,7 +100,7 @@ def run_pyhmmer_search_with_filtering(
         hmm_file: Path to HMM models
         output_file: Path to raw output
         filtered_output: Path to filtered output
-        cutoffs_file: Path to cutoff values
+        cutoffs_file: Path to cutoff values (deprecated, kept for compatibility)
         counts_file: Path to counts output
         score_file: Path to score output
         threads: Number of threads
@@ -70,9 +112,6 @@ def run_pyhmmer_search_with_filtering(
     )
     error_handler.log_info(f"  HMM file: {hmm_file}, exists: {Path(hmm_file).exists()}")
     error_handler.log_info(f"  Output file: {output_file}")
-    error_handler.log_info(
-        f"  Cutoffs file: {cutoffs_file}, exists: {Path(cutoffs_file).exists()}"
-    )
 
     # First run the search
     run_pyhmmer_search(hmm_file, query_file, output_file, threads)
@@ -82,9 +121,9 @@ def run_pyhmmer_search_with_filtering(
         f"HMM search output file size: {Path(output_file).stat().st_size if Path(output_file).exists() else 'NOT FOUND'}"
     )
 
-    # Load cutoffs
-    cutoffs = load_cutoffs_simple(cutoffs_file)
-    error_handler.log_info(f"Loaded {len(cutoffs)} cutoff values")
+    # Extract cutoffs from HMM file instead of loading from separate file
+    cutoffs = extract_cutoffs_from_hmm(hmm_file)
+    error_handler.log_info(f"Extracted {len(cutoffs)} cutoff values from HMM models")
 
     # Parse and filter results
     model_hits = defaultdict(list)
@@ -248,6 +287,39 @@ def run_pyhmmer_search(
             step="pyhmmer_search",
             input_file=query_file,
         ) from e
+
+
+def generate_counts_from_output(output_file: str, counts_file: str) -> None:
+    """
+    Generate counts file from HMM search output.
+
+    Args:
+        output_file: Path to HMM search output
+        counts_file: Path to write counts file
+    """
+    from collections import defaultdict
+
+    counts = defaultdict(int)
+
+    try:
+        with open(output_file, "r") as f:
+            for line in f:
+                if line.startswith("#"):
+                    continue
+                parts = line.strip().split("\t")
+                if len(parts) >= 4:
+                    model_name = parts[3]  # Query name is the model
+                    counts[model_name] += 1
+
+        # Write counts
+        with open(counts_file, "w") as f:
+            for model, count in sorted(counts.items()):
+                f.write(f"{model}\t{count}\n")
+
+        error_handler.log_info(f"Generated counts file: {counts_file}")
+
+    except Exception as e:
+        error_handler.log_error(f"Error generating counts: {e}")
 
 
 def get_models(modelsin: str) -> List[str]:
