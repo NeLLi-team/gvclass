@@ -378,7 +378,11 @@ def process_hmmout(
                 if model in cutoffs:
                     score_cutoff, length_cutoff = cutoffs[model]
                     if score >= score_cutoff and length >= length_cutoff:
+                        # Unified handling for all marker types
+                        # Use (protein_id, model) tuple as key for consistency
+                        # This allows proper tracking of which protein matches which marker
                         if model.startswith("OG"):
+                            # For OG markers, allow multiple models per protein
                             key = (protein_id, model)
                             if key not in protein_hits_order[genomeid]:
                                 protein_hits_order[genomeid][key] = (
@@ -397,15 +401,29 @@ def process_hmmout(
                                 )
                                 outfile.write(line)
                         else:
-                            if protein_id not in protein_hits[genomeid]:
-                                protein_hits[genomeid][protein_id] = (
+                            # For non-OG markers, also use consistent key structure
+                            # but still keep best-scoring model per protein
+                            key = (protein_id, model)
+
+                            # Check if this protein already has a hit for ANY non-OG model
+                            existing_hit = None
+                            for existing_key in list(protein_hits[genomeid].keys()):
+                                if existing_key[0] == protein_id:
+                                    existing_hit = existing_key
+                                    break
+
+                            if existing_hit is None:
+                                # First hit for this protein
+                                protein_hits[genomeid][key] = (
                                     model,
                                     score,
                                     length,
                                     line,
                                 )
-                            elif score > protein_hits[genomeid][protein_id][1]:
-                                protein_hits[genomeid][protein_id] = (
+                            elif score > protein_hits[genomeid][existing_hit][1]:
+                                # Better score, replace the existing hit
+                                del protein_hits[genomeid][existing_hit]
+                                protein_hits[genomeid][key] = (
                                     model,
                                     score,
                                     length,
@@ -413,18 +431,48 @@ def process_hmmout(
                                 )
 
         for genomeid, protein_dict in protein_hits.items():
-            for protein_id, (model, score, length, line) in protein_dict.items():
+            for key, (model, score, length, line) in protein_dict.items():
                 outfile.write(f"{line}\n")
 
+    # Now count hits with consistent handling
+    # Track statistics for validation
+    total_og_markers = 0
+    total_non_og_markers = 0
+    proteins_with_multiple_markers = 0
+
+    # Non-OG markers (from protein_hits)
     for genomeid, protein_dict in protein_hits.items():
-        for protein_id, (model, score, length, line) in protein_dict.items():
+        for (protein_id, model), (_, score, length, line) in protein_dict.items():
             counts[genomeid][model] += 1
             scores[genomeid][model] = max(scores[genomeid][model], score)
+            total_non_og_markers += 1
 
+    # OG markers (from protein_hits_order)
+    proteins_seen = defaultdict(set)
     for genomeid, protein_dict in protein_hits_order.items():
         for (protein_id, model), (_, score, length, line) in protein_dict.items():
             counts[genomeid][model] += 1
             scores[genomeid][model] = max(scores[genomeid][model], score)
+            total_og_markers += 1
+            proteins_seen[protein_id].add(model)
+
+    # Check for proteins matching multiple OG markers (potential issue)
+    for protein_id, models in proteins_seen.items():
+        if len(models) > 1:
+            proteins_with_multiple_markers += 1
+
+    # Validation warnings
+    if proteins_with_multiple_markers > 0:
+        print(
+            f"Note: {proteins_with_multiple_markers} proteins matched multiple OG markers (expected behavior)"
+        )
+
+    if total_og_markers == 0 and total_non_og_markers == 0:
+        print("⚠️  WARNING: No markers detected in HMM search results!")
+    elif total_og_markers > 0:
+        print(
+            f"HMM search found {total_og_markers} OG markers and {total_non_og_markers} other markers"
+        )
 
     # Ensuring all models are accounted for each genome
     for genomeid in counts.keys():

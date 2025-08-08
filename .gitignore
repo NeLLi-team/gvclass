@@ -1,5 +1,6 @@
 allbins
-.ruff*
+.ruff`*
+plan.md
 *sif
 DEL
 .dir_bash_history

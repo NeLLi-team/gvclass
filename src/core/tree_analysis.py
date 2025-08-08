@@ -70,6 +70,21 @@ class TreeAnalyzer:
         """
         neighbors = {}
 
+        # Check if tree file exists and is not a dummy/skipped tree
+        if not tree_file.exists():
+            logger.debug(
+                f"Tree file {tree_file} does not exist - likely skipped due to insufficient sequences"
+            )
+            return neighbors
+
+        # Check for skip marker file
+        skip_file = tree_file.with_suffix(".SKIPPED")
+        if skip_file.exists():
+            logger.debug(
+                f"Tree building was skipped for {tree_file.stem} - insufficient sequences"
+            )
+            return neighbors
+
         try:
             tree = Tree(str(tree_file))
 
@@ -210,20 +225,41 @@ class TreeAnalyzer:
 
         # Process each tree file
         tree_files = list(tree_dir.glob("*.treefile"))
+        skipped_files = list(tree_dir.glob("*.SKIPPED"))
         logger.info(f"Found {len(tree_files)} tree files to process")
+        if skipped_files:
+            logger.info(
+                f"Note: {len(skipped_files)} markers had tree building skipped due to insufficient sequences"
+            )
+
+        trees_processed = 0
+        trees_skipped = 0
 
         for tree_file in tree_files:
             marker = tree_file.stem
             logger.debug(f"Processing tree for marker {marker}")
+
+            # Check if this tree was skipped
+            if tree_file.with_suffix(".SKIPPED").exists():
+                trees_skipped += 1
+                logger.debug(
+                    f"Skipping {marker} - insufficient sequences for tree building"
+                )
+                continue
+
             neighbors = self.get_neighbors_from_tree(tree_file, query_id)
 
             if neighbors:
                 all_neighbors[marker] = neighbors
                 logger.debug(f"Found {len(neighbors)} neighbors for marker {marker}")
+                trees_processed += 1
             else:
                 logger.debug(f"No neighbors found for marker {marker}")
 
         logger.info(f"Total markers with neighbors: {len(all_neighbors)}")
+        logger.info(
+            f"Trees processed: {trees_processed}, Trees skipped: {trees_skipped}"
+        )
 
         # Write results
         if all_neighbors:

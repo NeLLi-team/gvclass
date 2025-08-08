@@ -6,6 +6,7 @@ This module handles the complete processing pipeline for a single marker.
 
 from pathlib import Path
 from typing import Dict, Tuple
+from datetime import datetime
 from Bio import SeqIO, AlignIO
 import pyfamsa
 import pytrimal
@@ -231,19 +232,27 @@ class MarkerProcessor:
 
         # Check if alignment has enough sequences
         aln_records = list(AlignIO.read(str(trimmed_alignment), "fasta"))
+
+        # Critical validation for tree building
         if len(aln_records) < 3:
-            logger.warning(
-                f"Too few sequences ({len(aln_records)}) for tree building of {self.marker}"
-            )
-            # Create a simple tree
-            with open(tree_out, "w") as f:
-                if len(aln_records) == 2:
-                    f.write(f"({aln_records[0].id}:0.1,{aln_records[1].id}:0.1);\n")
-                elif len(aln_records) == 1:
-                    f.write(f"({aln_records[0].id}:0.0);\n")
-                else:
-                    f.write("();\n")
-            return tree_out
+            warning_msg = f"⚠️  WARNING: Too few sequences ({len(aln_records)}) for tree building of {self.marker}"
+            logger.warning(warning_msg)
+            print(warning_msg)
+            print(f"   Skipping tree building for {self.marker} - insufficient data")
+
+            # Create a SKIP file to indicate tree was not built
+            skip_file = tree_out.with_suffix(".SKIPPED")
+            with open(skip_file, "w") as f:
+                f.write(f"TREE BUILDING SKIPPED AT {datetime.now()}\n")
+                f.write(f"Marker: {self.marker}\n")
+                f.write(f"Sequences: {len(aln_records)}\n")
+                f.write("Minimum required: 3\n")
+                f.write(
+                    "Phylogenetic analysis not possible with insufficient sequences.\n"
+                )
+
+            # Return None to indicate no tree was built
+            return None
 
         if tree_method == "fasttree":
             # Use VeryFastTree
@@ -255,8 +264,30 @@ class MarkerProcessor:
                 with open(tree_out, "w") as f:
                     f.write(tree_result)
 
+                # Validate the tree was created successfully
+                if not tree_out.exists() or tree_out.stat().st_size == 0:
+                    raise RuntimeError(
+                        f"Tree file empty or not created for {self.marker}"
+                    )
+
+                logger.info(
+                    f"Successfully built tree for {self.marker} with {len(aln_records)} sequences"
+                )
+
             except Exception as e:
-                logger.error(f"VeryFastTree failed for {self.marker}: {e}")
+                error_msg = f"⚠️  ERROR: VeryFastTree failed for {self.marker}: {e}"
+                logger.error(error_msg)
+                print(error_msg)
+
+                # Create an error file to document the failure
+                error_file = tree_out.with_suffix(".ERROR")
+                with open(error_file, "w") as f:
+                    f.write(f"TREE BUILDING FAILED AT {datetime.now()}\n")
+                    f.write(f"Marker: {self.marker}\n")
+                    f.write(f"Method: {tree_method}\n")
+                    f.write(f"Sequences: {len(aln_records)}\n")
+                    f.write(f"Error: {str(e)}\n")
+
                 raise
 
         else:
@@ -280,8 +311,31 @@ class MarkerProcessor:
             result = subprocess.run(cmd, capture_output=True, text=True)
 
             if result.returncode != 0:
-                logger.error(f"IQ-TREE failed for {self.marker}: {result.stderr}")
+                error_msg = (
+                    f"⚠️  ERROR: IQ-TREE failed for {self.marker}: {result.stderr}"
+                )
+                logger.error(error_msg)
+                print(error_msg)
+
+                # Create an error file to document the failure
+                error_file = tree_out.with_suffix(".ERROR")
+                with open(error_file, "w") as f:
+                    f.write(f"TREE BUILDING FAILED AT {datetime.now()}\n")
+                    f.write(f"Marker: {self.marker}\n")
+                    f.write(f"Method: {tree_method}\n")
+                    f.write(f"Sequences: {len(aln_records)}\n")
+                    f.write(f"Error: {result.stderr}\n")
+                    f.write(f"Command: {' '.join(cmd)}\n")
+
                 raise RuntimeError(f"IQ-TREE failed: {result.stderr}")
+
+            # Validate the tree was created successfully
+            if not tree_out.exists() or tree_out.stat().st_size == 0:
+                raise RuntimeError(f"Tree file empty or not created for {self.marker}")
+
+            logger.info(
+                f"Successfully built tree for {self.marker} with {len(aln_records)} sequences using IQ-TREE"
+            )
 
         return tree_out
 
@@ -313,17 +367,27 @@ class MarkerProcessor:
             # Align and trim
             align_path, trim_path = self.align_and_trim(merged_faa, threads)
 
-            # Build tree
+            # Build tree (may return None if insufficient sequences)
             tree_path = self.build_tree(trim_path, tree_method, threads)
 
-            return {
+            result = {
                 "marker": self.marker,
                 "query_hits": query_hits_faa,
                 "merged_faa": merged_faa,
                 "alignment": align_path,
                 "trimmed_alignment": trim_path,
-                "tree": tree_path,
             }
+
+            # Only include tree if it was actually built
+            if tree_path is not None:
+                result["tree"] = tree_path
+            else:
+                result["tree_skipped"] = True
+                logger.info(
+                    f"Tree building was skipped for {self.marker} due to insufficient sequences"
+                )
+
+            return result
 
         except Exception as e:
             logger.error(f"Error processing marker {self.marker}: {e}")

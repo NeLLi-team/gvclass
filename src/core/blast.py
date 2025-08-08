@@ -8,7 +8,13 @@ import pyswrd
 from src.utils.common import validate_file_path
 
 
-def run_blastp(queryfaa: str, refdb: str, blastpout: str, threads: int = 8) -> None:
+def run_blastp(
+    queryfaa: str,
+    refdb: str,
+    blastpout: str,
+    threads: int = 8,
+    top_per_query: int = 100,
+) -> None:
     """
     Run pyswrd for sequence similarity search (replacement for diamond blastp).
 
@@ -17,6 +23,7 @@ def run_blastp(queryfaa: str, refdb: str, blastpout: str, threads: int = 8) -> N
         refdb (str): Path to the reference database (for pyswrd, this should be the .faa file).
         blastpout (str): Path to the output file for search results.
         threads (int): Number of threads to use.
+        top_per_query (int): Maximum number of hits to keep per query (default: 100).
     """
     # Validate input files
     query_file = validate_file_path(queryfaa, must_exist=True)
@@ -61,61 +68,151 @@ def run_blastp(queryfaa: str, refdb: str, blastpout: str, threads: int = 8) -> N
         queries = [str(seq.seq) for seq in query_seqs]
         targets = [str(seq.seq) for seq in ref_seqs]
 
-        # Open output file
-        with open(output_file, "w") as out:
-            # Run pyswrd search with parameters similar to diamond blastp
-            # Using BLOSUM62 matrix and e-value threshold
-            hits_found = 0
+        # Group hits by query for top-N filtering
+        hits_by_query = defaultdict(list)
 
-            # Process hits from pyswrd.search
-            for hit in pyswrd.search(
-                queries,
-                targets,
-                scorer_name="BLOSUM62",
-                score_threshold=0,  # We'll filter by e-value later
-                threads=threads,
-            ):
+        # Track statistics for validation
+        perfect_hits = 0
+        total_hits_processed = 0
+        suspicious_patterns = []
 
-                # Get query and target info
-                query_idx = hit.query_index
-                target_idx = hit.target_index
-                score = hit.score
-                evalue = hit.evalue
+        # Process hits from pyswrd.search
+        for hit in pyswrd.search(
+            queries,
+            targets,
+            scorer_name="BLOSUM62",
+            score_threshold=0,  # We'll filter by e-value later
+            threads=threads,
+        ):
+            # Apply e-value filter (1e-5)
+            if hit.evalue > 1e-5:
+                continue
 
-                # Apply e-value filter (1e-5)
-                if evalue > 1e-5:
-                    continue
+            # Get query and target info
+            query_idx = hit.query_index
+            target_idx = hit.target_index
 
-                # Get sequence IDs
-                query_id = query_seqs[query_idx].id
-                target_id = ref_seqs[target_idx].id
+            # Get sequence IDs
+            query_id = query_seqs[query_idx].id
+            target_id = ref_seqs[target_idx].id
 
-                # For now, we'll output simplified format since pyswrd doesn't provide
-                # detailed alignment info like coverage and identity
-                # Format: query, subject, identity, alignment_length, mismatches, gap_opens,
-                #         q_start, q_end, s_start, s_end, evalue, bit_score
+            # Get alignment details from the result object
+            result = hit.result
+            identity_pct = result.identity() * 100.0  # Convert to percentage
 
-                # Approximate values for missing fields
-                identity = 100.0  # Not available from pyswrd
-                aln_len = min(len(queries[query_idx]), len(targets[target_idx]))
-                mismatches = 0
-                gaps = 0
-                q_start = 1
-                q_end = len(queries[query_idx])
-                s_start = 1
-                s_end = len(targets[target_idx])
+            # Get alignment positions (pyswrd uses 0-based indexing)
+            q_start = result.query_start + 1  # Convert to 1-based
+            q_end = result.query_end + 1
+            s_start = result.target_start + 1  # Convert to 1-based
+            s_end = result.target_end + 1
 
-                out.write(
-                    f"{query_id}\t{target_id}\t{identity:.1f}\t{aln_len}\t"
-                    f"{mismatches}\t{gaps}\t{q_start}\t{q_end}\t"
-                    f"{s_start}\t{s_end}\t{evalue:.2e}\t{score:.1f}\n"
+            # Calculate alignment length
+            aln_len = result.query_end - result.query_start + 1
+
+            # Better gap and mismatch calculation
+            gaps = 0
+            mismatches = aln_len - int(aln_len * result.identity())
+
+            # Try to get more accurate stats from alignment strings if available
+            if hasattr(hit, "query_aln") and hasattr(hit, "target_aln"):
+                # Count actual gaps from alignment strings
+                query_aln = hit.query_aln
+                target_aln = hit.target_aln
+                gaps = query_aln.count("-") + target_aln.count("-")
+                # Calculate mismatches excluding gaps
+                mismatches = sum(
+                    1
+                    for a, b in zip(query_aln, target_aln)
+                    if a != b and a != "-" and b != "-"
+                )
+            elif hasattr(result, "alignment"):
+                # Fallback to CIGAR-like notation if available
+                gaps = result.alignment.count("I") + result.alignment.count("D")
+
+            # Validate calculated values
+            assert 0.0 <= identity_pct <= 100.0, f"Invalid identity: {identity_pct}"
+            assert aln_len > 0, f"Invalid alignment length: {aln_len}"
+            assert mismatches >= 0, f"Invalid mismatch count: {mismatches}"
+
+            # Track statistics for validation
+            total_hits_processed += 1
+            if identity_pct == 100.0 and gaps == 0:
+                perfect_hits += 1
+
+            # Check for suspicious patterns
+            if identity_pct == 100.0 and aln_len < 10:
+                suspicious_patterns.append(
+                    f"Perfect identity with very short alignment ({aln_len}bp) for {query_id} vs {target_id}"
+                )
+            if aln_len > len(queries[query_idx]) * 1.5:
+                suspicious_patterns.append(
+                    f"Alignment length ({aln_len}) exceeds query length for {query_id}"
                 )
 
-                hits_found += 1
+            hits_by_query[query_id].append(
+                {
+                    "query_id": query_id,
+                    "target_id": target_id,
+                    "identity": identity_pct,
+                    "aln_len": aln_len,
+                    "mismatches": mismatches,
+                    "gaps": gaps,
+                    "q_start": q_start,
+                    "q_end": q_end,
+                    "s_start": s_start,
+                    "s_end": s_end,
+                    "evalue": hit.evalue,
+                    "score": hit.score,
+                }
+            )
 
-        if hits_found > 0:
+        # Sort and filter top hits per query, then write to output file
+        with open(output_file, "w") as out:
+            total_hits_written = 0
+            for query_id, query_hits in hits_by_query.items():
+                # Sort this query's hits by score (descending) and e-value (ascending)
+                query_hits.sort(key=lambda x: (-x["score"], x["evalue"]))
+
+                # Take only top N hits for this query
+                for hit_data in query_hits[:top_per_query]:
+                    out.write(
+                        f"{hit_data['query_id']}\t{hit_data['target_id']}\t"
+                        f"{hit_data['identity']:.1f}\t{hit_data['aln_len']}\t"
+                        f"{hit_data['mismatches']}\t{hit_data['gaps']}\t"
+                        f"{hit_data['q_start']}\t{hit_data['q_end']}\t"
+                        f"{hit_data['s_start']}\t{hit_data['s_end']}\t"
+                        f"{hit_data['evalue']:.2e}\t{hit_data['score']:.1f}\n"
+                    )
+                    total_hits_written += 1
+
+        # Data validation warnings
+        if suspicious_patterns:
+            print("⚠️  WARNING: Suspicious patterns detected in BLAST results:")
+            for pattern in suspicious_patterns[:5]:  # Show first 5 warnings
+                print(f"   - {pattern}")
+            if len(suspicious_patterns) > 5:
+                print(f"   ... and {len(suspicious_patterns) - 5} more warnings")
+
+        if total_hits_processed > 0:
+            perfect_ratio = perfect_hits / total_hits_processed
+            if perfect_ratio > 0.9:
+                print(
+                    f"⚠️  WARNING: {perfect_hits}/{total_hits_processed} ({perfect_ratio:.1%}) hits show perfect identity!"
+                )
+                print(
+                    "   This may indicate incorrect alignment statistics or identical sequences."
+                )
+
+        # Warn if no hits were found despite having sequences
+        if total_hits_processed == 0 and len(query_seqs) > 0 and len(ref_seqs) > 0:
             print(
-                f"pyswrd search completed. Found {hits_found} hits. Results written to: {output_file}"
+                "⚠️  WARNING: No hits found despite having query and reference sequences."
+            )
+            print("   Check e-value threshold or sequence compatibility.")
+
+        if total_hits_written > 0:
+            print(
+                f"pyswrd search completed. Found {total_hits_written} hits (top {top_per_query} per query). Results written to: {output_file}"
             )
         else:
             print("pyswrd search completed. No significant hits found.")
@@ -126,45 +223,108 @@ def run_blastp(queryfaa: str, refdb: str, blastpout: str, threads: int = 8) -> N
         open(output_file, "a").close()
 
 
-def parse_blastp(blastpout: str) -> List[str]:
+def parse_blastp(
+    blastpout: str, max_hits_per_query: int = 10, min_identity: float = 30.0
+) -> List[str]:
     """
-    Parse the diamond blastp output and return the best hits.
+    Parse the BLAST output and return the best hits sorted by score.
+
+    The output file is already sorted by score (descending) from run_blastp.
+    We now select top hits based on score and identity percentage.
 
     Args:
-        blastpout (str): Path to the diamond blastp output file.
+        blastpout (str): Path to the BLAST output file.
+        max_hits_per_query (int): Maximum hits to keep per query sequence.
+        min_identity (float): Minimum identity percentage to keep a hit.
 
     Returns:
-        List[str]: List of best hit subject IDs.
+        List[str]: List of best hit subject IDs sorted by score.
     """
-    queryids_hits_dict: Dict[str, List[str]] = defaultdict(list)
-    seen: List[str] = []
+    queryids_hits_dict: Dict[str, List[tuple]] = defaultdict(list)
+    seen_subjects: set = set()
+
+    # Validation tracking
+    line_count = 0
+    invalid_lines = 0
 
     try:
-        # Count unique queries using proper file handling
-        with open(blastpout, "r") as query_file:
-            num_queries = len(set(line.split()[0] for line in query_file))
-
+        # Parse the sorted BLAST output
         with open(blastpout, "r") as infile:
             for line in infile:
-                queryname, subjectname = line.split()[0], line.split()[1]
+                line_count += 1
+                parts = line.strip().split("\t")
+                if len(parts) < 12:
+                    invalid_lines += 1
+                    continue
 
-                # if subjectname not in seen and len(queryids_hits_dict[queryname]) <= 100 / num_queries and pident != 100:
-                if (
-                    subjectname not in seen
-                    and len(queryids_hits_dict[queryname]) <= 100 / num_queries
-                ):
-                    queryids_hits_dict[queryname].append(subjectname)
-                    seen.append(subjectname)
+                try:
+                    queryname = parts[0]
+                    subjectname = parts[1]
+                    identity = float(parts[2])
+                    score = float(parts[11])
+
+                    # Validate parsed values
+                    if not (0.0 <= identity <= 100.0):
+                        print(
+                            f"Warning: Invalid identity {identity} in line {line_count}"
+                        )
+                        invalid_lines += 1
+                        continue
+
+                except (ValueError, IndexError) as e:
+                    print(f"Warning: Could not parse line {line_count}: {e}")
+                    invalid_lines += 1
+                    continue
+
+                # Skip hits below identity threshold
+                if identity < min_identity:
+                    continue
+
+                # Store hit with score for later sorting
+                if len(queryids_hits_dict[queryname]) < max_hits_per_query:
+                    queryids_hits_dict[queryname].append((subjectname, score, identity))
+                    seen_subjects.add(subjectname)
+
+        # Collect all hits, maintaining score order
+        all_hits = []
+        for query, hits in queryids_hits_dict.items():
+            # Hits are already in score order from the file
+            for subject, score, identity in hits:
+                all_hits.append((subject, score, identity))
+
+        # Sort all hits by score (descending) to ensure best hits are selected first
+        all_hits.sort(key=lambda x: -x[1])
+
+        # Return unique subject IDs in score order
+        besthits = []
+        seen = set()
+        for subject, _, _ in all_hits:
+            if subject not in seen:
+                besthits.append(subject)
+                seen.add(subject)
+
+        # Report validation issues if found
+        if invalid_lines > 0:
+            print(
+                f"⚠️  WARNING: {invalid_lines}/{line_count} lines had parsing issues in BLAST output"
+            )
+            if invalid_lines > line_count * 0.5:
+                print("   More than 50% of lines failed - check file format!")
+
     except Exception as e:
         print(f"Error parsing BLAST output: {e}")
         return []
 
-    besthits = [x for v in queryids_hits_dict.values() for x in v]
     return besthits
 
 
 def reduce_ref(
-    queryfaa: str, reffaa: str, reduced_reffaa_merged: str, refdb: str, blastpout: str
+    queryfaa: str,
+    reffaa: str,
+    reduced_reffaa_merged: str,
+    refdb: str,
+    blastpout: str,
+    top_per_query: int = 100,
 ) -> None:
     """
     Reduce the reference sequences based on the best hits from diamond blastp.
@@ -175,8 +335,9 @@ def reduce_ref(
         reduced_reffaa_merged (str): Path to the output file for reduced reference sequences.
         refdb (str): Path to the reference database.
         blastpout (str): Path to the output file for diamond blastp results.
+        top_per_query (int): Maximum number of hits to keep per query (default: 100).
     """
-    run_blastp(queryfaa, refdb, blastpout)
+    run_blastp(queryfaa, refdb, blastpout, top_per_query=top_per_query)
     besthits = parse_blastp(blastpout)
 
     seenids: List[str] = []
