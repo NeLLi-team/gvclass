@@ -4,8 +4,14 @@ from typing import List, Dict
 import click
 from Bio import SeqIO
 import pyswrd
+import logging
 
 from src.utils.common import validate_file_path
+from src.utils.error_handling import ErrorHandler
+
+# Set up logging
+logger = logging.getLogger(__name__)
+error_handler = ErrorHandler("blast")
 
 
 def run_blastp(
@@ -46,22 +52,50 @@ def run_blastp(
 
     ref_faa = validate_file_path(ref_faa, must_exist=True)
 
+    logger.info(f"Running pyswrd search: {query_file} vs {ref_faa}")
     print(f"Running pyswrd search: {query_file} vs {ref_faa}")
 
     try:
-        # Load sequences
-        query_seqs = list(SeqIO.parse(query_file, "fasta"))
-        ref_seqs = list(SeqIO.parse(ref_faa, "fasta"))
+        # Load and validate sequences
+        logger.debug(f"Loading query sequences from {query_file}")
+        try:
+            query_seqs = list(SeqIO.parse(query_file, "fasta"))
+        except Exception as e:
+            error_msg = f"Failed to parse query FASTA file {query_file}: {e}"
+            logger.error(error_msg)
+            error_handler.handle_error(e, {"file": query_file, "type": "query"})
+            raise ValueError(error_msg)
 
+        logger.debug(f"Loading reference sequences from {ref_faa}")
+        try:
+            ref_seqs = list(SeqIO.parse(ref_faa, "fasta"))
+        except Exception as e:
+            error_msg = f"Failed to parse reference FASTA file {ref_faa}: {e}"
+            logger.error(error_msg)
+            error_handler.handle_error(e, {"file": ref_faa, "type": "reference"})
+            raise ValueError(error_msg)
+
+        # Validate sequences exist
         if not query_seqs:
+            logger.warning(f"No sequences found in query file: {query_file}")
             print(f"No sequences found in query file: {query_file}")
             open(output_file, "a").close()
             return
 
         if not ref_seqs:
+            logger.warning(f"No sequences found in reference file: {ref_faa}")
             print(f"No sequences found in reference file: {ref_faa}")
             open(output_file, "a").close()
             return
+
+        # Validate sequences are valid
+        for i, seq in enumerate(query_seqs[:5]):  # Check first 5
+            if not seq.seq or len(seq.seq) == 0:
+                logger.warning(f"Empty sequence found in query: {seq.id}")
+
+        logger.info(
+            f"Loaded {len(query_seqs)} query sequences and {len(ref_seqs)} reference sequences"
+        )
 
         # Prepare sequences for pyswrd
         # Create lists of sequence strings
@@ -76,95 +110,145 @@ def run_blastp(
         total_hits_processed = 0
         suspicious_patterns = []
 
-        # Process hits from pyswrd.search
-        for hit in pyswrd.search(
-            queries,
-            targets,
-            scorer_name="BLOSUM62",
-            score_threshold=0,  # We'll filter by e-value later
-            threads=threads,
-        ):
-            # Apply e-value filter (1e-5)
-            if hit.evalue > 1e-5:
-                continue
+        # Process hits from pyswrd.search with error handling
+        logger.info("Starting pyswrd search...")
+        search_completed = False
+        try:
+            for hit in pyswrd.search(
+                queries,
+                targets,
+                scorer_name="BLOSUM62",
+                score_threshold=0,  # We'll filter by e-value later
+                threads=threads,
+            ):
+                search_completed = True
 
-            # Get query and target info
-            query_idx = hit.query_index
-            target_idx = hit.target_index
+                # Apply e-value filter (1e-5)
+                if hit.evalue > 1e-5:
+                    continue
 
-            # Get sequence IDs
-            query_id = query_seqs[query_idx].id
-            target_id = ref_seqs[target_idx].id
+                try:
+                    # Get query and target info with bounds checking
+                    query_idx = hit.query_index
+                    target_idx = hit.target_index
 
-            # Get alignment details from the result object
-            result = hit.result
-            identity_pct = result.identity() * 100.0  # Convert to percentage
+                    if query_idx >= len(query_seqs):
+                        logger.error(
+                            f"Query index {query_idx} out of bounds (max: {len(query_seqs)-1})"
+                        )
+                        continue
+                    if target_idx >= len(ref_seqs):
+                        logger.error(
+                            f"Target index {target_idx} out of bounds (max: {len(ref_seqs)-1})"
+                        )
+                        continue
 
-            # Get alignment positions (pyswrd uses 0-based indexing)
-            q_start = result.query_start + 1  # Convert to 1-based
-            q_end = result.query_end + 1
-            s_start = result.target_start + 1  # Convert to 1-based
-            s_end = result.target_end + 1
+                    # Get sequence IDs
+                    query_id = query_seqs[query_idx].id
+                    target_id = ref_seqs[target_idx].id
 
-            # Calculate alignment length
-            aln_len = result.query_end - result.query_start + 1
+                    # Get alignment details from the result object with validation
+                    result = hit.result
+                    if not hasattr(result, "identity"):
+                        logger.warning(
+                            f"Hit missing identity method for {query_id} vs {target_id}"
+                        )
+                        continue
 
-            # Better gap and mismatch calculation
-            gaps = 0
-            mismatches = aln_len - int(aln_len * result.identity())
+                    identity_pct = result.identity() * 100.0  # Convert to percentage
 
-            # Try to get more accurate stats from alignment strings if available
-            if hasattr(hit, "query_aln") and hasattr(hit, "target_aln"):
-                # Count actual gaps from alignment strings
-                query_aln = hit.query_aln
-                target_aln = hit.target_aln
-                gaps = query_aln.count("-") + target_aln.count("-")
-                # Calculate mismatches excluding gaps
-                mismatches = sum(
-                    1
-                    for a, b in zip(query_aln, target_aln)
-                    if a != b and a != "-" and b != "-"
-                )
-            elif hasattr(result, "alignment"):
-                # Fallback to CIGAR-like notation if available
-                gaps = result.alignment.count("I") + result.alignment.count("D")
+                    # Validate identity percentage
+                    if not (0.0 <= identity_pct <= 100.0):
+                        logger.warning(
+                            f"Invalid identity {identity_pct} for {query_id} vs {target_id}"
+                        )
+                        continue
 
-            # Validate calculated values
-            assert 0.0 <= identity_pct <= 100.0, f"Invalid identity: {identity_pct}"
-            assert aln_len > 0, f"Invalid alignment length: {aln_len}"
-            assert mismatches >= 0, f"Invalid mismatch count: {mismatches}"
+                    # Get alignment positions (pyswrd uses 0-based indexing)
+                    q_start = result.query_start + 1  # Convert to 1-based
+                    q_end = result.query_end + 1
+                    s_start = result.target_start + 1  # Convert to 1-based
+                    s_end = result.target_end + 1
 
-            # Track statistics for validation
-            total_hits_processed += 1
-            if identity_pct == 100.0 and gaps == 0:
-                perfect_hits += 1
+                    # Calculate alignment length
+                    aln_len = result.query_end - result.query_start + 1
 
-            # Check for suspicious patterns
-            if identity_pct == 100.0 and aln_len < 10:
-                suspicious_patterns.append(
-                    f"Perfect identity with very short alignment ({aln_len}bp) for {query_id} vs {target_id}"
-                )
-            if aln_len > len(queries[query_idx]) * 1.5:
-                suspicious_patterns.append(
-                    f"Alignment length ({aln_len}) exceeds query length for {query_id}"
-                )
+                    # Better gap and mismatch calculation
+                    gaps = 0
+                    mismatches = aln_len - int(aln_len * result.identity())
 
-            hits_by_query[query_id].append(
-                {
-                    "query_id": query_id,
-                    "target_id": target_id,
-                    "identity": identity_pct,
-                    "aln_len": aln_len,
-                    "mismatches": mismatches,
-                    "gaps": gaps,
-                    "q_start": q_start,
-                    "q_end": q_end,
-                    "s_start": s_start,
-                    "s_end": s_end,
-                    "evalue": hit.evalue,
-                    "score": hit.score,
-                }
-            )
+                    # Try to get more accurate stats from alignment strings if available
+                    if hasattr(hit, "query_aln") and hasattr(hit, "target_aln"):
+                        # Count actual gaps from alignment strings
+                        query_aln = hit.query_aln
+                        target_aln = hit.target_aln
+                        gaps = query_aln.count("-") + target_aln.count("-")
+                        # Calculate mismatches excluding gaps
+                        mismatches = sum(
+                            1
+                            for a, b in zip(query_aln, target_aln)
+                            if a != b and a != "-" and b != "-"
+                        )
+                    elif hasattr(result, "alignment"):
+                        # Fallback to CIGAR-like notation if available
+                        gaps = result.alignment.count("I") + result.alignment.count("D")
+
+                    # Validate calculated values
+                    assert (
+                        0.0 <= identity_pct <= 100.0
+                    ), f"Invalid identity: {identity_pct}"
+                    assert aln_len > 0, f"Invalid alignment length: {aln_len}"
+                    assert mismatches >= 0, f"Invalid mismatch count: {mismatches}"
+
+                    # Track statistics for validation
+                    total_hits_processed += 1
+                    if identity_pct == 100.0 and gaps == 0:
+                        perfect_hits += 1
+
+                    # Check for suspicious patterns
+                    if identity_pct == 100.0 and aln_len < 10:
+                        suspicious_patterns.append(
+                            f"Perfect identity with very short alignment ({aln_len}bp) for {query_id} vs {target_id}"
+                        )
+                    if aln_len > len(queries[query_idx]) * 1.5:
+                        suspicious_patterns.append(
+                            f"Alignment length ({aln_len}) exceeds query length for {query_id}"
+                        )
+
+                    hits_by_query[query_id].append(
+                        {
+                            "query_id": query_id,
+                            "target_id": target_id,
+                            "identity": identity_pct,
+                            "aln_len": aln_len,
+                            "mismatches": mismatches,
+                            "gaps": gaps,
+                            "q_start": q_start,
+                            "q_end": q_end,
+                            "s_start": s_start,
+                            "s_end": s_end,
+                            "evalue": hit.evalue,
+                            "score": hit.score,
+                        }
+                    )
+
+                except AssertionError as e:
+                    logger.error(f"Validation error for {query_id} vs {target_id}: {e}")
+                    continue
+                except Exception as e:
+                    logger.error(
+                        f"Unexpected error processing hit {query_id} vs {target_id}: {e}"
+                    )
+                    continue
+
+        except Exception as e:
+            logger.error(f"Error during pyswrd search: {e}")
+            error_handler.handle_error(e, {"step": "pyswrd_search"})
+            if not search_completed:
+                print(f"pyswrd search failed: {e}")
+                print("Creating empty output file to allow pipeline to continue.")
+                open(output_file, "a").close()
+                return
 
         # Sort and filter top hits per query, then write to output file
         with open(output_file, "w") as out:

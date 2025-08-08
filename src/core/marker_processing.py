@@ -308,7 +308,38 @@ class MarkerProcessor:
                 "-quiet",
             ]
 
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            logger.info(f"Running IQ-TREE with command: {' '.join(cmd)}")
+
+            try:
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=600,  # 10 minute timeout
+                )
+            except subprocess.TimeoutExpired:
+                error_msg = (
+                    f"⚠️  ERROR: IQ-TREE timed out after 10 minutes for {self.marker}"
+                )
+                logger.error(error_msg)
+                print(error_msg)
+
+                # Create an error file to document the timeout
+                error_file = tree_out.with_suffix(".TIMEOUT")
+                with open(error_file, "w") as f:
+                    f.write(f"TREE BUILDING TIMEOUT AT {datetime.now()}\n")
+                    f.write(f"Marker: {self.marker}\n")
+                    f.write(f"Method: {tree_method}\n")
+                    f.write(f"Sequences: {len(aln_records)}\n")
+                    f.write("Timeout: 600 seconds\n")
+                    f.write(f"Command: {' '.join(cmd)}\n")
+
+                raise RuntimeError(f"IQ-TREE timed out for {self.marker}")
+            except Exception as e:
+                error_msg = f"⚠️  ERROR: Failed to run IQ-TREE for {self.marker}: {e}"
+                logger.error(error_msg)
+                print(error_msg)
+                raise RuntimeError(f"Failed to run IQ-TREE: {e}")
 
             if result.returncode != 0:
                 error_msg = (

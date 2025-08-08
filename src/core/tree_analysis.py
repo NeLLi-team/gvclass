@@ -171,11 +171,21 @@ class TreeAnalyzer:
         for marker, query_neighbors in all_neighbors.items():
             for query_protein, neighbors in query_neighbors.items():
                 for neighbor, distance in neighbors.items():
-                    # Extract genome ID from protein ID
-                    genome_id = neighbor.split("|")[0]
+                    # Extract genome ID from protein ID (handle missing | gracefully)
+                    if "|" in neighbor:
+                        genome_id = neighbor.split("|")[0]
+                    else:
+                        genome_id = neighbor
 
                     if genome_id in self.labels_dict:
-                        tax_parts = self.labels_dict[genome_id].split("|")
+                        tax_str = self.labels_dict[genome_id]
+                        # Split taxonomy string, handling various separators
+                        if "|" in tax_str:
+                            tax_parts = tax_str.split("|")
+                        else:
+                            # Handle single value or unknown format
+                            tax_parts = [tax_str]
+
                         # tax_parts: [Kingdom, Class, Order, Family, Genus, Species]
                         # Map to correct index: kingdom=0, order=2, family=3, genus=4
                         tax_idx_map = {
@@ -186,8 +196,8 @@ class TreeAnalyzer:
                         }
                         tax_idx = tax_idx_map.get(tax_level, 2)
 
-                        if len(tax_parts) > tax_idx:
-                            taxonomies.append(tax_parts[tax_idx])
+                        if len(tax_parts) > tax_idx and tax_parts[tax_idx].strip():
+                            taxonomies.append(tax_parts[tax_idx].strip())
 
         if not taxonomies:
             return None
@@ -271,14 +281,39 @@ class TreeAnalyzer:
                 for marker, query_neighbors in all_neighbors.items():
                     for query_protein, neighbors in query_neighbors.items():
                         for neighbor, distance in neighbors.items():
-                            genome_id = neighbor.split("|")[0]
+                            # Extract genome ID (handle missing | gracefully)
+                            if "|" in neighbor:
+                                genome_id = neighbor.split("|")[0]
+                            else:
+                                genome_id = neighbor
                             tax_str = "unknown"
 
                             if genome_id in self.labels_dict:
-                                tax_parts = self.labels_dict[genome_id].split("|")
-                                # Format: kingdom;order;family;genus
-                                if len(tax_parts) >= 5:
-                                    tax_str = f"{tax_parts[0]};{tax_parts[2]};{tax_parts[3]};{tax_parts[4]}"
+                                label_str = self.labels_dict[genome_id]
+                                if "|" in label_str:
+                                    tax_parts = label_str.split("|")
+                                    # Format: kingdom;order;family;genus (skip empty values)
+                                    if len(tax_parts) >= 5:
+                                        kingdom = tax_parts[0].strip() or "unknown"
+                                        order = (
+                                            tax_parts[2].strip()
+                                            if len(tax_parts) > 2
+                                            else ""
+                                        )
+                                        family = (
+                                            tax_parts[3].strip()
+                                            if len(tax_parts) > 3
+                                            else ""
+                                        )
+                                        genus = (
+                                            tax_parts[4].strip()
+                                            if len(tax_parts) > 4
+                                            else ""
+                                        )
+                                        tax_str = f"{kingdom};{order};{family};{genus}"
+                                else:
+                                    # Handle non-standard format
+                                    tax_str = label_str.strip() or "unknown"
 
                             f.write(
                                 f"{marker}\t{query_protein}\t{neighbor}\t{distance:.6f}\t{tax_str}\n"

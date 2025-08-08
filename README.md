@@ -127,13 +127,100 @@ pipeline:
 
 ### Container Execution
 
+#### Using the Convenience Script (Recommended)
+
+The `run_gvclass_container.sh` script simplifies running GVClass with Apptainer/Singularity:
+
 ```bash
-# Build Apptainer/Singularity container (recommended)
+# First, build the container (one-time setup)
+apptainer build --fakeroot gvclass.sif gvclass-pixi-flexible.def
+
+# Basic usage - analyzes input directory and saves results alongside it
+./run_gvclass_container.sh /path/to/input_directory
+
+# Specify custom output directory
+./run_gvclass_container.sh /path/to/input_directory -o custom_results
+
+# Use more threads for faster processing
+./run_gvclass_container.sh /path/to/input_directory -t 32
+
+# Enable fast mode (skip order-level markers)
+./run_gvclass_container.sh /path/to/input_directory --mode-fast -t 16
+
+# All GVClass options are supported
+./run_gvclass_container.sh /path/to/input_directory --tree-method iqtree -t 32
+```
+
+**Complete Command-Line Options:**
+
+```bash
+./run_gvclass_container.sh <query_dir> [options]
+
+Required:
+  query_dir                     Directory containing .fna or .faa files
+
+Optional arguments:
+  -o, --output-dir DIR          Output directory (default: <query_dir>_results)
+  -t, --threads N               Total number of threads to use (default: 16)
+  -j, --max-workers N           Maximum parallel workers for multiple queries
+  --threads-per-worker N        Threads per worker (auto-calculated if not set)
+  
+  -c, --config FILE             Config file (default: config/gvclass_config.yaml)
+  -d, --database PATH           Database path (default: resources)
+  
+  --tree-method {fasttree,iqtree}  Tree building method (default: fasttree)
+  --mode-fast                   Enable fast mode - skip order-level markers
+  --no-mode-fast               Disable fast mode (process all markers)
+  
+  --resume                      Resume from previous run, skip completed queries
+  -v, --verbose                 Verbose output
+  --version                     Show version information and exit
+  
+  Cluster options (for HPC):
+  --cluster-type {local,slurm,pbs,sge}  Cluster type (default: local)
+  --cluster-queue QUEUE         Queue/partition for cluster jobs
+  --cluster-project PROJECT     Project/account for cluster billing
+  --cluster-walltime TIME       Walltime for cluster jobs (default: 04:00:00)
+```
+
+**Examples with all options:**
+
+```bash
+# Process with custom configuration file
+./run_gvclass_container.sh input/ -c my_config.yaml
+
+# Use external database (if not in container)
+./run_gvclass_container.sh input/ -d /path/to/database
+
+# Parallel processing: 4 workers × 8 threads = 32 total
+./run_gvclass_container.sh input/ -j 4 --threads-per-worker 8
+
+# Resume interrupted run
+./run_gvclass_container.sh input/ --resume
+
+# Maximum accuracy mode (IQ-TREE + all markers)
+./run_gvclass_container.sh input/ --tree-method iqtree --no-mode-fast
+
+# HPC cluster submission
+./run_gvclass_container.sh input/ --cluster-type slurm --cluster-queue normal
+```
+
+**How it works:**
+- Automatically handles bind mounts for input/output directories
+- Places results in `<input_name>_results/` next to your input directory by default
+- Converts relative paths to work inside the container
+- Checks for container existence and provides helpful error messages
+- All options are passed through to the GVClass pipeline
+
+#### Manual Container Usage
+
+```bash
+# Build Apptainer/Singularity container
 apptainer build gvclass.sif containers/apptainer/gvclass.def
 # or
 singularity build gvclass.sif containers/apptainer/gvclass.def
 
-# Run with Apptainer/Singularity
+# Run with Apptainer/Singularity (manual bind mounts)
 singularity run -B /path/to/data:/data gvclass.sif /data/input_dir -t 32
 
 # Run with bind-mounted external database (optional)

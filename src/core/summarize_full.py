@@ -48,10 +48,19 @@ class FullSummarizer:
                     if len(parts) >= 2:
                         genome_id = parts[0]
                         # Parse taxonomy string: Domain|Phylum|Class|Order|Family|Genus|Species
-                        tax_parts = parts[1].split("|")
-                        if len(tax_parts) >= 7:
-                            # Store as list: [domain, phylum, class, order, family, genus, species]
-                            labels[genome_id] = tax_parts
+                        tax_str = parts[1]
+                        if "|" in tax_str:
+                            tax_parts = tax_str.split("|")
+                        else:
+                            # Handle single value or malformed taxonomy
+                            tax_parts = [tax_str]
+
+                        # Pad with empty strings if not enough levels
+                        while len(tax_parts) < 7:
+                            tax_parts.append("")
+
+                        # Store as list: [domain, phylum, class, order, family, genus, species]
+                        labels[genome_id] = tax_parts
         except Exception as e:
             logger.error(f"Error loading labels: {e}")
         return labels
@@ -87,7 +96,11 @@ class FullSummarizer:
             tax_name = tax
         else:
             # For other levels, extract the name after the domain prefix
-            tax_name = tax.split("__")[-1] if "__" in tax else tax
+            if "__" in tax:
+                parts = tax.split("__")
+                tax_name = parts[-1] if len(parts) > 1 and parts[-1] else tax
+            else:
+                tax_name = tax
 
         # Strict consensus: 100% agreement
         strict = f"{level[0]}_{tax_name}" if count == total else f"{level[0]}_"
@@ -238,23 +251,35 @@ class FullSummarizer:
         for marker, query_neighbors in tree_nn_results.items():
             for query_protein, neighbors in query_neighbors.items():
                 for neighbor, distance in neighbors.items():
-                    genome_id = neighbor.split("|")[0]
+                    # Extract genome ID (handle missing | gracefully)
+                    if "|" in neighbor:
+                        genome_id = neighbor.split("|")[0]
+                    else:
+                        genome_id = neighbor
 
                     if genome_id in self.labels_dict:
                         tax_info = self.labels_dict[genome_id]
 
                         # Count taxonomies at each level
                         for level, idx in tax_level_mapping.items():
-                            if idx < len(tax_info):
-                                tax_value = tax_info[idx]
-                                # For domain, use the first part of genome_id
+                            if idx < len(tax_info) and tax_info[idx].strip():
+                                tax_value = tax_info[idx].strip()
+                                # For domain, use the first part of genome_id if it has __
                                 if level == "domain":
-                                    tax_counters[level][genome_id.split("__")[0]] += 1
+                                    if "__" in genome_id:
+                                        domain_prefix = genome_id.split("__")[0]
+                                    else:
+                                        domain_prefix = tax_value
+                                    tax_counters[level][domain_prefix] += 1
                                 else:
                                     # For all other levels, use domain prefix + tax value
-                                    tax_counters[level][
-                                        f"{genome_id.split('__')[0]}__{tax_value}"
-                                    ] += 1
+                                    if "__" in genome_id:
+                                        domain_prefix = genome_id.split("__")[0]
+                                        tax_counters[level][
+                                            f"{domain_prefix}__{tax_value}"
+                                        ] += 1
+                                    else:
+                                        tax_counters[level][tax_value] += 1
 
                         distances.append(distance)
 
@@ -362,7 +387,8 @@ class FullSummarizer:
         if tax_counters["order"]:
             most_common_order = tax_counters["order"].most_common(1)[0][0]
             if "__" in most_common_order:
-                order_tax = most_common_order.split("__")[1]
+                parts = most_common_order.split("__")
+                order_tax = parts[1] if len(parts) > 1 else most_common_order
 
         if order_tax:
             completeness, duplication, weighted_completeness, confidence_score = (

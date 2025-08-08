@@ -195,10 +195,18 @@ def write_combined_results(
                     out.write(f"{domain_idx+1}\t{len(hit.domains)}\t")
                     out.write(f"{domain.c_evalue:.2e}\t{domain.i_evalue:.2e}\t")
                     out.write(f"{domain.score:.1f}\t{domain.bias:.1f}\t")
-                    # Use 1-based coordinates
-                    out.write(f"{hmm_from+1}\t{hmm_to}\t")
-                    out.write(f"{target_from+1}\t{target_to}\t")
-                    out.write(f"{domain.env_from+1}\t{domain.env_to}\t")
+                    # Convert 0-based coordinates to 1-based for output
+                    # Note: pyhmmer uses 0-based inclusive coordinates
+                    hmm_start_1based = hmm_from + 1
+                    hmm_end_1based = hmm_to + 1  # Fix: was missing +1
+                    target_start_1based = target_from + 1
+                    target_end_1based = target_to + 1  # Fix: was missing +1
+                    env_start_1based = domain.env_from + 1
+                    env_end_1based = domain.env_to + 1  # Fix: was missing +1
+
+                    out.write(f"{hmm_start_1based}\t{hmm_end_1based}\t")
+                    out.write(f"{target_start_1based}\t{target_end_1based}\t")
+                    out.write(f"{env_start_1based}\t{env_end_1based}\t")
                     out.write("0.90\n")  # Default accuracy
 
                     total_hits += 1
