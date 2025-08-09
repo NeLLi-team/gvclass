@@ -18,6 +18,23 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 # Change to project root for build context
 cd "$PROJECT_ROOT"
 
+# Ensure database exists before building container
+if [ ! -d "resources/database" ] || [ ! -f "resources/models/combined.hmm" ]; then
+    echo -e "${BLUE}Database not found locally. Downloading...${NC}"
+    if command -v pixi &> /dev/null; then
+        pixi run python -c 'from src.utils.database_manager import DatabaseManager; DatabaseManager.setup_database("resources")'
+        if [ $? -eq 0 ]; then
+            echo -e "${GREEN}✓ Database downloaded successfully${NC}"
+        else
+            echo -e "${RED}✗ Failed to download database${NC}"
+            exit 1
+        fi
+    else
+        echo -e "${RED}Pixi not found. Please install pixi and run 'pixi install' first.${NC}"
+        exit 1
+    fi
+fi
+
 # Setup temporary directory for Apptainer/Singularity builds
 # Use /tmp to avoid recursive copy issues when temp dir is inside build context
 BUILD_TMPDIR="/tmp/gvclass-build-$$"
