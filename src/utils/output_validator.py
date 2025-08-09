@@ -113,7 +113,7 @@ def _validate_summary_file(
 
         # Check header line contains expected columns
         header = lines[0].strip().split("\t")
-        required_columns = ["query", "taxonomy_majority", "taxonomy_strict"]
+        required_columns = ["query", "taxonomy_majority"]
 
         missing_columns = [col for col in required_columns if col not in header]
         if missing_columns:
@@ -150,7 +150,7 @@ def _validate_combined_summary(
 
         # Check header
         header = lines[0].strip().split("\t")
-        required_columns = ["query", "taxonomy_majority", "taxonomy_strict"]
+        required_columns = ["query", "taxonomy_majority"]
 
         missing_columns = [col for col in required_columns if col not in header]
         if missing_columns:
