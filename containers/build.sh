@@ -18,10 +18,16 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 # Change to project root for build context
 cd "$PROJECT_ROOT"
 
+# Setup temporary directory for Apptainer/Singularity builds
+# Use /tmp to avoid recursive copy issues when temp dir is inside build context
+BUILD_TMPDIR="/tmp/gvclass-build-$$"
+mkdir -p "$BUILD_TMPDIR"
+trap "rm -rf $BUILD_TMPDIR" EXIT  # Clean up on exit
+
 # Primary method: Build Apptainer/Singularity image directly
 if command -v apptainer &> /dev/null; then
     echo -e "\n${BLUE}Building Apptainer image (includes 850MB database)...${NC}"
-    if apptainer build --force gvclass.sif containers/apptainer/gvclass.def; then
+    if APPTAINER_TMPDIR="$BUILD_TMPDIR" apptainer build --force gvclass.sif containers/apptainer/gvclass.def; then
         echo -e "${GREEN}✓ Apptainer image built successfully${NC}"
         ls -lah gvclass.sif
     else
@@ -30,7 +36,7 @@ if command -v apptainer &> /dev/null; then
     fi
 elif command -v singularity &> /dev/null; then
     echo -e "\n${BLUE}Building Singularity image (includes 850MB database)...${NC}"
-    if singularity build --force gvclass.sif containers/apptainer/gvclass.def; then
+    if SINGULARITY_TMPDIR="$BUILD_TMPDIR" singularity build --force gvclass.sif containers/apptainer/gvclass.def; then
         echo -e "${GREEN}✓ Singularity image built successfully${NC}"
         ls -lah gvclass.sif
     else
