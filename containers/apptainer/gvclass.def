@@ -48,7 +48,7 @@ From: ghcr.io/prefix-dev/pixi:latest
 
 %runscript
     # Check if first argument looks like a path
-    if [ -z "$1" ] || [[ "$1" == -* ]]; then
+    if [ -z "$1" ] || [ "$(echo "$1" | cut -c1)" = "-" ]; then
         echo "Error: Please provide input directory as first argument"
         echo "Usage: singularity run -B /your/data:/data gvclass.sif /data/input_dir [options]"
         exit 1
