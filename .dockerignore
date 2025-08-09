@@ -1,0 +1,61 @@
+# Git files
+.git
+.gitignore
+
+# Python cache
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# Pixi environments (will be created fresh in container)
+# Note: .pixi/ is not ignored since we install it in the container
+
+# Test files
+test_iqtree/
+test_iqtree_results/
+
+# Results and example outputs
+example_results/
+*_results/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Documentation build files
+docs/_build/
+*.egg-info/
+
+# Temporary files
+*.tmp
+*.temp
+.tmp/
+
+# Log files
+*.log
+logs/
+
+# Cache files
+.cache/
+.prefect/
+
+# Large data files (if any)
+*.tar.gz
+*.zip
+*.sif
+# Don't exclude resources - we want to include the database in the image

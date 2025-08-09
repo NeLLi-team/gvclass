@@ -1,0 +1,41 @@
+# GVClass Test Configuration File
+# Example configuration for testing with fewer resources
+
+# Database configuration
+database:
+  path: resources
+  download_url: https://portal.nersc.gov/cfs/m342/GVClass/gvclass_db_v1.1.tar.gz
+  expected_size: 701
+
+# Pipeline settings - optimized for testing
+pipeline:
+  # Use fasttree for speed
+  tree_method: fasttree
+  # Enable fast mode for testing
+  mode_fast: true
+  # Reduced threads for testing
+  threads: 4
+  # Test output pattern
+  output_pattern: "test_{query_dir}_results"
+
+# Genetic code settings
+genetic_codes:
+  # Test fewer codes for speed
+  codes: [0, 1, 4]
+  improvement_threshold: 0.05
+
+# Quality thresholds - relaxed for testing
+quality:
+  min_markers: 2
+  min_length: 10000
+  recommended_length: 20000
+
+# Resource allocation - reduced for testing
+resources:
+  memory_limit: 4
+  task_timeout: 30
+
+# Logging - verbose for testing
+logging:
+  level: INFO
+  keep_temp: true

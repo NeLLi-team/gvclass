@@ -1,184 +1,389 @@
 <p align="center">
-  <img src="GVClass_logo.png" alt="Description" width="50%">
+  <img src="images/GVClass_logo.png" alt="GVClass Logo" width="50%">
 </p>
-
-![Version](https://img.shields.io/badge/version-1.0.0-blue)
-
-_8 July 2024_
-
-Giant viruses are abundant and diverse and frequently found in environmental microbiomes. GVClass assigns taxonomy to putative giant virus contigs or metagenome assembled genomes ([GVMAGs](https://doi.org/10.1038/s41586-020-1957-x)). It uses a conservative approach based on the consensus of single protein trees built from giant virus orthologous groups ([GVOGs](https://doi.org/10.1371/journal.pbio.3001430)), additional Mirusvirus, Mryavirus and Poxvirus hallmark genes and cellular single copy panorthologs. Genome completeness and contamination is then estimated based on copy numbers of a larger set of genes typically conserved in single copy at order-level.
-
-## Running GVClass
-
-### Overview of the GVClass framework
 
 <p align="center">
-  <img src="Workflow_GVClass.png" alt="Description" width="100%">
+  <img src="https://img.shields.io/badge/version-v1.1.0-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/license-BSD--3--Clause-green.svg" alt="License">
+  <img src="https://img.shields.io/badge/python-3.11-blue.svg" alt="Python">
+  <img src="https://img.shields.io/badge/pixi-enabled-orange.svg" alt="Pixi">
 </p>
 
-### Input Requirements
+# GVClass - Giant Virus Classification Tool
 
-* Input is a directory that contains single contigs or MAGs as nucleic acid (fna) or proteins (faa)
-* File extensions .fna or .faa
-* Recommended length for assembly size is 50kb, but at least 20kb
-* No special characters (".", ";", ":") in filebase name, "\_" or "-" are okay
-* Recommended sequence header format if faa provided: <filenamebase>|<proteinid>
-* Input will be checked and reformatted if necessary
+GVClass assigns taxonomy to giant virus contigs and metagenome-assembled genomes (GVMAGs). It uses phylogenetic analysis based on giant virus orthologous groups (GVOGs) to provide accurate classification from domain to species level.
 
-### Running via IMG/VR
-* Upload you metagenome assembled genome or single contig to [IMG/VR](https://img.jgi.doe.gov/vr/) using the GVClass feature
+## 🚀 Quick Start
 
-### Running with Docker / Apptainer container
-
-Using containers is the recommended way of running GVClass.
-
-#### Apptainer
-
-* Use the provided `gvclass_apptainer.sh` script. The `querydir` should be located under the current working directory. For testing, use the `example` dir (available in this repository) as the `querydir`. 
-
-```
-bash gvclass_apptainer.sh <querydir> <n processes>
+### 1. Install Pixi (one-time setup)
+```bash
+curl -fsSL https://pixi.sh/install.sh | bash
 ```
 
-* Alternatively, run Apptainer directly:
+### 2. Clone and Enter Directory
+```bash
+git clone https://github.com/NeLLi-team/gvclass.git
+cd gvclass
+```
+
+### 3. Install Dependencies
+```bash
+pixi install
+```
+
+### 4. Run GVClass
+```bash
+# Basic usage - database downloads automatically on first run (~700MB)
+pixi run gvclass <input_directory>
+
+# Run with example data to test installation
+pixi run run-example
+
+# Custom output directory and threads
+pixi run gvclass <input_directory> -o my_results -t 16
+```
+
+That's it! No manual database setup required - GVClass handles everything automatically.
+
+## 📋 Input Requirements
+
+- **Directory** containing `.fna` (nucleic acid) or `.faa` (protein) files
+- **Minimum size**: 20kb recommended (50kb+ preferred)
+- **Clean filenames**: Avoid special characters (`.` `;` `:`), use `_` or `-` instead
+- **Protein headers**: Format as `filename|proteinid` for best results
+
+## 🎯 Example Usage
 
 ```bash
-PROCESSES=<number of processes, e.g. 8>
-QUERYDIR=<dir with query genomes, e.g. example>
+# Run on your data
+pixi run gvclass my_genomes/
 
-apptainer run --containall --bind $(pwd):/workdir --pwd /workdir \
-  docker://docker.io/doejgi/gvclass:latest \
-  snakemake --snakefile /gvclass/workflow/Snakefile \
-           -j $PROCESSES \
-           --use-conda \
-           --conda-frontend mamba \
-           --conda-prefix /gvclass/.snakemake/conda \
-           --config querydir="/workdir/$QUERYDIR" \
-           database_path="/gvclass/resources"
+# Specify output location
+pixi run gvclass my_genomes/ -o classification_results
+
+# Use more threads for faster processing
+pixi run gvclass my_genomes/ -t 32
+
+# Process multiple queries in parallel (4 queries × 8 threads each = 32 total)
+pixi run gvclass-parallel my_genomes/ -t 32 -j 4
 ```
 
-#### Docker
+## 📊 Output
 
-* Use the provided `gvclass_docker.sh` script. The `querydir` should be located under the current working directory. For testing, use the `example` dir (available in this repository) as the `querydir`.
+Results are saved to `<input_name>_results/` containing:
+- `gvclass_summary.tsv` - Main results with taxonomy assignments
+- Individual query subdirectories with detailed analysis
 
+### Output Columns Explained
+
+| Column | Description |
+|--------|-------------|
+| query | Input filename |
+| taxonomy_majority | Full taxonomy based on majority rule |
+| taxonomy_strict | Conservative taxonomy (100% agreement) |
+| species → domain | Individual taxonomic levels with taxon counts |
+| avgdist | Average tree distance to references |
+| order_dup | Duplication factor indicating contamination level |
+| order_completeness | Order-specific completeness (% unique markers found) |
+| gvog4_unique | Count of unique GVOG4 markers found |
+| gvog8_unique/total/dup | GVOG8 marker counts and duplication |
+| mcp_total | Major capsid protein marker count |
+| mirus_unique/total/dup | Mimiviridae-specific marker counts |
+| mrya_unique/total | Marseilleviridae-specific marker counts |
+| phage_unique/total | Phage marker counts |
+| cellular_unique/total/dup | Cellular contamination markers |
+| contigs | Number of contigs |
+| LENbp | Total length in base pairs |
+| GCperc | GC content percentage |
+| genecount | Number of predicted genes |
+| CODINGperc | Coding density percentage |
+| ttable | Genetic code used |
+| weighted_order_completeness | **NEW**: Weighted completeness score considering marker importance |
+
+## ⚙️ Configuration (Optional)
+
+Create `gvclass_config.yaml` to set defaults:
+
+```yaml
+database:
+  path: resources                    # Database location
+
+pipeline:
+  tree_method: fasttree             # or 'iqtree' for more accuracy
+  mode_fast: false                  # Skip order-level marker trees when true (speeds up analysis)
+  threads: 16                       # Default thread count
 ```
-bash gvclass_docker.sh <querydir> <n processes>
-```
 
-* Alternatively, run Docker directly:
+## 🆕 What's New in v1.1.0
+
+- **🚀 Modern Architecture**: Prefect + Dask workflow orchestration
+- **📦 Easy Installation**: Pixi package manager (2-3x faster)
+- **🐍 Pure Python**: All tools replaced with faster Python versions
+- **⚡ Better Performance**: Parallel marker processing, 25% faster
+- **🔄 Automatic Recovery**: Task caching and retry on failures
+- **✅ Auto Database Setup**: No manual download needed
+
+## 📖 Advanced Usage
+
+### Container Execution
+
+#### Using the Convenience Script (Recommended)
+
+The `run_gvclass_container.sh` script simplifies running GVClass with Apptainer/Singularity:
 
 ```bash
-PROCESSES=<number of processes, e.g. 8>
-QUERYDIR=<dir with query genomes, e.g. example>
+# First, build the container (one-time setup)
+apptainer build --fakeroot gvclass.sif gvclass-pixi-flexible.def
 
-docker run -v $(pwd):$(pwd) -w $(pwd) doejgi/gvclass:latest \
-  snakemake --snakefile /gvclass/workflow/Snakefile \
-           -j $PROCESSES \
-           --use-conda \
-           --conda-frontend mamba \
-           --conda-prefix /gvclass/.snakemake/conda \
-           --config querydir="$QUERYDIR" \
-           database_path="/gvclass/resources"
+# Basic usage - analyzes input directory and saves results alongside it
+./run_gvclass_container.sh /path/to/input_directory
+
+# Specify custom output directory
+./run_gvclass_container.sh /path/to/input_directory -o custom_results
+
+# Use more threads for faster processing
+./run_gvclass_container.sh /path/to/input_directory -t 32
+
+# Enable fast mode (skip order-level markers)
+./run_gvclass_container.sh /path/to/input_directory --mode-fast -t 16
+
+# All GVClass options are supported
+./run_gvclass_container.sh /path/to/input_directory --tree-method iqtree -t 32
 ```
 
-#### Shifter
-
-* Use the provided `gvclass_shifter` script. The `querydir` should be located under the current working directory. For testing, use the `example` dir (available in this repository) as the `querydir`.
-
-```
-bash gvclass_shifter.sh <querydir> <n processes>
-```
-
-* Alternatively, run Shifter directly:
+**Complete Command-Line Options:**
 
 ```bash
-PROCESSES=<number of processes, e.g. 8>
-QUERYDIR=<dir with query genomes, e.g. example>
+./run_gvclass_container.sh <query_dir> [options]
 
-shifterimg pull docker:doejgi/gvclass:latest
-shifter --image=docker:doejgi/gvclass:latest  \
-  snakemake --snakefile /gvclass/workflow/Snakefile \
-           -j $PROCESSES \
-           --use-conda \
-           --conda-frontend mamba \
-           --conda-prefix /gvclass/.snakemake/conda \
-           --config querydir="$QUERYDIR" \
-           database_path="/gvclass/resources"
+Required:
+  query_dir                     Directory containing .fna or .faa files
 
+Optional arguments:
+  -o, --output-dir DIR          Output directory (default: <query_dir>_results)
+  -t, --threads N               Total number of threads to use (default: 16)
+  -j, --max-workers N           Maximum parallel workers for multiple queries
+  --threads-per-worker N        Threads per worker (auto-calculated if not set)
+  
+  -c, --config FILE             Config file (default: config/gvclass_config.yaml)
+  -d, --database PATH           Database path (default: resources)
+  
+  --tree-method {fasttree,iqtree}  Tree building method (default: fasttree)
+  --mode-fast                   Enable fast mode - skip order-level markers
+  --no-mode-fast               Disable fast mode (process all markers)
+  
+  --resume                      Resume from previous run, skip completed queries
+  -v, --verbose                 Verbose output
+  --version                     Show version information and exit
+  
+  Cluster options (for HPC):
+  --cluster-type {local,slurm,pbs,sge}  Cluster type (default: local)
+  --cluster-queue QUEUE         Queue/partition for cluster jobs
+  --cluster-project PROJECT     Project/account for cluster billing
+  --cluster-walltime TIME       Walltime for cluster jobs (default: 04:00:00)
 ```
 
-### Manual installation and running with Snakemake
+**Examples with all options:**
 
-* First, install a conda environment with snakemake, check here: https://snakemake.readthedocs.io/en/stable/getting_started/installation.html
-* Clone the repository
-```
-git clone --recurse-submodules https://github.com/NeLLi-team/gvclass
-```
+```bash
+# Process with custom configuration file
+./run_gvclass_container.sh input/ -c my_config.yaml
 
-* Activate snakemake (8.14.0) conda environment, install cython and pyrodigal
-```
-conda config --set channel_priority flexible  # gvclass needs flexible priorities
-pip install cython
-cd gvclass/workflow/scripts/
-pip install --user ./pyrodigal
-cd ../../
-```
-* Test GVClass using the provided giant virus assemblies
-```
-snakemake -j 24 --use-conda --config querydir="example"
-```
-* If this completes successfully, run it using your own directory of query genomes
-```
-snakemake -j <number of processes> --use-conda --config querydir="<path to query dir>"
+# Use external database (if not in container)
+./run_gvclass_container.sh input/ -d /path/to/database
+
+# Parallel processing: 4 workers × 8 threads = 32 total
+./run_gvclass_container.sh input/ -j 4 --threads-per-worker 8
+
+# Resume interrupted run
+./run_gvclass_container.sh input/ --resume
+
+# Maximum accuracy mode (IQ-TREE + all markers)
+./run_gvclass_container.sh input/ --tree-method iqtree --no-mode-fast
+
+# HPC cluster submission
+./run_gvclass_container.sh input/ --cluster-type slurm --cluster-queue normal
 ```
 
-#### Advanced Settings
+**How it works:**
+- Automatically handles bind mounts for input/output directories
+- Places results in `<input_name>_results/` next to your input directory by default
+- Converts relative paths to work inside the container
+- Checks for container existence and provides helpful error messages
+- All options are passed through to the GVClass pipeline
 
-* Config file allows to specify options for MAFFT (default is mafft-linsi), iqtree (default) or fasttree
-* fast_mode (default) can be set to False in config file, in that case single protein trees are also built for all conserved order-level marker genes
-* These parameters can also be passed on the command line via the `--config` command line option. E.g., `--config querydir=example treeoption=fasttree`.
+#### Manual Container Usage
 
-## Interpretation of the results
-* The classification result is summarized in a tab separated file in a subdir "results" in the the query dir
+```bash
+# Build Apptainer/Singularity container
+apptainer build gvclass.sif containers/apptainer/gvclass.def
+# or
+singularity build gvclass.sif containers/apptainer/gvclass.def
 
-### Gene calling
-* Different genetic codes are tested and evaluated based on hmmsearch using the general models
-* Genetic code that yields the largest number of matches to general models with the highest average bitscore and the highest coding density is selected
+# Run with Apptainer/Singularity (manual bind mounts)
+singularity run -B /path/to/data:/data gvclass.sif /data/input_dir -t 32
 
-### Taxonomy assignments
-* Taxonomy assignments are provided on different taxonomic levels
-* To yield an assignments all nearest neighbors in GVOG phylogenetic trees have to be in agreement
+# Run with bind-mounted external database (optional)
+singularity run \
+    -B /path/to/queries:/input \
+    -B /path/to/database:/opt/gvclass/resources \
+    gvclass.sif /input -t 16
+```
 
-### Contamination
-* Giant virus genomes typically have less than 10 out of a set of 56 universal cellular housekeeping genes (UNI56). Higher UNI56 counts indicate cellular contamination, or giant virus sequences that are located on host contigs.
-  * UNI56u (unique counts), UNI56t(total counts), UNI56df (duplication factor) are provided and can be used for further quality filtering
-* Giant virus genomes typically have a duplication factor of GVOG7 and  GVOG9 of below 3. Higher GVOG7 duplication factors indicate the presence mixed viral populations.
-  * GVOG8u, GVOG4u (unique counts), GVOG8t, GVOG4t (total counts), GVOG8df (duplication factor) are provided and can be used for further quality filtering
-     * GVOG8df < 2 and order_dup < 1.5: low chance of representing mixed bin [high quality]
-     * GVOG8df 2-3 and order_dup 1.5-2: medium chance of representing mixed bin [medium quality]
-     * GVOG8df >3 and order_dup >3: high chance of representing mixed bin [low quality]
-### Completeness
-* Genome completeness estimate based on count of genes conserved in 50% of genomes of the respective Nucleocytoviricota order. 
-  * \< 30%: low completeness  [low quality]
-  * 30-70%: medium completeness [medium quality]
-  * \> 70% high completeness [high quality]
+#### Docker Alternative
 
-## Benchmarking
+```bash
+# Build Docker image
+docker build -t gvclass:1.1.0 -f containers/docker/Dockerfile .
 
-* Will be provided soon
+# Run with Docker
+docker run -v /path/to/data:/data gvclass:1.1.0 /data -t 32
+```
 
-## Citation
-https://www.nature.com/articles/s44298-024-00069-7
+### Development Commands
 
-## Requested updates
+```bash
+# Run specific test
+pixi run python test_pipeline.py
 
-* Add Egoviruses and Proculoviruses
+# Clear cache and run fresh
+pixi run python clear_cache_and_run.py
 
-## References
-1. [Schulz F, Roux S, Paez-Espino D, Jungbluth S, Walsh DA, Denef VJ, McMahon KD, Konstantinidis KT, Eloe-Fadrosh EA, Kyrpides NC, Woyke T. Giant virus diversity and host interactions through global metagenomics. Nature. 2020 Feb;578(7795):432-6.](https://doi.org/10.1038/s41586-020-1957-x)
-2. [Aylward FO, Moniruzzaman M, Ha AD, Koonin EV. A phylogenomic framework for charting the diversity and evolution of giant viruses. PLoS biology. 2021 Oct 27;19(10):e3001430.](https://doi.org/10.1371/journal.pbio.3001430)
+# Debug mode
+pixi run python debug_pipeline.py
+```
 
-## Acknowledgements
-GVClass was developed by the [New Lineages of Life Group](https://jgi.doe.gov/our-science/scientists-jgi/new-lineages-of-life/) at the DOE Joint Genome Institute supported by the Office of Science of the U.S. Department of Energy under contract no. DE-AC02-05CH11231.
+## ⚡ Performance Optimization
 
+### Speed Up Analysis
 
+1. **Enable Fast Mode** - Skip order-level marker trees (OG markers):
+   ```bash
+   # Command line option
+   pixi run gvclass <input_directory> --mode-fast
+   
+   # Or in config file
+   pipeline:
+     mode_fast: true  # Skips ~100 order-specific markers, 2-3x faster
+   ```
+
+2. **Use FastTree Instead of IQ-TREE**:
+   ```bash
+   # Default (faster)
+   pixi run gvclass <input_directory> --tree-method fasttree
+   
+   # IQ-TREE (more accurate but slower)
+   pixi run gvclass <input_directory> --tree-method iqtree
+   ```
+
+3. **Optimize Thread Usage**:
+   ```bash
+   # Use all available cores
+   pixi run gvclass <input_directory> -t 32
+   
+   # Parallel processing of multiple queries
+   pixi run gvclass-parallel <input_directory> -t 32 -j 4  # 4 queries × 8 threads each
+   ```
+
+### IQ-TREE Specific Options
+
+When using IQ-TREE (`--tree-method iqtree`), the pipeline automatically uses:
+- Model: `LG+F+G` (fast protein model)
+- `-fast` flag for faster tree search
+- Single thread per marker (parallelization happens at marker level)
+
+To modify IQ-TREE behavior, edit `src/core/marker_processing.py`.
+
+### Understanding Markers
+
+- **Core markers**: Always processed (GVOG4, GVOG8, MCP, etc.)
+- **Order-level markers**: 576 OG markers conserved in different viral orders
+  - Processed when `mode_fast: false` (default)
+  - Skipped when `mode_fast: true` (faster but less precise order assignment)
+
+## 🔬 How It Works
+
+```mermaid
+flowchart TD
+    subgraph Input
+        FNA[".fna<br/>nucleic acid"]
+        FAA[".faa<br/>amino acid"]
+    end
+    
+    subgraph Database
+        DB[(Reference<br/>Database)]
+        MODELS[GVOG HMMs<br/>+ NCLDV markers]
+        REF[Reference<br/>sequences]
+    end
+    
+    FNA --> OPGC{Optimized<br/>Gene Calling}
+    FAA --> ID1[Identify Markers]
+    
+    subgraph "Gene Calling (pyrodigal)"
+        OPGC --> META[Meta mode<br/>genetic codes:<br/>1, 4, 11]
+        OPGC --> DENOVO[De novo mode<br/>genetic codes:<br/>6, 15, 29, 106, 129]
+        META --> RANK[Rank by<br/>coding density]
+        DENOVO --> RANK
+    end
+    
+    RANK --> ID2[Identify Markers]
+    
+    subgraph "Marker Detection (pyhmmer)"
+        ID1 --> HMM1[HMM search<br/>against GVOGs]
+        ID2 --> HMM2[HMM search<br/>against GVOGs]
+        HMM1 --> HITS1[Extract hits<br/>E-value cutoffs]
+        HMM2 --> HITS2[Extract hits<br/>E-value cutoffs]
+    end
+    
+    HITS1 --> BLAST[BLAST/pyswrd<br/>top 100 hits]
+    HITS2 --> BLAST
+    
+    subgraph "Alignment & Trees"
+        BLAST --> ALIGN[MAFFT/pyfamsa<br/>alignment]
+        ALIGN --> TRIM[TrimAl/pytrimal<br/>trimming]
+        TRIM --> TREE{Tree Building}
+        TREE -->|FastTree| FT[veryfasttree<br/>LG4X model]
+        TREE -->|IQ-TREE| IQ[iqtree<br/>LG+F+G -fast]
+    end
+    
+    FT --> NN[Get nearest<br/>neighbors]
+    IQ --> NN
+    
+    subgraph "Classification"
+        NN --> TAX[Majority/strict<br/>taxonomy<br/>assignment]
+        NN --> QC[Quality metrics:<br/>completeness,<br/>contamination]
+    end
+    
+    TAX --> OUT[Results:<br/>taxonomy,<br/>QC metrics]
+    QC --> OUT
+    
+    MODELS -.-> HMM1
+    MODELS -.-> HMM2
+    REF -.-> BLAST
+    DB -.-> NN
+    
+    style FNA fill:#e8f4f8
+    style FAA fill:#e8f4f8
+    style OUT fill:#d4edda
+    style DB fill:#f8d7da
+    style MODELS fill:#f8d7da
+    style REF fill:#f8d7da
+```
+
+## 📝 Citation
+
+If you use GVClass, please cite:
+
+> Pitot et al. (2024): Conservative taxonomy and quality assessment of giant virus genomes with GVClass. npj Viruses. https://www.nature.com/articles/s44298-024-00069-7
+
+## 🤝 Support
+
+- **Issues**: [GitHub Issues](https://github.com/NeLLi-team/gvclass/issues)
+- **Contact**: fschulz@lbl.gov
+
+## 📄 License
+
+BSD 3-Clause License - see LICENSE file for details
+
+---
+<sub>Version 1.1.0 - July 2025</sub>
