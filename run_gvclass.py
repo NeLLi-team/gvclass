@@ -526,15 +526,7 @@ def main():
             print(f"💾 Peak memory usage: {monitor.peak_memory_mb:.0f} MB")
             print(f"📊 Results saved to: {output_dir}")
 
-            # Final validation summary
-            if validation_results["success"]:
-                print(
-                    f"✅ Output validation: PASSED ({validation_results['queries_validated']} queries)"
-                )
-            else:
-                print(
-                    f"⚠️  Output validation: {validation_results['queries_failed']} queries with issues"
-                )
+            # Final validation summary - removed since it's already handled above
         else:
             print(f"\n❌ Pipeline failed with exit code: {return_code}")
             sys.exit(1)
