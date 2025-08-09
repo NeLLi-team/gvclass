@@ -39,6 +39,15 @@ From: ghcr.io/prefix-dev/pixi:latest
     # Install the environment using pixi
     pixi install
     
+    # Download the database if it doesn't exist
+    if [ ! -d "/opt/gvclass/resources/database" ] || [ ! -f "/opt/gvclass/resources/models/combined.hmm" ]; then
+        echo "Downloading GVClass database..."
+        pixi run python -c 'from src.utils.database_manager import DatabaseManager; DatabaseManager.setup_database("/opt/gvclass/resources")' || {
+            echo "Failed to download database during build"
+            exit 1
+        }
+    fi
+    
     # Clean up pixi cache and staging directory
     pixi clean cache -y || true
     rm -rf /opt/gvclass/.pixi/cache 2>/dev/null || true
