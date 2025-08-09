@@ -144,7 +144,7 @@ class DatabaseManager:
             logger.info("Extracting database...")
             tar_filename = f"resources_{cls.DATABASE_VERSION.replace('.', '_')}.tar.gz"
             subprocess.run(
-                ["tar", "-xzvf", tar_filename, "--strip-components=1"],
+                ["tar", "-xzvf", tar_filename, "--strip-components=1", "--no-same-owner"],
                 check=True,
             )
 
