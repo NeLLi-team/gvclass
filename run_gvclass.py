@@ -71,7 +71,7 @@ def check_and_setup_database(db_path, config):
     required_checks = [
         db_path / "models" / "combined.hmm",
         db_path / "database",
-        db_path / "gvclassJuly25_labels.tsv",
+        db_path / "gvclassSeptember25_labels.tsv",
     ]
 
     if db_path.exists() and any(check.exists() for check in required_checks):
@@ -231,7 +231,7 @@ def main():
         from src.utils.database_manager import DatabaseManager
 
         print("GVClass Pipeline")
-        print("  Software version: v1.1.0")
+        print("  Software version: v1.1.1")
 
         # Load config to get database path
         config = load_config(args.config)
@@ -346,7 +346,7 @@ def main():
     ]
     reset = "\033[0m"
 
-    print("    ╔═══════════════════════════════════════════════════════════╗")
+    print("    ╔═════════════════════════════════════════════════════════════╗")
     print("    ║                                                           ║")
     print(
         f"    ║  {colors[0]}██████╗{reset} {colors[1]}██╗   ██╗{reset}{colors[2]} ██████╗{reset}{colors[3]}██╗{reset}      {colors[4]}█████╗{reset} {colors[5]}███████╗{reset}{colors[6]}███████╗{reset} ║"
@@ -367,9 +367,9 @@ def main():
         f"    ║  {colors[0]}╚═════╝{reset}   {colors[1]}╚═══╝{reset}   {colors[2]}╚═════╝{reset}{colors[3]}╚══════╝{reset}{colors[4]}╚═╝  ╚═╝{reset}{colors[5]}╚══════╝{reset}{colors[6]}╚══════╝{reset} ║"
     )
     print("    ║                                                           ║")
-    print("    ║         Giant Virus Classification Tool v1.1.0            ║")
+    print("    ║         Giant Virus Classification Tool v1.1.1            ║")
     print("    ║                                                           ║")
-    print("    ╚═══════════════════════════════════════════════════════════╝")
+    print("    ╚═════════════════════════════════════════════════════════════╝")
     print()
     print("=" * 60)
     print("                    Pipeline Configuration")

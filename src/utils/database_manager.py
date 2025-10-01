@@ -11,20 +11,28 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-
 class DatabaseManager:
     """Manages GVClass reference database."""
 
     REQUIRED_FILES = [
         "models/combined.hmm",  # Combined HMM file with all models
-        "gvclassJuly25_labels.tsv",
+        "gvclassSeptember25_labels.tsv",
         "order_completeness.tab",
     ]
 
-    DATABASE_URL = (
-        "https://portal.nersc.gov/cfs/nelli/gvclassDB/resources_v1_1_0.tar.gz"
-    )
-    DATABASE_VERSION = "v1.1.0"
+    DATABASE_SOURCES = [
+        {
+            "version": "v1.1.1",
+            "url": "https://portal.nersc.gov/cfs/nelli/gvclassDB/resources_v1_1_1.tar.gz",
+            "filename": "resources_v1_1_1.tar.gz",
+        },
+        {
+            "version": "v1.1.0",
+            "url": "https://portal.nersc.gov/cfs/nelli/gvclassDB/resources_v1_1_0.tar.gz",
+            "filename": "resources_v1_1_0.tar.gz",
+        },
+    ]
+    DATABASE_VERSION = DATABASE_SOURCES[0]["version"]
 
     @classmethod
     def get_database_version(cls, database_path: Path) -> str:
@@ -101,63 +109,71 @@ class DatabaseManager:
     @classmethod
     def _download_database(cls, db_path: Path):
         """Download and extract the database."""
-        logger.info(f"Downloading database from {cls.DATABASE_URL}")
-
         # Create directory
         db_path.mkdir(parents=True, exist_ok=True)
 
-        # Save current directory
         original_dir = Path.cwd()
+        errors = []
 
         try:
-            # Change to database directory
             os.chdir(str(db_path))
+            for source in cls.DATABASE_SOURCES:
+                version = source["version"]
+                url = source["url"]
+                filename = source["filename"]
 
-            # Download using wget (could also use requests)
-            logger.info(
-                f"Downloading resources_{cls.DATABASE_VERSION.replace('.', '_')}.tar.gz..."
-            )
-            result = subprocess.run(
-                [
-                    "wget",
-                    "-O",
-                    f"resources_{cls.DATABASE_VERSION.replace('.', '_')}.tar.gz",
-                    cls.DATABASE_URL,
-                ],
-                capture_output=True,
-                text=True,
-            )
-
-            if result.returncode != 0:
-                # Try with curl if wget fails
-                logger.warning("wget failed, trying curl...")
+                logger.info(f"Attempting download of database {version} from {url}")
                 result = subprocess.run(
-                    ["curl", "-L", "-o", "resources_v1_1.tar.gz", cls.DATABASE_URL],
+                    ["wget", "-O", filename, url],
                     capture_output=True,
                     text=True,
                 )
 
-            if result.returncode != 0:
-                raise RuntimeError(f"Failed to download database: {result.stderr}")
+                if result.returncode != 0:
+                    logger.warning("wget failed, trying curl...")
+                    result = subprocess.run(
+                        ["curl", "-L", "-o", filename, url],
+                        capture_output=True,
+                        text=True,
+                    )
 
-            # Extract
-            logger.info("Extracting database...")
-            tar_filename = f"resources_{cls.DATABASE_VERSION.replace('.', '_')}.tar.gz"
-            subprocess.run(
-                ["tar", "-xzvf", tar_filename, "--strip-components=1", "--no-same-owner"],
-                check=True,
-            )
+                if result.returncode != 0:
+                    err_msg = result.stderr.strip() or result.stdout.strip() or "unknown error"
+                    errors.append(f"{version}: download failed ({err_msg})")
+                    Path(filename).unlink(missing_ok=True)
+                    continue
 
-            # Write version file
-            cls.write_database_version(db_path)
-            logger.info(f"Database version {cls.DATABASE_VERSION} installed")
+                try:
+                    logger.info(f"Extracting database archive {filename}")
+                    subprocess.run(
+                        [
+                            "tar",
+                            "-xzvf",
+                            filename,
+                            "--strip-components=1",
+                            "--no-same-owner",
+                        ],
+                        check=True,
+                    )
+                except subprocess.CalledProcessError as exc:
+                    errors.append(f"{version}: extraction failed ({exc})")
+                    Path(filename).unlink(missing_ok=True)
+                    continue
 
-            # Clean up
-            Path(tar_filename).unlink()
+                cls.DATABASE_VERSION = version
+                cls.write_database_version(db_path)
+                Path(filename).unlink(missing_ok=True)
+                logger.info(f"Database version {version} installed")
+                return
 
         finally:
-            # Return to original directory
             os.chdir(str(original_dir))
+
+        raise RuntimeError(
+            "Failed to download database. Attempts: " + "; ".join(errors)
+            if errors
+            else "Failed to download database: no sources succeeded"
+        )
 
     @classmethod
     def validate_database(cls, db_path: Path) -> bool:

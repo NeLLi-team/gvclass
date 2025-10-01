@@ -125,7 +125,7 @@ def main(
     if cluster_walltime:
         cluster_config["walltime"] = cluster_walltime
 
-    click.echo("GVClass Pipeline v1.1.0 (Proper Prefect+Dask)")
+    click.echo("GVClass Pipeline v1.1.1 (Proper Prefect+Dask)")
     click.echo(f"Query directory: {query_path}")
     click.echo(f"Output directory: {output_path}")
     click.echo(f"Database: {db_path if db_path else 'Will download/use default'}")

@@ -29,7 +29,7 @@ class FullSummarizer:
     def __init__(self, database_path: Path):
         """Initialize with database path."""
         self.database_path = database_path
-        self.labels_file = database_path / "gvclassJuly25_labels.tsv"
+        self.labels_file = database_path / "gvclassSeptember25_labels.tsv"
         self.completeness_table = database_path / "order_completeness.tab"
         self.labels_dict = self.load_labels()
 

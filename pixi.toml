@@ -70,6 +70,11 @@ build-docker = "docker build -t gvclass:1.1.0 -f containers/docker/Dockerfile ."
 build-apptainer = "apptainer build gvclass.sif docker-daemon://gvclass:1.1.0"
 analyze-parallel = "python src/test/analyze_parallelization.py"
 
+test = "python -m pytest"
+format = "black src run_gvclass.py"
+lint = "flake8 src"
+type-check = "mypy src"
+
 [feature.dev.dependencies]
 # Development tools
 pytest = "*"

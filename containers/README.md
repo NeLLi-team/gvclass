@@ -1,6 +1,6 @@
 # GVClass Container Images
 
-This directory contains container definitions for GVClass v1.1.0.
+This directory contains container definitions for GVClass v1.1.1.
 
 ## Directory Structure
 
