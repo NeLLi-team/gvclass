@@ -137,6 +137,15 @@ apptainer run -B /path/to/data:/data gvclass_1.1.1.sif /data -t 32
 
 > The published image already includes the v1.1.1 database. Skip the build step unless you need custom modifications.
 
+#### Lightweight Wrapper (`src/bin/gvclass_apptainer.py`)
+
+```bash
+python src/bin/gvclass_apptainer.py /path/to/query_dir /path/to/results -t 32
+# output dir is optional; defaults to <query_dir>_results
+```
+
+The wrapper automatically creates the output directory, binds both paths, and calls the public Apptainer image.
+
 #### Using the Convenience Script (Recommended)
 
 The `run_gvclass_container.sh` script simplifies running GVClass with Apptainer/Singularity:
