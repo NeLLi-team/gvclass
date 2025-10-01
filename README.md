@@ -137,10 +137,10 @@ apptainer run -B /path/to/data:/data gvclass_1.1.1.sif /data -t 32
 
 > The published image already includes the v1.1.1 database. Skip the build step unless you need custom modifications.
 
-#### Lightweight Wrapper (`src/bin/gvclass_apptainer.py`)
+#### Lightweight Wrapper (`gvclass-a.py`)
 
 ```bash
-python src/bin/gvclass_apptainer.py /path/to/query_dir /path/to/results -t 32
+./gvclass-a.py /path/to/query_dir /path/to/results -t 32
 # output dir is optional; defaults to <query_dir>_results
 ```
 
@@ -148,11 +148,11 @@ The wrapper automatically creates the output directory, binds both paths, and ca
 
 #### Using the Convenience Script (Recommended)
 
-The `run_gvclass_container.sh` script simplifies running GVClass with Apptainer/Singularity:
+The `run_gvclass_container.sh` script simplifies running GVClass with a locally built Apptainer/Singularity image:
 
 ```bash
 # First, build the container (one-time setup)
-apptainer build --fakeroot gvclass.sif gvclass-pixi-flexible.def
+apptainer build --fakeroot gvclass.sif containers/apptainer/gvclass.def
 
 # Basic usage - analyzes input directory and saves results alongside it
 ./run_gvclass_container.sh /path/to/input_directory
@@ -257,23 +257,6 @@ docker build -t gvclass:1.1.0 -f containers/docker/Dockerfile .
 
 # Run with Docker
 docker run -v /path/to/data:/data gvclass:1.1.0 /data -t 32
-```
-
-### Development Commands
-
-```bash
-# Run unit and integration tests
-pixi run test
-
-# Format sources with Black
-pixi run format
-
-# Lint and type-check
-pixi run lint
-pixi run type-check
-
-# Run targeted tests during development
-pixi run python -m pytest -k weighted_completeness
 ```
 
 ## ⚡ Performance Optimization
