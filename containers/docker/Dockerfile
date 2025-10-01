@@ -41,7 +41,7 @@ if [ -z "$1" ] || [[ "$1" == -* ]]; then\n\
     exit 1\n\
 fi\n\
 cd /opt/gvclass\n\
-exec pixi run python run_gvclass.py "$@"' > /entrypoint.sh && \
+exec ./gvclass "$@"' > /entrypoint.sh && \
     chmod +x /entrypoint.sh
 
 ENTRYPOINT ["/entrypoint.sh"]

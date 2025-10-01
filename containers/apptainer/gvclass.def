@@ -65,7 +65,7 @@ From: ghcr.io/prefix-dev/pixi:latest
     fi
     
     cd /opt/gvclass
-    exec pixi run python run_gvclass.py "$@"
+    exec ./gvclass "$@"
 
 %labels
     Author fschulz
