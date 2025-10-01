@@ -9,7 +9,7 @@ echo "Test 1: IQ-TREE with 32 threads"
 echo "--------------------------------"
 rm -rf example_results/
 START=$(date +%s)
-pixi run python run_gvclass.py example --tree-method iqtree -t 32
+pixi run ./gvclass example --tree-method iqtree -t 32
 END=$(date +%s)
 RUNTIME1=$((END-START))
 echo "Runtime: ${RUNTIME1} seconds"
@@ -20,7 +20,7 @@ echo "Test 2: IQ-TREE with 8 threads"
 echo "-------------------------------"
 rm -rf example_results/
 START=$(date +%s)
-pixi run python run_gvclass.py example --tree-method iqtree -t 8
+pixi run ./gvclass example --tree-method iqtree -t 8
 END=$(date +%s)
 RUNTIME2=$((END-START))
 echo "Runtime: ${RUNTIME2} seconds"
@@ -31,7 +31,7 @@ echo "Test 3: FastTree with 32 threads"
 echo "---------------------------------"
 rm -rf example_results/
 START=$(date +%s)
-pixi run python run_gvclass.py example --tree-method fasttree -t 32
+pixi run ./gvclass example --tree-method fasttree -t 32
 END=$(date +%s)
 RUNTIME3=$((END-START))
 echo "Runtime: ${RUNTIME3} seconds"
@@ -42,7 +42,7 @@ echo "Test 4: FastTree with 8 threads"
 echo "--------------------------------"
 rm -rf example_results/
 START=$(date +%s)
-pixi run python run_gvclass.py example --tree-method fasttree -t 8
+pixi run ./gvclass example --tree-method fasttree -t 8
 END=$(date +%s)
 RUNTIME4=$((END-START))
 echo "Runtime: ${RUNTIME4} seconds"

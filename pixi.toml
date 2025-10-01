@@ -53,10 +53,10 @@ cloudpickle = ">=3.0"         # Required by dask/prefect
 
 [tasks]
 # Main command
-gvclass = "python run_gvclass.py"
+gvclass = "./gvclass"
 
 # Run example data
-run-example = "python run_gvclass.py example -o example_results --threads 8"
+run-example = "./gvclass example -o example_results --threads 8"
 
 # Manual database setup (database is included in container)
 setup-db = "python -m src.bin.setup_database"
@@ -71,7 +71,7 @@ build-apptainer = "apptainer build gvclass.sif docker-daemon://gvclass:1.1.0"
 analyze-parallel = "python src/test/analyze_parallelization.py"
 
 test = "python -m pytest"
-format = "black src run_gvclass.py"
+format = "black src gvclass"
 lint = "flake8 src"
 type-check = "mypy src"
 

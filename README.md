@@ -313,7 +313,7 @@ To call GVClass from any directory, symlink the wrapper into your personal `bin`
 
 ```bash
 mkdir -p "$HOME/bin"
-ln -s "$(pwd)/run_gvclass.py" "$HOME/bin/gvclass"
+ln -s "$(pwd)/gvclass" "$HOME/bin/gvclass"
 chmod +x "$HOME/bin/gvclass"
 # Add to PATH if needed
 if ! grep -q 'export PATH="$HOME/bin:$PATH"' "$HOME/.bashrc"; then
