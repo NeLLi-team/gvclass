@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-v1.1.0-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/version-v1.1.1-blue.svg" alt="Version">
   <img src="https://img.shields.io/badge/license-BSD--3--Clause-green.svg" alt="License">
   <img src="https://img.shields.io/badge/python-3.11-blue.svg" alt="Python">
   <img src="https://img.shields.io/badge/pixi-enabled-orange.svg" alt="Pixi">
@@ -114,9 +114,10 @@ pipeline:
   threads: 16                       # Default thread count
 ```
 
-## 🆕 What's New in v1.1.0
+## 🆕 What's New in v1.1.1
 
 - **🚀 Modern Architecture**: Prefect + Dask workflow orchestration
+- **🧬 Taxonomy Refresh**: Reference database v1.1.1 with corrected eukaryotic strings and updated giant virus taxonomy ([preprint](https://doi.org/10.1101/2025.09.26.678796))
 - **📦 Easy Installation**: Pixi package manager (2-3x faster)
 - **🐍 Pure Python**: All tools replaced with faster Python versions
 - **⚡ Better Performance**: Parallel marker processing, 25% faster
@@ -126,6 +127,15 @@ pipeline:
 ## 📖 Advanced Usage
 
 ### Container Execution
+
+#### Use the Prebuilt Apptainer Image
+
+```bash
+apptainer pull library://nelligroup-jgi/gvclass/gvclass:1.1.1
+apptainer run -B /path/to/data:/data gvclass_1.1.1.sif /data -t 32
+```
+
+> The published image already includes the v1.1.1 database. Skip the build step unless you need custom modifications.
 
 #### Using the Convenience Script (Recommended)
 
@@ -243,14 +253,18 @@ docker run -v /path/to/data:/data gvclass:1.1.0 /data -t 32
 ### Development Commands
 
 ```bash
-# Run specific test
-pixi run python test_pipeline.py
+# Run unit and integration tests
+pixi run test
 
-# Clear cache and run fresh
-pixi run python clear_cache_and_run.py
+# Format sources with Black
+pixi run format
 
-# Debug mode
-pixi run python debug_pipeline.py
+# Lint and type-check
+pixi run lint
+pixi run type-check
+
+# Run targeted tests during development
+pixi run python -m pytest -k weighted_completeness
 ```
 
 ## ⚡ Performance Optimization
@@ -300,6 +314,23 @@ To modify IQ-TREE behavior, edit `src/core/marker_processing.py`.
 - **Order-level markers**: 576 OG markers conserved in different viral orders
   - Processed when `mode_fast: false` (default)
   - Skipped when `mode_fast: true` (faster but less precise order assignment)
+
+## 🔧 Optional: Global CLI Wrapper
+
+To call GVClass from any directory, symlink the wrapper into your personal `bin` directory and add it to `PATH`:
+
+```bash
+mkdir -p "$HOME/bin"
+ln -s "$(pwd)/run_gvclass.py" "$HOME/bin/gvclass"
+chmod +x "$HOME/bin/gvclass"
+# Add to PATH if needed
+if ! grep -q 'export PATH="$HOME/bin:$PATH"' "$HOME/.bashrc"; then
+  echo 'export PATH="$HOME/bin:$PATH"' >> "$HOME/.bashrc"
+fi
+source "$HOME/.bashrc"
+```
+
+You can then invoke GVClass from anywhere with `gvclass <input_dir>`.
 
 ## 🔬 How It Works
 
@@ -386,4 +417,4 @@ If you use GVClass, please cite:
 BSD 3-Clause License - see LICENSE file for details
 
 ---
-<sub>Version 1.1.0 - July 2025</sub>
+<sub>Version 1.1.1 - October 2025</sub>

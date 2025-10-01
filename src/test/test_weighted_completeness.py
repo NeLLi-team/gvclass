@@ -20,72 +20,74 @@ from src.core.weighted_completeness import (
 from src.core.summarize_full import FullSummarizer
 
 
+@pytest.fixture
+def sample_marker_stats():
+    """Create sample marker statistics data."""
+    return pd.DataFrame(
+        {
+            "marker_name": [
+                "OGv21091",
+                "OGv21249",
+                "OGv21407",
+                "OGv21419",
+                "OGv21421",
+                "OGv2118",
+                "OGv2122",
+                "OGv2166",
+                "OGv2183",
+                "OGv2186",
+            ],
+            "domain_name": ["MIRUS"] * 5 + ["NCLDV"] * 5,
+            "order_name": ["MIRUS"] * 5 + ["Algavirales"] * 5,
+            "percent_genomes_with_marker": [
+                33.7,
+                42.4,
+                39.2,
+                38.4,
+                38.9,
+                54.9,
+                41.8,
+                44.4,
+                59.5,
+                63.2,
+            ],
+            "avg_duplication_factor": [
+                1.0159,
+                1.0116,
+                1.0126,
+                1.0127,
+                1.0063,
+                1.0368,
+                1.0194,
+                1.0380,
+                1.0373,
+                1.0330,
+            ],
+        }
+    )
+
+
+@pytest.fixture
+def temp_marker_stats_file(sample_marker_stats):
+    """Create temporary marker stats file."""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".tsv", delete=False) as f:
+        sample_marker_stats.to_csv(f, sep="	", index=False)
+        temp_path = Path(f.name)
+    yield temp_path
+    temp_path.unlink()
+
+
+@pytest.fixture
+def calculator(temp_marker_stats_file):
+    """Create WeightedCompletenessCalculator instance."""
+    return WeightedCompletenessCalculator(
+        marker_stats_path=temp_marker_stats_file,
+        weight_strategy="information_theoretic",
+        enable_adaptive_scaling=True,
+    )
+
 class TestWeightedCompletenessCalculator:
     """Test suite for WeightedCompletenessCalculator class."""
-
-    @pytest.fixture
-    def sample_marker_stats(self):
-        """Create sample marker statistics data."""
-        return pd.DataFrame(
-            {
-                "marker_name": [
-                    "OGv21091",
-                    "OGv21249",
-                    "OGv21407",
-                    "OGv21419",
-                    "OGv21421",
-                    "OGv2118",
-                    "OGv2122",
-                    "OGv2166",
-                    "OGv2183",
-                    "OGv2186",
-                ],
-                "domain_name": ["MIRUS"] * 5 + ["NCLDV"] * 5,
-                "order_name": ["MIRUS"] * 5 + ["Algavirales"] * 5,
-                "percent_genomes_with_marker": [
-                    33.7,
-                    42.4,
-                    39.2,
-                    38.4,
-                    38.9,
-                    54.9,
-                    41.8,
-                    44.4,
-                    59.5,
-                    63.2,
-                ],
-                "avg_duplication_factor": [
-                    1.0159,
-                    1.0116,
-                    1.0126,
-                    1.0127,
-                    1.0063,
-                    1.0368,
-                    1.0194,
-                    1.0380,
-                    1.0373,
-                    1.0330,
-                ],
-            }
-        )
-
-    @pytest.fixture
-    def temp_marker_stats_file(self, sample_marker_stats):
-        """Create temporary marker stats file."""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".tsv", delete=False) as f:
-            sample_marker_stats.to_csv(f, sep="\t", index=False)
-            temp_path = Path(f.name)
-        yield temp_path
-        temp_path.unlink()
-
-    @pytest.fixture
-    def calculator(self, temp_marker_stats_file):
-        """Create WeightedCompletenessCalculator instance."""
-        return WeightedCompletenessCalculator(
-            marker_stats_path=temp_marker_stats_file,
-            weight_strategy="information_theoretic",
-            enable_adaptive_scaling=True,
-        )
 
     def test_initialization(self, temp_marker_stats_file):
         """Test calculator initialization with different strategies."""
@@ -271,7 +273,7 @@ class TestFullSummarizerIntegration:
 
             # Create mock labels file
             labels_content = "genome1\tNCLDV|Class|TestOrder|Family|Genus|Species\n"
-            (db_path / "gvclassJuly25_labels.tsv").write_text(labels_content)
+            (db_path / "gvclassSeptember25_labels.tsv").write_text(labels_content)
 
             yield db_path
 

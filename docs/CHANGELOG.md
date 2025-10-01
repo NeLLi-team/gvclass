@@ -1,11 +1,18 @@
 # Changelog
 
+## [v1.1.1] - 2025-10-01
+
+### Highlights
+- Switched the GVClass pipeline to Prefect + Dask orchestration (formerly Snakemake) for resilient scheduling and parallelism.
+- Refreshed the bundled reference database to `resources_v1_1_1.tar.gz`, delivering corrected eukaryotic taxonomy strings and updated giant virus placements ([Schulz et al., 2025](https://doi.org/10.1101/2025.09.26.678796)).
+- Updated README, pixi tasks, and developer tooling to align with the Prefect-based workflow.
+
 All notable changes to GVClass will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [v1.1.0] - 2024-12-XX
+## [v1.0.0] - 2024-12-XX
 
 ### 🚀 Major Changes
 
@@ -29,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **REPLACED**: Diamond with pyswrd v0.1.0 for sequence similarity searches
 - **REPLACED**: FastTree with VeryFastTree v4.0.3 for phylogenetic tree construction
 - **IMPROVED**: All tools now use Python APIs for better integration and performance
+- **UPDATED**: GVMAGs v2 reference database with refreshed orthogroups and taxonomy annotations
 - **ADDED**: Support for both IQ-TREE and VeryFastTree methods
 - **ADDED**: Custom genetic code support for codes 106 and 129 (giant virus-specific)
 
@@ -213,7 +221,7 @@ For questions about migration or new features:
 
 ### v1.1.0 Summary
 
-This major release completely modernizes GVClass with:
+This major release completely modernizes GVClass and introduces the GVMAGs v2 database with refreshed orthogroups and lineage-specific weighted completeness scores:
 - **Prefect + Dask workflow** for robust, parallel pipeline execution
 - **Pixi-based dependency management** for faster, more reliable installations
 - **100% Python implementation** using modern bioinformatics libraries

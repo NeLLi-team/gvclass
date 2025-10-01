@@ -438,7 +438,7 @@ def process_query_task(
                 for i, tf in enumerate(tree_files[:5]):
                     logger.info(f"  Tree file {i+1}: {tf.name}")
 
-                labels_file = database_path / "gvclassJuly25_labels.tsv"
+                labels_file = database_path / "gvclassSeptember25_labels.tsv"
                 logger.info(
                     f"Labels file: {labels_file}, exists: {labels_file.exists()}"
                 )
