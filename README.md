@@ -250,8 +250,6 @@ gvclass-a /data/genomes /data/results -t 32
 
 ### Option 2: Symlink gvclass (for Pixi users)
 
-**Important**: You MUST use a symlink (not a copy) for this to work!
-
 ```bash
 # From the gvclass repo directory
 cd /path/to/gvclass  # Navigate to your cloned repo first
@@ -268,8 +266,6 @@ source "$HOME/.bashrc"
 cd /anywhere
 gvclass my_data -o results -t 32
 ```
-
-The script uses `Path(__file__).resolve()` to follow the symlink back to the repo directory, where it can access `src/` modules and `config/` files. A copied file would look for these in `~/bin/` and fail.
 
 ## 🔬 How It Works
 
