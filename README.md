@@ -269,7 +269,6 @@ cd /anywhere
 gvclass my_data -o results -t 32
 ```
 
-**Why symlink instead of copy?**
 The script uses `Path(__file__).resolve()` to follow the symlink back to the repo directory, where it can access `src/` modules and `config/` files. A copied file would look for these in `~/bin/` and fail.
 
 ## 🔬 How It Works
@@ -283,7 +282,7 @@ flowchart TD
     
     subgraph Database
         DB[(Reference<br/>Database)]
-        MODELS[GVOG HMMs<br/>+ NCLDV, cellular (BUSCO/UNI56), viral (genomad)]
+        MODELS[GVOG HMMs<br/>+ marker sets]
         REF[Reference<br/>sequences]
     end
     
