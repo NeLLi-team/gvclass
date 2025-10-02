@@ -8,7 +8,15 @@ from pathlib import Path
 DEFAULT_IMAGE = "library://nelligroup-jgi/gvclass/gvclass:1.1.1"
 
 
-def run_container(query: Path, output: Path, threads: int, image: str) -> int:
+def run_container(
+    query: Path,
+    output: Path,
+    threads: int,
+    image: str,
+    tree_method: str = None,
+    mode_fast: bool = None,
+    max_workers: int = None,
+) -> int:
     query_abs = query.resolve()
     output_abs = output.resolve()
 
@@ -32,6 +40,14 @@ def run_container(query: Path, output: Path, threads: int, image: str) -> int:
         str(threads),
     ]
 
+    # Add optional flags
+    if tree_method:
+        cmd.extend(["--tree-method", tree_method])
+    if mode_fast is not None:
+        cmd.append("--mode-fast" if mode_fast else "--no-mode-fast")
+    if max_workers:
+        cmd.extend(["-j", str(max_workers)])
+
     return subprocess.call(cmd)
 
 
@@ -54,6 +70,31 @@ def main() -> None:
         help="Total threads to allocate (default: 16)",
     )
     parser.add_argument(
+        "-j",
+        "--max-workers",
+        type=int,
+        default=None,
+        help="Maximum parallel workers (default: auto-calculated)",
+    )
+    parser.add_argument(
+        "--tree-method",
+        choices=["fasttree", "iqtree"],
+        default=None,
+        help="Tree building method (default: fasttree)",
+    )
+    parser.add_argument(
+        "--mode-fast",
+        action="store_true",
+        default=None,
+        help="Enable fast mode - skip order-level markers for faster analysis",
+    )
+    parser.add_argument(
+        "--no-mode-fast",
+        action="store_false",
+        dest="mode_fast",
+        help="Disable fast mode - process all markers (more accurate)",
+    )
+    parser.add_argument(
         "--image",
         default=DEFAULT_IMAGE,
         help="Apptainer image URI or path (default: %(default)s)",
@@ -67,7 +108,15 @@ def main() -> None:
     else:
         output_path = query_path.with_name(f"{query_path.name}_results")
 
-    rc = run_container(query_path, output_path, args.threads, args.image)
+    rc = run_container(
+        query_path,
+        output_path,
+        args.threads,
+        args.image,
+        tree_method=args.tree_method,
+        mode_fast=args.mode_fast,
+        max_workers=args.max_workers,
+    )
     raise SystemExit(rc)
 
 

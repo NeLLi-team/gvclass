@@ -6,6 +6,16 @@ Run GVClass pipeline with clean output and resource monitoring.
 import sys
 import os
 from pathlib import Path
+
+# CRITICAL: Find the repo directory even when symlinked
+# This allows gvclass to be run from anywhere (e.g., ~/bin/gvclass)
+script_path = Path(__file__).resolve()  # Follows symlinks
+repo_dir = script_path.parent  # Directory containing this script
+
+# Add repo to Python path so we can import src.*
+if str(repo_dir) not in sys.path:
+    sys.path.insert(0, str(repo_dir))
+
 import subprocess
 import argparse
 from datetime import datetime
@@ -27,29 +37,30 @@ def count_files_in_directory(directory):
 
 def load_config(config_file="config/gvclass_config.yaml"):
     """Load configuration from YAML file."""
+    script_dir = Path(__file__).resolve().parent
     config_path = Path(config_file)
 
-    # Try different locations for config file
-    if not config_path.exists():
-        # Try in current directory
+    # If not absolute, try different locations for config file
+    if not config_path.is_absolute():
+        # Try in current directory first (project-specific)
         config_path = Path.cwd() / config_file
 
-    if not config_path.exists():
-        # Try relative to script
-        config_path = Path(__file__).parent / config_file
+        if not config_path.exists():
+            # Try old location in current directory
+            config_path = Path.cwd() / "gvclass_config.yaml"
 
-    if not config_path.exists():
-        # Try old location
-        config_path = Path.cwd() / "gvclass_config.yaml"
+        if not config_path.exists():
+            # Fall back to repo config
+            config_path = script_dir / config_file
 
     if config_path.exists():
         with open(config_path, "r") as f:
             return yaml.safe_load(f)
 
-    # Return default config if file not found
+    # Return default config with absolute path to resources
     return {
         "database": {
-            "path": "resources",
+            "path": str(script_dir / "resources"),
             "download_url": "https://portal.nersc.gov/cfs/m342/GVClass/gvclass_db_v1.1.tar.gz",
             "expected_size": 701,
         },
@@ -235,7 +246,11 @@ def main():
 
         # Load config to get database path
         config = load_config(args.config)
+        script_dir = Path(__file__).resolve().parent
         db_path = Path(args.database if args.database else config["database"]["path"])
+        # Make database path absolute if it's relative
+        if not db_path.is_absolute():
+            db_path = script_dir / db_path
 
         if db_path.exists():
             db_version = DatabaseManager.get_database_version(db_path)
@@ -251,9 +266,18 @@ def main():
 
     # Load configuration
     config = load_config(args.config)
+    script_dir = Path(__file__).resolve().parent
+
+    # Convert query_dir to absolute path (stays in user's context)
+    query_dir_abs = Path(args.query_dir).resolve()
 
     # Apply configuration with command-line overrides
     database = args.database if args.database else config["database"]["path"]
+    # Make database path absolute if it's relative
+    database = Path(database)
+    if not database.is_absolute():
+        database = script_dir / database
+    database = str(database)
     threads = args.threads if args.threads else config["pipeline"].get("threads", 16)
     tree_method = (
         args.tree_method
@@ -269,25 +293,25 @@ def main():
     else:
         mode_fast = config["pipeline"].get("mode_fast", True)
 
-    # Handle output directory
+    # Handle output directory and make it absolute
     if args.output_dir:
-        output_dir = args.output_dir
+        output_dir = str(Path(args.output_dir).resolve())
     else:
-        query_base = Path(args.query_dir).name
+        query_base = query_dir_abs.name
         output_pattern = config["pipeline"].get("output_pattern", "{query_dir}_results")
-        output_dir = output_pattern.format(query_dir=query_base)
+        output_dir = str(Path(output_pattern.format(query_dir=query_base)).resolve())
 
     # Check and setup database
     if not check_and_setup_database(database, config):
         sys.exit(1)
 
     # Count input files
-    n_queries = count_files_in_directory(args.query_dir)
+    n_queries = count_files_in_directory(query_dir_abs)
     n_skipped = 0
 
     if n_queries == 0:
         print(
-            f"❌ ERROR: No .fna or .faa files found in {args.query_dir}",
+            f"❌ ERROR: No .fna or .faa files found in {query_dir_abs}",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -375,7 +399,7 @@ def main():
     print("                    Pipeline Configuration")
     print("=" * 60)
     print(f"Config file: {args.config}")
-    print(f"Query directory: {args.query_dir}")
+    print(f"Query directory: {query_dir_abs}")
     print(f"Output directory: {output_dir}")
     print(f"Database: {database}")
     print(f"Threads: {threads} (Workers: {n_workers} × {threads_per_worker} threads)")
@@ -395,12 +419,16 @@ def main():
 
     start_time = datetime.now()
 
-    # Build command
+    # Use pixi Python if available, otherwise fall back to current Python
+    pixi_python = script_dir / ".pixi" / "envs" / "default" / "bin" / "python"
+    python_exe = str(pixi_python) if pixi_python.exists() else sys.executable
+
+    # Build command with absolute paths
     cmd = [
-        sys.executable,
+        python_exe,
         "-m",
         "src.bin.gvclass_prefect",
-        args.query_dir,
+        str(query_dir_abs),
         "-o",
         output_dir,
         "-d",
@@ -438,13 +466,16 @@ def main():
     env["PREFECT_API_URL"] = ""
     env["PREFECT_LOGGING_LEVEL"] = "ERROR"
     env["PYTHONWARNINGS"] = "ignore"
+    # Increase timeouts for cluster compatibility
+    env["PREFECT_SERVER_STARTUP_TIMEOUT"] = "300"  # 5 minutes for slow cluster nodes
+    env["PREFECT_API_DATABASE_TIMEOUT"] = "60"  # 1 minute for database operations
 
-    # Start process
+    # Start process (run in repo directory so it can import src.*)
     if args.verbose:
-        process = subprocess.Popen(cmd, env=env)
+        process = subprocess.Popen(cmd, env=env, cwd=script_dir)
     else:
         process = subprocess.Popen(
-            cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, cwd=script_dir
         )
 
     # Start resource monitor with actual queries to process

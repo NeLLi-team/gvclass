@@ -15,35 +15,45 @@ GVClass assigns taxonomy to giant virus contigs and metagenome-assembled genomes
 
 ## 🚀 Quick Start
 
-### 1. Install Pixi (one-time setup)
+### Option 1: Apptainer/Singularity (Recommended for HPC)
+
+**Best for:** Running on HPC clusters, no installation needed
+
 ```bash
-curl -fsSL https://pixi.sh/install.sh | bash
+# Download the wrapper script
+wget https://raw.githubusercontent.com/NeLLi-team/gvclass/main/gvclass-a
+chmod +x gvclass-a
+
+# Run from anywhere (image auto-downloads on first use)
+./gvclass-a /path/to/query_genomes /path/to/results -t 32
+
+# With options
+./gvclass-a my_data my_results -t 32 --tree-method iqtree --mode-fast
 ```
 
-### 2. Clone and Enter Directory
+The Apptainer image includes the database (~700MB) and all dependencies. No setup needed!
+
+### Option 2: Pixi (For Development/Local Use)
+
+**Best for:** Contributing code, modifying the pipeline, or running locally
+
 ```bash
+# 1. Install Pixi (one-time)
+curl -fsSL https://pixi.sh/install.sh | bash
+
+# 2. Clone repository
 git clone https://github.com/NeLLi-team/gvclass.git
 cd gvclass
-```
 
-### 3. Install Dependencies
-```bash
+# 3. Install dependencies (pixi handles everything)
 pixi install
-```
 
-### 4. Run GVClass
-```bash
-# Basic usage - database downloads automatically on first run (~700MB)
-pixi run gvclass <input_directory>
+# 4. Run GVClass (must run from repo directory)
+pixi run gvclass <input_directory> -t 16
 
-# Run with example data to test installation
+# Test installation with example data
 pixi run run-example
-
-# Custom output directory and threads
-pixi run gvclass <input_directory> -o my_results -t 16
 ```
-
-That's it! No manual database setup required - GVClass handles everything automatically.
 
 ## 📋 Input Requirements
 
@@ -54,18 +64,30 @@ That's it! No manual database setup required - GVClass handles everything automa
 
 ## 🎯 Example Usage
 
+### Using Apptainer (gvclass-a)
+
 ```bash
-# Run on your data
-pixi run gvclass my_genomes/
+# Basic usage
+./gvclass-a my_genomes my_results -t 32
 
-# Specify output location
-pixi run gvclass my_genomes/ -o classification_results
+# Fast mode (skip order-level markers for 2-3x speedup)
+./gvclass-a my_genomes my_results -t 32 --mode-fast
 
-# Use more threads for faster processing
-pixi run gvclass my_genomes/ -t 32
+# Use IQ-TREE for more accurate phylogeny (slower)
+./gvclass-a my_genomes my_results -t 32 --tree-method iqtree
 
-# Process multiple queries in parallel (4 queries × 8 threads each = 32 total)
-pixi run gvclass-parallel my_genomes/ -t 32 -j 4
+# Control parallelization (4 workers × 8 threads = 32 total)
+./gvclass-a my_genomes my_results -t 32 -j 4
+```
+
+### Using Pixi (from repo directory)
+
+```bash
+# Basic usage
+pixi run gvclass my_genomes -o my_results -t 32
+
+# With options
+pixi run gvclass my_genomes -t 32 --mode-fast --tree-method iqtree -j 4
 ```
 
 ## 📊 Output
@@ -116,35 +138,30 @@ pipeline:
 
 ## 🆕 What's New in v1.1.1
 
-- **🚀 Modern Architecture**: Prefect + Dask workflow orchestration
+- **🚀 Modern Architecture**: Prefect workflow orchestration with ThreadPoolExecutor parallelization
 - **🧬 Taxonomy Refresh**: Reference database v1.1.1 with corrected eukaryotic strings and updated giant virus taxonomy ([preprint](https://doi.org/10.1101/2025.09.26.678796))
 - **📦 Easy Installation**: Pixi package manager (2-3x faster)
 - **🐍 Pure Python**: All tools replaced with faster Python versions
-- **⚡ Better Performance**: Parallel marker processing, 25% faster
+- **⚡ Better Performance**: Parallel query processing, 25% faster
 - **🔄 Automatic Recovery**: Task caching and retry on failures
 - **✅ Auto Database Setup**: No manual download needed
 
 ## 📖 Advanced Usage
 
-### Container Execution
+### Advanced Container Usage
 
-#### Use the Prebuilt Apptainer Image
+The `gvclass-a` wrapper (recommended above) handles container execution automatically. For manual control:
 
 ```bash
+# Pull the image manually
 apptainer pull library://nelligroup-jgi/gvclass/gvclass:1.1.1
-apptainer run -B /path/to/data:/data gvclass_1.1.1.sif /data -t 32
+
+# Run with manual bind mounts
+apptainer run -B /path/to/data:/input -B /path/to/results:/output \
+  gvclass_1.1.1.sif /input -o /output -t 32
 ```
 
-> The published image already includes the v1.1.1 database. Skip the build step unless you need custom modifications.
-
-#### Lightweight Wrapper (`gvclass-a.py`)
-
-```bash
-./gvclass-a.py /path/to/query_dir /path/to/results -t 32
-# output dir is optional; defaults to <query_dir>_results
-```
-
-The wrapper automatically creates the output directory, binds both paths, and calls the public Apptainer image.
+The wrapper is simpler and handles bind mounts automatically.
 
 ## ⚡ Performance Optimization
 
@@ -173,9 +190,9 @@ The wrapper automatically creates the output directory, binds both paths, and ca
    ```bash
    # Use all available cores
    pixi run gvclass <input_directory> -t 32
-   
-   # Parallel processing of multiple queries
-   pixi run gvclass-parallel <input_directory> -t 32 -j 4  # 4 queries × 8 threads each
+
+   # Control parallelization: 4 parallel workers, 8 threads each (= 32 total)
+   pixi run gvclass <input_directory> -t 32 -j 4
    ```
 
 ### IQ-TREE Specific Options
@@ -194,22 +211,49 @@ To modify IQ-TREE behavior, edit `src/core/marker_processing.py`.
   - Processed when `mode_fast: false` (default)
   - Skipped when `mode_fast: true` (faster but less precise order assignment)
 
-## 🔧 Optional: Global CLI Wrapper
+## 🔧 Making GVClass Available Globally
 
-To call GVClass from any directory, symlink the wrapper into your personal `bin` directory and add it to `PATH`:
+Both wrappers can be made globally accessible:
+
+### Option 1: Apptainer (gvclass-a) - Recommended for HPC
 
 ```bash
+# Copy gvclass-a to your personal bin
 mkdir -p "$HOME/bin"
-ln -s "$(pwd)/gvclass" "$HOME/bin/gvclass"
-chmod +x "$HOME/bin/gvclass"
-# Add to PATH if needed
-if ! grep -q 'export PATH="$HOME/bin:$PATH"' "$HOME/.bashrc"; then
-  echo 'export PATH="$HOME/bin:$PATH"' >> "$HOME/.bashrc"
-fi
+cp gvclass-a "$HOME/bin/"
+chmod +x "$HOME/bin/gvclass-a"
+
+# Add to PATH (if not already)
+echo 'export PATH="$HOME/bin:$PATH"' >> "$HOME/.bashrc"
 source "$HOME/.bashrc"
+
+# Now use from anywhere!
+gvclass-a /data/genomes /data/results -t 32
 ```
 
-You can then invoke GVClass from anywhere with `gvclass <input_dir>`.
+### Option 2: Symlink gvclass (for Pixi users)
+
+**Important**: You MUST use a symlink (not a copy) for this to work!
+
+```bash
+# From the gvclass repo directory
+cd /path/to/gvclass  # Navigate to your cloned repo first
+
+# Create symlink (REQUIRED - copying won't work!)
+mkdir -p "$HOME/bin"
+ln -s "$(pwd)/gvclass" "$HOME/bin/gvclass"
+
+# Add to PATH (if not already)
+echo 'export PATH="$HOME/bin:$PATH"' >> "$HOME/.bashrc"
+source "$HOME/.bashrc"
+
+# Now run from anywhere - symlink allows script to find its repo
+cd /anywhere
+gvclass my_data -o results -t 32
+```
+
+**Why symlink instead of copy?**
+The script uses `Path(__file__).resolve()` to follow the symlink back to the repo directory, where it can access `src/` modules and `config/` files. A copied file would look for these in `~/bin/` and fail.
 
 ## 🔬 How It Works
 
