@@ -16,3 +16,8 @@ CLAUDE.md
 out*
 *_results
 results*
+logs/
+test/
+__pycache__/
+*.pyc
+*.pyo

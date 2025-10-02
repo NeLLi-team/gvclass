@@ -16,7 +16,7 @@ from datetime import timedelta
 import shutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from prefect import flow, task, get_run_logger
+from prefect import task, get_run_logger
 from prefect_dask import DaskTaskRunner
 
 # Import core functionality
@@ -915,11 +915,6 @@ def calculate_optimal_workers(
     return max(1, n_workers), max(min_threads_per_worker, threads_per_worker)
 
 
-@flow(
-    name="gvclass-pipeline",
-    description="GVClass pipeline with dynamic Dask execution",
-    persist_result=True,
-)
 def gvclass_flow(
     query_dir: str,
     output_dir: str,
@@ -955,7 +950,7 @@ def gvclass_flow(
         cluster_type: Type of cluster (local, slurm, pbs, sge)
         cluster_config: Additional cluster configuration
     """
-    logger = get_run_logger()
+    logger = logging.getLogger("gvclass_prefect")
 
     # Step 1: Validate inputs and setup
     logger.info("Validating inputs and setting up directories")
