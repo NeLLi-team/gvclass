@@ -1002,110 +1002,55 @@ def gvclass_flow(
         f"Parallelization strategy: {n_workers} workers × {threads_per_worker} threads"
     )
 
-    # Step 3: Configure DaskTaskRunner dynamically
-    if cluster_type == "local":
-        from dask.distributed import LocalCluster
-
-        # Create local cluster with calculated workers
-        # Set memory limit based on total available memory divided by workers
-        # This prevents overcommitting memory
-        import psutil
-
-        total_memory_gb = psutil.virtual_memory().total / (1024**3)
-        memory_per_worker = min(8, max(2, total_memory_gb * 0.8 / n_workers))
-
-        cluster = LocalCluster(
-            n_workers=n_workers,
-            threads_per_worker=threads_per_worker,
-            memory_limit=f"{memory_per_worker:.1f}GB",
-            silence_logs=logging.WARNING,
-        )
-
-        task_runner = DaskTaskRunner(cluster=cluster)
-
-    elif cluster_type == "slurm":
-        from dask_jobqueue import SLURMCluster
-
-        # Configure SLURM cluster
-        cluster_kwargs = {
-            "cores": threads_per_worker,
-            "memory": "32GB",
-            "walltime": "04:00:00",
-            "queue": cluster_config.get("queue", "normal"),
-            **cluster_config,
-        }
-
-        cluster = SLURMCluster(**cluster_kwargs)
-        cluster.scale(n_workers)
-
-        task_runner = DaskTaskRunner(cluster=cluster)
-
-    else:
-        # Fallback to concurrent for unsupported cluster types
-        logger.warning(
-            f"Unsupported cluster type: {cluster_type}, using concurrent execution"
-        )
-        from prefect.task_runners import ConcurrentTaskRunner
-
-        task_runner = ConcurrentTaskRunner()
-
-    # Step 4: Process queries in parallel
+    # Step 3: Process queries in parallel using ThreadPoolExecutor
+    # This avoids the multiprocessing spawn issues with Dask/Prefect
     logger.info("Starting parallel query processing")
 
-    # Don't pre-create directories - let each worker create its own
-    # This prevents creating all directories at once
+    results = []
+    query_files = list(config["query_files"])
+    total_queries = len(query_files)
 
-    # Process queries with controlled batching
-    with task_runner:
-        results = []
-        query_files = list(config["query_files"])
-        total_queries = len(query_files)
+    logger.info(
+        f"Processing {total_queries} queries with {n_workers} workers ({threads_per_worker} threads each)"
+    )
 
-        # Process in batches to control resource usage
-        # Submit only as many tasks as we have workers
-        batch_size = n_workers  # Exactly one query per worker
-
-        logger.info(
-            f"Processing {total_queries} queries with {n_workers} workers (batch size: {batch_size})"
-        )
-
-        for batch_start in range(0, total_queries, batch_size):
-            batch_end = min(batch_start + batch_size, total_queries)
-            batch_queries = query_files[batch_start:batch_end]
-
-            logger.info(
-                f"Processing batch {batch_start//batch_size + 1}: queries {batch_start+1}-{batch_end} of {total_queries}"
-            )
-
-            # Submit batch
-            batch_futures = []
-            for query_file in batch_queries:
-                future = process_query_task.submit(
-                    query_file=query_file,
+    # Use ThreadPoolExecutor directly for simpler, more reliable parallelization
+    with ThreadPoolExecutor(max_workers=n_workers) as executor:
+        # Submit all queries
+        future_to_query = {}
+        for query_file in query_files:
+            future = executor.submit(
+                lambda qf: process_query_task(
+                    query_file=qf,
                     output_base=config["output_path"],
                     database_path=config["database_path"],
                     genetic_codes=genetic_codes,
                     tree_method=tree_method,
                     mode_fast=mode_fast,
                     threads=threads_per_worker,
+                ),
+                query_file,
+            )
+            future_to_query[future] = query_file
+
+        # Collect results as they complete
+        for future in as_completed(future_to_query):
+            query_file = future_to_query[future]
+            try:
+                result = future.result()
+                results.append(result)
+                logger.info(f"Completed: {result['query']} - {result['status']}")
+            except Exception as e:
+                logger.error(f"Query {query_file.stem} failed: {e}")
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
+                results.append(
+                    {"query": query_file.stem, "status": "failed", "error": str(e)}
                 )
-                batch_futures.append((query_file, future))
 
-            # Wait for batch to complete
-            for query_file, future in batch_futures:
-                try:
-                    result = future.result()
-                    results.append(result)
-                    logger.info(f"Completed: {result['query']} - {result['status']}")
-                except Exception as e:
-                    logger.error(f"Query {query_file.stem} failed: {e}")
-                    results.append(
-                        {"query": query_file.stem, "status": "failed", "error": str(e)}
-                    )
-
-        logger.info(
-            f"All batches complete. Successfully processed {len([r for r in results if r['status'] == 'complete'])}/{total_queries} queries"
-        )
+    logger.info(
+        f"All queries complete. Successfully processed {len([r for r in results if r['status'] == 'complete'])}/{total_queries} queries"
+    )
 
     # Create final summary
     logger.info("Creating final summary...")
