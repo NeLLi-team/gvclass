@@ -163,6 +163,23 @@ apptainer run -B /path/to/data:/input -B /path/to/results:/output \
 
 The wrapper is simpler and handles bind mounts automatically.
 
+## Interpreting Quality Metrics
+
+### Genome completeness
+- `order_completeness` shows the percentage of order-specific markers detected in single copy. Values above ~70% generally indicate near-complete genomes, 30–70% partial, and below 30% highly fragmented assemblies.
+- `weighted_order_completeness` applies conservation-based weights; large gaps here usually point to missing hallmark genes even if raw counts look acceptable.
+
+### Contamination and mixed populations
+- `order_dup` and `gvog8_dup` summarize marker duplication. Values above ~2 suggest multiple populations or assembly chimeras; below ~1.5 is typically clean.
+- `gvog8_total` and `gvog8_unique` help distinguish true gene expansions (high total, moderate duplication) from assembly artefacts (high duplication, low uniqueness).
+- `mcp_total`, `mirus_total`, `mrya_total` provide additional lineage-specific duplication hints for Marseilleviridae, Mirusviruses, and related groups.
+
+### Cellular carry-over
+- `uni56_total` (UNI56) counts universal cellular markers; more than ~10 unique hits point to host contamination or bins that include cellular contigs.
+- The wrapper also reports `busco_*` fields when available; elevated counts complement UNI56 for spotting non-viral material.
+
+Use these fields together: a high completeness score with low duplication and low UNI56 is characteristic of a high-quality GVMAG; any combination of low completeness plus high duplication or high UNI56 warrants manual curation.
+
 ## ⚡ Performance Optimization
 
 ### Speed Up Analysis
@@ -266,7 +283,7 @@ flowchart TD
     
     subgraph Database
         DB[(Reference<br/>Database)]
-        MODELS[GVOG HMMs<br/>+ NCLDV markers]
+        MODELS[GVOG HMMs<br/>+ NCLDV markers<br/>+ cellular (BUSCO, UNI56)<br/>+ viral (genomad)]
         REF[Reference<br/>sequences]
     end
     
