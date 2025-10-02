@@ -283,7 +283,7 @@ flowchart TD
     
     subgraph Database
         DB[(Reference<br/>Database)]
-        MODELS[GVOG HMMs<br/>+ NCLDV markers<br/>+ cellular (BUSCO, UNI56)<br/>+ viral (genomad)]
+        MODELS[GVOG HMMs<br/>+ NCLDV, cellular (BUSCO/UNI56), viral (genomad)]
         REF[Reference<br/>sequences]
     end
     
