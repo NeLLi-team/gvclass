@@ -66,16 +66,23 @@ class GeneticCodeOptimizer:
 
         # Process all records
         for record in records:
-            # Extract the base name from the record ID
-            # If the ID has a pipe, take only the first part (before the pipe)
-            # This handles both 'name' and 'name|suffix' formats
+            # Extract both base name and contig identifier from record ID
+            # Format: 'base_name|contig_name' or just 'name' for single contig
+            # Example: 'GVMAG-S-1096109-37|1096109_contig_155'
             if "|" in record.id:
-                contig_id = record.id.split("|")[0]
+                base_name = record.id.split("|")[0]  # e.g., "GVMAG-S-1096109-37"
+                contig_name = record.id.split("|")[1]  # e.g., "1096109_contig_155"
             else:
-                contig_id = record.id
+                # Single contig case - use same identifier for both
+                base_name = record.id
+                contig_name = record.id
 
             # Remove _reformatted suffix if present
-            contig_id = contig_id.replace("_reformatted", "")
+            base_name = base_name.replace("_reformatted", "")
+            contig_name = contig_name.replace("_reformatted", "")
+
+            # Create full identifier for this contig (for GFF and protein IDs)
+            full_contig_id = f"{base_name}|{contig_name}" if "|" in record.id else base_name
 
             if code == 0:
                 genes_found = orf_finder.find_genes(str(record.seq))
@@ -85,7 +92,7 @@ class GeneticCodeOptimizer:
             # Write GFF header for this contig
             gff_lines.append("##gff-version  3")
             gff_lines.append(
-                f'# Sequence Data: seqnum=1;seqlen={len(record.seq)};seqhdr="{contig_id}"'
+                f'# Sequence Data: seqnum=1;seqlen={len(record.seq)};seqhdr="{full_contig_id}"'
             )
             if code == 0:
                 gff_lines.append(
@@ -99,7 +106,8 @@ class GeneticCodeOptimizer:
             gene_num = 0
             for gene in genes_found:
                 gene_num += 1
-                protein_id = f"{contig_id}_{gene_num}"
+                # Create unique protein ID: base_name|contig_name_gene_number
+                protein_id = f"{full_contig_id}_{gene_num}"
 
                 if code == 0:
                     protein_seq = gene.translate()
@@ -160,7 +168,7 @@ class GeneticCodeOptimizer:
                 attrs_str = ";".join(attributes)
 
                 gff_line = (
-                    f"{contig_id}\tpyrodigal_v3.3.0\tCDS\t{gene.begin}\t{gene.end}\t"
+                    f"{full_contig_id}\tpyrodigal_v3.3.0\tCDS\t{gene.begin}\t{gene.end}\t"
                     f"{gene.score:.1f}\t{strand}\t{phase}\t{attrs_str}"
                 )
                 gff_lines.append(gff_line)

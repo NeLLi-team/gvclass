@@ -1,0 +1,20 @@
+# Genetic code optimization results
+# * indicates the selected code
+# Selection logic: 
+#   1. If metagenomic (code 0) exists and has coding_density > 0:
+#      - Start with code 0 as baseline
+#      - Override only if another code has:
+#        a) More complete_hits, OR
+#        b) Same complete_hits but >5% better avg_best_hit_score than code 0, OR
+#        c) Same complete_hits but >5% better coding_density than code 0
+#   2. Otherwise: select by complete_hits, then avg_best_hit_score, then coding_density
+#
+query	genetic_code	complete_hits	avg_best_hit_score	coding_density	gene_count	ttable	contigs	LENbp	GCperc	genecount	CODINGperc	profile_hits	avg_coverage
+GVMAG-S-1096109-37_reformatted	0*	43	185.64	93.39	188	codemeta	10	175691	36.34	188	93.39	156	0.675
+GVMAG-S-1096109-37_reformatted	129	43	182.97	94.14	192	code129	10	175691	36.34	192	94.14	156	0.669
+GVMAG-S-1096109-37_reformatted	11	43	181.32	94.23	195	code11	10	175691	36.34	195	94.23	156	0.664
+GVMAG-S-1096109-37_reformatted	1	43	180.83	94.03	194	code1	10	175691	36.34	194	94.03	156	0.662
+GVMAG-S-1096109-37_reformatted	15	43	180.72	94.14	192	code15	10	175691	36.34	192	94.14	156	0.664
+GVMAG-S-1096109-37_reformatted	4	43	178.78	94.56	192	code4	10	175691	36.34	192	94.56	149	0.666
+GVMAG-S-1096109-37_reformatted	106	39	193.43	92.42	148	code106	10	175691	36.34	148	92.42	148	0.678
+GVMAG-S-1096109-37_reformatted	6	37	195.07	95.27	140	code6	10	175691	36.34	140	95.27	142	0.672
