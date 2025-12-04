@@ -27,7 +27,7 @@ pipeline:
 # Genetic code settings
 genetic_codes:
   # List of genetic codes to test
-  codes: [0, 1, 4, 6, 11, 15, 106, 129]
+  codes: [0, 1, 4, 6, 11, 15, 29, 106, 129]
   # Minimum improvement threshold for selecting alternative genetic codes
   improvement_threshold: 0.05  # 5%
 
