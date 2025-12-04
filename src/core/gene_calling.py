@@ -458,7 +458,7 @@ def main(
 
     # Gene calling
     # tomasbruna's fork supports codes 106 and 129 for giant viruses
-    codes = [0, 1, 4, 6, 11, 15, 106, 129]
+    codes = [0, 1, 4, 6, 11, 15, 29, 106, 129]
     for code in codes:
         run_genecalling_codes(fnafile, code, gffout)
 
