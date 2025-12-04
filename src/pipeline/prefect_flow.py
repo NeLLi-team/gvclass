@@ -924,7 +924,7 @@ def gvclass_flow(
     threads_per_worker: Optional[int] = None,
     tree_method: str = "fasttree",
     mode_fast: bool = True,
-    genetic_codes: List[int] = [0, 1, 4, 6, 11, 15, 106, 129],
+    genetic_codes: List[int] = [0, 1, 4, 6, 11, 15, 29, 106, 129],
     cluster_type: str = "local",
     cluster_config: Optional[Dict[str, Any]] = None,
     resume: bool = False,
