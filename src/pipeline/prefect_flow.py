@@ -15,6 +15,7 @@ import logging
 from datetime import timedelta
 import shutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import csv
 
 from prefect import task, get_run_logger
 from prefect_dask import DaskTaskRunner
@@ -769,7 +770,8 @@ def create_final_summary_task(results: List[Dict[str, Any]], output_dir: Path) -
     logger = get_run_logger()
     logger.info(f"Creating final summary for {len(results)} queries")
 
-    summary_file = output_dir / "gvclass_summary.tsv"
+    summary_tsv = output_dir / "gvclass_summary.tsv"
+    summary_csv = output_dir / "gvclass_summary.csv"
 
     # Define the expected column order
     columns = [
@@ -812,9 +814,12 @@ def create_final_summary_task(results: List[Dict[str, Any]], output_dir: Path) -
     ]
 
     # Write the summary file
-    with open(summary_file, "w") as f:
-        # Write header
-        f.write("\t".join(columns) + "\n")
+    with open(summary_tsv, "w") as tsv_file, open(
+        summary_csv, "w", newline=""
+    ) as csv_file:
+        csv_writer = csv.writer(csv_file)
+        tsv_file.write("\t".join(columns) + "\n")
+        csv_writer.writerow(columns)
 
         # Write results
         for result in sorted(results, key=lambda x: x["query"]):
@@ -848,20 +853,23 @@ def create_final_summary_task(results: List[Dict[str, Any]], output_dir: Path) -
                             value = f"{value:.0f}"
                     row_data.append(str(value))
 
-                f.write("\t".join(row_data) + "\n")
+                tsv_file.write("\t".join(row_data) + "\n")
+                csv_writer.writerow(row_data)
             else:
                 # Failed query - write minimal data
                 row_data = [result["query"]] + [""] * (len(columns) - 1)
-                f.write("\t".join(row_data) + "\n")
+                tsv_file.write("\t".join(row_data) + "\n")
+                csv_writer.writerow(row_data)
 
-    logger.info(f"Summary written to: {summary_file}")
+    logger.info(f"Summary written to: {summary_tsv}")
+    logger.info(f"CSV summary written to: {summary_csv}")
 
     # Post-processing is already done in process_query_task
     # tree_nn files are kept inside the tar.gz archives to keep output directory clean
     logger.info("All query processing complete")
 
     logger.info("Post-processing complete")
-    return summary_file
+    return summary_tsv
 
 
 def calculate_optimal_workers(
@@ -989,9 +997,10 @@ def gvclass_flow(
             n_queries=n_queries, total_threads=total_threads, max_workers=max_workers
         )
     else:
-        n_workers = min(
-            n_queries, total_threads // threads_per_worker, max_workers or n_queries
-        )
+        if threads_per_worker <= 0:
+            raise ValueError("threads_per_worker must be a positive integer")
+        max_by_threads = max(1, total_threads // threads_per_worker)
+        n_workers = min(n_queries, max_by_threads, max_workers or n_queries)
 
     logger.info(
         f"Parallelization strategy: {n_workers} workers × {threads_per_worker} threads"

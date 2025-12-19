@@ -93,7 +93,8 @@ pixi run gvclass my_genomes -t 32 --mode-fast --tree-method iqtree -j 4
 ## 📊 Output
 
 Results are saved to `<input_name>_results/` containing:
-- `gvclass_summary.tsv` - Main results with taxonomy assignments
+- `gvclass_summary.tsv` - Main results with taxonomy assignments (legacy format)
+- `gvclass_summary.csv` - Main results with taxonomy assignments (CSV for spreadsheets)
 - Individual query subdirectories with detailed analysis
 
 ### Output Columns Explained

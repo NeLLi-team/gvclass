@@ -5,6 +5,7 @@ Run GVClass pipeline with clean output and resource monitoring.
 
 import sys
 import os
+import csv
 from pathlib import Path
 
 # CRITICAL: Find the repo directory even when symlinked
@@ -528,26 +529,43 @@ def main():
 
             if summary_files:
                 # Read all individual summaries and combine them
-                combined_data = []
+                combined_rows = []
                 headers = None
 
                 for summary_file in sorted(summary_files):
-                    with open(summary_file, "r") as f:
-                        lines = f.readlines()
-                        if lines:
-                            if headers is None and len(lines) > 0:
-                                headers = lines[0].strip()
-                            if len(lines) > 1:  # Has data row
-                                combined_data.append(lines[1].strip())
+                    with open(summary_file, "r", newline="") as f:
+                        reader = csv.reader(f, delimiter="\t")
+                        rows = list(reader)
+                        if rows:
+                            if headers is None and rows[0]:
+                                headers = rows[0]
+                            elif headers is not None and rows[0] != headers:
+                                print(
+                                    f"⚠️  Header mismatch in {summary_file.name}; using first header"
+                                )
+                            for row in rows[1:]:
+                                if row:
+                                    combined_rows.append(row)
 
                 # Write combined summary
-                if combined_data and headers:
-                    combined_summary = output_path / "gvclass_summary.tsv"
-                    with open(combined_summary, "w") as f:
-                        f.write(headers + "\n")
-                        for data_line in combined_data:
-                            f.write(data_line + "\n")
-                    print(f"✅ Combined summary written to: {combined_summary}")
+                if combined_rows and headers:
+                    combined_summary_tsv = output_path / "gvclass_summary.tsv"
+                    combined_summary_csv = output_path / "gvclass_summary.csv"
+                    with open(combined_summary_tsv, "w") as tsv_file, open(
+                        combined_summary_csv, "w", newline=""
+                    ) as csv_file:
+                        csv_writer = csv.writer(csv_file)
+                        tsv_file.write("\t".join(headers) + "\n")
+                        csv_writer.writerow(headers)
+                        for row in combined_rows:
+                            tsv_file.write("\t".join(row) + "\n")
+                            csv_writer.writerow(row)
+                    print(
+                        f"✅ Combined summary written to: {combined_summary_tsv}"
+                    )
+                    print(
+                        f"✅ CSV summary written to: {combined_summary_csv}"
+                    )
                 else:
                     print("⚠️  No summary data found to combine")
             else:

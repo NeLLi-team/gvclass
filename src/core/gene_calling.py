@@ -518,7 +518,10 @@ def main(
     # Extract genetic code from filename: e.g., "file.faa_code4" -> "code4"
     stats_df["ttable"] = stats_df.index.map(lambda x: x.split("_")[-1])
     stats_df.insert(0, "query", stats_df.index.map(lambda x: os.path.splitext(x)[0]))
-    coding_dens_codemeta = stats_df[stats_df["ttable"] == "codemeta"]["CODINGperc"]
+    coding_dens_series = stats_df.loc[stats_df["ttable"] == "codemeta", "CODINGperc"]
+    coding_dens_codemeta = (
+        float(coding_dens_series.iloc[0]) if not coding_dens_series.empty else 0.0
+    )
 
     # Add hit counts and average scores to the stats dataframe
     stats_df["hits"] = stats_df.index.map(
@@ -547,7 +550,7 @@ def main(
     )
 
     # Select bestcode based on coding density threshold, number of hits, and average score
-    if float(coding_dens_codemeta) > 0:
+    if coding_dens_codemeta > 0:
         bestcode = os.path.join(
             faaoutdir, f"{os.path.splitext(os.path.basename(gffout))[0]}.faa_codemeta"
         )
@@ -585,7 +588,7 @@ def main(
                 or (
                     completeBestHits_counts[faa_code] == max_hits
                     and avg_bestHitScores[faa_code] == max_avg_score
-                    and float(coding_dens_code) > float(coding_dens_codemeta) * 1.02
+                    and float(coding_dens_code) > coding_dens_codemeta * 1.02
                 )
             ):
                 max_hits = completeBestHits_counts[faa_code]
@@ -595,7 +598,7 @@ def main(
         bestcode = os.path.join(faaoutdir, stats_df.iloc[0].name)
 
     # Calculate delta and add it to the stats dataframe
-    stats_df["delta"] = stats_df["CODINGperc"] - float(coding_dens_codemeta)
+    stats_df["delta"] = stats_df["CODINGperc"] - coding_dens_codemeta
     stats_df["delta"] = stats_df["delta"].round(2)
 
     # Write stats to files
