@@ -66,12 +66,34 @@ class FullSummarizer:
         return labels
 
     def format_tax_level_counts(self, tax_counter: Counter) -> str:
-        """Format taxonomy counts with percentages."""
+        """Format taxonomy counts with percentages, grouping low-frequency taxa."""
         if not tax_counter:
             return ""
 
         total = sum(tax_counter.values())
-        sorted_counts = sorted(tax_counter.items(), key=lambda x: x[1], reverse=True)
+        if total <= 0:
+            return ""
+
+        grouped_counter = Counter(tax_counter)
+        low_threshold = 2.0
+        low_counts_by_prefix = Counter()
+
+        for tax, count in tax_counter.items():
+            percentage = (count / total) * 100
+            if percentage < low_threshold:
+                if "__" in tax:
+                    prefix = tax.split("__", 1)[0]
+                elif "_" in tax:
+                    prefix = tax.split("_", 1)[0]
+                else:
+                    prefix = tax
+                low_counts_by_prefix[prefix] += count
+                grouped_counter.pop(tax, None)
+
+        for prefix, count in low_counts_by_prefix.items():
+            grouped_counter[f"{prefix}_other"] += count
+
+        sorted_counts = sorted(grouped_counter.items(), key=lambda x: x[1], reverse=True)
 
         formatted = []
         for tax, count in sorted_counts:
