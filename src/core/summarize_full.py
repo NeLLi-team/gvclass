@@ -75,12 +75,12 @@ class FullSummarizer:
             return ""
 
         grouped_counter = Counter(tax_counter)
-        low_threshold = 2.0
+        low_threshold = 5.0
         low_counts_by_prefix = Counter()
 
         for tax, count in tax_counter.items():
             percentage = (count / total) * 100
-            if percentage < low_threshold:
+            if percentage <= low_threshold:
                 if "__" in tax:
                     prefix = tax.split("__", 1)[0]
                 elif "_" in tax:
