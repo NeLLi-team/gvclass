@@ -19,6 +19,7 @@ if str(repo_dir) not in sys.path:
 
 import subprocess
 import argparse
+import re
 from datetime import datetime
 import threading
 import time
@@ -370,31 +371,53 @@ def main():
         "\033[93m",  # Yellow (S)
     ]
     reset = "\033[0m"
+    indent = "    "
+    inner_width = 61
 
-    print("    ╔═════════════════════════════════════════════════════════════╗")
-    print("    ║                                                           ║")
+    def strip_ansi(text: str) -> str:
+        return re.sub(r"\x1b\[[0-9;]*m", "", text)
+
+    def frame_line(content: str = "") -> str:
+        visible_len = len(strip_ansi(content))
+        padding = " " * max(0, inner_width - visible_len)
+        return f"{indent}║{content}{padding}║"
+
+    print(f"{indent}╔{'═' * inner_width}╗")
+    print(frame_line())
     print(
-        f"    ║  {colors[0]}██████╗{reset} {colors[1]}██╗   ██╗{reset}{colors[2]} ██████╗{reset}{colors[3]}██╗{reset}      {colors[4]}█████╗{reset} {colors[5]}███████╗{reset}{colors[6]}███████╗{reset} ║"
+        frame_line(
+            f"  {colors[0]}██████╗{reset} {colors[1]}██╗   ██╗{reset}{colors[2]} ██████╗{reset}{colors[3]}██╗{reset}      {colors[4]}█████╗{reset} {colors[5]}███████╗{reset}{colors[6]}███████╗{reset}"
+        )
     )
     print(
-        f"    ║ {colors[0]}██╔════╝{reset} {colors[1]}██║   ██║{reset}{colors[2]}██╔════╝{reset}{colors[3]}██║{reset}     {colors[4]}██╔══██╗{reset}{colors[5]}██╔════╝{reset}{colors[6]}██╔════╝{reset} ║"
+        frame_line(
+            f" {colors[0]}██╔════╝{reset} {colors[1]}██║   ██║{reset}{colors[2]}██╔════╝{reset}{colors[3]}██║{reset}     {colors[4]}██╔══██╗{reset}{colors[5]}██╔════╝{reset}{colors[6]}██╔════╝{reset}"
+        )
     )
     print(
-        f"    ║ {colors[0]}██║  ███╗{reset}{colors[1]}██║   ██║{reset}{colors[2]}██║{reset}     {colors[3]}██║{reset}     {colors[4]}███████║{reset}{colors[5]}███████╗{reset}{colors[6]}███████╗{reset} ║"
+        frame_line(
+            f" {colors[0]}██║  ███╗{reset}{colors[1]}██║   ██║{reset}{colors[2]}██║{reset}     {colors[3]}██║{reset}     {colors[4]}███████║{reset}{colors[5]}███████╗{reset}{colors[6]}███████╗{reset}"
+        )
     )
     print(
-        f"    ║ {colors[0]}██║   ██║{reset}{colors[1]}╚██╗ ██╔╝{reset}{colors[2]}██║{reset}     {colors[3]}██║{reset}     {colors[4]}██╔══██║{reset}{colors[5]}╚════██║{reset}{colors[6]}╚════██║{reset} ║"
+        frame_line(
+            f" {colors[0]}██║   ██║{reset}{colors[1]}╚██╗ ██╔╝{reset}{colors[2]}██║{reset}     {colors[3]}██║{reset}     {colors[4]}██╔══██║{reset}{colors[5]}╚════██║{reset}{colors[6]}╚════██║{reset}"
+        )
     )
     print(
-        f"    ║ {colors[0]}╚██████╔╝{reset} {colors[1]}╚████╔╝{reset} {colors[2]}╚██████╗{reset}{colors[3]}███████╗{reset}{colors[4]}██║  ██║{reset}{colors[5]}███████║{reset}{colors[6]}███████║{reset} ║"
+        frame_line(
+            f" {colors[0]}╚██████╔╝{reset} {colors[1]}╚████╔╝{reset} {colors[2]}╚██████╗{reset}{colors[3]}███████╗{reset}{colors[4]}██║  ██║{reset}{colors[5]}███████║{reset}{colors[6]}███████║{reset}"
+        )
     )
     print(
-        f"    ║  {colors[0]}╚═════╝{reset}   {colors[1]}╚═══╝{reset}   {colors[2]}╚═════╝{reset}{colors[3]}╚══════╝{reset}{colors[4]}╚═╝  ╚═╝{reset}{colors[5]}╚══════╝{reset}{colors[6]}╚══════╝{reset} ║"
+        frame_line(
+            f"  {colors[0]}╚═════╝{reset}   {colors[1]}╚═══╝{reset}   {colors[2]}╚═════╝{reset}{colors[3]}╚══════╝{reset}{colors[4]}╚═╝  ╚═╝{reset}{colors[5]}╚══════╝{reset}{colors[6]}╚══════╝{reset}"
+        )
     )
-    print("    ║                                                           ║")
-    print("    ║         Giant Virus Classification Tool v1.1.1            ║")
-    print("    ║                                                           ║")
-    print("    ╚═════════════════════════════════════════════════════════════╝")
+    print(frame_line())
+    print(frame_line("         Giant Virus Classification Tool v1.1.1"))
+    print(frame_line())
+    print(f"{indent}╚{'═' * inner_width}╝")
     print()
     print("=" * 60)
     print("                    Pipeline Configuration")
@@ -403,7 +426,11 @@ def main():
     print(f"Query directory: {query_dir_abs}")
     print(f"Output directory: {output_dir}")
     print(f"Database: {database}")
-    print(f"Threads: {threads} (Workers: {n_workers} × {threads_per_worker} threads)")
+    threads_used = n_workers * threads_per_worker
+    print(
+        f"Threads: {threads_used} used / {threads} requested "
+        f"(Workers: {n_workers} × {threads_per_worker} threads)"
+    )
     print(f"Tree method: {tree_method}")
     print(f"Fast mode: {mode_fast}")
     if args.resume:

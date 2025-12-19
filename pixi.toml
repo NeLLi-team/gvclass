@@ -1,4 +1,4 @@
-[project]
+[workspace]
 name = "gvclass"
 version = "1.1.0"
 description = "Giant virus classification tool using phylogenetic analysis"
