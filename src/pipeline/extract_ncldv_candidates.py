@@ -3,9 +3,9 @@
 Extract NCLDV candidates from GVClass results.
 
 This script:
-1. Reads gvclass_summary.tsv and filters for NCLDV:>=2
+1. Reads gvclass_summary.csv (or .tsv) and filters for NCLDV:>=2
 2. Extracts corresponding FAA files to ncldv_candidates_faa/
-3. Creates filtered summary file ncldv_candidates_gvclass.tsv
+3. Creates filtered summary files ncldv_candidates_gvclass.tsv and .csv
 4. Organizes output files (moves gz, removes summary.tab)
 """
 
@@ -64,14 +64,22 @@ def main():
         print(f"Error: Query directory not found: {query_path}")
         sys.exit(1)
 
-    summary_file = results_path / "gvclass_summary.tsv"
-    if not summary_file.exists():
-        print(f"Error: Summary file not found: {summary_file}")
+    summary_csv = results_path / "gvclass_summary.csv"
+    summary_tsv = results_path / "gvclass_summary.tsv"
+    if summary_csv.exists():
+        summary_file = summary_csv
+    elif summary_tsv.exists():
+        summary_file = summary_tsv
+    else:
+        print("Error: Summary file not found (expected gvclass_summary.csv or .tsv)")
         sys.exit(1)
 
     # Read summary file
     print(f"Reading {summary_file}...")
-    df = pd.read_csv(summary_file, sep="\t")
+    if summary_file.suffix == ".tsv":
+        df = pd.read_csv(summary_file, sep="\t")
+    else:
+        df = pd.read_csv(summary_file)
 
     # Find the column containing NCLDV counts
     # Based on the data, NCLDV info is in the 'domain' column
@@ -157,13 +165,17 @@ def main():
             print(f"  ... and {len(missing) - 10} more")
 
     # Step 2: Write filtered summary
-    output_summary = results_path / "ncldv_candidates_gvclass.tsv"
-    print(f"\nWriting filtered summary to {output_summary}...")
+    output_summary_tsv = results_path / "ncldv_candidates_gvclass.tsv"
+    output_summary_csv = results_path / "ncldv_candidates_gvclass.csv"
+    print(
+        f"\nWriting filtered summary to {output_summary_tsv} and {output_summary_csv}..."
+    )
 
     if not args.dry_run:
         # Drop the temporary ncldv_count column before saving
         ncldv_candidates_clean = ncldv_candidates.drop("ncldv_count", axis=1)
-        ncldv_candidates_clean.to_csv(output_summary, sep="\t", index=False)
+        ncldv_candidates_clean.to_csv(output_summary_tsv, sep="\t", index=False)
+        ncldv_candidates_clean.to_csv(output_summary_csv, index=False)
 
     print(f"Wrote {len(ncldv_candidates)} entries to summary file")
 

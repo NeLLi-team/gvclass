@@ -36,7 +36,7 @@ graph TD
     R --> S[Assign Taxonomy<br/>Consensus voting]
     S --> T[Quality Metrics<br/>Completeness/Contamination]
     
-    T --> U[Summary Report<br/>gvclass_summary.tsv]
+    T --> U[Summary Report<br/>gvclass_summary.tsv & csv]
 ```
 
 ## Parallel Processing
