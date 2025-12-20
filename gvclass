@@ -23,8 +23,6 @@ import re
 from datetime import datetime
 import threading
 import time
-import yaml
-import psutil
 
 
 def count_files_in_directory(directory):
@@ -56,6 +54,13 @@ def load_config(config_file="config/gvclass_config.yaml"):
             config_path = script_dir / config_file
 
     if config_path.exists():
+        try:
+            import yaml
+        except ModuleNotFoundError as exc:
+            raise RuntimeError(
+                "PyYAML is required to read the config file. "
+                "Install it (e.g., `pixi install` or `pip install pyyaml`)."
+            ) from exc
         with open(config_path, "r") as f:
             return yaml.safe_load(f)
 
@@ -112,6 +117,14 @@ class ResourceMonitor:
     """Monitor progress and resource usage."""
 
     def __init__(self, output_dir, total_queries, process_pid, initial_completed=0):
+        try:
+            import psutil
+        except ModuleNotFoundError as exc:
+            raise RuntimeError(
+                "psutil is required to run the pipeline. "
+                "Install it (e.g., `pixi install` or `pip install psutil`)."
+            ) from exc
+        self.psutil = psutil
         self.output_dir = Path(output_dir)
         self.total_queries = total_queries
         self.process_pid = process_pid
@@ -126,8 +139,8 @@ class ResourceMonitor:
         """Monitor progress and resources."""
         last_output = ""
         try:
-            process = psutil.Process(self.process_pid)
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            process = self.psutil.Process(self.process_pid)
+        except (self.psutil.NoSuchProcess, self.psutil.AccessDenied):
             process = None
 
         while self.running:
@@ -154,9 +167,9 @@ class ResourceMonitor:
                             self.peak_memory_mb = max(
                                 self.peak_memory_mb, self.current_memory_mb
                             )
-                        except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        except (self.psutil.NoSuchProcess, self.psutil.AccessDenied):
                             pass
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                except (self.psutil.NoSuchProcess, self.psutil.AccessDenied):
                     pass
 
             # Display progress
@@ -262,9 +275,9 @@ def main():
 
         sys.exit(0)
 
-    # Check if query_dir is provided for non-version commands
     if not args.query_dir:
-        parser.error("query_dir is required unless using --version")
+        parser.print_help()
+        sys.exit(0)
 
     # Load configuration
     config = load_config(args.config)
