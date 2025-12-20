@@ -39,6 +39,19 @@ def load_config(config_file="config/gvclass_config.yaml"):
     """Load configuration from YAML file."""
     script_dir = Path(__file__).resolve().parent
     config_path = Path(config_file)
+    default_config = {
+        "database": {
+            "path": str(script_dir / "resources"),
+            "download_url": "https://portal.nersc.gov/cfs/m342/GVClass/gvclass_db_v1.1.tar.gz",
+            "expected_size": 701,
+        },
+        "pipeline": {
+            "tree_method": "fasttree",
+            "mode_fast": True,
+            "threads": 16,
+            "output_pattern": "{query_dir}_results",
+        },
+    }
 
     # If not absolute, try different locations for config file
     if not config_path.is_absolute():
@@ -56,28 +69,18 @@ def load_config(config_file="config/gvclass_config.yaml"):
     if config_path.exists():
         try:
             import yaml
-        except ModuleNotFoundError as exc:
-            raise RuntimeError(
-                "PyYAML is required to read the config file. "
-                "Install it (e.g., `pixi install` or `pip install pyyaml`)."
-            ) from exc
+        except ModuleNotFoundError:
+            print(
+                "Warning: PyYAML is not available; using built-in defaults "
+                f"instead of {config_path}.",
+                file=sys.stderr,
+            )
+            return default_config
         with open(config_path, "r") as f:
             return yaml.safe_load(f)
 
     # Return default config with absolute path to resources
-    return {
-        "database": {
-            "path": str(script_dir / "resources"),
-            "download_url": "https://portal.nersc.gov/cfs/m342/GVClass/gvclass_db_v1.1.tar.gz",
-            "expected_size": 701,
-        },
-        "pipeline": {
-            "tree_method": "fasttree",
-            "mode_fast": True,
-            "threads": 16,
-            "output_pattern": "{query_dir}_results",
-        },
-    }
+    return default_config
 
 
 def check_and_setup_database(db_path, config):
