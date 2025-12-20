@@ -47,6 +47,7 @@ if str(repo_dir) not in sys.path:
 import subprocess
 import argparse
 import re
+import shutil
 from datetime import datetime
 import threading
 import time
@@ -317,7 +318,7 @@ def main():
 
     # Load configuration
     config = load_config(args.config)
-    script_dir = Path(__file__).resolve().parent
+    script_dir = repo_dir
 
     # Convert query_dir to absolute path (stays in user's context)
     query_dir_abs = Path(args.query_dir).resolve()
@@ -499,12 +500,61 @@ def main():
     # Use pixi Python if available, otherwise fall back to current Python
     pixi_python = script_dir / ".pixi" / "envs" / "default" / "bin" / "python"
     python_exe = str(pixi_python) if pixi_python.exists() else sys.executable
+    use_pixi_run = False
+    pixi_cmd = shutil.which("pixi")
+    if not pixi_python.exists() and pixi_cmd:
+        use_pixi_run = True
+
+    # Preflight dependency check for the subprocess environment
+    def check_missing_deps() -> list:
+        missing = []
+        for dep in ["click"]:
+            if use_pixi_run:
+                result = subprocess.run(
+                    [pixi_cmd, "run", "python", "-c", f"import {dep}"],
+                    capture_output=True,
+                    text=True,
+                    cwd=script_dir,
+                )
+            else:
+                result = subprocess.run(
+                    [python_exe, "-c", f"import {dep}"],
+                    capture_output=True,
+                    text=True,
+                )
+            if result.returncode != 0:
+                missing.append(dep)
+        return missing
+
+    missing_deps = check_missing_deps()
+    if missing_deps and pixi_cmd:
+        print("📦 Installing dependencies with pixi...")
+        subprocess.run([pixi_cmd, "install"], cwd=script_dir)
+        missing_deps = check_missing_deps()
+    if missing_deps:
+        print(
+            "❌ Missing Python dependencies in the runtime environment: "
+            + ", ".join(missing_deps)
+        )
+        print("   Run `pixi install` or use `pixi run gvclass ...`.")
+        sys.exit(1)
 
     # Build command with absolute paths
-    cmd = [
-        python_exe,
-        "-m",
-        "src.bin.gvclass_prefect",
+    if use_pixi_run:
+        cmd = [
+            pixi_cmd,
+            "run",
+            "python",
+            "-m",
+            "src.bin.gvclass_prefect",
+        ]
+    else:
+        cmd = [
+            python_exe,
+            "-m",
+            "src.bin.gvclass_prefect",
+        ]
+    cmd += [
         str(query_dir_abs),
         "-o",
         output_dir,
@@ -540,6 +590,13 @@ def main():
 
     # Set environment
     env = os.environ.copy()
+    existing_pythonpath = env.get("PYTHONPATH", "")
+    repo_path_str = str(repo_dir)
+    if existing_pythonpath:
+        if repo_path_str not in existing_pythonpath.split(os.pathsep):
+            env["PYTHONPATH"] = os.pathsep.join([repo_path_str, existing_pythonpath])
+    else:
+        env["PYTHONPATH"] = repo_path_str
     env["PREFECT_API_URL"] = ""
     env["PREFECT_LOGGING_LEVEL"] = "ERROR"
     env["PYTHONWARNINGS"] = "ignore"

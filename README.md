@@ -51,6 +51,9 @@ pixi install
 # 4. Run GVClass (must run from repo directory)
 pixi run gvclass <input_directory> -t 16
 
+# Optional: install CLI wrappers into ~/bin
+pixi run install-cli
+
 # Test installation with example data
 pixi run run-example
 ```

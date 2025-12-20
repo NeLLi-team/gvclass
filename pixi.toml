@@ -58,6 +58,9 @@ gvclass = "./gvclass"
 # Run example data
 run-example = "./gvclass example -o example_results --threads 8"
 
+# Install CLI entrypoints to ~/bin
+install-cli = "python -m src.bin.install_cli"
+
 # Manual database setup (database is included in container)
 setup-db = "python -m src.bin.setup_database"
 
