@@ -23,3 +23,5 @@ __pycache__/
 *.pyc
 *.pyo
 gvclassv1.1.1_i60.zip
+__MACOSX/
+naomi/
