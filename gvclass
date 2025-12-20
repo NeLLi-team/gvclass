@@ -8,10 +8,37 @@ import os
 import csv
 from pathlib import Path
 
-# CRITICAL: Find the repo directory even when symlinked
-# This allows gvclass to be run from anywhere (e.g., ~/bin/gvclass)
+def resolve_repo_dir(script_path: Path) -> Path:
+    """Resolve the GVClass repo directory when running from a copied script."""
+    candidate = script_path.parent
+    if (candidate / "src").exists():
+        return candidate
+
+    env_path = os.environ.get("GVCLASS_REPO")
+    if env_path:
+        env_repo = Path(env_path).expanduser().resolve()
+        if (env_repo / "src").exists():
+            return env_repo
+
+    repo_path_file = Path.home() / ".config" / "gvclass" / "repo_path"
+    if repo_path_file.exists():
+        repo_path = repo_path_file.read_text().strip()
+        if repo_path:
+            file_repo = Path(repo_path).expanduser().resolve()
+            if (file_repo / "src").exists():
+                return file_repo
+
+    cwd = Path.cwd().resolve()
+    for parent in [cwd] + list(cwd.parents):
+        if (parent / "src").exists() and (parent / "gvclass").exists():
+            return parent
+
+    return candidate
+
+
+# CRITICAL: Find the repo directory even when symlinked/copied
 script_path = Path(__file__).resolve()  # Follows symlinks
-repo_dir = script_path.parent  # Directory containing this script
+repo_dir = resolve_repo_dir(script_path)
 
 # Add repo to Python path so we can import src.*
 if str(repo_dir) not in sys.path:
@@ -37,7 +64,7 @@ def count_files_in_directory(directory):
 
 def load_config(config_file="config/gvclass_config.yaml"):
     """Load configuration from YAML file."""
-    script_dir = Path(__file__).resolve().parent
+    script_dir = repo_dir
     config_path = Path(config_file)
     default_config = {
         "database": {
@@ -123,11 +150,14 @@ class ResourceMonitor:
         try:
             import psutil
         except ModuleNotFoundError as exc:
-            raise RuntimeError(
-                "psutil is required to run the pipeline. "
-                "Install it (e.g., `pixi install` or `pip install psutil`)."
-            ) from exc
-        self.psutil = psutil
+            print(
+                "Warning: psutil is not available; resource monitoring is disabled. "
+                "Install it (e.g., `pixi install` or `pip install psutil`) for memory stats.",
+                file=sys.stderr,
+            )
+            self.psutil = None
+        else:
+            self.psutil = psutil
         self.output_dir = Path(output_dir)
         self.total_queries = total_queries
         self.process_pid = process_pid
@@ -141,10 +171,13 @@ class ResourceMonitor:
     def monitor(self):
         """Monitor progress and resources."""
         last_output = ""
-        try:
-            process = self.psutil.Process(self.process_pid)
-        except (self.psutil.NoSuchProcess, self.psutil.AccessDenied):
+        if self.psutil is None:
             process = None
+        else:
+            try:
+                process = self.psutil.Process(self.process_pid)
+            except (self.psutil.NoSuchProcess, self.psutil.AccessDenied):
+                process = None
 
         while self.running:
             # Count completed queries by looking for summary.tab files in output root
