@@ -14,9 +14,9 @@ containers/
     └── docker-compose.yml  # Docker Compose configuration
 ```
 
-## Primary Method: Apptainer/Singularity
+## Apptainer/Singularity (HPC)
 
-The recommended container format for HPC environments.
+Common container format for HPC environments.
 
 ### Quick Build
 
@@ -49,6 +49,21 @@ singularity run \
     -B /path/to/queries:/input \
     -B /path/to/database:/opt/gvclass/resources \
     gvclass.sif /input -t 16
+```
+
+### Publish to Apptainer Library (for `apptainer pull`)
+
+To support `apptainer pull library://nelligroup-jgi/gvclass/gvclass:1.2.0`:
+
+```bash
+# Build the SIF
+apptainer build gvclass.sif containers/apptainer/gvclass.def
+
+# Authenticate to the Sylabs library (one-time)
+apptainer remote login
+
+# Push the image
+apptainer push gvclass.sif library://nelligroup-jgi/gvclass/gvclass:1.2.0
 ```
 
 ## Alternative: Docker
