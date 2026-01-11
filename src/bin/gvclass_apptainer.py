@@ -5,7 +5,7 @@ import argparse
 import subprocess
 from pathlib import Path
 
-DEFAULT_IMAGE = "library://nelligroup-jgi/gvclass/gvclass:1.1.1"
+DEFAULT_IMAGE = "library://nelligroup-jgi/gvclass/gvclass:1.2.0"
 
 
 def run_container(query: Path, output: Path, threads: int, image: str) -> int:
@@ -39,7 +39,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Convenience wrapper for running GVClass via Apptainer"
     )
-    parser.add_argument("query_dir", help="Directory containing FASTA files to classify")
+    parser.add_argument(
+        "query_dir", help="Directory containing FASTA files to classify"
+    )
     parser.add_argument(
         "output_dir",
         nargs="?",

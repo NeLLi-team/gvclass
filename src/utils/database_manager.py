@@ -11,16 +11,22 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 class DatabaseManager:
     """Manages GVClass reference database."""
 
     REQUIRED_FILES = [
         "models/combined.hmm",  # Combined HMM file with all models
-        "gvclassSeptember25_labels.tsv",
+        "gvclassJan26_labels.tsv",
         "order_completeness.tab",
     ]
 
     DATABASE_SOURCES = [
+        {
+            "version": "v1.2.0",
+            "url": "https://portal.nersc.gov/cfs/nelli/gvclassDB/resources_v1_2_0.tar.gz",
+            "filename": "resources_v1_2_0.tar.gz",
+        },
         {
             "version": "v1.1.1",
             "url": "https://portal.nersc.gov/cfs/nelli/gvclassDB/resources_v1_1_1.tar.gz",
@@ -138,7 +144,11 @@ class DatabaseManager:
                     )
 
                 if result.returncode != 0:
-                    err_msg = result.stderr.strip() or result.stdout.strip() or "unknown error"
+                    err_msg = (
+                        result.stderr.strip()
+                        or result.stdout.strip()
+                        or "unknown error"
+                    )
                     errors.append(f"{version}: download failed ({err_msg})")
                     Path(filename).unlink(missing_ok=True)
                     continue

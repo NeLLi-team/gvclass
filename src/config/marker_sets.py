@@ -1,16 +1,68 @@
 """
 Marker sets configuration for GVClass pipeline.
 Based on docs/markers_gvclassV1.tsv
+
+Marker Categories:
+------------------
+NCLDV (Nucleocytoviricota):
+  - MCP: gamadvirusMCP, yaravirusMCP, PoxMCP, GVOGm0003, OG1352, OG484
+
+VP (Virophage) - 4-gene core for completeness:
+  - MCP: VP_MCP_* (prefix match)
+  - Penton: VP_Penton_* (prefix match)
+  - ATPase: VP_ATPase_* (prefix match)
+  - Protease: VP_PRO_* (prefix match)
+
+PLV (Polinton-like virus):
+  - Single marker with PLV_ prefix
+  - PLVs share VP markers but have PLV marker in addition
+
+Mirus (Mirusviricota) - 4-category core for completeness:
+  - MCP: Mirus_MCP, Mirus_JellyRoll
+  - ATPase: Mirus_Terminase_ATPase, Mirus_Terminase_merged
+  - Portal: Mirus_Portal
+  - Triplex: Mirus_Triplex1, Mirus_Triplex2
 """
 
-# MIRUS markers (Mirusviricota)
-MIRUS_MODELS = [
+# =============================================================================
+# VP (Virophage) marker categories - prefix-based matching
+# =============================================================================
+# VP completeness = unique categories present / 4
+VP_CATEGORY_PREFIXES = {
+    "MCP": "VP_MCP",
+    "Penton": "VP_Penton",
+    "ATPase": "VP_ATPase",
+    "Protease": "VP_PRO",
+}
+
+# PLV (Polinton-like virus) marker prefix
+# PLVs share VP markers but have PLV-specific marker(s) in addition
+PLV_PREFIX = "PLV_"
+
+# =============================================================================
+# Mirus (Mirusviricota) marker categories
+# =============================================================================
+# Mirus completeness = unique categories present / 4
+MIRUS_CATEGORY_MODELS = {
+    "MCP": ["Mirus_MCP", "Mirus_JellyRoll"],
+    "ATPase": ["Mirus_Terminase_ATPase", "Mirus_Terminase_merged"],
+    "Portal": ["Mirus_Portal"],
+    "Triplex": ["Mirus_Triplex1", "Mirus_Triplex2"],
+}
+
+# Legacy MIRUS models (v1.1.x database naming)
+MIRUS_MODELS_LEGACY = [
     "mOG0000014",  # MCP (Mirusviricota)
     "mOG0000019",  # Portal (Mirusviricota)
     "mOG0000020",  # Triplex1 (Mirusviricota)
     "mOG0000030",  # Triplex2 (Mirusviricota)
     "mOG0000040",  # Maturation (Mirusviricota)
 ]
+
+# All Mirus models (flat list for backward compatibility)
+MIRUS_MODELS = [
+    model for models in MIRUS_CATEGORY_MODELS.values() for model in models
+] + MIRUS_MODELS_LEGACY
 
 # BUSCO markers
 BUSCO_MODELS = [
@@ -375,13 +427,23 @@ UNI56_MODELS = [
     "COG0858",  # ribosome-binding_factor_A
 ]
 
-# MCP markers (Major Capsid Protein)
-MCP_MODELS = [
+# =============================================================================
+# MCP markers (Major Capsid Protein) - NCLDV specific
+# =============================================================================
+NCLDV_MCP_MODELS = [
     "gamadvirusMCP",  # NCLDV major capsid protein (Gamadvirus)
     "yaravirusMCP",  # NCLDV major capsid protein (Yaravirus)
     "PoxMCP",  # NCLDV major capsid protein (Poxviruses)
-    "GVOGm0003",  # NCLDV major capsid protein
-    "mOG0000014",  # MCP (Mirusviricota)
+    "GVOGm0003",  # NCLDV major capsid protein (GVOG)
+    "OG1352",  # NCLDV major capsid protein
+    "OG484",  # NCLDV major capsid protein
+]
+
+# All MCP markers (NCLDV + Mirusviricota)
+MCP_MODELS = NCLDV_MCP_MODELS + [
+    "mOG0000014",  # MCP (Mirusviricota) - legacy naming
+    "Mirus_MCP",  # MCP (Mirusviricota) - v1.2 naming
+    "Mirus_JellyRoll",  # MCP (Mirusviricota) - v1.2 naming
 ]
 
 # MRYA markers (Metagenomic Russian Yokohama-Asfarviridae)

@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-v1.1.1-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/version-v1.2.0-blue.svg" alt="Version">
   <img src="https://img.shields.io/badge/license-BSD--3--Clause-green.svg" alt="License">
   <img src="https://img.shields.io/badge/python-3.11-blue.svg" alt="Python">
   <img src="https://img.shields.io/badge/pixi-enabled-orange.svg" alt="Pixi">
@@ -13,7 +13,7 @@
 
 GVClass assigns taxonomy to giant virus contigs and metagenome-assembled genomes (GVMAGs). It uses phylogenetic analysis based on giant virus orthologous groups (GVOGs) to provide accurate classification from domain to species level.
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Option 1: Apptainer/Singularity (Recommended for HPC)
 
@@ -58,14 +58,14 @@ pixi run install-cli
 pixi run run-example
 ```
 
-## 📋 Input Requirements
+## Input Requirements
 
 - **Directory** containing `.fna` (nucleic acid) or `.faa` (protein) files
 - **Minimum size**: 20kb recommended (50kb+ preferred)
 - **Clean filenames**: Avoid special characters (`.` `;` `:`), use `_` or `-` instead
 - **Protein headers**: Format as `filename|proteinid` for best results
 
-## 🎯 Example Usage
+## Example Usage
 
 ### Using Apptainer (gvclass-a)
 
@@ -81,6 +81,9 @@ pixi run run-example
 
 # Control parallelization (4 workers × 8 threads = 32 total)
 ./gvclass-a my_genomes my_results -t 32 -j 4
+
+# Classify each contig in a single FNA file separately
+./gvclass-a --contigs my_genome.fna -o results -t 32
 ```
 
 ### Using Pixi (from repo directory)
@@ -91,9 +94,12 @@ pixi run gvclass my_genomes -o my_results -t 32
 
 # With options
 pixi run gvclass my_genomes -t 32 --mode-fast --tree-method iqtree -j 4
+
+# Classify each contig separately (useful for metagenome contigs)
+pixi run gvclass --contigs my_genome.fna -o results -t 32
 ```
 
-## 📊 Output
+## Output
 
 Results are saved to `<input_name>_results/` containing:
 - `gvclass_summary.tsv` - Main results with taxonomy assignments (legacy format)
@@ -113,8 +119,14 @@ Results are saved to `<input_name>_results/` containing:
 | order_completeness | Order-specific completeness (% unique markers found) |
 | gvog4_unique | Count of unique GVOG4 markers found |
 | gvog8_unique/total/dup | GVOG8 marker counts and duplication |
-| mcp_total | Major capsid protein marker count |
-| mirus_unique/total/dup | Mimiviridae-specific marker counts |
+| ncldv_mcp_total | NCLDV-specific MCP marker count |
+| mcp_total | All MCP marker count (NCLDV + Mirus) |
+| vp_completeness | Virophage completeness (n/4 core markers: MCP, Penton, ATPase, Protease) |
+| vp_mcp | Count of proteins with VP MCP marker hits |
+| plv | Count of proteins with PLV marker hits (PLV = VP + PLV marker) |
+| vp_df | Virophage duplication factor (total VP hits / 4) |
+| mirus_completeness | Mirusviricota completeness (n/4 core markers: MCP, ATPase, Portal, Triplex) |
+| mirus_df | Mirusviricota duplication factor |
 | mrya_unique/total | Marseilleviridae-specific marker counts |
 | phage_unique/total | Phage marker counts |
 | cellular_unique/total/dup | Cellular contamination markers |
@@ -126,7 +138,7 @@ Results are saved to `<input_name>_results/` containing:
 | ttable | Genetic code used |
 | weighted_order_completeness | **NEW**: Weighted completeness score considering marker importance |
 
-## ⚙️ Configuration (Optional)
+## Configuration (Optional)
 
 Create `gvclass_config.yaml` to set defaults:
 
@@ -140,17 +152,15 @@ pipeline:
   threads: 16                       # Default thread count
 ```
 
-## 🆕 What's New in v1.1.1
+## What's New in v1.2.0
 
-- **🚀 Modern Architecture**: Prefect workflow orchestration with ThreadPoolExecutor parallelization
-- **🧬 Taxonomy Refresh**: Reference database v1.1.1 with corrected eukaryotic strings and updated giant virus taxonomy ([preprint](https://doi.org/10.1101/2025.09.26.678796))
-- **📦 Easy Installation**: Pixi package manager (2-3x faster)
-- **🐍 Pure Python**: All tools replaced with faster Python versions
-- **⚡ Better Performance**: Parallel query processing, 25% faster
-- **🔄 Automatic Recovery**: Task caching and retry on failures
-- **✅ Auto Database Setup**: No manual download needed
+- **Expanded Database**: Added Mirusviricota genomes, virophages (PV), Polinton-like viruses (PLV), and extended phage references from MetaVR
+- **Updated GA Thresholds**: Refined gathering thresholds in HMM models for more accurate marker detection
+- **Model Annotations**: Added functional annotations to HMM models
+- **Documentation**: Comprehensive CLI reference, genetic code selection logic, and contig splitting details
+- **Code Quality**: Bug fixes and cleaner codebase
 
-## 📖 Advanced Usage
+## Advanced Usage
 
 ### Advanced Container Usage
 
@@ -158,14 +168,75 @@ The `gvclass-a` wrapper (recommended above) handles container execution automati
 
 ```bash
 # Pull the image manually
-apptainer pull library://nelligroup-jgi/gvclass/gvclass:1.1.1
+apptainer pull library://nelligroup-jgi/gvclass/gvclass:1.2.0
 
 # Run with manual bind mounts
 apptainer run -B /path/to/data:/input -B /path/to/results:/output \
-  gvclass_1.1.1.sif /input -o /output -t 32
+  gvclass_1.2.0.sif /input -o /output -t 32
 ```
 
 The wrapper is simpler and handles bind mounts automatically.
+
+### Full CLI Reference (gvclass)
+
+| Option | Short | Description | Default |
+|--------|-------|-------------|---------|
+| `query_dir` | | Input directory or file | Required |
+| `--output-dir` | `-o` | Output directory | `<query>_results` |
+| `--threads` | `-t` | Total threads | 16 |
+| `--max-workers` | `-j` | Parallel workers | Auto |
+| `--threads-per-worker` | | Threads per worker | Auto |
+| `--database` | `-d` | Override database path | Auto |
+| `--tree-method` | | `fasttree` or `iqtree` | fasttree |
+| `--mode-fast` | `-f` | Fast mode: core markers only | True |
+| `--extended` | `-e` | Extended mode: all marker trees | False |
+| `--contigs` | `-C` | Split multi-contig file | False |
+| `--resume` | | Resume interrupted run | False |
+| `--verbose` | `-v` | Enable debug output | False |
+| `--version` | | Show version info | |
+| `--cluster-type` | | `local`, `slurm`, `pbs`, `sge` | local |
+| `--cluster-queue` | | HPC queue/partition name | |
+| `--cluster-project` | | HPC project/account | |
+| `--cluster-walltime` | | HPC time limit | 04:00:00 |
+
+### Contig Splitting Mode (`--contigs` / `-C`)
+
+Process each contig in a multi-contig FNA file as a separate query:
+
+```bash
+# Split contigs and classify each independently
+gvclass --contigs metagenome_contigs.fna -o results -t 32
+```
+
+**How it works:**
+1. Requires a **single FNA file** (not a directory)
+2. Splits file into individual contig files in a temporary directory
+3. Sanitizes contig IDs for filenames (replaces `/\:*?"<>|` and spaces with `_`)
+4. Processes each contig independently through the full pipeline
+5. Combines results into `gvclass_summary.tsv`
+6. Cleans up temporary files automatically
+
+**Use cases:**
+- Classifying giant virus contigs from metagenome assemblies
+- Processing binned genomes with multiple contigs
+- Screening assembled sequences for giant virus candidates
+
+### Genetic Code Selection
+
+GVClass tests **9 genetic codes** to find optimal gene predictions:
+
+- **Code 0**: Meta mode using pretrained models (pyrodigal metagenomic mode)
+- **Codes 1, 4, 11**: Standard translation tables
+- **Codes 6, 15, 29, 106, 129**: Additional translation tables
+
+**Selection logic:**
+1. Start with meta mode (code 0) as baseline
+2. Override if another code has:
+   - More complete marker hits (>66% HMM coverage), OR
+   - Same hits but >5% better average hit score, OR
+   - Same hits but >5% better coding density
+
+The selected code is reported in the `ttable` output column.
 
 ## Interpreting Quality Metrics
 
@@ -176,7 +247,9 @@ The wrapper is simpler and handles bind mounts automatically.
 ### Contamination and mixed populations
 - `order_dup` and `gvog8_dup` summarize marker duplication. Values above ~2 suggest multiple populations or assembly chimeras; below ~1.5 is typically clean.
 - `gvog8_total` and `gvog8_unique` help distinguish true gene expansions (high total, moderate duplication) from assembly artefacts (high duplication, low uniqueness).
-- `mcp_total`, `mirus_total`, `mrya_total` provide additional lineage-specific duplication hints for Marseilleviridae, Mirusviruses, and related groups.
+- `ncldv_mcp_total`, `mirus_df`, `mrya_total` provide additional lineage-specific duplication hints.
+- `vp_completeness` and `mirus_completeness` show core marker coverage (n/4) for virophages and Mirusviricota respectively.
+- `plv` count helps distinguish PLV from virophages (PLVs share VP markers but have additional PLV-specific marker).
 
 ### Cellular carry-over
 - `uni56_total` (UNI56) counts universal cellular markers; more than ~10 unique hits point to host contamination or bins that include cellular contigs.
@@ -184,7 +257,7 @@ The wrapper is simpler and handles bind mounts automatically.
 
 Use these fields together: a high completeness score with low duplication and low UNI56 is characteristic of a high-quality GVMAG; any combination of low completeness plus high duplication or high UNI56 warrants manual curation.
 
-## ⚡ Performance Optimization
+## Performance Optimization
 
 ### Speed Up Analysis
 
@@ -232,7 +305,7 @@ To modify IQ-TREE behavior, edit `src/core/marker_processing.py`.
   - Processed when `mode_fast: false` (default)
   - Skipped when `mode_fast: true` (faster but less precise order assignment)
 
-## 🔧 Making GVClass Available Globally
+## Making GVClass Available Globally
 
 Both wrappers can be made globally accessible:
 
@@ -271,7 +344,7 @@ cd /anywhere
 gvclass my_data -o results -t 32
 ```
 
-## 🔬 How It Works
+## How It Works
 
 ```mermaid
 flowchart TD
@@ -290,10 +363,12 @@ flowchart TD
     FAA --> ID1[Identify Markers]
     
     subgraph "Gene Calling (pyrodigal)"
-        OPGC --> META[Meta mode<br/>genetic codes:<br/>1, 4, 11]
-        OPGC --> DENOVO[De novo mode<br/>genetic codes:<br/>6, 15, 29, 106, 129]
-        META --> RANK[Rank by<br/>coding density]
-        DENOVO --> RANK
+        OPGC --> META[Meta mode<br/>code 0<br/>pretrained models]
+        OPGC --> STD[Standard codes<br/>1, 4, 11]
+        OPGC --> ADD[Additional codes<br/>6, 15, 29, 106, 129]
+        META --> RANK[Select best by<br/>marker hits &<br/>coding density]
+        STD --> RANK
+        ADD --> RANK
     end
     
     RANK --> ID2[Identify Markers]
@@ -340,20 +415,32 @@ flowchart TD
     style REF fill:#f8d7da
 ```
 
-## 📝 Citation
+## Citation
 
 If you use GVClass, please cite:
 
 > Pitot et al. (2024): Conservative taxonomy and quality assessment of giant virus genomes with GVClass. npj Viruses. https://www.nature.com/articles/s44298-024-00069-7
 
-## 🤝 Support
+## Database References
+
+The GVClass v1.2.0 reference database includes genomes from the following sources:
+
+> Medvedeva S, Guyet U, Pelletier E, et al. (2026): Widespread and intron-rich mirusviruses are predicted to reproduce in nuclei of unicellular eukaryotes. Nature Microbiology 11:228-239. https://doi.org/10.1038/s41564-025-01906-2
+
+> Roux S, Fischer MG, Hackl T, Katz LA, Schulz F, Yutin N (2023): Updated Virophage Taxonomy and Distinction from Polinton-like Viruses. Biomolecules 13(2):204. https://doi.org/10.3390/biom13020204
+
+> Fiamenghi MB, Camargo AP, Chasapi IN, et al. (2025): Meta-virus resource (MetaVR): expanding the frontiers of viral diversity with 24 million uncultivated virus genomes. Nucleic Acids Research gkaf1283. https://doi.org/10.1093/nar/gkaf1283
+
+> Vasquez YM, Nardi T, Terasaki GM, et al. (2025): Genome-resolved expansion of Nucleocytoviricota and Mirusviricota reveals new diversity, functional potential, and biotechnological applications. bioRxiv 2025.09.26.678796. https://doi.org/10.1101/2025.09.26.678796
+
+## Support
 
 - **Issues**: [GitHub Issues](https://github.com/NeLLi-team/gvclass/issues)
 - **Contact**: fschulz@lbl.gov
 
-## 📄 License
+## License
 
 BSD 3-Clause License - see LICENSE file for details
 
 ---
-<sub>Version 1.1.1 - October 2025</sub>
+<sub>Version 1.2.0 - January 2026</sub>

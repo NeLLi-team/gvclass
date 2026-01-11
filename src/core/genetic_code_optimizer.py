@@ -82,12 +82,13 @@ class GeneticCodeOptimizer:
             contig_name = contig_name.replace("_reformatted", "")
 
             # Create full identifier for this contig (for GFF and protein IDs)
-            full_contig_id = f"{base_name}|{contig_name}" if "|" in record.id else base_name
+            full_contig_id = (
+                f"{base_name}|{contig_name}" if "|" in record.id else base_name
+            )
 
-            if code == 0:
-                genes_found = orf_finder.find_genes(str(record.seq))
-            else:
-                genes_found = orf_finder.find_genes(bytes(str(record.seq), "utf-8"))
+            # pyrodigal accepts both str and bytes; use str for consistency
+            seq_str = str(record.seq)
+            genes_found = orf_finder.find_genes(seq_str)
 
             # Write GFF header for this contig
             gff_lines.append("##gff-version  3")

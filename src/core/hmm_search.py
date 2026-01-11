@@ -1,4 +1,4 @@
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Optional
 from collections import defaultdict
 import os
 import click
@@ -8,6 +8,9 @@ from pathlib import Path
 
 from src.utils.common import validate_file_path, GVClassError
 from src.utils.error_handling import error_handler, ProcessingError
+
+# Default E-value threshold when no GA/TC/NC cutoffs are defined in HMM models
+DEFAULT_EVALUE_THRESHOLD = 1e-5
 
 
 def load_cutoffs_simple(cutoffs_file: str) -> Dict[str, float]:
@@ -40,7 +43,9 @@ def load_cutoffs_simple(cutoffs_file: str) -> Dict[str, float]:
     return cutoffs
 
 
-def extract_cutoffs_from_hmm(hmm_file: str) -> Dict[str, float]:
+def extract_cutoffs_from_hmm(
+    hmm_file: str,
+) -> Tuple[Dict[str, Tuple[float, float]], bool]:
     """
     Extract cutoff values from HMM model headers.
 
@@ -48,9 +53,12 @@ def extract_cutoffs_from_hmm(hmm_file: str) -> Dict[str, float]:
         hmm_file: Path to HMM models file
 
     Returns:
-        Dictionary mapping model names to cutoff scores
+        Tuple of:
+        - Dictionary mapping model names to (seq_cutoff, dom_cutoff) tuples
+        - Boolean indicating if any GA/TC/NC cutoffs were found
     """
-    cutoffs = {}
+    cutoffs: Dict[str, Tuple[float, float]] = {}
+    has_cutoffs = False
     try:
         with pyhmmer.plan7.HMMFile(hmm_file) as hmm_handle:
             for hmm in hmm_handle:
@@ -58,28 +66,25 @@ def extract_cutoffs_from_hmm(hmm_file: str) -> Dict[str, float]:
                     hmm.name.decode() if isinstance(hmm.name, bytes) else hmm.name
                 )
                 # Check for cutoff in HMM attributes
-                # pyhmmer exposes cutoffs as hmm.cutoffs which has ga, nc, tc attributes
+                # pyhmmer exposes cutoffs via hmm.cutoffs with gathering, trusted, noise
                 if hasattr(hmm, "cutoffs") and hmm.cutoffs:
-                    if hasattr(hmm.cutoffs, "ga") and hmm.cutoffs.ga:
+                    if hmm.cutoffs.gathering is not None:
                         # Use gathering threshold (GA) as primary cutoff
-                        cutoffs[hmm_name] = hmm.cutoffs.ga[
-                            0
-                        ]  # GA is (score, dom_score)
-                    elif hasattr(hmm.cutoffs, "tc") and hmm.cutoffs.tc:
+                        # gathering is (seq_score, dom_score) tuple
+                        cutoffs[hmm_name] = hmm.cutoffs.gathering
+                        has_cutoffs = True
+                    elif hmm.cutoffs.trusted is not None:
                         # Fallback to trusted cutoff (TC)
-                        cutoffs[hmm_name] = hmm.cutoffs.tc[0]
-                    elif hasattr(hmm.cutoffs, "nc") and hmm.cutoffs.nc:
+                        cutoffs[hmm_name] = hmm.cutoffs.trusted
+                        has_cutoffs = True
+                    elif hmm.cutoffs.noise is not None:
                         # Fallback to noise cutoff (NC)
-                        cutoffs[hmm_name] = hmm.cutoffs.nc[0]
-                    else:
-                        # Default cutoff if none found
-                        cutoffs[hmm_name] = 0.0
-                else:
-                    cutoffs[hmm_name] = 0.0
+                        cutoffs[hmm_name] = hmm.cutoffs.noise
+                        has_cutoffs = True
     except Exception as e:
         error_handler.log_error(f"Error extracting cutoffs from HMM: {e}")
 
-    return cutoffs
+    return cutoffs, has_cutoffs
 
 
 def run_pyhmmer_search_with_filtering(
@@ -94,6 +99,11 @@ def run_pyhmmer_search_with_filtering(
 ) -> None:
     """
     Run HMM search with cutoff filtering and generate all output files.
+
+    Filtering strategy:
+    - If HMMs have GA/TC/NC cutoffs: pyhmmer applies them during search
+    - If no cutoffs: E-value threshold (DEFAULT_EVALUE_THRESHOLD) is used during search
+    - Post-search filtering applies bit-score cutoffs if available
 
     Args:
         query_file: Path to query sequences
@@ -113,7 +123,19 @@ def run_pyhmmer_search_with_filtering(
     error_handler.log_info(f"  HMM file: {hmm_file}, exists: {Path(hmm_file).exists()}")
     error_handler.log_info(f"  Output file: {output_file}")
 
-    # First run the search
+    # Extract cutoffs from HMM file to check if GA cutoffs exist
+    cutoffs, has_ga_cutoffs = extract_cutoffs_from_hmm(hmm_file)
+
+    if has_ga_cutoffs:
+        error_handler.log_info(
+            f"Found {len(cutoffs)} GA/TC/NC cutoffs - will apply during search"
+        )
+    else:
+        error_handler.log_info(
+            f"No GA cutoffs found - using E-value threshold {DEFAULT_EVALUE_THRESHOLD}"
+        )
+
+    # Run the search (thresholds applied inside based on GA availability)
     run_pyhmmer_search(hmm_file, query_file, output_file, threads)
 
     # Check output file
@@ -121,15 +143,14 @@ def run_pyhmmer_search_with_filtering(
         f"HMM search output file size: {Path(output_file).stat().st_size if Path(output_file).exists() else 'NOT FOUND'}"
     )
 
-    # Extract cutoffs from HMM file instead of loading from separate file
-    cutoffs = extract_cutoffs_from_hmm(hmm_file)
-    error_handler.log_info(f"Extracted {len(cutoffs)} cutoff values from HMM models")
-
     # Parse and filter results
-    model_hits = defaultdict(list)
+    # If GA cutoffs exist, apply post-filtering with both seq and dom thresholds
+    # If no GA cutoffs, all hits already passed E-value threshold during search
+    model_hits: Dict[str, List[Tuple[str, float]]] = defaultdict(list)
     filtered_lines = []
     total_lines = 0
     hit_lines = 0
+    passed_cutoffs = 0
 
     with open(output_file, "r") as f:
         for line in f:
@@ -139,19 +160,29 @@ def run_pyhmmer_search_with_filtering(
                 continue
 
             parts = line.strip().split()
-            if len(parts) >= 14:
+            if len(parts) >= 15:
                 hit_lines += 1
                 query_name = parts[0]
                 model_name = parts[3]
-                score = float(parts[13])
+                seq_score = float(parts[7])  # Sequence-level score
+                dom_score = float(parts[13])  # Domain-level score
 
-                # Check cutoff
-                if model_name in cutoffs and score >= cutoffs[model_name]:
+                # Apply cutoff filtering
+                if has_ga_cutoffs and model_name in cutoffs:
+                    seq_cutoff, dom_cutoff = cutoffs[model_name]
+                    # Apply both sequence and domain thresholds (like --cut_ga)
+                    if seq_score >= seq_cutoff and dom_score >= dom_cutoff:
+                        filtered_lines.append(line)
+                        model_hits[model_name].append((query_name, seq_score))
+                        passed_cutoffs += 1
+                else:
+                    # No GA cutoffs - hits already filtered by E-value during search
                     filtered_lines.append(line)
-                    model_hits[model_name].append((query_name, score))
+                    model_hits[model_name].append((query_name, seq_score))
+                    passed_cutoffs += 1
 
     error_handler.log_info(
-        f"Parsed {total_lines} lines, {hit_lines} hits, {len(filtered_lines)-total_lines+hit_lines} passed cutoffs"
+        f"Parsed {total_lines} lines, {hit_lines} hits, {passed_cutoffs} passed cutoffs"
     )
 
     # Write filtered output
@@ -179,7 +210,11 @@ def run_pyhmmer_search_with_filtering(
 
 
 def run_pyhmmer_search(
-    hmm_file: str, query_file: str, output_file: str, threads: int = 4
+    hmm_file: str,
+    query_file: str,
+    output_file: str,
+    threads: int = 4,
+    evalue_threshold: Optional[float] = None,
 ) -> None:
     """
     Run HMM search using pyhmmer instead of external hmmsearch command.
@@ -189,7 +224,11 @@ def run_pyhmmer_search(
         query_file: Path to query sequence file
         output_file: Path to output file
         threads: Number of threads to use
+        evalue_threshold: E-value threshold (uses DEFAULT_EVALUE_THRESHOLD if None)
     """
+    if evalue_threshold is None:
+        evalue_threshold = DEFAULT_EVALUE_THRESHOLD
+
     try:
         error_handler.log_info(
             f"Running pyhmmer search on {query_file} with {hmm_file}"
@@ -199,18 +238,47 @@ def run_pyhmmer_search(
         with pyhmmer.plan7.HMMFile(hmm_file) as hmm_handle:
             profiles = list(hmm_handle)
 
+        # Check if ALL HMMs have GA/TC/NC cutoffs defined
+        # pyhmmer uses .gathering, .trusted, .noise (not .ga, .tc, .nc)
+        # IMPORTANT: bit_cutoffs="gathering" requires ALL models to have cutoffs,
+        # otherwise pyhmmer raises MissingCutoffs error
+        all_have_cutoffs = all(
+            hasattr(hmm, "cutoffs")
+            and hmm.cutoffs
+            and (
+                hmm.cutoffs.gathering is not None
+                or hmm.cutoffs.trusted is not None
+                or hmm.cutoffs.noise is not None
+            )
+            for hmm in profiles
+        )
+
         # Read query sequences
         with pyhmmer.easel.SequenceFile(query_file, digital=True) as seq_handle:
             sequences = list(seq_handle)
 
-        # Run search with E-value threshold
-        results = pyhmmer.hmmsearch(
-            profiles,
-            sequences,
-            cpus=threads,
-            E=10.0,  # E-value threshold
-            domE=10.0,  # Domain E-value threshold
-        )
+        # Run search with appropriate threshold strategy
+        if all_have_cutoffs:
+            # Use GA cutoffs only if ALL models have them
+            error_handler.log_info("Using GA/TC/NC bit-score cutoffs from HMM models")
+            results = pyhmmer.hmmsearch(
+                profiles,
+                sequences,
+                cpus=threads,
+                bit_cutoffs="gathering",
+            )
+        else:
+            # Fall back to E-value threshold when any model lacks cutoffs
+            error_handler.log_info(
+                f"Not all HMMs have GA cutoffs, using E-value threshold: {evalue_threshold}"
+            )
+            results = pyhmmer.hmmsearch(
+                profiles,
+                sequences,
+                cpus=threads,
+                E=evalue_threshold,
+                domE=evalue_threshold,
+            )
 
         # Write results in simplified domtblout format
         with open(output_file, "w") as out_handle:

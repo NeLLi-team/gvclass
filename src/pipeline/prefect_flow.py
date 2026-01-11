@@ -12,6 +12,7 @@ This module provides a true Prefect-based workflow with:
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 import logging
+import time
 from datetime import timedelta
 import shutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -97,21 +98,8 @@ def process_query_task(
     # Create output directory for this query
     query_output_dir = output_base / query_name
 
-    # Robust directory creation to handle race conditions
-    # Try multiple times with small delays to avoid permission conflicts
-    import time
-
-    max_attempts = 5
-    for attempt in range(max_attempts):
-        try:
-            query_output_dir.mkdir(parents=True, exist_ok=True)
-            break
-        except PermissionError as e:
-            if attempt < max_attempts - 1:
-                time.sleep(0.1 * (attempt + 1))  # Exponential backoff
-                continue
-            else:
-                raise e
+    # Create output directory (exist_ok=True handles race conditions)
+    query_output_dir.mkdir(parents=True, exist_ok=True)
 
     # Step 1: Reformat input
     if query_file.suffix == ".fna":
@@ -439,7 +427,7 @@ def process_query_task(
                 for i, tf in enumerate(tree_files[:5]):
                     logger.info(f"  Tree file {i+1}: {tf.name}")
 
-                labels_file = database_path / "gvclassSeptember25_labels.tsv"
+                labels_file = database_path / "gvclassJan26_labels.tsv"
                 logger.info(
                     f"Labels file: {labels_file}, exists: {labels_file.exists()}"
                 )
@@ -580,10 +568,14 @@ def process_query_task(
                 "gvog8_unique",
                 "gvog8_total",
                 "gvog8_dup",
+                "ncldv_mcp_total",
                 "mcp_total",
-                "mirus_unique",
-                "mirus_total",
-                "mirus_dup",
+                "vp_completeness",
+                "vp_mcp",
+                "plv",
+                "vp_df",
+                "mirus_completeness",
+                "mirus_df",
                 "mrya_unique",
                 "mrya_total",
                 "phage_unique",
@@ -620,10 +612,14 @@ def process_query_task(
                 "gvog8_unique": "gvog8_unique",  # Raw count
                 "gvog8_total": "gvog8_total",
                 "gvog8_dup": "gvog8_dup",
+                "ncldv_mcp_total": "ncldv_mcp_total",
                 "mcp_total": "mcp_total",
-                "mirus_unique": "mirus_unique",  # Raw count
-                "mirus_total": "mirus_total",
-                "mirus_dup": "mirus_dup",
+                "vp_completeness": "vp_completeness",
+                "vp_mcp": "vp_mcp",
+                "plv": "plv",
+                "vp_df": "vp_df",
+                "mirus_completeness": "mirus_completeness",
+                "mirus_df": "mirus_df",
                 "mrya_unique": "mrya_unique",  # Raw count
                 "mrya_total": "mrya_total",
                 "phage_unique": "phage_unique",  # Raw count
@@ -794,10 +790,14 @@ def create_final_summary_task(results: List[Dict[str, Any]], output_dir: Path) -
         "gvog8_unique",
         "gvog8_total",
         "gvog8_dup",
+        "ncldv_mcp_total",
         "mcp_total",
-        "mirus_unique",
-        "mirus_total",
-        "mirus_dup",
+        "vp_completeness",
+        "vp_mcp",
+        "plv",
+        "vp_df",
+        "mirus_completeness",
+        "mirus_df",
         "mrya_unique",
         "mrya_total",
         "phage_unique",
@@ -837,7 +837,8 @@ def create_final_summary_task(results: List[Dict[str, Any]], output_dir: Path) -
                             "avgdist",
                             "order_dup",
                             "gvog8_dup",
-                            "mirus_dup",
+                            "vp_df",
+                            "mirus_df",
                             "cellular_dup",
                         ]:
                             value = f"{value:.2f}"
@@ -1047,6 +1048,7 @@ def gvclass_flow(
             except Exception as e:
                 logger.error(f"Query {query_file.stem} failed: {e}")
                 import traceback
+
                 logger.error(f"Traceback: {traceback.format_exc()}")
                 results.append(
                     {"query": query_file.stem, "status": "failed", "error": str(e)}

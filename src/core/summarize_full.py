@@ -3,6 +3,7 @@ Full summarization module for GVClass results matching original output format.
 """
 
 import logging
+import re
 from pathlib import Path
 from typing import Dict, List, Tuple
 import pandas as pd
@@ -10,13 +11,17 @@ from collections import Counter
 
 from src.config.marker_sets import (
     MIRUS_MODELS,
+    MIRUS_CATEGORY_MODELS,
     BUSCO_MODELS,
     PHAGE_MODELS,
     GVOG4M_MODELS,
     GVOG8M_MODELS,
     UNI56_MODELS,
     MCP_MODELS,
+    NCLDV_MCP_MODELS,
     MRYA_MODELS,
+    VP_CATEGORY_PREFIXES,
+    PLV_PREFIX,
 )
 from src.core.weighted_completeness import create_weighted_calculator
 
@@ -29,7 +34,7 @@ class FullSummarizer:
     def __init__(self, database_path: Path):
         """Initialize with database path."""
         self.database_path = database_path
-        self.labels_file = database_path / "gvclassSeptember25_labels.tsv"
+        self.labels_file = database_path / "gvclassJan26_labels.tsv"
         self.completeness_table = database_path / "order_completeness.tab"
         self.labels_dict = self.load_labels()
 
@@ -65,6 +70,113 @@ class FullSummarizer:
             logger.error(f"Error loading labels: {e}")
         return labels
 
+    def calculate_vp_metrics(
+        self, marker_counts: Dict[str, int]
+    ) -> Tuple[str, int, int, float]:
+        """Calculate VP (Virophage) completeness metrics.
+
+        VP has 4 core categories: MCP, Penton, ATPase, Protease.
+        Uses prefix matching (e.g., VP_MCP_* matches MCP category).
+
+        Returns:
+            Tuple of (completeness_str, vp_mcp_count, plv_count, vp_df)
+            - completeness_str: "n/4" format
+            - vp_mcp_count: count of unique proteins hitting VP_MCP markers
+            - plv_count: count of unique proteins hitting PLV markers
+            - vp_df: duplication factor (total VP hits / 4)
+        """
+        categories_present = set()
+        vp_mcp_count = 0
+        total_vp_hits = 0
+        plv_count = 0
+
+        for marker, count in marker_counts.items():
+            if count <= 0:
+                continue
+
+            # Check VP categories by prefix
+            for category, prefix in VP_CATEGORY_PREFIXES.items():
+                if marker.startswith(prefix):
+                    categories_present.add(category)
+                    total_vp_hits += count
+                    if category == "MCP":
+                        vp_mcp_count += count
+
+            # Check PLV markers
+            if marker.startswith(PLV_PREFIX):
+                plv_count += count
+
+        completeness = len(categories_present)
+        vp_df = total_vp_hits / 4.0 if total_vp_hits > 0 else 0.0
+
+        return f"{completeness}/4", vp_mcp_count, plv_count, vp_df
+
+    def calculate_mirus_completeness(
+        self, marker_counts: Dict[str, int]
+    ) -> Tuple[str, float]:
+        """Calculate Mirusviricota completeness metrics.
+
+        Mirus has 4 core categories:
+        - MCP: Mirus_MCP, Mirus_JellyRoll
+        - ATPase: Mirus_Terminase_ATPase, Mirus_Terminase_merged
+        - Portal: Mirus_Portal
+        - Triplex: Mirus_Triplex1, Mirus_Triplex2
+
+        Returns:
+            Tuple of (completeness_str, mirus_df)
+            - completeness_str: "n/4" format
+            - mirus_df: duplication factor (total Mirus hits / 4)
+        """
+        categories_present = set()
+        total_mirus_hits = 0
+
+        for marker, count in marker_counts.items():
+            if count <= 0:
+                continue
+
+            # Check each Mirus category
+            for category, models in MIRUS_CATEGORY_MODELS.items():
+                if marker in models:
+                    categories_present.add(category)
+                    total_mirus_hits += count
+
+        completeness = len(categories_present)
+        mirus_df = total_mirus_hits / 4.0 if total_mirus_hits > 0 else 0.0
+
+        return f"{completeness}/4", mirus_df
+
+    def _extract_genome_id(self, protein_id: str) -> str:
+        """
+        Extract genome ID from a protein ID for labels lookup.
+
+        Protein IDs can have formats like:
+        - VP__IMGVR_UViG_3300044959|000235_9 -> VP__IMGVR_UViG_3300044959|000235
+        - NCLDV__GCA_000123456|contig_1_42 -> NCLDV__GCA_000123456|contig_1
+
+        The protein suffix is typically _N where N is a number at the end.
+
+        Args:
+            protein_id: Full protein identifier from tree
+
+        Returns:
+            Genome/contig ID suitable for labels lookup
+        """
+        # First try: check if the full ID (minus trailing _digits) is in labels
+        # This handles: VP__IMGVR_UViG_3300044959|000235_9 -> VP__IMGVR_UViG_3300044959|000235
+        stripped = re.sub(r"_\d+$", "", protein_id)
+        if stripped in self.labels_dict:
+            return stripped
+
+        # Second try: just the part before | (for older format entries)
+        # This handles: genome_id|protein_id -> genome_id
+        if "|" in protein_id:
+            base_id = protein_id.split("|")[0]
+            if base_id in self.labels_dict:
+                return base_id
+
+        # Third try: strip protein suffix from full ID even if not in labels
+        return stripped
+
     def format_tax_level_counts(self, tax_counter: Counter) -> str:
         """Format taxonomy counts with percentages, grouping low-frequency taxa."""
         if not tax_counter:
@@ -93,7 +205,9 @@ class FullSummarizer:
         for prefix, count in low_counts_by_prefix.items():
             grouped_counter[f"{prefix}_other"] += count
 
-        sorted_counts = sorted(grouped_counter.items(), key=lambda x: x[1], reverse=True)
+        sorted_counts = sorted(
+            grouped_counter.items(), key=lambda x: x[1], reverse=True
+        )
 
         formatted = []
         for tax, count in sorted_counts:
@@ -273,11 +387,8 @@ class FullSummarizer:
         for marker, query_neighbors in tree_nn_results.items():
             for query_protein, neighbors in query_neighbors.items():
                 for neighbor, distance in neighbors.items():
-                    # Extract genome ID (handle missing | gracefully)
-                    if "|" in neighbor:
-                        genome_id = neighbor.split("|")[0]
-                    else:
-                        genome_id = neighbor
+                    # Extract genome ID from protein ID
+                    genome_id = self._extract_genome_id(neighbor)
 
                     if genome_id in self.labels_dict:
                         tax_info = self.labels_dict[genome_id]
@@ -347,17 +458,28 @@ class FullSummarizer:
             result["gvog8_total"] = gvog8_total
             result["gvog8_dup"] = gvog8_dup
 
-            # MCP metrics
+            # MCP metrics (NCLDV-specific)
+            ncldv_mcp_total = sum(marker_counts.get(m, 0) for m in NCLDV_MCP_MODELS)
+            result["ncldv_mcp_total"] = ncldv_mcp_total
+            # Keep mcp_total for backward compatibility (includes all MCP)
             mcp_total = sum(marker_counts.get(m, 0) for m in MCP_MODELS)
             result["mcp_total"] = mcp_total
 
-            # MIRUS metrics
-            mirus_unique = sum(1 for m in MIRUS_MODELS if marker_counts.get(m, 0) > 0)
-            mirus_total = sum(marker_counts.get(m, 0) for m in MIRUS_MODELS)
-            mirus_dup = mirus_total / mirus_unique if mirus_unique > 0 else 0
-            result["mirus_unique"] = mirus_unique
-            result["mirus_total"] = mirus_total
-            result["mirus_dup"] = mirus_dup
+            # VP (Virophage) metrics
+            vp_completeness, vp_mcp, plv_count, vp_df = self.calculate_vp_metrics(
+                marker_counts
+            )
+            result["vp_completeness"] = vp_completeness
+            result["vp_mcp"] = vp_mcp
+            result["plv"] = plv_count
+            result["vp_df"] = vp_df
+
+            # MIRUS (Mirusviricota) metrics - new category-based completeness
+            mirus_completeness, mirus_df = self.calculate_mirus_completeness(
+                marker_counts
+            )
+            result["mirus_completeness"] = mirus_completeness
+            result["mirus_df"] = mirus_df
 
             # MRYA metrics
             mrya_unique = sum(1 for m in MRYA_MODELS if marker_counts.get(m, 0) > 0)
@@ -390,9 +512,10 @@ class FullSummarizer:
                 "gvog4_unique",
                 "gvog8_unique",
                 "gvog8_total",
+                "ncldv_mcp_total",
                 "mcp_total",
-                "mirus_unique",
-                "mirus_total",
+                "vp_mcp",
+                "plv",
                 "mrya_unique",
                 "mrya_total",
                 "phage_unique",
@@ -401,8 +524,11 @@ class FullSummarizer:
                 "cellular_total",
             ]:
                 result[metric] = 0
-            for metric in ["gvog8_dup", "mirus_dup", "cellular_dup"]:
+            for metric in ["gvog8_dup", "vp_df", "mirus_df", "cellular_dup"]:
                 result[metric] = 0.0
+            # String-format completeness defaults
+            result["vp_completeness"] = "0/4"
+            result["mirus_completeness"] = "0/4"
 
         # Calculate order-specific metrics if we have an order assignment
         order_tax = None
