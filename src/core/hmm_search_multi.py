@@ -5,12 +5,13 @@ Processes multiple HMM files separately and combines results.
 """
 import os
 import tempfile
-from typing import List, Tuple
+from typing import List, Tuple, Any
 from pathlib import Path
 import pyhmmer.plan7
 import pyhmmer.easel
 
 from src.utils.error_handling import error_handler
+from src.core.hmm_search import DEFAULT_EVALUE_THRESHOLD
 
 
 def clean_hmm_file(hmm_file: str) -> str:
@@ -93,14 +94,42 @@ def run_pyhmmer_search_multi(
             total_models += len(hmms)
             error_handler.log_info(f"  Loaded {len(hmms)} models from {base_name}")
 
-            # Run search
-            results = pyhmmer.hmmsearch(
-                hmms,
-                sequences,
-                cpus=threads,
-                E=10.0,  # E-value threshold
-                domE=10.0,  # Domain E-value threshold
+            # Check if ALL HMMs have GA/TC/NC cutoffs defined
+            # pyhmmer uses .gathering, .trusted, .noise (not .ga, .tc, .nc)
+            # IMPORTANT: bit_cutoffs="gathering" requires ALL models to have cutoffs
+            all_have_cutoffs = all(
+                hasattr(hmm, "cutoffs")
+                and hmm.cutoffs
+                and (
+                    hmm.cutoffs.gathering is not None
+                    or hmm.cutoffs.trusted is not None
+                    or hmm.cutoffs.noise is not None
+                )
+                for hmm in hmms
             )
+
+            # Run search with appropriate threshold strategy
+            if all_have_cutoffs:
+                error_handler.log_info(
+                    f"  Using GA/TC/NC bit-score cutoffs for {base_name}"
+                )
+                results = pyhmmer.hmmsearch(
+                    hmms,
+                    sequences,
+                    cpus=threads,
+                    bit_cutoffs="gathering",
+                )
+            else:
+                error_handler.log_info(
+                    f"  No GA cutoffs, using E-value {DEFAULT_EVALUE_THRESHOLD}"
+                )
+                results = pyhmmer.hmmsearch(
+                    hmms,
+                    sequences,
+                    cpus=threads,
+                    E=DEFAULT_EVALUE_THRESHOLD,
+                    domE=DEFAULT_EVALUE_THRESHOLD,
+                )
 
             # Store results with source file info
             for result in results:
@@ -121,7 +150,7 @@ def run_pyhmmer_search_multi(
 
 
 def write_combined_results(
-    all_results: List[Tuple[str, any]],
+    all_results: List[Tuple[str, Any]],
     output_file: str,
     hmm_files: List[str],
     sequences: List,

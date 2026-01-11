@@ -5,7 +5,7 @@ import argparse
 import subprocess
 from pathlib import Path
 
-DEFAULT_IMAGE = "library://nelligroup-jgi/gvclass/gvclass:1.1.1"
+DEFAULT_IMAGE = "library://nelligroup-jgi/gvclass/gvclass:1.2.0"
 
 
 def run_container(
@@ -44,7 +44,7 @@ def run_container(
     if tree_method:
         cmd.extend(["--tree-method", tree_method])
     if mode_fast is not None:
-        cmd.append("--mode-fast" if mode_fast else "--no-mode-fast")
+        cmd.append("--mode-fast" if mode_fast else "--extended")
     if max_workers:
         cmd.extend(["-j", str(max_workers)])
 
@@ -89,10 +89,11 @@ def main() -> None:
         help="Enable fast mode - skip order-level markers for faster analysis",
     )
     parser.add_argument(
-        "--no-mode-fast",
+        "-e",
+        "--extended",
         action="store_false",
         dest="mode_fast",
-        help="Disable fast mode - process all markers (more accurate)",
+        help="Extended mode: build trees for all markers (slower but more comprehensive)",
     )
     parser.add_argument(
         "--image",

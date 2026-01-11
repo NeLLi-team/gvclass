@@ -8,6 +8,7 @@ import os
 import csv
 from pathlib import Path
 
+
 def resolve_repo_dir(script_path: Path) -> Path:
     """Resolve the GVClass repo directory when running from a copied script."""
     candidate = script_path.parent
@@ -120,7 +121,7 @@ def check_and_setup_database(db_path, config):
     required_checks = [
         db_path / "models" / "combined.hmm",
         db_path / "database",
-        db_path / "gvclassSeptember25_labels.tsv",
+        db_path / "gvclassJan26_labels.tsv",
     ]
 
     if db_path.exists() and any(check.exists() for check in required_checks):
@@ -260,9 +261,10 @@ def main():
         "--mode-fast", action="store_true", help="Enable fast mode (overrides config)"
     )
     parser.add_argument(
-        "--no-mode-fast",
+        "-e",
+        "--extended",
         action="store_true",
-        help="Disable fast mode (overrides config)",
+        help="Extended mode: build trees for all markers (slower but more comprehensive)",
     )
     parser.add_argument(
         "--cluster-type",
@@ -286,6 +288,12 @@ def main():
         action="store_true",
         help="Resume from previous run, skipping completed queries",
     )
+    parser.add_argument(
+        "-C",
+        "--contigs",
+        action="store_true",
+        help="Split FNA file(s) into individual contigs for analysis (accepts file or directory)",
+    )
 
     args = parser.parse_args()
 
@@ -294,7 +302,7 @@ def main():
         from src.utils.database_manager import DatabaseManager
 
         print("GVClass Pipeline")
-        print("  Software version: v1.1.1")
+        print("  Software version: v1.2.0")
 
         # Load config to get database path
         config = load_config(args.config)
@@ -323,6 +331,31 @@ def main():
     # Convert query_dir to absolute path (stays in user's context)
     query_dir_abs = Path(args.query_dir).resolve()
 
+    # Handle --contigs mode: input can be a single FNA file or a directory of FNA files
+    contigs_mode = args.contigs
+    contigs_input_file = None
+    contigs_input_dir = None
+    if contigs_mode:
+        if query_dir_abs.is_file():
+            # Single file mode
+            if query_dir_abs.suffix.lower() not in [".fna", ".fa", ".fasta"]:
+                print(
+                    f"❌ ERROR: --contigs requires FNA file(s) (.fna, .fa, .fasta): {query_dir_abs}",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+            contigs_input_file = query_dir_abs
+        elif query_dir_abs.is_dir():
+            # Directory mode - will split all FNA files
+            contigs_input_dir = query_dir_abs
+        else:
+            print(
+                f"❌ ERROR: --contigs input not found: {query_dir_abs}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        # query_dir_abs will be updated to temp dir after splitting
+
     # Apply configuration with command-line overrides
     database = args.database if args.database else config["database"]["path"]
     # Make database path absolute if it's relative
@@ -338,7 +371,7 @@ def main():
     )
 
     # Handle mode_fast with explicit flags taking priority
-    if args.no_mode_fast:
+    if args.extended:
         mode_fast = False
     elif args.mode_fast:
         mode_fast = True
@@ -356,6 +389,35 @@ def main():
     # Check and setup database
     if not check_and_setup_database(database, config):
         sys.exit(1)
+
+    # Handle contigs mode: split input file(s) into individual contig files
+    temp_contigs_dir = None
+    n_contigs = 0
+    n_input_files = 0
+    if contigs_mode:
+        from src.utils.contig_splitter import split_contigs, split_contigs_from_directory
+
+        try:
+            if contigs_input_file:
+                # Single file mode - prefix with filename for uniqueness
+                prefix = contigs_input_file.stem
+                print(f"📂 Splitting contigs from: {contigs_input_file.name}")
+                temp_contigs_dir, n_contigs = split_contigs(
+                    contigs_input_file, prefix=prefix
+                )
+                n_input_files = 1
+                print(f"✅ Found {n_contigs} contigs")
+            elif contigs_input_dir:
+                # Directory mode - split all FNA files
+                print(f"📂 Splitting contigs from directory: {contigs_input_dir}")
+                temp_contigs_dir, n_contigs, n_input_files = split_contigs_from_directory(
+                    contigs_input_dir
+                )
+                print(f"✅ Found {n_contigs} contigs from {n_input_files} files")
+            query_dir_abs = temp_contigs_dir
+        except ValueError as e:
+            print(f"❌ ERROR: {e}", file=sys.stderr)
+            sys.exit(1)
 
     # Count input files
     n_queries = count_files_in_directory(query_dir_abs)
@@ -465,7 +527,7 @@ def main():
         )
     )
     print(frame_line())
-    print(frame_line("         Giant Virus Classification Tool v1.1.1"))
+    print(frame_line("         Giant Virus Classification Tool v1.2.0"))
     print(frame_line())
     print(f"{indent}╚{'═' * inner_width}╝")
     print()
@@ -473,7 +535,15 @@ def main():
     print("                    Pipeline Configuration")
     print("=" * 60)
     print(f"Config file: {args.config}")
-    print(f"Query directory: {query_dir_abs}")
+    if contigs_mode:
+        if contigs_input_file:
+            print(f"Input file: {contigs_input_file}")
+            print(f"Contigs mode: ENABLED ({n_queries} contigs from 1 file)")
+        elif contigs_input_dir:
+            print(f"Input directory: {contigs_input_dir}")
+            print(f"Contigs mode: ENABLED ({n_queries} contigs from {n_input_files} files)")
+    else:
+        print(f"Query directory: {query_dir_abs}")
     print(f"Output directory: {output_dir}")
     print(f"Database: {database}")
     threads_used = n_workers * threads_per_worker
@@ -575,7 +645,7 @@ def main():
     if mode_fast:
         cmd.append("--mode-fast")
     else:
-        cmd.append("--no-mode-fast")
+        cmd.append("--extended")
 
     if args.cluster_queue:
         cmd.extend(["--cluster-queue", args.cluster_queue])
@@ -614,8 +684,11 @@ def main():
 
     # Start resource monitor with actual queries to process
     queries_to_process = n_queries - n_skipped if args.resume else n_queries
+    # Always count existing summary.tab files as baseline for progress tracking
+    # This ensures correct progress even when re-running in same output directory
+    existing_completed = len(list(Path(output_dir).glob("*.summary.tab")))
     monitor = ResourceMonitor(
-        output_dir, queries_to_process, process.pid, initial_completed=n_skipped
+        output_dir, queries_to_process, process.pid, initial_completed=existing_completed
     )
     monitor_thread = threading.Thread(target=monitor.monitor)
     monitor_thread.start()
@@ -694,12 +767,8 @@ def main():
                         for row in combined_rows:
                             tsv_file.write("\t".join(row) + "\n")
                             csv_writer.writerow(row)
-                    print(
-                        f"✅ Combined summary written to: {combined_summary_tsv}"
-                    )
-                    print(
-                        f"✅ CSV summary written to: {combined_summary_csv}"
-                    )
+                    print(f"✅ Combined summary written to: {combined_summary_tsv}")
+                    print(f"✅ CSV summary written to: {combined_summary_csv}")
                 else:
                     print("⚠️  No summary data found to combine")
             else:
@@ -709,7 +778,9 @@ def main():
             print(f"💾 Peak memory usage: {monitor.peak_memory_mb:.0f} MB")
             print(f"📊 Results saved to: {output_dir}")
 
-            # Final validation summary - removed since it's already handled above
+            # Clean up temp contigs directory
+            if temp_contigs_dir and Path(temp_contigs_dir).exists():
+                shutil.rmtree(temp_contigs_dir)
         else:
             print(f"\n❌ Pipeline failed with exit code: {return_code}")
             if not args.verbose:
@@ -723,6 +794,9 @@ def main():
                         print(stdout_data.decode(errors="replace").strip())
                     except Exception:
                         print(stdout_data)
+            # Clean up temp contigs directory on failure
+            if temp_contigs_dir and Path(temp_contigs_dir).exists():
+                shutil.rmtree(temp_contigs_dir)
             sys.exit(1)
 
     except KeyboardInterrupt:
@@ -731,12 +805,18 @@ def main():
         print("\r" + " " * 80 + "\r", end="")
         print("\n⚠️  Pipeline interrupted by user")
         process.terminate()
+        # Clean up temp contigs directory on interrupt
+        if temp_contigs_dir and Path(temp_contigs_dir).exists():
+            shutil.rmtree(temp_contigs_dir)
         sys.exit(1)
     except Exception as e:
         monitor.stop()
         monitor_thread.join()
         print("\r" + " " * 80 + "\r", end="")
         print(f"\n❌ Pipeline failed: {e}")
+        # Clean up temp contigs directory on exception
+        if temp_contigs_dir and Path(temp_contigs_dir).exists():
+            shutil.rmtree(temp_contigs_dir)
         sys.exit(1)
 
 

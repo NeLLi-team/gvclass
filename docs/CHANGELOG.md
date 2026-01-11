@@ -1,5 +1,65 @@
 # Changelog
 
+All notable changes to GVClass will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [v1.2.0] - 2026-01-08
+
+### Highlights
+- Updated reference database v1.2.0 with refined GA thresholds and model annotations
+- Improved HMM model accuracy through updated gathering thresholds
+- Added functional annotations to HMM models
+- Bug fixes and documentation improvements
+
+### Database Updates
+- **Expanded Reference Database**: Added new reference genomes for improved classification coverage
+  - Nucleocytoviricota and Mirusviricota genomes from Vasquez et al. (2025) bioRxiv
+  - Mirusviricota models and genomes from Medvedeva et al. (2026) Nature Microbiology
+  - Models for Polinton-like viruses (PLV) and virophages (PV) from Roux et al. (2023) Biomolecules
+  - Extended VP, PLV and phage reference set from MetaVR database (Fiamenghi et al. 2025)
+- **Updated GA Thresholds**: Refined gathering (GA) thresholds in HMM models for more accurate marker detection
+- **Model Annotations**: Added functional annotations to HMM models for better interpretability
+- **Database Version**: New `resources_v1_2_0.tar.gz` with all updates
+
+### New Output Columns
+- **VP (Virophage) Metrics**:
+  - `vp_completeness`: Core marker completeness (n/4) based on MCP, Penton, ATPase, Protease
+  - `vp_mcp`: Count of proteins with VP MCP marker hits
+  - `vp_df`: Virophage duplication factor (total VP hits / 4)
+- **PLV (Polinton-like Virus) Metrics**:
+  - `plv`: Count of proteins with PLV marker hits (PLVs share VP markers but have additional PLV marker)
+- **Mirus (Mirusviricota) Metrics**:
+  - `mirus_completeness`: Core marker completeness (n/4) based on MCP, ATPase, Portal, Triplex
+  - `mirus_df`: Mirusviricota duplication factor
+- **NCLDV MCP**:
+  - `ncldv_mcp_total`: NCLDV-specific MCP marker count (includes OG1352, OG484)
+- **Removed**: Old columns `mirus_unique`, `mirus_total`, `mirus_dup` replaced by category-based completeness
+
+### CLI Improvements
+- **Renamed**: `--no-mode-fast` flag renamed to `--extended` / `-e` for clearer semantics
+  - Use `-e` or `--extended` to build trees for all markers (more comprehensive analysis)
+  - Default behavior remains fast mode (core markers only)
+
+### Bug Fixes
+- **Fixed**: Removed `time.sleep()` usage in `prefect_flow.py` that violated coding standards
+- **Fixed**: Inconsistent bytes encoding in `genetic_code_optimizer.py` - now uses consistent string encoding for pyrodigal
+
+### Documentation
+- **Added**: Full CLI reference table documenting all command-line options
+- **Added**: Detailed documentation of `--contigs` mode behavior (file splitting, ID sanitization)
+- **Added**: Genetic code selection logic explanation (9 codes tested, selection criteria)
+- **Updated**: Mermaid diagram now correctly shows code 0 (meta mode with pretrained models)
+- **Removed**: Emoticons from README for cleaner presentation
+
+### Code Quality
+- Simplified directory creation logic (removed unnecessary retry loop)
+- Consistent sequence encoding in gene calling module
+- Cleaner, more maintainable codebase
+
+---
+
 ## [v1.1.1] - 2025-10-01
 
 ### Highlights
@@ -7,12 +67,7 @@
 - Refreshed the bundled reference database to `resources_v1_1_1.tar.gz`, delivering corrected eukaryotic taxonomy strings and updated giant virus placements ([Schulz et al., 2025](https://doi.org/10.1101/2025.09.26.678796)).
 - Updated README, pixi tasks, and developer tooling to align with the Prefect-based workflow.
 
-All notable changes to GVClass will be documented in this file.
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
-## [v1.0.0] - 2024-12-XX
+## [v1.1.0] - 2024-12-XX
 
 ### 🚀 Major Changes
 
@@ -184,17 +239,6 @@ pixi install
 - `README.md` - Complete overhaul with new usage
 - Container scripts updated for pixi
 
-#### Legacy Structure (moved to DEL/)
-- `workflow/` - Old Snakemake pipeline
-- All conda-related files
-
-### 🔮 Future Roadmap
-
-- Performance benchmarking against v1.0.0
-- Additional Python tool integrations
-- Enhanced containerization with pixi
-- Extended input format support
-
 ### 📞 Support
 
 For questions about migration or new features:
@@ -214,33 +258,3 @@ For questions about migration or new features:
 - HMMER, MAFFT, and trimAl integration
 - Comprehensive taxonomy assignment pipeline
 - Quality assessment and contamination detection
-
----
-
-## Release Notes
-
-### v1.1.0 Summary
-
-This major release completely modernizes GVClass and introduces the GVMAGs v2 database with refreshed orthogroups and lineage-specific weighted completeness scores:
-- **Prefect + Dask workflow** for robust, parallel pipeline execution
-- **Pixi-based dependency management** for faster, more reliable installations
-- **100% Python implementation** using modern bioinformatics libraries
-- **Marker-specific parallel processing** for improved performance
-- **Enhanced error handling** with comprehensive logging and debugging
-- **Full taxonomic output** from domain to species level
-- **Improved statistics** for both nucleotide and protein inputs
-
-The new implementation provides:
-- 2-3x faster installation
-- Better parallelization and resource usage
-- More robust error recovery
-- Easier debugging and monitoring
-- Cleaner, more maintainable codebase
-
-### Upgrade Recommendation
-
-**Recommended for all users**: This release provides substantial improvements in installation speed and tool integration. The migration process is straightforward and well-documented.
-
-**Container users**: No changes required - containers will be updated automatically.
-
-**Development users**: Follow the migration guide to update to pixi-based workflow.

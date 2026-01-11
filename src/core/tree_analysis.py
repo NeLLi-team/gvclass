@@ -149,6 +149,42 @@ class TreeAnalyzer:
 
         return nearest_neighbor, min_distance
 
+    def _extract_genome_id(self, protein_id: str) -> str:
+        """
+        Extract genome ID from a protein ID for labels lookup.
+
+        Protein IDs can have formats like:
+        - VP__IMGVR_UViG_3300044959|000235_9 -> VP__IMGVR_UViG_3300044959|000235
+        - NCLDV__GCA_000123456|contig_1_42 -> NCLDV__GCA_000123456|contig_1
+        - simple_genome_id -> simple_genome_id
+
+        The protein suffix is typically _N where N is a number at the end.
+
+        Args:
+            protein_id: Full protein identifier from tree
+
+        Returns:
+            Genome/contig ID suitable for labels lookup
+        """
+        import re
+
+        # First try: check if the full ID (minus trailing _digits) is in labels
+        # This handles: VP__IMGVR_UViG_3300044959|000235_9 -> VP__IMGVR_UViG_3300044959|000235
+        stripped = re.sub(r"_\d+$", "", protein_id)
+        if stripped in self.labels_dict:
+            return stripped
+
+        # Second try: just the part before | (for older format entries)
+        # This handles: genome_id|protein_id -> genome_id
+        if "|" in protein_id:
+            base_id = protein_id.split("|")[0]
+            if base_id in self.labels_dict:
+                return base_id
+
+        # Third try: strip protein suffix from full ID even if not in labels
+        # (for writing to tree_nn file - taxonomy will be "unknown")
+        return stripped
+
     def get_taxonomy_consensus(
         self,
         all_neighbors: Dict[str, Dict[str, Dict[str, float]]],
@@ -171,11 +207,8 @@ class TreeAnalyzer:
         for marker, query_neighbors in all_neighbors.items():
             for query_protein, neighbors in query_neighbors.items():
                 for neighbor, distance in neighbors.items():
-                    # Extract genome ID from protein ID (handle missing | gracefully)
-                    if "|" in neighbor:
-                        genome_id = neighbor.split("|")[0]
-                    else:
-                        genome_id = neighbor
+                    # Extract genome ID from protein ID
+                    genome_id = self._extract_genome_id(neighbor)
 
                     if genome_id in self.labels_dict:
                         tax_str = self.labels_dict[genome_id]
@@ -281,11 +314,12 @@ class TreeAnalyzer:
                 for marker, query_neighbors in all_neighbors.items():
                     for query_protein, neighbors in query_neighbors.items():
                         for neighbor, distance in neighbors.items():
-                            # Extract genome ID (handle missing | gracefully)
-                            if "|" in neighbor:
-                                genome_id = neighbor.split("|")[0]
-                            else:
-                                genome_id = neighbor
+                            # Extract genome ID from protein ID
+                            # Protein IDs have format: genome_id|contig_protein
+                            # e.g., VP__IMGVR_UViG_3300044959|000235_9
+                            # Labels use: VP__IMGVR_UViG_3300044959|000235
+                            # Need to strip protein suffix (_N) from the end
+                            genome_id = self._extract_genome_id(neighbor)
                             tax_str = "unknown"
 
                             if genome_id in self.labels_dict:

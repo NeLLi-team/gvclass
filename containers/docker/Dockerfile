@@ -49,7 +49,7 @@ ENTRYPOINT ["/entrypoint.sh"]
 # Metadata
 LABEL maintainer="fschulz@lbl.gov"
 LABEL description="GVClass - Giant Virus Classification Tool with pre-installed database"
-LABEL version="1.1.0"
+LABEL version="1.2.0"
 LABEL database.included="true"
 LABEL database.size="~850MB"
-LABEL usage.docker="docker run -v /path/to/data:/data gvclass:1.1.0 '/data -t 32'"
+LABEL usage.docker="docker run -v /path/to/data:/data gvclass:1.2.0 '/data -t 32'"

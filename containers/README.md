@@ -1,6 +1,6 @@
 # GVClass Container Images
 
-This directory contains container definitions for GVClass v1.1.1.
+This directory contains container definitions for GVClass v1.2.0.
 
 ## Directory Structure
 
@@ -58,12 +58,12 @@ Docker images are available but less suitable for HPC clusters.
 ### Build
 ```bash
 # From project root
-docker build -t gvclass:1.1.0 -f containers/docker/Dockerfile .
+docker build -t gvclass:1.2.0 -f containers/docker/Dockerfile .
 ```
 
 ### Usage
 ```bash
-docker run -v /path/to/data:/data gvclass:1.1.0 /data -t 32
+docker run -v /path/to/data:/data gvclass:1.2.0 /data -t 32
 ```
 
 ## Container Features
