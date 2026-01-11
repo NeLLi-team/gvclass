@@ -15,25 +15,7 @@ GVClass assigns taxonomy to giant virus contigs and metagenome-assembled genomes
 
 ## Quick Start
 
-### Option 1: Apptainer/Singularity (Recommended for HPC)
-
-**Best for:** Running on HPC clusters, no installation needed
-
-```bash
-# Download the wrapper script
-wget https://raw.githubusercontent.com/NeLLi-team/gvclass/main/gvclass-a
-chmod +x gvclass-a
-
-# Run from anywhere (image auto-downloads on first use)
-./gvclass-a /path/to/query_genomes /path/to/results -t 32
-
-# With options
-./gvclass-a my_data my_results -t 32 --tree-method iqtree --mode-fast
-```
-
-The Apptainer image includes the database (~700MB) and all dependencies. No setup needed!
-
-### Option 2: Pixi (For Development/Local Use)
+### Option 1: Pixi (Local/Development)
 
 **Best for:** Contributing code, modifying the pipeline, or running locally
 
@@ -58,6 +40,24 @@ pixi run install-cli
 pixi run run-example
 ```
 
+### Option 2: Apptainer/Singularity (HPC)
+
+**Best for:** Running on HPC clusters, no installation needed
+
+```bash
+# Download the wrapper script
+wget https://raw.githubusercontent.com/NeLLi-team/gvclass/main/gvclass-a
+chmod +x gvclass-a
+
+# Run from anywhere (image auto-downloads on first use)
+./gvclass-a /path/to/query_genomes /path/to/results -t 32
+
+# With options
+./gvclass-a my_data my_results -t 32 --tree-method iqtree --mode-fast
+```
+
+The Apptainer image includes the database (~700MB) and all dependencies. No setup needed!
+
 ## Input Requirements
 
 - **Directory** containing `.fna` (nucleic acid) or `.faa` (protein) files
@@ -66,6 +66,19 @@ pixi run run-example
 - **Protein headers**: Format as `filename|proteinid` for best results
 
 ## Example Usage
+
+### Using Pixi (from repo directory)
+
+```bash
+# Basic usage
+pixi run gvclass my_genomes -o my_results -t 32
+
+# With options
+pixi run gvclass my_genomes -t 32 --mode-fast --tree-method iqtree -j 4
+
+# Classify each contig separately (useful for metagenome contigs)
+pixi run gvclass --contigs my_genome.fna -o results -t 32
+```
 
 ### Using Apptainer (gvclass-a)
 
@@ -85,20 +98,6 @@ pixi run run-example
 # Classify each contig in a single FNA file separately
 ./gvclass-a --contigs my_genome.fna -o results -t 32
 ```
-
-### Using Pixi (from repo directory)
-
-```bash
-# Basic usage
-pixi run gvclass my_genomes -o my_results -t 32
-
-# With options
-pixi run gvclass my_genomes -t 32 --mode-fast --tree-method iqtree -j 4
-
-# Classify each contig separately (useful for metagenome contigs)
-pixi run gvclass --contigs my_genome.fna -o results -t 32
-```
-
 ## Output
 
 Results are saved to `<input_name>_results/` containing:
@@ -123,11 +122,11 @@ Results are saved to `<input_name>_results/` containing:
 | mcp_total | All MCP marker count (NCLDV + Mirus) |
 | vp_completeness | Virophage completeness (n/4 core markers: MCP, Penton, ATPase, Protease) |
 | vp_mcp | Count of proteins with VP MCP marker hits |
-| plv | Count of proteins with PLV marker hits (PLV = VP + PLV marker) |
+| plv | Count of proteins with PLV marker hits (single PLV marker; values can be 0..N) |
 | vp_df | Virophage duplication factor (total VP hits / 4) |
 | mirus_completeness | Mirusviricota completeness (n/4 core markers: MCP, ATPase, Portal, Triplex) |
 | mirus_df | Mirusviricota duplication factor |
-| mrya_unique/total | Marseilleviridae-specific marker counts |
+| mrya_unique/total | Mryavirus-specific marker counts |
 | phage_unique/total | Phage marker counts |
 | cellular_unique/total/dup | Cellular contamination markers |
 | contigs | Number of contigs |
@@ -164,7 +163,7 @@ pipeline:
 
 ### Advanced Container Usage
 
-The `gvclass-a` wrapper (recommended above) handles container execution automatically. For manual control:
+The `gvclass-a` wrapper handles container execution automatically. For manual control:
 
 ```bash
 # Pull the image manually
@@ -176,6 +175,21 @@ apptainer run -B /path/to/data:/input -B /path/to/results:/output \
 ```
 
 The wrapper is simpler and handles bind mounts automatically.
+
+#### Publishing the Apptainer Image (library://)
+
+To make `apptainer pull library://nelligroup-jgi/gvclass/gvclass:1.2.0` work, you must build and push the SIF to the Sylabs library:
+
+```bash
+# Build the SIF from the definition file
+apptainer build gvclass.sif containers/apptainer/gvclass.def
+
+# Authenticate to the Sylabs library (one-time)
+apptainer remote login
+
+# Push the image to the library
+apptainer push gvclass.sif library://nelligroup-jgi/gvclass/gvclass:1.2.0
+```
 
 ### Full CLI Reference (gvclass)
 
@@ -249,7 +263,7 @@ The selected code is reported in the `ttable` output column.
 - `gvog8_total` and `gvog8_unique` help distinguish true gene expansions (high total, moderate duplication) from assembly artefacts (high duplication, low uniqueness).
 - `ncldv_mcp_total`, `mirus_df`, `mrya_total` provide additional lineage-specific duplication hints.
 - `vp_completeness` and `mirus_completeness` show core marker coverage (n/4) for virophages and Mirusviricota respectively.
-- `plv` count helps distinguish PLV from virophages (PLVs share VP markers but have additional PLV-specific marker).
+- `plv` count helps distinguish PLV from virophages (PLVs share VP markers but have additional PLV-specific marker; count is not binary).
 
 ### Cellular carry-over
 - `uni56_total` (UNI56) counts universal cellular markers; more than ~10 unique hits point to host contamination or bins that include cellular contigs.
