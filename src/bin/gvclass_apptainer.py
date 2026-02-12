@@ -5,10 +5,12 @@ import argparse
 import subprocess
 from pathlib import Path
 
-DEFAULT_IMAGE = "library://nelligroup-jgi/gvclass/gvclass:1.2.0"
+DEFAULT_IMAGE = "library://nelligroup-jgi/gvclass/gvclass:1.2.1"
 
 
-def run_container(query: Path, output: Path, threads: int, image: str) -> int:
+def run_container(
+    query: Path, output: Path, threads: int, image: str, sensitive_mode: bool = False
+) -> int:
     query_abs = query.resolve()
     output_abs = output.resolve()
 
@@ -31,6 +33,8 @@ def run_container(query: Path, output: Path, threads: int, image: str) -> int:
         "--threads",
         str(threads),
     ]
+    if sensitive_mode:
+        cmd.append("--sensitive")
 
     return subprocess.call(cmd)
 
@@ -60,6 +64,11 @@ def main() -> None:
         default=DEFAULT_IMAGE,
         help="Apptainer image URI or path (default: %(default)s)",
     )
+    parser.add_argument(
+        "--sensitive",
+        action="store_true",
+        help="Sensitive HMM mode: use E-value 1e-5 instead of GA cutoffs",
+    )
 
     args = parser.parse_args()
 
@@ -69,7 +78,9 @@ def main() -> None:
     else:
         output_path = query_path.with_name(f"{query_path.name}_results")
 
-    rc = run_container(query_path, output_path, args.threads, args.image)
+    rc = run_container(
+        query_path, output_path, args.threads, args.image, args.sensitive
+    )
     raise SystemExit(rc)
 
 

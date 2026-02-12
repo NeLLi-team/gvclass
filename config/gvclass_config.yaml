@@ -8,9 +8,9 @@ database:
   path: resources
   # URL for automatic download if database not found
   # Note: Update this URL to the actual database location when available
-  download_url: https://portal.nersc.gov/cfs/m342/GVClass/gvclass_db_v1.1.tar.gz
+  download_url: https://portal.nersc.gov/cfs/nelli/gvclassDB/resources_v1_2_1.tar.gz
   # Expected size for validation (in MB)
-  expected_size: 701
+  expected_size: 1565
 
 # Pipeline settings
 pipeline:
@@ -18,6 +18,8 @@ pipeline:
   tree_method: fasttree
   # Fast mode - skip order-level marker trees when True
   mode_fast: true
+  # Sensitive mode - use E-value 1e-5 cutoff instead of GA model cutoffs
+  sensitive_mode: false
   # Number of threads for computation
   threads: 4
   # Output directory pattern

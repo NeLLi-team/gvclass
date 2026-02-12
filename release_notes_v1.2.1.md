@@ -1,0 +1,20 @@
+# GVClass v1.2.1
+
+## Highlights
+- Updated bundled reference database to `resources_v1_2_1.tar.gz`.
+- Added models for Polinton-like virus MCP markers.
+- Extended and updated the eukaryotic reference database.
+- Updated labels file to `gvclassFeb26_labels.tsv`.
+- Added `--sensitive` mode (pyhmmer `E=1e-5`, `domE=1e-5`, no GA cutoffs).
+- Streamlined CLI and pipeline execution code into smaller modules for clearer control flow and consistent error handling.
+
+## Versioning and distribution
+- Updated software and CLI version strings to `v1.2.1`.
+- Updated default Apptainer image tag to `library://nelligroup-jgi/gvclass/gvclass:1.2.1`.
+
+## Database notes
+- The v1.2.1 release now expects `gvclassFeb26_labels.tsv` in the resources directory.
+- `resources_v1_2_0.tar.gz` remains as a fallback source for compatibility.
+
+## Archive
+- Previous release notes are archived as `release_notes_v1.2.0.md`.

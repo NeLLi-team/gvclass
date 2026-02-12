@@ -5,6 +5,26 @@ All notable changes to GVClass will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.2.1] - 2026-02-12
+
+### Highlights
+- Updated bundled reference database to `resources_v1_2_1.tar.gz`
+- Added models for Polinton-like virus MCP markers
+- Extended and updated the eukaryotic reference database
+- Updated labels file to `gvclassFeb26_labels.tsv`
+- Added sensitive HMM mode (`--sensitive`) to run pyhmmer with `E=1e-5` / `domE=1e-5` instead of GA cutoffs
+- Streamlined CLI and pipeline code paths for clearer flow and more consistent runtime error handling
+
+### Database Updates
+- **Database Version**: Added `resources_v1_2_1.tar.gz` as the primary release database
+- **New Models**: Added Polinton-like virus MCP models
+- **Reference Expansion**: Extended and refreshed eukaryotic references
+- **Labels Update**: Replaced `gvclassJan26_labels.tsv` with `gvclassFeb26_labels.tsv`
+
+### Versioning and Distribution
+- Updated software version strings and wrappers to `v1.2.1`
+- Updated Apptainer image defaults to `library://nelligroup-jgi/gvclass/gvclass:1.2.1`
+
 ## [v1.2.0] - 2026-01-08
 
 ### Highlights

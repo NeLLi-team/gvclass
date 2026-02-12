@@ -1,6 +1,6 @@
 # GVClass Container Images
 
-This directory contains container definitions for GVClass v1.2.0.
+This directory contains container definitions for GVClass v1.2.1.
 
 ## Directory Structure
 
@@ -53,7 +53,7 @@ singularity run \
 
 ### Publish to Apptainer Library (for `apptainer pull`)
 
-To support `apptainer pull library://nelligroup-jgi/gvclass/gvclass:1.2.0`:
+To support `apptainer pull library://nelligroup-jgi/gvclass/gvclass:1.2.1`:
 
 ```bash
 # Build the SIF
@@ -63,7 +63,7 @@ apptainer build gvclass.sif containers/apptainer/gvclass.def
 apptainer remote login
 
 # Push the image
-apptainer push gvclass.sif library://nelligroup-jgi/gvclass/gvclass:1.2.0
+apptainer push gvclass.sif library://nelligroup-jgi/gvclass/gvclass:1.2.1
 ```
 
 ## Alternative: Docker
@@ -73,12 +73,12 @@ Docker images are available but less suitable for HPC clusters.
 ### Build
 ```bash
 # From project root
-docker build -t gvclass:1.2.0 -f containers/docker/Dockerfile .
+docker build -t gvclass:1.2.1 -f containers/docker/Dockerfile .
 ```
 
 ### Usage
 ```bash
-docker run -v /path/to/data:/data gvclass:1.2.0 /data -t 32
+docker run -v /path/to/data:/data gvclass:1.2.1 /data -t 32
 ```
 
 ## Container Features

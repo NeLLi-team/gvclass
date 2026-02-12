@@ -5,7 +5,7 @@ import argparse
 import subprocess
 from pathlib import Path
 
-DEFAULT_IMAGE = "library://nelligroup-jgi/gvclass/gvclass:1.2.0"
+DEFAULT_IMAGE = "library://nelligroup-jgi/gvclass/gvclass:1.2.1"
 
 
 def run_container(
@@ -16,6 +16,7 @@ def run_container(
     tree_method: str = None,
     mode_fast: bool = None,
     max_workers: int = None,
+    sensitive_mode: bool = False,
 ) -> int:
     query_abs = query.resolve()
     output_abs = output.resolve()
@@ -47,14 +48,13 @@ def run_container(
         cmd.append("--mode-fast" if mode_fast else "--extended")
     if max_workers:
         cmd.extend(["-j", str(max_workers)])
+    if sensitive_mode:
+        cmd.append("--sensitive")
 
     return subprocess.call(cmd)
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Convenience wrapper for running GVClass via Apptainer"
-    )
+def _add_base_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("query_dir", help="Directory containing FASTA files to classify")
     parser.add_argument(
         "output_dir",
@@ -76,6 +76,9 @@ def main() -> None:
         default=None,
         help="Maximum parallel workers (default: auto-calculated)",
     )
+
+
+def _add_mode_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--tree-method",
         choices=["fasttree", "iqtree"],
@@ -96,19 +99,37 @@ def main() -> None:
         help="Extended mode: build trees for all markers (slower but more comprehensive)",
     )
     parser.add_argument(
+        "--sensitive",
+        action="store_true",
+        help="Sensitive HMM mode: use E-value 1e-5 instead of GA cutoffs",
+    )
+    parser.add_argument(
         "--image",
         default=DEFAULT_IMAGE,
         help="Apptainer image URI or path (default: %(default)s)",
     )
 
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Convenience wrapper for running GVClass via Apptainer"
+    )
+    _add_base_args(parser)
+    _add_mode_args(parser)
+    return parser
+
+
+def resolve_output_path(query_path: Path, output_dir: str | None) -> Path:
+    if output_dir:
+        return Path(output_dir)
+    return query_path.with_name(f"{query_path.name}_results")
+
+
+def main() -> None:
+    parser = build_parser()
     args = parser.parse_args()
-
     query_path = Path(args.query_dir)
-    if args.output_dir:
-        output_path = Path(args.output_dir)
-    else:
-        output_path = query_path.with_name(f"{query_path.name}_results")
-
+    output_path = resolve_output_path(query_path, args.output_dir)
     rc = run_container(
         query_path,
         output_path,
@@ -117,6 +138,7 @@ def main() -> None:
         tree_method=args.tree_method,
         mode_fast=args.mode_fast,
         max_workers=args.max_workers,
+        sensitive_mode=args.sensitive,
     )
     raise SystemExit(rc)
 
