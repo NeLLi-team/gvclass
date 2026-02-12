@@ -17,6 +17,7 @@ CLAUDE.md
 AGENTS.md
 docs/
 .pixi*
+pixi.lock
 .ruff*
 .claude*
 out*
