@@ -7,7 +7,7 @@ services:
       dockerfile: Dockerfile
       args:
         PIXI_VERSION: 0.40.2
-    image: gvclass:1.1.0
+    image: gvclass:1.2.1
     container_name: gvclass
     volumes:
       # Mount input data directory

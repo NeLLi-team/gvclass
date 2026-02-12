@@ -4,8 +4,8 @@
 # Database configuration
 database:
   path: resources
-  download_url: https://portal.nersc.gov/cfs/m342/GVClass/gvclass_db_v1.1.tar.gz
-  expected_size: 701
+  download_url: https://portal.nersc.gov/cfs/nelli/gvclassDB/resources_v1_2_1.tar.gz
+  expected_size: 1565
 
 # Pipeline settings - optimized for testing
 pipeline:
@@ -13,6 +13,8 @@ pipeline:
   tree_method: fasttree
   # Enable fast mode for testing
   mode_fast: true
+  # Keep default GA-based filtering for tests unless explicitly overridden
+  sensitive_mode: false
   # Reduced threads for testing
   threads: 4
   # Test output pattern

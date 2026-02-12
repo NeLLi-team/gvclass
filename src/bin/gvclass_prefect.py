@@ -28,6 +28,171 @@ logging.getLogger("prefect").setLevel(logging.WARNING)
 from src.pipeline.prefect_flow import gvclass_flow  # noqa: E402
 
 
+def resolve_paths(querydir: str, output_dir: str | None) -> tuple[Path, Path]:
+    query_path = Path(querydir).resolve()
+    if not query_path.exists():
+        raise FileNotFoundError(f"Query directory {querydir} does not exist")
+    if output_dir:
+        return query_path, Path(output_dir).resolve()
+    return query_path, Path.cwd() / f"{query_path.name}_results"
+
+
+def build_cluster_config(
+    cluster_queue: str | None, cluster_project: str | None, cluster_walltime: str | None
+) -> dict:
+    config = {}
+    if cluster_queue:
+        config["queue"] = cluster_queue
+    if cluster_project:
+        config["project"] = cluster_project
+    if cluster_walltime:
+        config["walltime"] = cluster_walltime
+    return config
+
+
+def print_run_configuration(
+    query_path: Path,
+    output_path: Path,
+    db_path: str | None,
+    threads: int,
+    max_workers: int | None,
+    threads_per_worker: int | None,
+    cluster_type: str,
+    tree_method: str,
+    mode_fast: bool,
+    sensitive: bool,
+) -> None:
+    click.echo("GVClass Pipeline v1.2.1")
+    click.echo(f"Query directory: {query_path}")
+    click.echo(f"Output directory: {output_path}")
+    click.echo(f"Database: {db_path if db_path else 'Will download/use default'}")
+    click.echo(f"Total threads: {threads}")
+    if max_workers:
+        click.echo(f"Max workers: {max_workers}")
+    if threads_per_worker:
+        click.echo(f"Threads per worker: {threads_per_worker}")
+    else:
+        click.echo("Worker distribution: Auto-calculated")
+    click.echo(f"Cluster type: {cluster_type}")
+    click.echo(f"Tree method: {tree_method}")
+    click.echo(f"Fast mode: {mode_fast}")
+    click.echo(f"Sensitive mode: {sensitive}")
+    click.echo("")
+
+
+def configure_prefect_home(output_path: Path, logger) -> None:
+    output_path.mkdir(parents=True, exist_ok=True)
+    prefect_home = output_path / ".prefect"
+    try:
+        prefect_home.mkdir(parents=True, exist_ok=True)
+        os.environ["PREFECT_HOME"] = str(prefect_home)
+    except PermissionError:
+        temp_prefect = Path(tempfile.mkdtemp(prefix="prefect_", dir="/tmp"))
+        os.environ["PREFECT_HOME"] = str(temp_prefect)
+        logger.debug(f"Using temporary Prefect home: {temp_prefect}")
+
+
+def run_flow(
+    query_path: Path,
+    output_path: Path,
+    db_path: str | None,
+    threads: int,
+    max_workers: int | None,
+    threads_per_worker: int | None,
+    tree_method: str,
+    mode_fast: bool,
+    sensitive: bool,
+    cluster_type: str,
+    cluster_config: dict,
+    resume: bool,
+):
+    return gvclass_flow(
+        query_dir=str(query_path),
+        output_dir=str(output_path),
+        database_path=db_path,
+        total_threads=threads,
+        max_workers=max_workers,
+        threads_per_worker=threads_per_worker,
+        tree_method=tree_method,
+        mode_fast=mode_fast,
+        sensitive_mode=sensitive,
+        cluster_type=cluster_type,
+        cluster_config=cluster_config if cluster_config else None,
+        resume=resume,
+    )
+
+
+def prepare_cli_context(
+    querydir: str,
+    output_dir: str | None,
+    database: str | None,
+    cluster_queue: str | None,
+    cluster_project: str | None,
+    cluster_walltime: str | None,
+    threads: int,
+    max_workers: int | None,
+    threads_per_worker: int | None,
+    cluster_type: str,
+    tree_method: str,
+    mode_fast: bool,
+    sensitive: bool,
+    logger,
+) -> tuple[Path, Path, str | None, dict]:
+    query_path, output_path = resolve_paths(querydir, output_dir)
+    db_path = database if database else None
+    cluster_config = build_cluster_config(
+        cluster_queue=cluster_queue,
+        cluster_project=cluster_project,
+        cluster_walltime=cluster_walltime,
+    )
+    print_run_configuration(
+        query_path=query_path,
+        output_path=output_path,
+        db_path=db_path,
+        threads=threads,
+        max_workers=max_workers,
+        threads_per_worker=threads_per_worker,
+        cluster_type=cluster_type,
+        tree_method=tree_method,
+        mode_fast=mode_fast,
+        sensitive=sensitive,
+    )
+    configure_prefect_home(output_path, logger)
+    return query_path, output_path, db_path, cluster_config
+
+
+def execute_cli_flow(
+    query_path: Path,
+    output_path: Path,
+    db_path: str | None,
+    threads: int,
+    max_workers: int | None,
+    threads_per_worker: int | None,
+    tree_method: str,
+    mode_fast: bool,
+    sensitive: bool,
+    cluster_type: str,
+    cluster_config: dict,
+    resume: bool,
+):
+    result = run_flow(
+        query_path=query_path,
+        output_path=output_path,
+        db_path=db_path,
+        threads=threads,
+        max_workers=max_workers,
+        threads_per_worker=threads_per_worker,
+        tree_method=tree_method,
+        mode_fast=mode_fast,
+        sensitive=sensitive,
+        cluster_type=cluster_type,
+        cluster_config=cluster_config,
+        resume=resume,
+    )
+    click.echo("\nPipeline completed successfully!")
+    click.echo(f"Results written to: {result}")
+
+
 @click.command()
 @click.argument("querydir", type=click.Path(exists=True))
 @click.option("--output-dir", "-o", help="Output directory (default: querydir_results)")
@@ -58,6 +223,11 @@ from src.pipeline.prefect_flow import gvclass_flow  # noqa: E402
     help="Fast mode (default) or extended mode with all marker trees",
 )
 @click.option(
+    "--sensitive",
+    is_flag=True,
+    help="Sensitive HMM mode: use E-value 1e-5 instead of GA cutoffs",
+)
+@click.option(
     "--cluster-type",
     default="local",
     type=click.Choice(["local", "slurm", "pbs", "sge"]),
@@ -74,110 +244,31 @@ from src.pipeline.prefect_flow import gvclass_flow  # noqa: E402
     is_flag=True,
     help="Resume from previous run, skipping completed queries",
 )
-def main(
-    querydir,
-    output_dir,
-    database,
-    threads,
-    max_workers,
-    threads_per_worker,
-    tree_method,
-    mode_fast,
-    cluster_type,
-    cluster_queue,
-    cluster_project,
-    cluster_walltime,
-    verbose,
-    resume,
-):
-    """
-    Run GVClass pipeline with proper Prefect+Dask orchestration.
-
-    This implementation properly uses Prefect's @flow and @task decorators
-    with dynamic DaskTaskRunner configuration for true parallel execution.
-
-    QUERYDIR: Directory containing query sequences (.fna or .faa files)
-    """
-    # Setup logging
+def main(querydir, output_dir, database, threads, max_workers, threads_per_worker, tree_method, mode_fast, sensitive, cluster_type, cluster_queue, cluster_project, cluster_walltime, verbose, resume):
     log_level = "DEBUG" if verbose else "INFO"
     logger = setup_logging("gvclass_prefect", level=log_level)
 
-    # Validate inputs
-    query_path = Path(querydir).resolve()
-    if not query_path.exists():
-        click.echo(f"Error: Query directory {querydir} does not exist", err=True)
-        sys.exit(1)
-
-    # Set output directory
-    if output_dir:
-        output_path = Path(output_dir).resolve()
-    else:
-        output_path = Path.cwd() / f"{query_path.name}_results"
-
-    # Database path
-    db_path = database if database else None
-
-    # Prepare cluster configuration
-    cluster_config = {}
-    if cluster_queue:
-        cluster_config["queue"] = cluster_queue
-    if cluster_project:
-        cluster_config["project"] = cluster_project
-    if cluster_walltime:
-        cluster_config["walltime"] = cluster_walltime
-
-    click.echo("GVClass Pipeline v1.2.0")
-    click.echo(f"Query directory: {query_path}")
-    click.echo(f"Output directory: {output_path}")
-    click.echo(f"Database: {db_path if db_path else 'Will download/use default'}")
-    click.echo(f"Total threads: {threads}")
-    if max_workers:
-        click.echo(f"Max workers: {max_workers}")
-    if threads_per_worker:
-        click.echo(f"Threads per worker: {threads_per_worker}")
-    else:
-        click.echo("Worker distribution: Auto-calculated")
-    click.echo(f"Cluster type: {cluster_type}")
-    click.echo(f"Tree method: {tree_method}")
-    click.echo(f"Fast mode: {mode_fast}")
-    click.echo("")
-
-    # Set Prefect home to output directory to avoid conflicts in parallel runs
-    # First ensure output directory exists and is writable
-    output_path.mkdir(parents=True, exist_ok=True)
-
-    # Try to set Prefect home in output directory, fall back to temp if not writable
-    prefect_home = output_path / ".prefect"
     try:
-        prefect_home.mkdir(parents=True, exist_ok=True)
-        os.environ["PREFECT_HOME"] = str(prefect_home)
-    except PermissionError:
-        # Fall back to temp directory
-        import tempfile
-
-        temp_prefect = Path(tempfile.mkdtemp(prefix="prefect_", dir="/tmp"))
-        os.environ["PREFECT_HOME"] = str(temp_prefect)
-        logger.debug(f"Using temporary Prefect home: {temp_prefect}")
-
-    try:
-        # Run the proper flow
-        result = gvclass_flow(
-            query_dir=str(query_path),
-            output_dir=str(output_path),
-            database_path=db_path,
-            total_threads=threads,
+        query_path, output_path, db_path, cluster_config = prepare_cli_context(
+            querydir=querydir,
+            output_dir=output_dir,
+            database=database,
+            cluster_queue=cluster_queue,
+            cluster_project=cluster_project,
+            cluster_walltime=cluster_walltime,
+            threads=threads,
             max_workers=max_workers,
             threads_per_worker=threads_per_worker,
+            cluster_type=cluster_type,
             tree_method=tree_method,
             mode_fast=mode_fast,
-            cluster_type=cluster_type,
-            cluster_config=cluster_config if cluster_config else None,
-            resume=resume,
+            sensitive=sensitive,
+            logger=logger,
         )
-
-        click.echo("\nPipeline completed successfully!")
-        click.echo(f"Results written to: {result}")
-
+        execute_cli_flow(query_path, output_path, db_path, threads, max_workers, threads_per_worker, tree_method, mode_fast, sensitive, cluster_type, cluster_config, resume)
+    except FileNotFoundError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
     except Exception as e:
         logger.exception("Pipeline failed")
         click.echo(f"Pipeline failed with error: {e}", err=True)

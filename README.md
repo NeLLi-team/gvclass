@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-v1.2.0-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/version-v1.2.1-blue.svg" alt="Version">
   <img src="https://img.shields.io/badge/license-BSD--3--Clause-green.svg" alt="License">
   <img src="https://img.shields.io/badge/python-3.11-blue.svg" alt="Python">
   <img src="https://img.shields.io/badge/pixi-enabled-orange.svg" alt="Pixi">
@@ -76,6 +76,9 @@ pixi run gvclass my_genomes -o my_results -t 32
 # With options
 pixi run gvclass my_genomes -t 32 --mode-fast --tree-method iqtree -j 4
 
+# Sensitive HMM search mode (uses E-value 1e-5 instead of GA cutoffs)
+pixi run gvclass my_genomes -t 32 --sensitive
+
 # Classify each contig separately (useful for metagenome contigs)
 pixi run gvclass --contigs my_genome.fna -o results -t 32
 ```
@@ -91,6 +94,9 @@ pixi run gvclass --contigs my_genome.fna -o results -t 32
 
 # Use IQ-TREE for more accurate phylogeny (slower)
 ./gvclass-a my_genomes my_results -t 32 --tree-method iqtree
+
+# Sensitive HMM search mode
+./gvclass-a my_genomes my_results -t 32 --sensitive
 
 # Control parallelization (4 workers × 8 threads = 32 total)
 ./gvclass-a my_genomes my_results -t 32 -j 4
@@ -148,16 +154,16 @@ database:
 pipeline:
   tree_method: fasttree             # or 'iqtree' for more accuracy
   mode_fast: false                  # Skip order-level marker trees when true (speeds up analysis)
+  sensitive_mode: false             # Use E-value 1e-5 for pyhmmer instead of GA cutoffs
   threads: 16                       # Default thread count
 ```
 
-## What's New in v1.2.0
+## What's New in v1.2.1
 
-- **Expanded Database**: Added Mirusviricota genomes, virophages (PV), Polinton-like viruses (PLV), and extended phage references from MetaVR
-- **Updated GA Thresholds**: Refined gathering thresholds in HMM models for more accurate marker detection
-- **Model Annotations**: Added functional annotations to HMM models
-- **Documentation**: Comprehensive CLI reference, genetic code selection logic, and contig splitting details
-- **Code Quality**: Bug fixes and cleaner codebase
+- **Polinton-like Virus MCP Models**: Added PLV MCP models to improve Polinton-like virus detection.
+- **Extended Eukaryotic Reference Database**: Added and refreshed eukaryotic references for broader classification coverage.
+- **Updated Labels File**: Resource labels now use `gvclassFeb26_labels.tsv`.
+- **Database Release**: Updated bundled resource tarball to `resources_v1_2_1.tar.gz`.
 
 ## Advanced Usage
 
@@ -167,18 +173,18 @@ The `gvclass-a` wrapper handles container execution automatically. For manual co
 
 ```bash
 # Pull the image manually
-apptainer pull library://nelligroup-jgi/gvclass/gvclass:1.2.0
+apptainer pull library://nelligroup-jgi/gvclass/gvclass:1.2.1
 
 # Run with manual bind mounts
 apptainer run -B /path/to/data:/input -B /path/to/results:/output \
-  gvclass_1.2.0.sif /input -o /output -t 32
+  gvclass_1.2.1.sif /input -o /output -t 32
 ```
 
 The wrapper is simpler and handles bind mounts automatically.
 
 #### Publishing the Apptainer Image (library://)
 
-To make `apptainer pull library://nelligroup-jgi/gvclass/gvclass:1.2.0` work, you must build and push the SIF to the Sylabs library:
+To make `apptainer pull library://nelligroup-jgi/gvclass/gvclass:1.2.1` work, you must build and push the SIF to the Sylabs library:
 
 ```bash
 # Build the SIF from the definition file
@@ -188,7 +194,7 @@ apptainer build gvclass.sif containers/apptainer/gvclass.def
 apptainer remote login
 
 # Push the image to the library
-apptainer push gvclass.sif library://nelligroup-jgi/gvclass/gvclass:1.2.0
+apptainer push gvclass.sif library://nelligroup-jgi/gvclass/gvclass:1.2.1
 ```
 
 ### Full CLI Reference (gvclass)
@@ -204,6 +210,7 @@ apptainer push gvclass.sif library://nelligroup-jgi/gvclass/gvclass:1.2.0
 | `--tree-method` | | `fasttree` or `iqtree` | fasttree |
 | `--mode-fast` | `-f` | Fast mode: core markers only | True |
 | `--extended` | `-e` | Extended mode: all marker trees | False |
+| `--sensitive` | | Sensitive HMM mode (`E=1e-5`, `domE=1e-5`, skip GA cutoffs) | False |
 | `--contigs` | `-C` | Split multi-contig file | False |
 | `--resume` | | Resume interrupted run | False |
 | `--verbose` | `-v` | Enable debug output | False |
@@ -251,6 +258,14 @@ GVClass tests **9 genetic codes** to find optimal gene predictions:
    - Same hits but >5% better coding density
 
 The selected code is reported in the `ttable` output column.
+
+### Sensitive HMM Mode (`--sensitive`)
+
+Use sensitive mode when you want a more permissive marker search:
+
+- Forces pyhmmer to use `E=1e-5` and `domE=1e-5`
+- Disables GA/TC/NC model cutoff filtering (`--cut_ga`-style behavior)
+- Can recover weaker hits, but may increase false positives
 
 ## Interpreting Quality Metrics
 
@@ -437,7 +452,7 @@ If you use GVClass, please cite:
 
 ## Database References
 
-The GVClass v1.2.0 reference database includes genomes from the following sources:
+The GVClass v1.2.1 reference database includes genomes from the following sources:
 
 > Medvedeva S, Guyet U, Pelletier E, et al. (2026): Widespread and intron-rich mirusviruses are predicted to reproduce in nuclei of unicellular eukaryotes. Nature Microbiology 11:228-239. https://doi.org/10.1038/s41564-025-01906-2
 
@@ -457,4 +472,4 @@ The GVClass v1.2.0 reference database includes genomes from the following source
 BSD 3-Clause License - see LICENSE file for details
 
 ---
-<sub>Version 1.2.0 - January 2026</sub>
+<sub>Version 1.2.1 - February 2026</sub>

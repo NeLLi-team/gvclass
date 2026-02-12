@@ -37,7 +37,7 @@ RUN mkdir -p /data /results && chmod 777 /data /results
 RUN echo '#!/bin/bash\n\
 if [ -z "$1" ] || [[ "$1" == -* ]]; then\n\
     echo "Error: Please provide input directory as first argument"\n\
-    echo "Usage: docker run -v /your/data:/data gvclass:1.1.0 /data/input_dir [options]"\n\
+    echo "Usage: docker run -v /your/data:/data gvclass:1.2.1 /data/input_dir [options]"\n\
     exit 1\n\
 fi\n\
 cd /opt/gvclass\n\
@@ -49,7 +49,7 @@ ENTRYPOINT ["/entrypoint.sh"]
 # Metadata
 LABEL maintainer="fschulz@lbl.gov"
 LABEL description="GVClass - Giant Virus Classification Tool with pre-installed database"
-LABEL version="1.2.0"
+LABEL version="1.2.1"
 LABEL database.included="true"
 LABEL database.size="~850MB"
-LABEL usage.docker="docker run -v /path/to/data:/data gvclass:1.2.0 '/data -t 32'"
+LABEL usage.docker="docker run -v /path/to/data:/data gvclass:1.2.1 '/data -t 32'"

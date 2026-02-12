@@ -13,11 +13,11 @@ echo "Building GVClass containers from $PROJECT_ROOT..."
 
 # Build Docker image
 echo "Building Docker image..."
-docker build -t gvclass:1.1.0 -t gvclass:latest -f containers/docker/Dockerfile .
+docker build -t gvclass:1.2.1 -t gvclass:latest -f containers/docker/Dockerfile .
 
 # Export Docker image for Apptainer conversion
 echo "Exporting Docker image..."
-docker save gvclass:1.1.0 -o gvclass_docker.tar
+docker save gvclass:1.2.1 -o gvclass_docker.tar
 
 # Build Apptainer/Singularity image from Docker image
 if command -v apptainer &> /dev/null; then
@@ -28,7 +28,7 @@ elif command -v singularity &> /dev/null; then
     singularity build gvclass.sif docker-archive://gvclass_docker.tar
 else
     echo "Warning: Neither Apptainer nor Singularity found. Skipping SIF build."
-    echo "Docker image built successfully: gvclass:1.1.0"
+    echo "Docker image built successfully: gvclass:1.2.1"
 fi
 
 # Clean up temporary file
@@ -38,7 +38,7 @@ echo "Container build complete!"
 echo ""
 echo "Usage examples:"
 echo "Docker:"
-echo "  docker run -v /path/to/data:/data -v /path/to/results:/results gvclass:1.1.0 pixi run gvclass /data -o /results"
+echo "  docker run -v /path/to/data:/data -v /path/to/results:/results gvclass:1.2.1 pixi run gvclass /data -o /results"
 echo ""
 if [ -f gvclass.sif ]; then
     echo "Apptainer/Singularity:"
