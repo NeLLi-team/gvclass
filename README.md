@@ -149,13 +149,28 @@ Create `gvclass_config.yaml` to set defaults:
 
 ```yaml
 database:
-  path: resources                    # Database location
+  path: resources                    # Relative path: <gvclass_repo>/resources
+  # path: /media/shared-expansion/dbs/gvclass_resources  # Absolute path on shared storage
 
 pipeline:
   tree_method: fasttree             # or 'iqtree' for more accuracy
   mode_fast: false                  # Skip order-level marker trees when true (speeds up analysis)
   sensitive_mode: false             # Use E-value 1e-5 for pyhmmer instead of GA cutoffs
   threads: 16                       # Default thread count
+```
+
+Database path precedence:
+- `--database` CLI flag
+- `GVCLASS_DB` environment variable
+- `database.path` in config
+- default `resources` in the GVClass repo
+
+Examples:
+```bash
+# Use shared database location for all runs
+export GVCLASS_DB=/media/shared-expansion/dbs/gvclass_resources
+pixi run setup-db
+pixi run gvclass example -o example_results
 ```
 
 ## What's New in v1.2.1
@@ -206,7 +221,7 @@ apptainer push gvclass.sif library://nelligroup-jgi/gvclass/gvclass:1.2.1
 | `--threads` | `-t` | Total threads | 16 |
 | `--max-workers` | `-j` | Parallel workers | Auto |
 | `--threads-per-worker` | | Threads per worker | Auto |
-| `--database` | `-d` | Override database path | Auto |
+| `--database` | `-d` | Override database path | `GVCLASS_DB` → config → `<repo>/resources` |
 | `--tree-method` | | `fasttree` or `iqtree` | fasttree |
 | `--mode-fast` | `-f` | Fast mode: core markers only | True |
 | `--extended` | `-e` | Extended mode: all marker trees | False |
