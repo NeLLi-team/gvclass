@@ -28,7 +28,7 @@ class DatabaseManager:
             "version": "v1.2.1",
             "url": "https://portal.nersc.gov/cfs/nelli/gvclassDB/resources_v1_2_1.tar.gz",
             "filename": "resources_v1_2_1.tar.gz",
-            "sha256": None,
+            "sha256": "94ad59100a158ca7ac760e9a1d35f01ff5e2eb07c270c4ca1b45fbe9e3e637eb",
         },
         {
             "version": "v1.2.0",
