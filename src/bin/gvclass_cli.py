@@ -21,6 +21,7 @@ from src.bin.progress_monitor import ResourceMonitor
 
 SOFTWARE_VERSION = "v1.2.1"
 PLAIN_OUTPUT_ENV = "GVCLASS_PLAIN_OUTPUT"
+DATABASE_PATH_ENV = "GVCLASS_DB"
 
 
 class CliOutput:
@@ -111,7 +112,11 @@ def _add_core_arguments(parser: argparse.ArgumentParser) -> None:
         default="config/gvclass_config.yaml",
         help="Configuration file (default: config/gvclass_config.yaml)",
     )
-    parser.add_argument("-d", "--database", help="Database path (overrides config)")
+    parser.add_argument(
+        "-d",
+        "--database",
+        help=f"Database path (overrides {DATABASE_PATH_ENV} and config)",
+    )
     parser.add_argument(
         "-t", "--threads", type=int, help="Number of threads (overrides config)"
     )
@@ -197,7 +202,7 @@ def load_config(config_file: str, repo_dir: Path, output: CliOutput):
     default_config = {
         "database": {
             "path": str(repo_dir / "resources"),
-            "download_url": "https://portal.nersc.gov/cfs/nelli/gvclassDB/resources_v1_2_1.tar.gz",
+            "download_url": "https://zenodo.org/records/18662446/files/resources_v1_2_1.tar.gz?download=1",
             "expected_size": 1565,
         },
         "pipeline": {
@@ -233,11 +238,22 @@ def load_config(config_file: str, repo_dir: Path, output: CliOutput):
         return yaml.safe_load(handle)
 
 
+def resolve_database_setting(database_override: Optional[str], config) -> str:
+    if database_override:
+        return database_override
+
+    env_database = os.environ.get(DATABASE_PATH_ENV, "").strip()
+    if env_database:
+        return env_database
+
+    return config["database"]["path"]
+
+
 def resolve_database_path(args, config, repo_dir: Path) -> Path:
-    database = Path(args.database if args.database else config["database"]["path"])
+    database = Path(resolve_database_setting(args.database, config)).expanduser()
     if not database.is_absolute():
         database = repo_dir / database
-    return database
+    return database.resolve()
 
 
 def resolve_tree_method(args, config) -> str:
@@ -564,9 +580,10 @@ def show_version(config_path: str, database_override: Optional[str], repo_dir: P
 
     output = CliOutput(plain_output=True)
     config = load_config(config_path, repo_dir, output)
-    db_path = Path(database_override if database_override else config["database"]["path"])
+    db_path = Path(resolve_database_setting(database_override, config)).expanduser()
     if not db_path.is_absolute():
         db_path = repo_dir / db_path
+    db_path = db_path.resolve()
 
     print("GVClass Pipeline")
     print(f"  Software version: {SOFTWARE_VERSION}")
