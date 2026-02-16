@@ -9,6 +9,7 @@ platforms = ["linux-64"]
 [dependencies]
 # Python runtime
 python = "3.11.*"
+packaging = ">=21.3,<25.1"  # Prefect currently requires packaging <25.1
 
 # Core scientific libraries used in the code
 pandas = ">=2.3"     # Used for data manipulation
