@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import csv
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -22,6 +23,21 @@ from src.bin.progress_monitor import ResourceMonitor
 SOFTWARE_VERSION = "v1.2.1"
 PLAIN_OUTPUT_ENV = "GVCLASS_PLAIN_OUTPUT"
 DATABASE_PATH_ENV = "GVCLASS_DB"
+TWO_DECIMAL_SUMMARY_COLUMNS = {
+    "avgdist",
+    "order_dup",
+    "order_completeness",
+    "weighted_order_completeness",
+    "order_weighted_completeness",
+    "order_confidence_score",
+    "gvog8_dup",
+    "vp_df",
+    "mirus_df",
+    "cellular_dup",
+    "GCperc",
+    "CODINGperc",
+}
+NUMERIC_VALUE_PATTERN = re.compile(r"^[+-]?\d+(?:\.\d+)?$")
 
 
 class CliOutput:
@@ -530,11 +546,23 @@ def combine_summary_files(output_dir: Path, output: CliOutput):
         tsv_handle.write("\t".join(headers) + "\n")
         writer.writerow(headers)
         for row in combined_rows:
-            tsv_handle.write("\t".join(row) + "\n")
-            writer.writerow(row)
+            formatted_row = [
+                _format_summary_cell(header, value)
+                for header, value in zip(headers, row)
+            ]
+            tsv_handle.write("\t".join(formatted_row) + "\n")
+            writer.writerow(formatted_row)
 
     output.line(f"Combined summary written to: {combined_tsv}", key="success")
     output.line(f"CSV summary written to: {combined_csv}", key="success")
+
+
+def _format_summary_cell(header: str, value: str) -> str:
+    if header not in TWO_DECIMAL_SUMMARY_COLUMNS:
+        return value
+    if not value or not NUMERIC_VALUE_PATTERN.match(value):
+        return value
+    return f"{float(value):.2f}"
 
 
 def cleanup_temp_dir(temp_dir: Optional[Path]):

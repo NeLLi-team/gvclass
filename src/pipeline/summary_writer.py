@@ -145,6 +145,19 @@ TWO_DECIMAL_COLUMNS = {
     "CODINGperc",
 }
 
+LEGACY_TWO_DECIMAL_COLUMNS = {
+    "avgdist",
+    "order_dup",
+    "order_completeness",
+    "gvog8_dup",
+    "vp_df",
+    "mirus_df",
+    "cellular_dup",
+    "GCperc",
+    "CODINGperc",
+    "weighted_order_completeness",
+}
+
 
 def write_individual_summary_file(
     query_output_dir: Path, query_name: str, summary_data: Dict[str, Any], logger
@@ -173,8 +186,16 @@ def _build_legacy_summary_row(summary_data: Dict[str, Any]) -> List[str]:
 def _get_legacy_summary_value(summary_data: Dict[str, Any], header: str) -> str:
     for data_key, header_name in LEGACY_SUMMARY_KEY_MAPPING.items():
         if header_name == header:
-            return str(summary_data.get(data_key, ""))
-    return str(summary_data.get(header, ""))
+            return _format_legacy_summary_value(header, summary_data.get(data_key, ""))
+    return _format_legacy_summary_value(header, summary_data.get(header, ""))
+
+
+def _format_legacy_summary_value(header: str, value: Any) -> str:
+    if isinstance(value, float):
+        if header in LEGACY_TWO_DECIMAL_COLUMNS:
+            return f"{value:.2f}"
+        return f"{value:.0f}"
+    return str(value)
 
 
 def write_final_summary_files(results: List[Dict[str, Any]], output_dir: Path) -> Path:
