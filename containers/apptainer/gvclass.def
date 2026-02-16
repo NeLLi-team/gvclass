@@ -2,7 +2,7 @@ Bootstrap: docker
 From: ghcr.io/prefix-dev/pixi:latest
 
 %files
-    # Copy the entire project excluding resources (will be bind-mounted)
+    # Stage repo contents; selective copy happens in %post.
     . /opt/gvclass_staging
 
 %environment
@@ -13,22 +13,37 @@ From: ghcr.io/prefix-dev/pixi:latest
     # Install system dependencies
     # The pixi base image is based on Debian/Ubuntu
     apt-get update && apt-get install -y \
+        build-essential \
+        git \
         libgomp1 \
         wget \
         && apt-get clean \
         && rm -rf /var/lib/apt/lists/*
     
-    # Move files from staging to final location, INCLUDING resources
+    # Move only required project files from staging to final location,
+    # including resources bundled in this image.
     mkdir -p /opt/gvclass
     cd /opt/gvclass_staging
-    
-    # Copy everything INCLUDING resources directory
-    for item in *; do
+
+    for item in \
+        LICENCE \
+        README.md \
+        config \
+        containers \
+        docs \
+        example \
+        gvclass \
+        gvclass-a \
+        images \
+        pixi.lock \
+        pixi.toml \
+        release_notes \
+        resources \
+        src
+    do
+        [ -e "$item" ] || continue
         cp -r "$item" /opt/gvclass/
     done
-    
-    # Copy hidden files (like .gitignore) if they exist
-    cp -r .* /opt/gvclass/ 2>/dev/null || true
     
     # Fix permissions on database files to make them readable
     chmod -R 755 /opt/gvclass/resources/database/ 2>/dev/null || true
