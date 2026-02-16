@@ -2,10 +2,48 @@
 """Wrapper to run the published GVClass Apptainer image with minimal typing."""
 
 import argparse
+import re
 import subprocess
 from pathlib import Path
 
-DEFAULT_IMAGE = "library://nelligroup-jgi/gvclass/gvclass"
+DEFAULT_IMAGE = "library://nelligroup-jgi/gvclass/gvclass:1.2.1"
+PUBLIC_LIBRARY_URL = "https://library.sylabs.io"
+IMAGE_CACHE_DIR = Path.home() / ".cache" / "gvclass" / "images"
+
+
+def is_library_uri(image: str) -> bool:
+    return image.startswith("library://")
+
+
+def cache_filename_for_library_image(image: str) -> str:
+    slug = image.split("://", 1)[1]
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "_", slug).strip("_")
+    if not slug:
+        slug = "gvclass_image"
+    return f"{slug}.sif"
+
+
+def ensure_local_image(image: str) -> str:
+    if not is_library_uri(image):
+        return image
+
+    IMAGE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    local_image = IMAGE_CACHE_DIR / cache_filename_for_library_image(image)
+    if local_image.exists():
+        return str(local_image)
+
+    pull_cmd = [
+        "apptainer",
+        "pull",
+        "--library",
+        PUBLIC_LIBRARY_URL,
+        "-F",
+        str(local_image),
+        image,
+    ]
+    if subprocess.call(pull_cmd) != 0:
+        raise SystemExit(f"Failed to pull Apptainer image: {image}")
+    return str(local_image)
 
 
 def run_container(
@@ -35,6 +73,7 @@ def run_container(
             )
 
     output_abs.mkdir(parents=True, exist_ok=True)
+    resolved_image = ensure_local_image(image)
 
     if query_abs.is_file():
         bind_source = query_abs.parent
@@ -50,7 +89,7 @@ def run_container(
         f"{bind_source}:/input",
         "-B",
         f"{output_abs}:/output",
-        image,
+        resolved_image,
         query_in_container,
         "-o",
         "/output",
@@ -139,7 +178,10 @@ def _add_mode_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--image",
         default=DEFAULT_IMAGE,
-        help="Apptainer image URI or path (default: %(default)s)",
+        help=(
+            "Apptainer image URI or path. library:// URIs are auto-pulled via "
+            f"{PUBLIC_LIBRARY_URL} (default: %(default)s)"
+        ),
     )
 
 
