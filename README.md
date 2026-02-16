@@ -56,6 +56,7 @@ chmod +x gvclass-a
 ./gvclass-a my_data my_results -t 32 --tree-method iqtree --mode-fast
 ```
 
+`gvclass-a` auto-pulls `library://` images through the public Sylabs endpoint (`https://library.sylabs.io`), so users do **not** need an access token for normal pulls/runs.
 The Apptainer image includes the database (~700MB) and all dependencies. No setup needed!
 
 ## Input Requirements
@@ -186,8 +187,9 @@ pixi run gvclass example -o example_results
 The `gvclass-a` wrapper handles container execution automatically. For manual control:
 
 ```bash
-# Pull the image manually
-apptainer pull library://nelligroup-jgi/gvclass/gvclass:1.2.1
+# Pull the image manually (works without auth token for public images)
+apptainer pull --library https://library.sylabs.io \
+  gvclass_1.2.1.sif library://nelligroup-jgi/gvclass/gvclass:1.2.1
 
 # Run with manual bind mounts
 apptainer run -B /path/to/data:/input -B /path/to/results:/output \
@@ -198,7 +200,7 @@ The wrapper is simpler and handles bind mounts automatically.
 
 #### Publishing the Apptainer Image (library://)
 
-To make `apptainer pull library://nelligroup-jgi/gvclass/gvclass:1.2.1` work, you must build and push the SIF to the Sylabs library:
+To make `apptainer pull --library https://library.sylabs.io ...` work for users, you must build and push the SIF to the Sylabs library:
 
 ```bash
 # Build the SIF from the definition file
