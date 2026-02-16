@@ -107,8 +107,7 @@ pixi run gvclass --contigs my_genome.fna -o results -t 32
 ## Output
 
 Results are saved to `<input_name>_results/` containing:
-- `gvclass_summary.tsv` - Main results with taxonomy assignments (legacy format)
-- `gvclass_summary.csv` - Main results with taxonomy assignments (CSV for spreadsheets)
+- `gvclass_summary.csv`, `gvclass_summary.tsv`
 - Individual query subdirectories with detailed analysis
 
 ### Output Columns Explained
@@ -141,7 +140,7 @@ Results are saved to `<input_name>_results/` containing:
 | genecount | Number of predicted genes |
 | CODINGperc | Coding density percentage |
 | ttable | Genetic code used |
-| weighted_order_completeness | **NEW**: Weighted completeness score considering marker importance |
+| weighted_order_completeness | Weighted completeness score considering marker importance |
 
 ## Configuration (Optional)
 
@@ -178,7 +177,7 @@ pixi run gvclass example -o example_results
 - **Polinton-like Virus MCP Models**: Added PLV MCP models to improve Polinton-like virus detection.
 - **Extended Eukaryotic Reference Database**: Added and refreshed eukaryotic references for broader classification coverage.
 - **Updated Labels File**: Resource labels now use `gvclassFeb26_labels.tsv`.
-- **Database Release**: Updated bundled resource tarball to `resources_v1_2_1.tar.gz`.
+- **Database Release**: Updated bundled resource tarball to `resources_v1_2_1.tar.gz` now on zenodo.
 
 ## Advanced Usage
 
