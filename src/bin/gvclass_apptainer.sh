@@ -70,8 +70,8 @@ if [ -f "gvclass.sif" ]; then
     echo "Using local Apptainer image: gvclass.sif"
     IMAGE="gvclass.sif"
 else
-    echo "Using Docker Hub image: gvclass:1.2.1"
-    IMAGE="docker://gvclass:1.2.1"
+    echo "Using Docker Hub image: gvclass:1.2.2"
+    IMAGE="docker://gvclass:1.2.2"
     # If Docker Hub image doesn't exist, build it locally
     if ! apptainer inspect "$IMAGE" &> /dev/null; then
         echo "Building Apptainer image from Dockerfile..."
@@ -86,7 +86,7 @@ OUTPUT_DIR="${QUERYDIR}_results"
 # Create output directory if it doesn't exist
 mkdir -p "$OUTPUT_DIR"
 
-# Run GVClass using the new Prefect-based pipeline
+# Run GVClass pipeline
 apptainer run --containall \
   --bind "$(pwd)/$QUERYDIR:/data:ro" \
   --bind "$(pwd)/$OUTPUT_DIR:/results" \

@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-v1.2.1-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/version-v1.2.2-blue.svg" alt="Version">
   <img src="https://img.shields.io/badge/license-BSD--3--Clause-green.svg" alt="License">
   <img src="https://img.shields.io/badge/python-3.11-blue.svg" alt="Python">
   <img src="https://img.shields.io/badge/pixi-enabled-orange.svg" alt="Pixi">
@@ -173,12 +173,11 @@ pixi run setup-db
 pixi run gvclass example -o example_results
 ```
 
-## What's New in v1.2.1
+## What's New in v1.2.2
 
-- **Polinton-like Virus MCP Models**: Added PLV MCP models to improve Polinton-like virus detection.
-- **Extended Eukaryotic Reference Database**: Added and refreshed eukaryotic references for broader classification coverage.
-- **Updated Labels File**: Resource labels now use `gvclassFeb26_labels.tsv`.
-- **Database Release**: Updated bundled resource tarball to `resources_v1_2_1.tar.gz` now on zenodo.
+- **HPC Runtime Robustness**: Removed runtime dependence on Prefect task orchestration to avoid ephemeral Prefect API startup failures on restricted systems.
+- **Container Release**: Updated public Apptainer image tag to `1.2.2`.
+- **Database Version**: Unchanged (`v1.2.1`, tarball `resources_v1_2_1.tar.gz`).
 
 ## Advanced Usage
 
@@ -189,11 +188,11 @@ The `gvclass-a` wrapper handles container execution automatically. For manual co
 ```bash
 # Pull the image manually (works without auth token for public images)
 apptainer pull --library https://library.sylabs.io \
-  gvclass_1.2.1.sif library://nelligroup-jgi/gvclass/gvclass:1.2.1
+  gvclass_1.2.2.sif library://nelligroup-jgi/gvclass/gvclass:1.2.2
 
 # Run with manual bind mounts
 apptainer run -B /path/to/data:/input -B /path/to/results:/output \
-  gvclass_1.2.1.sif /input -o /output -t 32
+  gvclass_1.2.2.sif /input -o /output -t 32
 ```
 
 The wrapper is simpler and handles bind mounts automatically.
@@ -210,7 +209,7 @@ apptainer build gvclass.sif containers/apptainer/gvclass.def
 apptainer remote login
 
 # Push the image to the library
-apptainer push gvclass.sif library://nelligroup-jgi/gvclass/gvclass:1.2.1
+apptainer push gvclass.sif library://nelligroup-jgi/gvclass/gvclass:1.2.2
 ```
 
 ### Full CLI Reference (gvclass)
@@ -488,4 +487,4 @@ The GVClass v1.2.1 reference database includes genomes from the following source
 BSD 3-Clause License - see LICENSE file for details
 
 ---
-<sub>Version 1.2.1 - February 2026</sub>
+<sub>Version 1.2.2 - February 2026</sub>

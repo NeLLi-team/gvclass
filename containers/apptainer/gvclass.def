@@ -84,11 +84,11 @@ From: ghcr.io/prefix-dev/pixi:latest
 
 %labels
     Author fschulz
-    Version 1.2.1
+    Version 1.2.2
     Description GVClass - Giant Virus Classification Pipeline with Pixi
 
 %help
-    GVClass Pipeline v1.2.1
+    GVClass Pipeline v1.2.2
     
     IMPORTANT: Input data must be bind-mounted!
     

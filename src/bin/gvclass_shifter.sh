@@ -80,11 +80,11 @@ echo "Valid input files found: $VALID_FILES"
 OUTPUT_DIR="${QUERYDIR}_results"
 
 echo "Pulling Docker image..."
-shifterimg pull docker:gvclass:1.2.1
+shifterimg pull docker:gvclass:1.2.2
 
 echo "Running analysis..."
 # Shifter automatically handles user permissions
-shifter --image=docker:gvclass:1.2.1 \
+shifter --image=docker:gvclass:1.2.2 \
   --volume="$(pwd)/$QUERYDIR:/data:ro" \
   --volume="$(pwd)/$OUTPUT_DIR:/results" \
   --workdir="/app" \
