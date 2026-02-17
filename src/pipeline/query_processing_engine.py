@@ -6,12 +6,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+import logging
 import shutil
 import tarfile
 import time
 import traceback
-
-from prefect import get_run_logger
 
 from src.core.genetic_code_optimizer import GeneticCodeOptimizer
 from src.core.hmm_search import run_pyhmmer_search_with_filtering
@@ -35,6 +34,11 @@ HMM_MODEL_FILES = [
     "UNI56.hmm",
 ]
 
+
+def _pipeline_logger():
+    return logging.getLogger("gvclass_prefect")
+
+
 @dataclass
 class PreparedQueryInput:
     """Input files and metadata needed by downstream query steps."""
@@ -54,7 +58,7 @@ def process_single_query(
     threads: int = 4,
 ) -> Dict[str, Any]:
     """Run the complete pipeline for one query."""
-    logger = get_run_logger()
+    logger = _pipeline_logger()
     query_name, query_output_dir = _initialize_query(query_file, output_base)
     logger.info(
         f"Processing query: {query_name} with {threads} threads (sensitive_mode={sensitive_mode})"
@@ -335,7 +339,7 @@ def _resolve_hmm_files(database_path: Path) -> List[str]:
         return existing_hmm_files
     combined_hmm = model_dir / "combined.hmm"
     if combined_hmm.exists():
-        get_run_logger().info("Using fallback combined.hmm file")
+        _pipeline_logger().info("Using fallback combined.hmm file")
         return [str(combined_hmm)]
     raise ProcessingError("No HMM model files found", step="hmm_search")
 

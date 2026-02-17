@@ -1,30 +1,13 @@
 #!/usr/bin/env python
 """
-GVClass command-line interface with proper Prefect orchestration.
+GVClass command-line interface.
 """
 
 import click
 import sys
 from pathlib import Path
-import logging
-import os
-import tempfile
 from src.utils import setup_logging
 
-# Set default Prefect home early to avoid permission issues
-# This will be overridden later with the actual output directory if possible
-default_prefect_home = Path(tempfile.mkdtemp(prefix="prefect_", dir="/tmp"))
-os.environ["PREFECT_HOME"] = str(default_prefect_home)
-
-# Disable Prefect server requirement for local runs
-os.environ.setdefault("PREFECT_API_URL", "")
-
-# Configure logging before importing Prefect
-logging.getLogger("prefect.events").setLevel(logging.ERROR)
-logging.getLogger("prefect._internal").setLevel(logging.ERROR)
-logging.getLogger("prefect").setLevel(logging.WARNING)
-
-# Import after logging configuration to suppress Prefect warnings
 from src.pipeline.prefect_flow import gvclass_flow  # noqa: E402
 
 
@@ -62,7 +45,7 @@ def print_run_configuration(
     mode_fast: bool,
     sensitive: bool,
 ) -> None:
-    click.echo("GVClass Pipeline v1.2.1")
+    click.echo("GVClass Pipeline v1.2.2")
     click.echo(f"Query directory: {query_path}")
     click.echo(f"Output directory: {output_path}")
     click.echo(f"Database: {db_path if db_path else 'Will download/use default'}")
@@ -78,18 +61,6 @@ def print_run_configuration(
     click.echo(f"Fast mode: {mode_fast}")
     click.echo(f"Sensitive mode: {sensitive}")
     click.echo("")
-
-
-def configure_prefect_home(output_path: Path, logger) -> None:
-    output_path.mkdir(parents=True, exist_ok=True)
-    prefect_home = output_path / ".prefect"
-    try:
-        prefect_home.mkdir(parents=True, exist_ok=True)
-        os.environ["PREFECT_HOME"] = str(prefect_home)
-    except PermissionError:
-        temp_prefect = Path(tempfile.mkdtemp(prefix="prefect_", dir="/tmp"))
-        os.environ["PREFECT_HOME"] = str(temp_prefect)
-        logger.debug(f"Using temporary Prefect home: {temp_prefect}")
 
 
 def run_flow(
@@ -136,7 +107,6 @@ def prepare_cli_context(
     tree_method: str,
     mode_fast: bool,
     sensitive: bool,
-    logger,
 ) -> tuple[Path, Path, str | None, dict]:
     query_path, output_path = resolve_paths(querydir, output_dir)
     db_path = database if database else None
@@ -157,7 +127,6 @@ def prepare_cli_context(
         mode_fast=mode_fast,
         sensitive=sensitive,
     )
-    configure_prefect_home(output_path, logger)
     return query_path, output_path, db_path, cluster_config
 
 
@@ -263,7 +232,6 @@ def main(querydir, output_dir, database, threads, max_workers, threads_per_worke
             tree_method=tree_method,
             mode_fast=mode_fast,
             sensitive=sensitive,
-            logger=logger,
         )
         execute_cli_flow(query_path, output_path, db_path, threads, max_workers, threads_per_worker, tree_method, mode_fast, sensitive, cluster_type, cluster_config, resume)
     except FileNotFoundError as exc:

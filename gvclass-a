@@ -6,7 +6,7 @@ import re
 import subprocess
 from pathlib import Path
 
-DEFAULT_IMAGE = "library://nelligroup-jgi/gvclass/gvclass:1.2.1"
+DEFAULT_IMAGE = "library://nelligroup-jgi/gvclass/gvclass:1.2.2"
 PUBLIC_LIBRARY_URL = "https://library.sylabs.io"
 IMAGE_CACHE_DIR = Path.home() / ".cache" / "gvclass" / "images"
 

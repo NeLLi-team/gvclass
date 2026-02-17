@@ -73,8 +73,8 @@ if command -v docker &> /dev/null; then
     read -r response
     if [[ "$response" =~ ^([yY][eE][sS]|[yY])$ ]]; then
         echo -e "${BLUE}Building Docker image...${NC}"
-        if docker build -t gvclass:1.2.1 -f containers/docker/Dockerfile .; then
-            docker tag gvclass:1.2.1 gvclass:latest
+        if docker build -t gvclass:1.2.2 -f containers/docker/Dockerfile .; then
+            docker tag gvclass:1.2.2 gvclass:latest
             echo -e "${GREEN}✓ Docker image built successfully${NC}"
             docker images | grep gvclass
         else
@@ -86,5 +86,5 @@ fi
 echo -e "\n${GREEN}Container build complete!${NC}"
 echo -e "\nUsage:"
 echo -e "  Apptainer:  singularity run -B /path/to/data:/data gvclass.sif /data/input_dir -t 32"
-echo -e "  Docker:     docker run -v /path/to/data:/data gvclass:1.2.1 /data -t 32"
+echo -e "  Docker:     docker run -v /path/to/data:/data gvclass:1.2.2 /data -t 32"
 echo -e "\nNote: The container includes the complete 850MB database."

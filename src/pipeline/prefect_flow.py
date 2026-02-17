@@ -1,23 +1,10 @@
-"""
-GVClass pipeline properly implemented with Prefect 2 and Dask.
-
-This module provides a true Prefect-based workflow with:
-- Proper @flow and @task decorators
-- Dynamic DaskTaskRunner configuration
-- Parallel query processing
-- Automatic worker/thread distribution
-- Support for local and cluster execution
-"""
+"""GVClass pipeline execution engine."""
 
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 import logging
-from datetime import timedelta
 import traceback
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
-
-from prefect import task, get_run_logger
-from prefect_dask import DaskTaskRunner  # noqa: F401
 
 from src.pipeline.query_processor import run_query_processing
 from src.pipeline.summary_writer import write_final_summary_files
@@ -25,21 +12,11 @@ from src.utils import InputValidator
 from src.utils.database_manager import DatabaseManager
 
 
-# Configure task defaults
-task_config = {
-    "retries": 2,
-    "retry_delay_seconds": 30,
-    "persist_result": True,
-    "cache_expiration": timedelta(hours=24),
-}
-
-
-@task(name="validate_and_setup", **task_config)
 def validate_and_setup_task(
     query_dir: str, output_dir: str, database_path: Optional[str] = None
 ) -> Dict[str, Any]:
     """Validate inputs and setup directories."""
-    logger = get_run_logger()
+    logger = logging.getLogger("gvclass_prefect")
     logger.info(f"Validating inputs - Query: {query_dir}, Output: {output_dir}")
     query_path = InputValidator.validate_query_directory(query_dir)
     output_path = Path(output_dir)
@@ -60,7 +37,6 @@ def validate_and_setup_task(
     }
 
 
-@task(name="process_query", **task_config)
 def process_query_task(
     query_file: Path,
     output_base: Path,
@@ -87,10 +63,9 @@ def process_query_task(
     )
 
 
-@task(name="create_final_summary", **task_config)
 def create_final_summary_task(results: List[Dict[str, Any]], output_dir: Path) -> Path:
     """Create the final summary file combining all results."""
-    logger = get_run_logger()
+    logger = logging.getLogger("gvclass_prefect")
     logger.info(f"Creating final summary for {len(results)} queries")
     summary_tsv = write_final_summary_files(results, output_dir)
     summary_csv = output_dir / "gvclass_summary.csv"
@@ -279,7 +254,7 @@ def gvclass_flow(
     cluster_config: Optional[Dict[str, Any]] = None,
     resume: bool = False,
 ):
-    """Main GVClass pipeline with Prefect task orchestration."""
+    """Main GVClass pipeline."""
     logger = logging.getLogger("gvclass_prefect")
     logger.info("Validating inputs and setting up directories")
     config = validate_and_setup_task(query_dir, output_dir, database_path)

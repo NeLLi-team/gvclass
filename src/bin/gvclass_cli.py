@@ -20,7 +20,7 @@ from src.bin.cli_display import print_banner, print_configuration
 from src.bin.progress_monitor import ResourceMonitor
 
 
-SOFTWARE_VERSION = "v1.2.1"
+SOFTWARE_VERSION = "v1.2.2"
 PLAIN_OUTPUT_ENV = "GVCLASS_PLAIN_OUTPUT"
 DATABASE_PATH_ENV = "GVCLASS_DB"
 TWO_DECIMAL_SUMMARY_COLUMNS = {
@@ -501,11 +501,7 @@ def build_runtime_env(repo_dir: Path):
             env["PYTHONPATH"] = os.pathsep.join([repo_str, existing_pythonpath])
     else:
         env["PYTHONPATH"] = repo_str
-    env["PREFECT_API_URL"] = ""
-    env["PREFECT_LOGGING_LEVEL"] = "ERROR"
     env["PYTHONWARNINGS"] = "ignore"
-    env["PREFECT_SERVER_STARTUP_TIMEOUT"] = "300"
-    env["PREFECT_API_DATABASE_TIMEOUT"] = "60"
     return env
 
 
