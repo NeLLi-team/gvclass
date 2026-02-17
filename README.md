@@ -61,8 +61,15 @@ The Apptainer image includes the database (~700MB) and all dependencies. No setu
 
 ## Input Requirements
 
-- **Directory** containing `.fna` (nucleic acid) or `.faa` (protein) files
-- **Minimum size**: 20kb recommended (50kb+ preferred)
+GVClass works best **after metagenomic binning**.
+
+- **Recommended input**: A directory containing one or more bin files (`.fna` or `.faa`)
+- **Bin definition**: One FASTA file with one or more contigs representing the same putative genome
+- **Alternative mode**: Use `--contigs` to treat contigs in a multi-contig `.fna` as independent viral genomes
+- **Length guidance for giant virus discovery**:
+  - Minimum supported: ~20 kb
+  - Better reliability: filter contigs to `>=30 kb`
+  - Preferred when possible: `>=50 kb`
 - **Clean filenames**: Avoid special characters (`.` `;` `:`), use `_` or `-` instead
 - **Protein headers**: Format as `filename|proteinid` for best results
 
@@ -71,7 +78,7 @@ The Apptainer image includes the database (~700MB) and all dependencies. No setu
 ### Using Pixi (from repo directory)
 
 ```bash
-# Basic usage
+# Recommended: run on bins after metagenomic binning
 pixi run gvclass my_genomes -o my_results -t 32
 
 # With options
@@ -80,14 +87,14 @@ pixi run gvclass my_genomes -t 32 --mode-fast --tree-method iqtree -j 4
 # Sensitive HMM search mode (uses E-value 1e-5 instead of GA cutoffs)
 pixi run gvclass my_genomes -t 32 --sensitive
 
-# Classify each contig separately (useful for metagenome contigs)
+# Alternative: classify each contig in a multi-contig FNA separately
 pixi run gvclass --contigs my_genome.fna -o results -t 32
 ```
 
 ### Using Apptainer (gvclass-a)
 
 ```bash
-# Basic usage
+# Recommended: run on bins after metagenomic binning
 ./gvclass-a my_genomes my_results -t 32
 
 # Fast mode (skip order-level markers for 2-3x speedup)
@@ -102,7 +109,7 @@ pixi run gvclass --contigs my_genome.fna -o results -t 32
 # Control parallelization (4 workers × 8 threads = 32 total)
 ./gvclass-a my_genomes my_results -t 32 -j 4
 
-# Classify each contig in a single FNA file separately
+# Alternative: classify each contig in a multi-contig FNA separately
 ./gvclass-a --contigs my_genome.fna -o results -t 32
 ```
 ## Output
@@ -156,6 +163,7 @@ pipeline:
   tree_method: fasttree             # or 'iqtree' for more accuracy
   mode_fast: false                  # Skip order-level marker trees when true (speeds up analysis)
   sensitive_mode: false             # Use E-value 1e-5 for pyhmmer instead of GA cutoffs
+  contigs_min_length: 10000         # In --contigs mode, skip contigs shorter than this (bp)
   threads: 16                       # Default thread count
 ```
 
@@ -226,7 +234,7 @@ apptainer push gvclass.sif library://nelligroup-jgi/gvclass/gvclass:1.2.2
 | `--mode-fast` | `-f` | Fast mode: core markers only | True |
 | `--extended` | `-e` | Extended mode: all marker trees | False |
 | `--sensitive` | | Sensitive HMM mode (`E=1e-5`, `domE=1e-5`, skip GA cutoffs) | False |
-| `--contigs` | `-C` | Split multi-contig file | False |
+| `--contigs` | `-C` | Treat each contig as an independent query genome | False |
 | `--resume` | | Resume interrupted run | False |
 | `--verbose` | `-v` | Enable debug output | False |
 | `--version` | | Show version info | |
@@ -237,7 +245,9 @@ apptainer push gvclass.sif library://nelligroup-jgi/gvclass/gvclass:1.2.2
 
 ### Contig Splitting Mode (`--contigs` / `-C`)
 
-Process each contig in a multi-contig FNA file as a separate query:
+By default, GVClass expects bins (directory input). Use `--contigs` when you want to process contigs as separate query genomes.
+
+Primary use case:
 
 ```bash
 # Split contigs and classify each independently
@@ -245,17 +255,20 @@ gvclass --contigs metagenome_contigs.fna -o results -t 32
 ```
 
 **How it works:**
-1. Requires a **single FNA file** (not a directory)
-2. Splits file into individual contig files in a temporary directory
+1. Accepts a **single multi-contig FNA file** (primary use case; directory input is also supported)
+2. Splits each sequence into individual contig files in a temporary directory
 3. Sanitizes contig IDs for filenames (replaces `/\:*?"<>|` and spaces with `_`)
-4. Processes each contig independently through the full pipeline
-5. Combines results into `gvclass_summary.tsv`
-6. Cleans up temporary files automatically
+4. Applies minimum length filter from config (`pipeline.contigs_min_length`, default: `10000` bp)
+5. Processes each retained contig independently through the full pipeline
+6. Combines results into `gvclass_summary.tsv`
+7. Cleans up temporary files automatically
 
 **Use cases:**
-- Classifying giant virus contigs from metagenome assemblies
-- Processing binned genomes with multiple contigs
-- Screening assembled sequences for giant virus candidates
+- Screening metagenome contigs before binning
+- Evaluating candidate viral contigs as independent genomes
+- Rapid triage when bins are not yet available
+
+For giant virus-focused analyses, set `pipeline.contigs_min_length` to at least `30000` (preferably `50000`) for more reliable classifications.
 
 ### Genetic Code Selection
 

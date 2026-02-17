@@ -15,6 +15,8 @@ pipeline:
   mode_fast: true
   # Keep default GA-based filtering for tests unless explicitly overridden
   sensitive_mode: false
+  # Minimum contig length (bp) used in --contigs mode when splitting files
+  contigs_min_length: 10000
   # Reduced threads for testing
   threads: 4
   # Test output pattern
