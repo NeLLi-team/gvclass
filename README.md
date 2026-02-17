@@ -185,7 +185,7 @@ pixi run gvclass example -o example_results
 
 - **HPC Runtime Robustness**: Removed runtime dependence on Prefect task orchestration to avoid ephemeral Prefect API startup failures on restricted systems.
 - **Container Release**: Updated public Apptainer image tag to `1.2.2`.
-- **Database Version**: Unchanged (`v1.2.1`, tarball `resources_v1_2_1.tar.gz`).
+- **Database Version**: Updated to `v1.2.2` (`resources_v1_2_2.tar.gz`).
 
 ## Advanced Usage
 
@@ -480,7 +480,7 @@ If you use GVClass, please cite:
 
 ## Database References
 
-The GVClass v1.2.1 reference database includes genomes from the following sources:
+The GVClass v1.2.2 reference database includes genomes from the following sources:
 
 > Medvedeva S, Guyet U, Pelletier E, et al. (2026): Widespread and intron-rich mirusviruses are predicted to reproduce in nuclei of unicellular eukaryotes. Nature Microbiology 11:228-239. https://doi.org/10.1038/s41564-025-01906-2
 
