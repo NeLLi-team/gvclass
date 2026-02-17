@@ -25,6 +25,12 @@ class DatabaseManager:
 
     DATABASE_SOURCES = [
         {
+            "version": "v1.2.2",
+            "url": "https://zenodo.org/records/18662446/files/resources_v1_2_2.tar.gz?download=1",
+            "filename": "resources_v1_2_2.tar.gz",
+            "sha256": "47bd2822b1da8a4c30db259607a0e7ae1747a9df6ce554a98cc015fd7b654ace",
+        },
+        {
             "version": "v1.2.1",
             "url": "https://zenodo.org/records/18662446/files/resources_v1_2_1.tar.gz?download=1",
             "filename": "resources_v1_2_1.tar.gz",
