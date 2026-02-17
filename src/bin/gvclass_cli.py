@@ -100,6 +100,7 @@ class PipelineContext:
     mode_fast: bool
     sensitive_mode: bool
     contigs: ContigInput
+    contigs_min_length: int
     temp_contigs_dir: Optional[Path]
     n_queries: int
     n_input_files: int
@@ -225,6 +226,7 @@ def load_config(config_file: str, repo_dir: Path, output: CliOutput):
             "tree_method": "fasttree",
             "mode_fast": True,
             "sensitive_mode": False,
+            "contigs_min_length": 10000,
             "threads": 16,
             "output_pattern": "{query_dir}_results",
         },
@@ -290,6 +292,21 @@ def resolve_sensitive_mode(args, config) -> bool:
     return args.sensitive or config["pipeline"].get("sensitive_mode", False)
 
 
+def resolve_contigs_min_length(config) -> int:
+    raw_value = config["pipeline"].get("contigs_min_length", 10000)
+    try:
+        value = int(raw_value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"Invalid pipeline.contigs_min_length value: {raw_value!r} (must be an integer)"
+        ) from exc
+    if value < 0:
+        raise ValueError(
+            f"Invalid pipeline.contigs_min_length value: {value} (must be >= 0)"
+        )
+    return value
+
+
 def resolve_output_dir(args, query_dir: Path, config) -> Path:
     if args.output_dir:
         return Path(args.output_dir).resolve()
@@ -316,7 +333,7 @@ def resolve_contigs_input(query_dir_abs: Path, enabled: bool) -> ContigInput:
     raise ValueError(f"--contigs input not found: {query_dir_abs}")
 
 
-def split_contig_inputs(contigs: ContigInput, output: CliOutput):
+def split_contig_inputs(contigs: ContigInput, output: CliOutput, min_length: int):
     if not contigs.enabled:
         return None, 0, 0
 
@@ -324,14 +341,30 @@ def split_contig_inputs(contigs: ContigInput, output: CliOutput):
 
     if contigs.input_file:
         prefix = contigs.input_file.stem
-        output.line(f"Splitting contigs from: {contigs.input_file.name}", key="contigs")
-        temp_dir, n_contigs = split_contigs(contigs.input_file, prefix=prefix)
-        output.line(f"Found {n_contigs} contigs", key="success")
+        output.line(
+            f"Splitting contigs from: {contigs.input_file.name} (min length: {min_length} bp)",
+            key="contigs",
+        )
+        temp_dir, n_contigs = split_contigs(
+            contigs.input_file,
+            prefix=prefix,
+            min_length=min_length,
+        )
+        output.line(f"Found {n_contigs} contigs >= {min_length} bp", key="success")
         return temp_dir, n_contigs, 1
 
-    output.line(f"Splitting contigs from directory: {contigs.input_dir}", key="contigs")
-    temp_dir, n_contigs, n_files = split_contigs_from_directory(contigs.input_dir)
-    output.line(f"Found {n_contigs} contigs from {n_files} files", key="success")
+    output.line(
+        f"Splitting contigs from directory: {contigs.input_dir} (min length: {min_length} bp)",
+        key="contigs",
+    )
+    temp_dir, n_contigs, n_files = split_contigs_from_directory(
+        contigs.input_dir,
+        min_length=min_length,
+    )
+    output.line(
+        f"Found {n_contigs} contigs >= {min_length} bp from {n_files} files",
+        key="success",
+    )
     return temp_dir, n_contigs, n_files
 
 
@@ -627,12 +660,17 @@ def resolve_pipeline_context(args, repo_dir: Path, output: CliOutput) -> Pipelin
     tree_method = resolve_tree_method(args, config)
     mode_fast = resolve_mode_fast(args, config)
     sensitive_mode = resolve_sensitive_mode(args, config)
+    contigs_min_length = resolve_contigs_min_length(config)
     output_dir = resolve_output_dir(args, query_dir, config)
 
     if not check_and_setup_database(database, output):
         raise RuntimeError("Database setup failed")
 
-    temp_contigs_dir, _, n_input_files = split_contig_inputs(contigs, output)
+    temp_contigs_dir, _, n_input_files = split_contig_inputs(
+        contigs,
+        output,
+        min_length=contigs_min_length,
+    )
     active_query_dir = temp_contigs_dir if temp_contigs_dir else query_dir
 
     n_queries = count_query_files(active_query_dir)
@@ -653,6 +691,7 @@ def resolve_pipeline_context(args, repo_dir: Path, output: CliOutput) -> Pipelin
         mode_fast=mode_fast,
         sensitive_mode=sensitive_mode,
         contigs=contigs,
+        contigs_min_length=contigs_min_length,
         temp_contigs_dir=temp_contigs_dir,
         n_queries=n_queries,
         n_input_files=n_input_files,
@@ -724,6 +763,7 @@ def display_startup_configuration(args, context: PipelineContext, output: CliOut
         threads=context.threads,
         workers=context.workers,
         contigs=context.contigs,
+        contigs_min_length=context.contigs_min_length,
     )
 
 

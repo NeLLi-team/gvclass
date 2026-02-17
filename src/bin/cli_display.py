@@ -57,6 +57,7 @@ def print_configuration(
     threads: int,
     workers: "WorkerPlan",
     contigs: "ContigInput",
+    contigs_min_length: int,
 ) -> None:
     print()
     print("=" * 60)
@@ -66,9 +67,11 @@ def print_configuration(
     if contigs.enabled and contigs.input_file:
         print(f"Input file: {contigs.input_file}")
         print(f"Contigs mode: ENABLED ({n_queries} contigs from 1 file)")
+        print(f"Contigs min length filter: {contigs_min_length} bp")
     elif contigs.enabled and contigs.input_dir:
         print(f"Input directory: {contigs.input_dir}")
         print(f"Contigs mode: ENABLED ({n_queries} contigs from {n_input_files} files)")
+        print(f"Contigs min length filter: {contigs_min_length} bp")
     else:
         print(f"Query directory: {query_dir_abs}")
 
