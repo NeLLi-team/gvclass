@@ -9,50 +9,36 @@ platforms = ["linux-64"]
 [dependencies]
 # Python runtime
 python = "3.11.*"
-packaging = ">=21.3,<25.1"  # Prefect currently requires packaging <25.1
-
 # Core scientific libraries used in the code
-pandas = ">=2.3"     # Used for data manipulation
-biopython = "1.85.*" # Used for sequence I/O
+pandas = "==2.3.3"        # Used for data manipulation
+biopython = "==1.85"      # Used for sequence I/O
 
 # Phylogenetic analysis
-ete3 = ">=3.1.0"     # Used for tree parsing and analysis
-iqtree = ">=3.0.0"   # External binary for tree building
-diamond = ">=2.1.0"  # Fast protein alignment
+ete3 = "==3.1.2"          # Used for tree parsing and analysis
+iqtree = "==3.0.1"        # External binary for tree building
+diamond = "==2.1.23"      # Fast protein alignment
 
 # Build dependencies for pyrodigal
 cython = "3.0.*"
-setuptools = ">=62.0"
-wheel = "*"
+setuptools = "==81.0.0"
+wheel = "==0.46.2"
 
 # System utilities
-pyyaml = ">=6.0.0"   # For config file parsing
-psutil = ">=6.0.0"   # For system monitoring
-scikit-learn = ">=1.7.1,<2"
-hmmer = ">=3.4,<4"
+pyyaml = "==6.0.2"        # For config file parsing
+psutil = "==7.2.1"        # For system monitoring
+scikit-learn = "==1.7.2"
 
 [pypi-dependencies]
 # Bioinformatics tools (Python implementations)
-pyhmmer = ">=0.10.0"          # HMM search
-pytrimal = ">=0.8.0"          # Alignment trimming
-pyfamsa = ">=0.5.0"           # Multiple sequence alignment
+pyhmmer = "==0.12.0"          # HMM search
+pytrimal = "==0.8.5"          # Alignment trimming
+pyfamsa = "==0.6.2"           # Multiple sequence alignment
 pyrodigal = { git = "https://github.com/tomasbruna/pyrodigal.git" }  # Gene calling with codes 106, 129
-pyswrd = ">=0.1.0"            # BLAST alternative
-veryfasttree = ">=3.0.0"      # FastTree implementation
+pyswrd = "==0.3.1"            # BLAST alternative
+veryfasttree = "==4.0.4.1"    # FastTree implementation
 
 # CLI framework
-click = "==8.1.8"             # Explicit version to avoid conflicts
-
-# Workflow orchestration
-prefect = ">=3.4.10"          # Workflow management (latest stable)
-prefect-dask = ">=0.3.0"      # Dask integration for Prefect
-dask = "~=2024.3.0"           # Parallel computing (compatible version)
-distributed = "~=2024.3.0"    # Dask distributed computing (compatible version)
-dask-jobqueue = ">=0.9.0"     # Cluster job submission
-
-# Utility libraries (dependencies of above)
-networkx = ">=3.0"            # Required by dask
-cloudpickle = ">=3.0"         # Required by dask/prefect
+click = "==8.3.1"
 
 [tasks]
 # Main command
@@ -88,7 +74,7 @@ black = "*"
 flake8 = "*"
 mypy = "*"
 pre-commit = "*"
-click = "==8.1.8"  # Force version in dev too
+click = "==8.3.1"  # Force version in dev too
 
 [environments]
 default = ["dev"]
