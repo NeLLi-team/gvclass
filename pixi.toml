@@ -32,7 +32,7 @@ scikit-learn = "==1.7.2"
 # Bioinformatics tools (Python implementations)
 pyhmmer = "==0.12.0"          # HMM search
 pytrimal = "==0.8.5"          # Alignment trimming
-pyfamsa = "==0.6.2"           # Multiple sequence alignment
+pyfamsa = "==0.5.3.post1"     # Multiple sequence alignment (manylinux_2_17 wheels for HPC)
 pyrodigal = { git = "https://github.com/tomasbruna/pyrodigal.git" }  # Gene calling with codes 106, 129
 pyswrd = "==0.3.1"            # BLAST alternative
 veryfasttree = "==4.0.4.1"    # FastTree implementation
