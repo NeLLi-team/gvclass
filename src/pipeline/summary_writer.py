@@ -19,6 +19,11 @@ LEGACY_SUMMARY_HEADERS: List[str] = [
     "avgdist",
     "order_dup",
     "order_completeness",
+    "order_completeness_raw",
+    "order_completeness_baseline_mean",
+    "order_completeness_baseline_std",
+    "order_completeness_reference_order",
+    "order_completeness_strategy",
     "gvog4_unique",
     "gvog8_unique",
     "gvog8_total",
@@ -45,6 +50,7 @@ LEGACY_SUMMARY_HEADERS: List[str] = [
     "CODINGperc",
     "ttable",
     "weighted_order_completeness",
+    "weighted_order_completeness_raw",
 ]
 
 LEGACY_SUMMARY_KEY_MAPPING: Dict[str, str] = {
@@ -60,6 +66,11 @@ LEGACY_SUMMARY_KEY_MAPPING: Dict[str, str] = {
     "avgdist": "avgdist",
     "order_dup": "order_dup",
     "order_completeness": "order_completeness",
+    "order_completeness_raw": "order_completeness_raw",
+    "order_completeness_baseline_mean": "order_completeness_baseline_mean",
+    "order_completeness_baseline_std": "order_completeness_baseline_std",
+    "order_completeness_reference_order": "order_completeness_reference_order",
+    "order_completeness_strategy": "order_completeness_strategy",
     "gvog4_unique": "gvog4_unique",
     "gvog8_unique": "gvog8_unique",
     "gvog8_total": "gvog8_total",
@@ -86,6 +97,7 @@ LEGACY_SUMMARY_KEY_MAPPING: Dict[str, str] = {
     "CODINGperc": "CODINGperc",
     "ttable": "ttable",
     "order_weighted_completeness": "weighted_order_completeness",
+    "order_weighted_completeness_raw": "weighted_order_completeness_raw",
 }
 
 FINAL_SUMMARY_COLUMNS: List[str] = [
@@ -102,7 +114,13 @@ FINAL_SUMMARY_COLUMNS: List[str] = [
     "avgdist",
     "order_dup",
     "order_completeness",
+    "order_completeness_raw",
+    "order_completeness_baseline_mean",
+    "order_completeness_baseline_std",
+    "order_completeness_reference_order",
+    "order_completeness_strategy",
     "order_weighted_completeness",
+    "order_weighted_completeness_raw",
     "order_confidence_score",
     "gvog4_unique",
     "gvog8_unique",
@@ -139,7 +157,11 @@ TWO_DECIMAL_COLUMNS = {
     "mirus_df",
     "cellular_dup",
     "order_completeness",
+    "order_completeness_raw",
+    "order_completeness_baseline_mean",
+    "order_completeness_baseline_std",
     "order_weighted_completeness",
+    "order_weighted_completeness_raw",
     "order_confidence_score",
     "GCperc",
     "CODINGperc",
@@ -149,6 +171,9 @@ LEGACY_TWO_DECIMAL_COLUMNS = {
     "avgdist",
     "order_dup",
     "order_completeness",
+    "order_completeness_raw",
+    "order_completeness_baseline_mean",
+    "order_completeness_baseline_std",
     "gvog8_dup",
     "vp_df",
     "mirus_df",
@@ -156,6 +181,7 @@ LEGACY_TWO_DECIMAL_COLUMNS = {
     "GCperc",
     "CODINGperc",
     "weighted_order_completeness",
+    "weighted_order_completeness_raw",
 }
 
 
