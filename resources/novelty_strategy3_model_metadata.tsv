@@ -1,0 +1,11 @@
+order_name	n_training_samples	n_training_samples_used	model_name	validation_type	n_validation_families	test_r2	test_mae
+Algavirales	22626	7511	random_forest	leave_one_family_out	6	0.4898	14.3048
+Asfuvirales	6210	6210	extra_trees	leave_one_family_out	13	0.5785	12.3775
+Chitovirales	1296	1296	random_forest	random_split	0	0.9921	1.1357
+Imitervirales	160515	22252	hist_gbm	leave_one_family_out	17	0.3793	16.4235
+MIRUS	9990	8000	hist_gbm	random_split	0	0.4849	14.8023
+Pandoravirales	4941	4941	extra_trees	leave_one_family_out	10	0.4282	15.1132
+Pimascovirales	18144	11102	extra_trees	leave_one_family_out	16	0.5832	12.8073
+basal_chitovirales	162	162	extra_trees	random_split	0	0.9371	5.0409
+o_	432	432	random_forest	random_split	0	0.524	12.3563
+split_Imitervirales	2646	2646	random_forest	leave_one_family_out	4	-0.0821	21.0276

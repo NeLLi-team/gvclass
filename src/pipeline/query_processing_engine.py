@@ -54,6 +54,7 @@ def process_single_query(
     genetic_codes: List[int],
     tree_method: str,
     mode_fast: bool,
+    completeness_mode: str = "legacy",
     sensitive_mode: bool = False,
     threads: int = 4,
 ) -> Dict[str, Any]:
@@ -72,6 +73,7 @@ def process_single_query(
         genetic_codes=genetic_codes,
         tree_method=tree_method,
         mode_fast=mode_fast,
+        completeness_mode=completeness_mode,
         sensitive_mode=sensitive_mode,
         threads=threads,
         logger=logger,
@@ -100,6 +102,7 @@ def _run_query_stages(
     genetic_codes: List[int],
     tree_method: str,
     mode_fast: bool,
+    completeness_mode: str,
     sensitive_mode: bool,
     threads: int,
     logger,
@@ -117,7 +120,13 @@ def _run_query_stages(
         query_name, query_output_dir, database_path, marker_results, logger
     )
     summary_data = _generate_summary_data(
-        query_name, query_output_dir, database_path, tree_nn_results, mode_fast, logger
+        query_name,
+        query_output_dir,
+        database_path,
+        tree_nn_results,
+        mode_fast,
+        completeness_mode,
+        logger,
     )
     return prepared_input, summary_data
 
@@ -604,11 +613,12 @@ def _generate_summary_data(
     database_path: Path,
     tree_nn_results: Dict[str, Any],
     mode_fast: bool,
+    completeness_mode: str,
     logger,
 ) -> Dict[str, Any]:
     logger.info(f"Generating full summary: {query_name}")
     try:
-        summarizer = FullSummarizer(database_path)
+        summarizer = FullSummarizer(database_path, completeness_mode=completeness_mode)
         summary_data = summarizer.summarize_query_full(
             query_id=query_name,
             query_output_dir=query_output_dir,

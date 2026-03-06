@@ -20,7 +20,7 @@ from src.bin.cli_display import print_banner, print_configuration
 from src.bin.progress_monitor import ResourceMonitor
 
 
-SOFTWARE_VERSION = "v1.3.0"
+SOFTWARE_VERSION = "v1.4.0"
 PLAIN_OUTPUT_ENV = "GVCLASS_PLAIN_OUTPUT"
 DATABASE_PATH_ENV = "GVCLASS_DB"
 TWO_DECIMAL_SUMMARY_COLUMNS = {
@@ -30,6 +30,12 @@ TWO_DECIMAL_SUMMARY_COLUMNS = {
     "order_completeness_raw",
     "order_completeness_baseline_mean",
     "order_completeness_baseline_std",
+    "order_completeness_v2",
+    "order_completeness_v2_strategy2_raw",
+    "order_completeness_v2_strategy2_normalized",
+    "order_completeness_v2_support_score",
+    "order_completeness_v2_informative_fraction",
+    "estimated_completeness",
     "weighted_order_completeness",
     "weighted_order_completeness_raw",
     "order_weighted_completeness",
@@ -102,6 +108,7 @@ class PipelineContext:
     threads: int
     tree_method: str
     mode_fast: bool
+    completeness_mode: str
     sensitive_mode: bool
     contigs: ContigInput
     contigs_min_length: int
@@ -164,6 +171,11 @@ def _add_mode_arguments(parser: argparse.ArgumentParser) -> None:
         "--sensitive",
         action="store_true",
         help="Sensitive HMM mode: use E-value 1e-5 instead of GA cutoffs",
+    )
+    parser.add_argument(
+        "--completeness-mode",
+        choices=["legacy", "novelty-aware"],
+        help="Completeness estimator to surface as the primary estimate",
     )
     parser.add_argument(
         "--plain-output",
@@ -229,6 +241,7 @@ def load_config(config_file: str, repo_dir: Path, output: CliOutput):
         "pipeline": {
             "tree_method": "fasttree",
             "mode_fast": True,
+            "completeness_mode": "legacy",
             "sensitive_mode": False,
             "contigs_min_length": 10000,
             "threads": 16,
@@ -294,6 +307,12 @@ def resolve_mode_fast(args, config) -> bool:
 
 def resolve_sensitive_mode(args, config) -> bool:
     return args.sensitive or config["pipeline"].get("sensitive_mode", False)
+
+
+def resolve_completeness_mode(args, config) -> str:
+    if args.completeness_mode:
+        return args.completeness_mode
+    return config["pipeline"].get("completeness_mode", "legacy")
 
 
 def resolve_contigs_min_length(config) -> int:
@@ -481,9 +500,14 @@ def _base_prefect_command(
 
 
 def _append_optional_pipeline_flags(
-    cmd: list[str], args, mode_fast: bool, sensitive_mode: bool
+    cmd: list[str],
+    args,
+    mode_fast: bool,
+    completeness_mode: str,
+    sensitive_mode: bool,
 ) -> None:
     cmd.append("--mode-fast" if mode_fast else "--extended")
+    cmd.extend(["--completeness-mode", completeness_mode])
     if sensitive_mode:
         cmd.append("--sensitive")
     if args.cluster_queue:
@@ -525,7 +549,13 @@ def build_pipeline_command(
             args.cluster_type,
         ]
     )
-    _append_optional_pipeline_flags(cmd, args, context.mode_fast, context.sensitive_mode)
+    _append_optional_pipeline_flags(
+        cmd,
+        args,
+        context.mode_fast,
+        context.completeness_mode,
+        context.sensitive_mode,
+    )
     return cmd
 
 
@@ -663,6 +693,7 @@ def resolve_pipeline_context(args, repo_dir: Path, output: CliOutput) -> Pipelin
     threads = args.threads if args.threads else config["pipeline"].get("threads", 16)
     tree_method = resolve_tree_method(args, config)
     mode_fast = resolve_mode_fast(args, config)
+    completeness_mode = resolve_completeness_mode(args, config)
     sensitive_mode = resolve_sensitive_mode(args, config)
     contigs_min_length = resolve_contigs_min_length(config)
     output_dir = resolve_output_dir(args, query_dir, config)
@@ -693,6 +724,7 @@ def resolve_pipeline_context(args, repo_dir: Path, output: CliOutput) -> Pipelin
         threads=threads,
         tree_method=tree_method,
         mode_fast=mode_fast,
+        completeness_mode=completeness_mode,
         sensitive_mode=sensitive_mode,
         contigs=contigs,
         contigs_min_length=contigs_min_length,
@@ -769,6 +801,7 @@ def display_startup_configuration(args, context: PipelineContext, output: CliOut
         contigs=context.contigs,
         contigs_min_length=context.contigs_min_length,
     )
+    output.line(f"Completeness mode: {context.completeness_mode}")
 
 
 def build_runtime_command(args, context: PipelineContext, repo_dir: Path, output: CliOutput):

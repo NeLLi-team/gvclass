@@ -44,6 +44,7 @@ def process_query_task(
     genetic_codes: List[int],
     tree_method: str,
     mode_fast: bool,
+    completeness_mode: str = "legacy",
     sensitive_mode: bool = False,
     threads: int = 4,
 ) -> Dict[str, Any]:
@@ -58,6 +59,7 @@ def process_query_task(
         genetic_codes=genetic_codes,
         tree_method=tree_method,
         mode_fast=mode_fast,
+        completeness_mode=completeness_mode,
         sensitive_mode=sensitive_mode,
         threads=threads,
     )
@@ -166,6 +168,7 @@ def _submit_query_jobs(
     genetic_codes: List[int],
     tree_method: str,
     mode_fast: bool,
+    completeness_mode: str,
     sensitive_mode: bool,
     threads_per_worker: int,
 ) -> Dict[Future, Path]:
@@ -179,6 +182,7 @@ def _submit_query_jobs(
             genetic_codes=genetic_codes,
             tree_method=tree_method,
             mode_fast=mode_fast,
+            completeness_mode=completeness_mode,
             sensitive_mode=sensitive_mode,
             threads=threads_per_worker,
         )
@@ -209,6 +213,7 @@ def _process_queries_in_parallel(
     genetic_codes: List[int],
     tree_method: str,
     mode_fast: bool,
+    completeness_mode: str,
     sensitive_mode: bool,
     threads_per_worker: int,
     logger,
@@ -227,6 +232,7 @@ def _process_queries_in_parallel(
             genetic_codes,
             tree_method,
             mode_fast,
+            completeness_mode,
             sensitive_mode,
             threads_per_worker,
         )
@@ -248,6 +254,7 @@ def gvclass_flow(
     threads_per_worker: Optional[int] = None,
     tree_method: str = "fasttree",
     mode_fast: bool = True,
+    completeness_mode: str = "legacy",
     sensitive_mode: bool = False,
     genetic_codes: List[int] = [0, 1, 4, 6, 11, 15, 29, 106, 129],
     cluster_type: str = "local",
@@ -271,7 +278,15 @@ def gvclass_flow(
 
     logger.info("Starting parallel query processing")
     results, total_queries = _process_queries_in_parallel(
-        config, n_workers, genetic_codes, tree_method, mode_fast, sensitive_mode, threads_per_worker, logger
+        config,
+        n_workers,
+        genetic_codes,
+        tree_method,
+        mode_fast,
+        completeness_mode,
+        sensitive_mode,
+        threads_per_worker,
+        logger,
     )
     completed_count = _count_completed(results)
     logger.info(

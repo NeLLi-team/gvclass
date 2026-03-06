@@ -24,6 +24,7 @@ from src.config.marker_sets import (
     PLV_PREFIX,
 )
 from src.core.weighted_completeness import create_weighted_calculator
+from src.core.novelty_completeness import create_novelty_completeness_scorer
 
 logger = logging.getLogger(__name__)
 
@@ -50,9 +51,10 @@ class FullSummarizer:
         "species": 6,
     }
 
-    def __init__(self, database_path: Path):
+    def __init__(self, database_path: Path, completeness_mode: str = "legacy"):
         """Initialize with database path."""
         self.database_path = database_path
+        self.completeness_mode = completeness_mode
         self.labels_file = database_path / "gvclassFeb26_labels.tsv"
         self.completeness_table = database_path / "order_completeness.tab"
         self.order_stats_df = self._load_order_stats()
@@ -60,6 +62,7 @@ class FullSummarizer:
 
         # Initialize weighted completeness calculator
         self.weighted_calculator = create_weighted_calculator(database_path)
+        self.novelty_scorer = create_novelty_completeness_scorer(database_path)
 
     def load_labels(self) -> Dict[str, List[str]]:
         """Load taxonomy labels from file."""
@@ -274,7 +277,9 @@ class FullSummarizer:
 
         return majority, strict
 
-    def calculate_order_metrics(self, counts_file: Path, order_tax: str) -> Dict[str, any]:
+    def calculate_order_metrics(
+        self, counts_file: Path, order_tax: str, family_tax: str = ""
+    ) -> Dict[str, any]:
         """Calculate order-specific completeness and duplication metrics.
 
         Returns:
@@ -300,7 +305,7 @@ class FullSummarizer:
             normalized_weighted_completeness, _, _ = (
                 self._normalize_order_completeness(raw_weighted_completeness, order_tax)
             )
-            return {
+            result = {
                 "order_completeness": normalized_completeness,
                 "order_completeness_raw": raw_completeness,
                 "order_dup": duplication,
@@ -311,7 +316,21 @@ class FullSummarizer:
                 "order_completeness_baseline_std": baseline_std,
                 "order_completeness_reference_order": order_tax,
                 "order_completeness_strategy": "order_baseline_ratio_v1",
+                "estimated_completeness": normalized_completeness,
+                "estimated_completeness_strategy": "order_baseline_ratio_v1",
             }
+            if self.novelty_scorer.available:
+                result.update(
+                    self.novelty_scorer.calculate(
+                        marker_counts=marker_counts,
+                        order_tax=order_tax,
+                        family_tax=family_tax,
+                        strategy1_raw=raw_completeness,
+                        strategy1_score=normalized_completeness,
+                        selected_mode=self.completeness_mode,
+                    )
+                )
+            return result
 
         except Exception as e:
             logger.error(f"Error calculating order metrics: {e}")
@@ -330,6 +349,17 @@ class FullSummarizer:
             "order_completeness_baseline_std": 0.0,
             "order_completeness_reference_order": order_tax,
             "order_completeness_strategy": "order_baseline_ratio_v1",
+            "order_completeness_v2": 0.0,
+            "order_completeness_v2_strategy": "novelty_aware_v1",
+            "order_completeness_v2_strategy2_raw": 0.0,
+            "order_completeness_v2_strategy2_normalized": 0.0,
+            "order_completeness_v2_support_score": 0.0,
+            "order_completeness_v2_ood_flag": "unassigned",
+            "order_completeness_v2_reference_group": "unavailable",
+            "order_completeness_v2_validation_mode": "unavailable",
+            "order_completeness_v2_informative_fraction": 0.0,
+            "estimated_completeness": 0.0,
+            "estimated_completeness_strategy": "order_baseline_ratio_v1",
         }
 
     def _load_order_orthogroups(self, order_tax: str) -> List[str]:
@@ -633,13 +663,25 @@ class FullSummarizer:
         parts = most_common_order.split("__")
         return parts[1] if len(parts) > 1 else most_common_order
 
+    def _extract_family_taxonomy(self, tax_counters: Dict[str, Counter]) -> str:
+        """Extract most-supported family taxonomy token from counters."""
+        if not tax_counters["family"]:
+            return ""
+
+        most_common_family = tax_counters["family"].most_common(1)[0][0]
+        if "__" not in most_common_family:
+            return ""
+        parts = most_common_family.split("__")
+        return parts[1] if len(parts) > 1 else most_common_family
+
     def _add_order_metrics(
         self, result: Dict[str, any], counts_file: Path, tax_counters: Dict[str, Counter]
     ) -> None:
         """Populate order-level completeness metrics from order assignment."""
         order_tax = self._extract_order_taxonomy(tax_counters)
+        family_tax = self._extract_family_taxonomy(tax_counters)
         if order_tax:
-            result.update(self.calculate_order_metrics(counts_file, order_tax))
+            result.update(self.calculate_order_metrics(counts_file, order_tax, family_tax))
             return
 
         result.update(self._default_order_metrics(order_tax))
