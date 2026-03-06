@@ -1,0 +1,5 @@
+contamination/
+completeness/
+checksums/*
+*.tar.gz
+*.tar.gz.sha256

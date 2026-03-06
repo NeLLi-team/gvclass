@@ -25,6 +25,7 @@ from src.config.marker_sets import (
 )
 from src.core.weighted_completeness import create_weighted_calculator
 from src.core.novelty_completeness import create_novelty_completeness_scorer
+from src.core.contamination_scoring import create_contamination_scorer
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +64,7 @@ class FullSummarizer:
         # Initialize weighted completeness calculator
         self.weighted_calculator = create_weighted_calculator(database_path)
         self.novelty_scorer = create_novelty_completeness_scorer(database_path)
+        self.contamination_scorer = create_contamination_scorer(database_path)
 
     def load_labels(self) -> Dict[str, List[str]]:
         """Load taxonomy labels from file."""
@@ -686,6 +688,71 @@ class FullSummarizer:
 
         result.update(self._default_order_metrics(order_tax))
 
+    def _add_contamination_metrics(
+        self,
+        result: Dict[str, any],
+        query_id: str,
+        query_output_dir: Path,
+        marker_counts: Dict[str, int],
+        tax_counters: Dict[str, Counter],
+    ) -> None:
+        """Populate contamination metrics (rule-based, then ML override if available)."""
+        try:
+            result.update(
+                self.contamination_scorer.score_rule_based(
+                    result=result,
+                    marker_counts=marker_counts,
+                    tax_counters=tax_counters,
+                    query_output_dir=query_output_dir,
+                )
+            )
+        except Exception as exc:
+            logger.error("Error calculating contamination metrics: %s", exc)
+            result.update(
+                {
+                    "contamination_score_v1": 0.0,
+                    "contamination_flag_v1": "unknown",
+                    "contamination_source_v1": "none",
+                    "contamination_cellular_signal_v1": 0.0,
+                    "contamination_phage_signal_v1": 0.0,
+                    "contamination_duplication_signal_v1": 0.0,
+                    "contamination_viral_mixture_signal_v1": 0.0,
+                    "contamination_nonviral_hit_fraction_v1": 0.0,
+                    "estimated_contamination": 0.0,
+                    "estimated_contamination_strategy": "rule_based_v1",
+                }
+            )
+
+        # Collect contig-level features and apply the trained ML model.
+        try:
+            primary_order = self._extract_order_taxonomy(tax_counters)
+            primary_family = self._extract_family_taxonomy(tax_counters)
+            query_fna = query_output_dir / "query_fna" / f"{query_id}.fna"
+            query_faa = query_output_dir / "query_faa" / f"{query_id}.faa"
+            contig_features_raw = self.contamination_scorer.collect_contig_features(
+                query_fna,
+                query_faa,
+                query_output_dir / "blastp_out",
+                primary_order,
+                primary_family,
+            )
+            contig_features = {
+                "suspicious_bp_fraction_v2": contig_features_raw["suspicious_bp_fraction"],
+                "suspicious_contig_count_v2": contig_features_raw["suspicious_contig_count"],
+            }
+            result.update(contig_features)
+            if not self.contamination_scorer.ml_available:
+                raise RuntimeError(
+                    "A trained contamination model is required for production contamination estimates"
+                )
+            result.update(
+                self.contamination_scorer.predict_contamination(result, contig_features)
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                f"Failed to compute contamination estimate with the trained model: {exc}"
+            ) from exc
+
     def summarize_query_full(
         self,
         query_id: str,
@@ -708,4 +775,5 @@ class FullSummarizer:
             self._set_default_marker_metrics(result)
 
         self._add_order_metrics(result, counts_file, tax_counters)
+        self._add_contamination_metrics(result, query_id, query_output_dir, marker_counts, tax_counters)
         return result

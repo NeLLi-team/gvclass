@@ -267,13 +267,18 @@ class TestFullSummarizerIntegration:
 
             # Create mock order completeness file
             order_comp = pd.DataFrame(
-                {"Order": ["TestOrder"], "Orthogroups": ["OG21, OG22, OG23"]}
+                {
+                    "Order": ["TestOrder"],
+                    "Orthogroups": ["OG21, OG22, OG23"],
+                    "Average_Percent": [66.67],
+                    "Std_Percent": [5.0],
+                }
             )
             order_comp.to_csv(db_path / "order_completeness.tab", sep="\t", index=False)
 
             # Create mock labels file
             labels_content = "genome1\tNCLDV|Class|TestOrder|Family|Genus|Species\n"
-            (db_path / "gvclassSeptember25_labels.tsv").write_text(labels_content)
+            (db_path / "gvclassFeb26_labels.tsv").write_text(labels_content)
 
             yield db_path
 
@@ -296,22 +301,21 @@ class TestFullSummarizerIntegration:
         counts_file.write_text(counts_content)
 
         # Test the integration
-        completeness, duplication, weighted_comp, confidence = (
-            summarizer.calculate_order_metrics(counts_file, "TestOrder")
-        )
+        metrics = summarizer.calculate_order_metrics(counts_file, "TestOrder")
 
         # Validate return values
-        assert isinstance(completeness, float)
-        assert isinstance(duplication, float)
-        assert isinstance(weighted_comp, float)
-        assert isinstance(confidence, float)
+        assert isinstance(metrics["order_completeness"], float)
+        assert isinstance(metrics["order_dup"], float)
+        assert isinstance(metrics["order_weighted_completeness"], float)
+        assert isinstance(metrics["order_confidence_score"], float)
 
         # Traditional completeness should be 2/3 * 100 = 66.67%
-        assert abs(completeness - 66.67) < 0.1
+        assert abs(metrics["order_completeness_raw"] - 66.67) < 0.1
+        assert abs(metrics["order_completeness"] - 100.0) < 0.1
 
         # Weighted completeness should be different due to conservation weighting
-        assert weighted_comp > 0
-        assert confidence > 0
+        assert metrics["order_weighted_completeness"] > 0
+        assert metrics["order_confidence_score"] > 0
 
     def test_error_handling_in_integration(self, temp_database_dir):
         """Test error handling when weighted calculation fails."""
@@ -327,13 +331,11 @@ class TestFullSummarizerIntegration:
             counts_file = temp_database_dir / "test_counts.txt"
             counts_file.write_text("OG21\t1\n")
 
-            completeness, duplication, weighted_comp, confidence = (
-                summarizer.calculate_order_metrics(counts_file, "TestOrder")
-            )
+            metrics = summarizer.calculate_order_metrics(counts_file, "TestOrder")
 
             # Should fallback gracefully
-            assert weighted_comp == completeness  # Fallback to traditional
-            assert confidence == 50.0  # Default fallback confidence
+            assert metrics["order_weighted_completeness_raw"] == metrics["order_completeness_raw"]
+            assert metrics["order_confidence_score"] == 50.0
 
 
 class TestPerformanceAndScaling:

@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-v1.4.0-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/version-v1.5.0-blue.svg" alt="Version">
   <img src="https://img.shields.io/badge/license-BSD--3--Clause-green.svg" alt="License">
   <img src="https://img.shields.io/badge/python-3.11-blue.svg" alt="Python">
   <img src="https://img.shields.io/badge/pixi-enabled-orange.svg" alt="Pixi">
@@ -128,10 +128,16 @@ Results are saved to `<input_name>_results/` containing:
 | species → domain | Individual taxonomic levels with taxon counts |
 | avgdist | Average tree distance to references |
 | order_dup | Duplication factor indicating contamination level |
-| order_completeness | Order-specific completeness (% unique markers found) |
+| order_completeness | Legacy completeness estimate normalized against order reference baselines |
+| order_completeness_raw | Raw fraction of expected order markers recovered before baseline normalization |
 | order_completeness_v2 | Novelty-aware completeness using family/order reference tiers and calibrated shrinkage |
 | estimated_completeness | The primary completeness estimate selected by `--completeness-mode` |
 | estimated_completeness_strategy | Strategy label for the selected completeness estimate |
+| contamination_score_v1 | Rule-based contamination feature score retained for diagnostics and model input |
+| contamination_flag_v1/source_v1 | Rule-based severity bin and dominant signal source |
+| estimated_contamination | Primary contamination estimate from the trained contamination model |
+| estimated_contamination_strategy | Contamination model label (`hist_gbm_v1`) |
+| suspicious_bp_fraction_v2 / suspicious_contig_count_v2 | Contig-aware suspicious sequence burden used as model features |
 | gvog4_unique | Count of unique GVOG4 markers found |
 | gvog8_unique/total/dup | GVOG8 marker counts and duplication |
 | ncldv_mcp_total | NCLDV-specific MCP marker count |
@@ -185,12 +191,12 @@ pixi run setup-db
 pixi run gvclass example -o example_results
 ```
 
-## What's New in v1.4.0
+## What's New in v1.5.0
 
-- **Novelty-Aware Completeness**: Added a second completeness estimator that combines family/order marker tiers, family-normalized strategy-2 scoring, and calibrated strategy-3 predictions.
-- **OOD Diagnostics**: Output now reports support, reference group, validation mode, and an out-of-distribution flag for low-support or novel genomes.
-- **Mode Selection**: Use `--completeness-mode legacy|novelty-aware` to choose which estimate is surfaced as `estimated_completeness`.
-- **Baseline-Normalized Legacy Score**: The `v1.3.0` order-baseline completeness remains available as the legacy comparison score.
+- **Trained Contamination Model Default**: `estimated_contamination` now comes from the shipped trained contamination bundle instead of the rule-based score.
+- **Resource Validation Tightened**: Production resources are now expected to contain both the contamination bundle and the novelty-aware completeness resources.
+- **Benchmarking Workspace Separation**: Benchmark/reference workdirs moved under `benchmarking/` so runtime `resources/` stays production-focused.
+- **Full Summary Preservation**: The CLI preserves the richer final summary schema instead of collapsing back to the older per-query header set.
 
 ## Advanced Usage
 
@@ -201,14 +207,20 @@ The `gvclass-a` wrapper handles container execution automatically. For manual co
 ```bash
 # Pull the image manually (works without auth token for public images)
 apptainer pull --library https://library.sylabs.io \
-  gvclass_1.2.2.sif library://nelligroup-jgi/gvclass/gvclass:1.2.2
+  gvclass_1.5.0.sif library://nelligroup-jgi/gvclass/gvclass:1.5.0
 
 # Run with manual bind mounts
 apptainer run -B /path/to/data:/input -B /path/to/results:/output \
-  gvclass_1.2.2.sif /input -o /output -t 32
+  gvclass_1.5.0.sif /input -o /output -t 32
 ```
 
 The wrapper is simpler and handles bind mounts automatically.
+
+### Contamination Model Requirement
+
+Primary contamination estimates are produced by a trained model bundle in `resources/contamination_model.joblib`.
+The rule-based score remains in the output as a diagnostic/model feature, but it is no longer the production estimate surfaced as `estimated_contamination`.
+If the trained bundle is missing, GVClass should be treated as not fully configured for contamination estimation.
 
 #### Publishing the Apptainer Image (library://)
 
@@ -222,8 +234,17 @@ apptainer build gvclass.sif containers/apptainer/gvclass.def
 apptainer remote login
 
 # Push the image to the library
-apptainer push gvclass.sif library://nelligroup-jgi/gvclass/gvclass:1.2.2
+apptainer push gvclass.sif library://nelligroup-jgi/gvclass/gvclass:1.5.0
 ```
+
+### Benchmarking Assets
+
+Runtime resources and benchmarking assets are intentionally split:
+
+- `resources/` is the production runtime database and model bundle used by GVClass.
+- `benchmarking/` contains local/private reproducibility assets for contamination and completeness benchmarking.
+
+The benchmark workspace is not intended for public release yet. It can be packaged separately for private transfer (`scp`, shared storage, internal archive) without inflating the production download tarball.
 
 ### Full CLI Reference (gvclass)
 
@@ -304,10 +325,16 @@ Use sensitive mode when you want a more permissive marker search:
 ## Interpreting Quality Metrics
 
 ### Genome completeness
-- `order_completeness` shows the percentage of order-specific markers detected in single copy. Values above ~70% generally indicate near-complete genomes, 30–70% partial, and below 30% highly fragmented assemblies.
+- `order_completeness_raw` is the direct fraction of expected order markers detected.
+- `order_completeness` is the legacy baseline-normalized version of that raw score, allowing comparison against reference recovery patterns for the assigned order.
+- `order_completeness_v2` is the novelty-aware estimate; `estimated_completeness` simply surfaces either the legacy or novelty-aware path depending on `--completeness-mode`.
 - `weighted_order_completeness` applies conservation-based weights; large gaps here usually point to missing hallmark genes even if raw counts look acceptable.
 
 ### Contamination and mixed populations
+- `estimated_contamination` is the trained model output and should be treated as the primary contamination estimate.
+- `contamination_score_v1` is the interpretable rule-based precursor score. It remains useful for diagnostics, but it is not the default production estimate.
+- `contamination_flag_v1` and `contamination_source_v1` summarize the rule-based view of the dominant signal (cellular, phage, duplication, or viral mixture).
+- `suspicious_bp_fraction_v2` and `suspicious_contig_count_v2` summarize how much of the assembly is assigned to suspicious contigs by the contig-aware feature extractor.
 - `order_dup` and `gvog8_dup` summarize marker duplication. Values above ~2 suggest multiple populations or assembly chimeras; below ~1.5 is typically clean.
 - `gvog8_total` and `gvog8_unique` help distinguish true gene expansions (high total, moderate duplication) from assembly artefacts (high duplication, low uniqueness).
 - `ncldv_mcp_total`, `mirus_df`, `mrya_total` provide additional lineage-specific duplication hints.
@@ -315,10 +342,9 @@ Use sensitive mode when you want a more permissive marker search:
 - `plv` count helps distinguish PLV from virophages (PLVs share VP markers but have additional PLV-specific marker; count is not binary).
 
 ### Cellular carry-over
-- `uni56_total` (UNI56) counts universal cellular markers; more than ~10 unique hits point to host contamination or bins that include cellular contigs.
-- The wrapper also reports `busco_*` fields when available; elevated counts complement UNI56 for spotting non-viral material.
+- `cellular_unique`, `cellular_total`, and `contamination_cellular_signal_v1` summarize host-like marker burden and the strength of the cellular contamination signal.
 
-Use these fields together: a high completeness score with low duplication and low UNI56 is characteristic of a high-quality GVMAG; any combination of low completeness plus high duplication or high UNI56 warrants manual curation.
+Use these fields together: a high completeness score with low duplication and low cellular signal is characteristic of a high-quality GVMAG; any combination of low completeness plus high duplication or elevated contamination metrics warrants manual curation.
 
 ## Performance Optimization
 
@@ -486,7 +512,7 @@ If you use GVClass, please cite:
 
 ## Database References
 
-The GVClass v1.2.2 reference database includes genomes from the following sources:
+The GVClass v1.5.0 runtime resources include genomes/models derived from the following sources:
 
 > Medvedeva S, Guyet U, Pelletier E, et al. (2026): Widespread and intron-rich mirusviruses are predicted to reproduce in nuclei of unicellular eukaryotes. Nature Microbiology 11:228-239. https://doi.org/10.1038/s41564-025-01906-2
 
@@ -506,4 +532,4 @@ The GVClass v1.2.2 reference database includes genomes from the following source
 BSD 3-Clause License - see LICENSE file for details
 
 ---
-<sub>Version 1.4.0 - March 2026</sub>
+<sub>Version 1.5.0 - March 2026</sub>
