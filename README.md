@@ -129,9 +129,9 @@ For developer-facing formulas, training provenance, and the exact role of each c
 | taxonomy_strict | Conservative taxonomy (100% agreement) |
 | species → domain | Individual taxonomic levels with taxon counts |
 | avgdist | Average tree distance to references |
-| order_dup | Primary order-marker duplication factor |
-| estimated_completeness | Primary completeness estimate surfaced in the final summary table |
-| estimated_contamination | Primary contamination estimate surfaced in the final summary table |
+| order_dup | Average copy number of expected order-level markers; elevated values suggest duplicated, chimeric, or mixed bins |
+| estimated_completeness | Estimated percentage of the expected genome recovered for the assigned lineage. Determined by the novelty-aware completeness model by default |
+| estimated_contamination | Estimated percentage of the assembly likely to represent contaminant or mixed-origin sequence. Determined by the trained `hist_gbm_v1` contamination model |
 | gvog4_unique | Count of unique GVOG4 markers found |
 | gvog8_unique/total/dup | GVOG8 marker counts and duplication |
 | ncldv_mcp_total | NCLDV-specific MCP marker count |
