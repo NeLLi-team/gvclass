@@ -10,6 +10,7 @@ import pytest
 
 from src.bin.gvclass_cli import CliOutput, combine_summary_files
 from src.core.summarize_full import FullSummarizer
+from src.pipeline.summary_writer import FINAL_SUMMARY_COLUMNS
 
 
 def _write_minimal_database(db_path: Path) -> None:
@@ -131,3 +132,30 @@ def test_combine_summary_files_preserves_existing_final_summary(tmp_path: Path) 
 
     assert summary_tsv.read_text() == expected_tsv
     assert summary_csv.read_text() == expected_csv
+
+
+def test_final_summary_columns_surface_single_qc_estimates() -> None:
+    assert "estimated_completeness" in FINAL_SUMMARY_COLUMNS
+    assert "estimated_contamination" in FINAL_SUMMARY_COLUMNS
+
+    for column in [
+        "order_completeness",
+        "order_completeness_raw",
+        "order_completeness_v2",
+        "estimated_completeness_strategy",
+        "order_weighted_completeness",
+        "order_weighted_completeness_raw",
+        "order_confidence_score",
+        "contamination_score_v1",
+        "contamination_flag_v1",
+        "contamination_source_v1",
+        "estimated_contamination_strategy",
+        "suspicious_bp_fraction_v2",
+        "suspicious_contig_count_v2",
+        "cellular_unique",
+        "cellular_total",
+    ]:
+        assert column not in FINAL_SUMMARY_COLUMNS
+
+    for column in ["order_dup", "gvog8_dup", "vp_df", "mirus_df", "cellular_dup"]:
+        assert column in FINAL_SUMMARY_COLUMNS

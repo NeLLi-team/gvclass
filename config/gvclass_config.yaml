@@ -19,7 +19,7 @@ pipeline:
   # Fast mode - skip order-level marker trees when True
   mode_fast: true
   # Completeness estimate to surface in the summary tables
-  completeness_mode: legacy
+  completeness_mode: novelty-aware
   # Sensitive mode - use E-value 1e-5 cutoff instead of GA model cutoffs
   sensitive_mode: false
   # Minimum contig length (bp) used in --contigs mode when splitting files

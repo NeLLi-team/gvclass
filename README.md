@@ -129,17 +129,9 @@ For developer-facing formulas, training provenance, and the exact role of each c
 | taxonomy_strict | Conservative taxonomy (100% agreement) |
 | species → domain | Individual taxonomic levels with taxon counts |
 | avgdist | Average tree distance to references |
-| order_dup | Duplication factor indicating contamination level |
-| order_completeness | Legacy completeness estimate normalized against order reference baselines |
-| order_completeness_raw | Raw fraction of expected order markers recovered before baseline normalization |
-| order_completeness_v2 | Novelty-aware completeness using family/order reference tiers and calibrated shrinkage |
-| estimated_completeness | The primary completeness estimate selected by `--completeness-mode` |
-| estimated_completeness_strategy | Strategy label for the selected completeness estimate |
-| contamination_score_v1 | Rule-based contamination feature score retained for diagnostics and model input |
-| contamination_flag_v1/source_v1 | Rule-based severity bin and dominant signal source |
-| estimated_contamination | Primary contamination estimate from the trained contamination model |
-| estimated_contamination_strategy | Contamination model label (`hist_gbm_v1`) |
-| suspicious_bp_fraction_v2 / suspicious_contig_count_v2 | Contig-aware suspicious sequence burden used as model features |
+| order_dup | Primary order-marker duplication factor |
+| estimated_completeness | Primary completeness estimate surfaced in the final summary table |
+| estimated_contamination | Primary contamination estimate surfaced in the final summary table |
 | gvog4_unique | Count of unique GVOG4 markers found |
 | gvog8_unique/total/dup | GVOG8 marker counts and duplication |
 | ncldv_mcp_total | NCLDV-specific MCP marker count |
@@ -152,7 +144,7 @@ For developer-facing formulas, training provenance, and the exact role of each c
 | mirus_df | Mirusviricota duplication factor |
 | mrya_unique/total | Mryavirus-specific marker counts |
 | phage_unique/total | Phage marker counts |
-| cellular_unique/total/dup | Cellular contamination markers |
+| cellular_dup | Cellular-marker duplication factor |
 | contigs | Number of contigs |
 | LENbp | Total length in base pairs |
 | GCperc | GC content percentage |
@@ -173,7 +165,7 @@ database:
 pipeline:
   tree_method: fasttree             # or 'iqtree' for more accuracy
   mode_fast: false                  # Skip order-level marker trees when true (speeds up analysis)
-  completeness_mode: legacy         # or 'novelty-aware' to surface the new estimate
+  completeness_mode: novelty-aware  # or 'legacy' to surface the old estimate
   sensitive_mode: false             # Use E-value 1e-5 for pyhmmer instead of GA cutoffs
   contigs_min_length: 10000         # In --contigs mode, skip contigs shorter than this (bp)
   threads: 16                       # Default thread count
@@ -261,7 +253,7 @@ The benchmark workspace is not intended for public release yet. It can be packag
 | `--tree-method` | | `fasttree` or `iqtree` | fasttree |
 | `--mode-fast` | `-f` | Fast mode: core markers only | True |
 | `--extended` | `-e` | Extended mode: all marker trees | False |
-| `--completeness-mode` | | `legacy` or `novelty-aware` for `estimated_completeness` | legacy |
+| `--completeness-mode` | | `legacy` or `novelty-aware` for `estimated_completeness` | novelty-aware |
 | `--sensitive` | | Sensitive HMM mode (`E=1e-5`, `domE=1e-5`, skip GA cutoffs) | False |
 | `--contigs` | `-C` | Treat each contig as an independent query genome | False |
 | `--resume` | | Resume interrupted run | False |
@@ -327,16 +319,12 @@ Use sensitive mode when you want a more permissive marker search:
 ## Interpreting Quality Metrics
 
 ### Genome completeness
-- `order_completeness_raw` is the direct fraction of expected order markers detected.
-- `order_completeness` is the legacy baseline-normalized version of that raw score, allowing comparison against reference recovery patterns for the assigned order.
-- `order_completeness_v2` is the novelty-aware estimate; `estimated_completeness` simply surfaces either the legacy or novelty-aware path depending on `--completeness-mode`.
-- `weighted_order_completeness` applies conservation-based weights; large gaps here usually point to missing hallmark genes even if raw counts look acceptable.
+- `estimated_completeness` is the only completeness field exposed in the final summary table. By default it uses the tuned novelty-aware path; `--completeness-mode legacy` can still switch the underlying estimator for advanced users.
+- The legacy, weighted, and novelty-aware intermediate completeness metrics remain available in the codebase and developer docs, but they are intentionally omitted from the main summary table.
 
 ### Contamination and mixed populations
-- `estimated_contamination` is the trained model output and should be treated as the primary contamination estimate.
-- `contamination_score_v1` is the interpretable rule-based precursor score. It remains useful for diagnostics, but it is not the default production estimate.
-- `contamination_flag_v1` and `contamination_source_v1` summarize the rule-based view of the dominant signal (cellular, phage, duplication, or viral mixture).
-- `suspicious_bp_fraction_v2` and `suspicious_contig_count_v2` summarize how much of the assembly is assigned to suspicious contigs by the contig-aware feature extractor.
+- `estimated_contamination` is the only contamination estimate exposed in the final summary table. It is the trained model output and should be treated as the primary contamination estimate.
+- Detailed diagnostic contamination fields remain available in the codebase and developer docs, but they are intentionally omitted from the main summary table.
 - `order_dup` and `gvog8_dup` summarize marker duplication. Values above ~2 suggest multiple populations or assembly chimeras; below ~1.5 is typically clean.
 - `gvog8_total` and `gvog8_unique` help distinguish true gene expansions (high total, moderate duplication) from assembly artefacts (high duplication, low uniqueness).
 - `ncldv_mcp_total`, `mirus_df`, `mrya_total` provide additional lineage-specific duplication hints.
@@ -344,7 +332,7 @@ Use sensitive mode when you want a more permissive marker search:
 - `plv` count helps distinguish PLV from virophages (PLVs share VP markers but have additional PLV-specific marker; count is not binary).
 
 ### Cellular carry-over
-- `cellular_unique`, `cellular_total`, and `contamination_cellular_signal_v1` summarize host-like marker burden and the strength of the cellular contamination signal.
+- `order_dup`, `gvog8_dup`, `vp_df`, `mirus_df`, and `cellular_dup` are retained in the final summary table as duplication-style QC indicators.
 
 Use these fields together: a high completeness score with low duplication and low cellular signal is characteristic of a high-quality GVMAG; any combination of low completeness plus high duplication or elevated contamination metrics warrants manual curation.
 
