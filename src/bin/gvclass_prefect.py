@@ -45,7 +45,7 @@ def print_run_configuration(
     mode_fast: bool,
     sensitive: bool,
 ) -> None:
-    click.echo("GVClass Pipeline v1.2.2")
+    click.echo("GVClass Pipeline v1.3.0")
     click.echo(f"Query directory: {query_path}")
     click.echo(f"Output directory: {output_path}")
     click.echo(f"Database: {db_path if db_path else 'Will download/use default'}")

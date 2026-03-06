@@ -20,14 +20,18 @@ from src.bin.cli_display import print_banner, print_configuration
 from src.bin.progress_monitor import ResourceMonitor
 
 
-SOFTWARE_VERSION = "v1.2.2"
+SOFTWARE_VERSION = "v1.3.0"
 PLAIN_OUTPUT_ENV = "GVCLASS_PLAIN_OUTPUT"
 DATABASE_PATH_ENV = "GVCLASS_DB"
 TWO_DECIMAL_SUMMARY_COLUMNS = {
     "avgdist",
     "order_dup",
     "order_completeness",
+    "order_completeness_raw",
+    "order_completeness_baseline_mean",
+    "order_completeness_baseline_std",
     "weighted_order_completeness",
+    "weighted_order_completeness_raw",
     "order_weighted_completeness",
     "order_confidence_score",
     "gvog8_dup",

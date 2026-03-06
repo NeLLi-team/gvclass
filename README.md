@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-v1.2.2-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/version-v1.3.0-blue.svg" alt="Version">
   <img src="https://img.shields.io/badge/license-BSD--3--Clause-green.svg" alt="License">
   <img src="https://img.shields.io/badge/python-3.11-blue.svg" alt="Python">
   <img src="https://img.shields.io/badge/pixi-enabled-orange.svg" alt="Pixi">
@@ -181,11 +181,11 @@ pixi run setup-db
 pixi run gvclass example -o example_results
 ```
 
-## What's New in v1.2.2
+## What's New in v1.3.0
 
-- **HPC Runtime Robustness**: Removed runtime dependence on Prefect task orchestration to avoid ephemeral Prefect API startup failures on restricted systems.
-- **Container Release**: Updated public Apptainer image tag to `1.2.2`.
-- **Database Version**: Updated to `v1.2.2` (`resources_v1_2_2.tar.gz`).
+- **Completeness Scoring Update**: Order completeness is now baseline-normalized against the expected marker recovery of complete reference genomes in each order.
+- **Output Schema Update**: Summary outputs now retain raw completeness values alongside normalized completeness and the reference baseline used for scaling.
+- **Weighted Completeness Transparency**: The output now makes it explicit when raw and normalized weighted completeness are being reported for downstream comparison.
 
 ## Advanced Usage
 
@@ -500,4 +500,4 @@ The GVClass v1.2.2 reference database includes genomes from the following source
 BSD 3-Clause License - see LICENSE file for details
 
 ---
-<sub>Version 1.2.2 - February 2026</sub>
+<sub>Version 1.3.0 - March 2026</sub>

@@ -55,6 +55,7 @@ class FullSummarizer:
         self.database_path = database_path
         self.labels_file = database_path / "gvclassFeb26_labels.tsv"
         self.completeness_table = database_path / "order_completeness.tab"
+        self.order_stats_df = self._load_order_stats()
         self.labels_dict = self.load_labels()
 
         # Initialize weighted completeness calculator
@@ -74,6 +75,14 @@ class FullSummarizer:
         except Exception as e:
             logger.error(f"Error loading labels: {e}")
         return labels
+
+    def _load_order_stats(self) -> pd.DataFrame:
+        """Load order-level marker recovery baselines used for completeness scaling."""
+        try:
+            return pd.read_csv(self.completeness_table, sep="\t")
+        except Exception as e:
+            logger.error(f"Error loading order completeness table: {e}")
+            return pd.DataFrame()
 
     def _parse_label_line(self, line: str) -> Optional[Tuple[str, List[str]]]:
         if line.startswith("#"):
@@ -265,33 +274,63 @@ class FullSummarizer:
 
         return majority, strict
 
-    def calculate_order_metrics(
-        self, counts_file: Path, order_tax: str
-    ) -> Tuple[float, float, float, float]:
+    def calculate_order_metrics(self, counts_file: Path, order_tax: str) -> Dict[str, any]:
         """Calculate order-specific completeness and duplication metrics.
 
         Returns:
-            Tuple of (completeness, duplication, weighted_completeness, confidence_score)
+            Dictionary of raw and normalized order completeness metrics.
         """
         try:
             order_ogs = self._load_order_orthogroups(order_tax)
             if not order_ogs:
-                return 0.0, 0.0, 0.0, 0.0
+                return self._default_order_metrics(order_tax)
 
             marker_counts = self._load_marker_counts(counts_file)
-            completeness, duplication = self._calculate_traditional_order_metrics(
+            raw_completeness, duplication = self._calculate_traditional_order_metrics(
                 marker_counts, order_ogs
             )
-            weighted_completeness, confidence_score = (
+            raw_weighted_completeness, confidence_score = (
                 self._calculate_weighted_order_metrics(
-                    marker_counts, order_tax, order_ogs, completeness
+                    marker_counts, order_tax, order_ogs, raw_completeness
                 )
             )
-            return completeness, duplication, weighted_completeness, confidence_score
+            normalized_completeness, baseline_mean, baseline_std = (
+                self._normalize_order_completeness(raw_completeness, order_tax)
+            )
+            normalized_weighted_completeness, _, _ = (
+                self._normalize_order_completeness(raw_weighted_completeness, order_tax)
+            )
+            return {
+                "order_completeness": normalized_completeness,
+                "order_completeness_raw": raw_completeness,
+                "order_dup": duplication,
+                "order_weighted_completeness": normalized_weighted_completeness,
+                "order_weighted_completeness_raw": raw_weighted_completeness,
+                "order_confidence_score": confidence_score,
+                "order_completeness_baseline_mean": baseline_mean,
+                "order_completeness_baseline_std": baseline_std,
+                "order_completeness_reference_order": order_tax,
+                "order_completeness_strategy": "order_baseline_ratio_v1",
+            }
 
         except Exception as e:
             logger.error(f"Error calculating order metrics: {e}")
-            return 0.0, 0.0, 0.0, 0.0
+            return self._default_order_metrics(order_tax)
+
+    def _default_order_metrics(self, order_tax: str = "") -> Dict[str, any]:
+        """Return default order completeness metrics."""
+        return {
+            "order_completeness": 0.0,
+            "order_completeness_raw": 0.0,
+            "order_dup": 0.0,
+            "order_weighted_completeness": 0.0,
+            "order_weighted_completeness_raw": 0.0,
+            "order_confidence_score": 0.0,
+            "order_completeness_baseline_mean": 0.0,
+            "order_completeness_baseline_std": 0.0,
+            "order_completeness_reference_order": order_tax,
+            "order_completeness_strategy": "order_baseline_ratio_v1",
+        }
 
     def _load_order_orthogroups(self, order_tax: str) -> List[str]:
         """Load expected orthogroups for a specific taxonomic order."""
@@ -361,6 +400,26 @@ class FullSummarizer:
         except Exception as e:
             logger.warning(f"Weighted completeness calculation failed: {e}")
             return fallback_completeness, 50.0
+
+    def _normalize_order_completeness(
+        self, raw_completeness: float, order_tax: str
+    ) -> Tuple[float, float, float]:
+        """Normalize marker recovery against complete-reference order baselines."""
+        if self.order_stats_df.empty:
+            return raw_completeness, 0.0, 0.0
+
+        order_row = self.order_stats_df[self.order_stats_df["Order"] == order_tax]
+        if order_row.empty:
+            return raw_completeness, 0.0, 0.0
+
+        baseline_mean = float(order_row["Average_Percent"].iloc[0])
+        baseline_std = float(order_row["Std_Percent"].iloc[0])
+        if baseline_mean <= 0:
+            return raw_completeness, baseline_mean, baseline_std
+
+        normalized = (raw_completeness / baseline_mean) * 100.0
+        normalized = max(0.0, min(100.0, normalized))
+        return normalized, baseline_mean, baseline_std
 
     def _read_stats_tsv(self, stats_tsv_file: Path) -> Dict[str, any]:
         """Read base stats from the reformat stage TSV."""
@@ -580,19 +639,10 @@ class FullSummarizer:
         """Populate order-level completeness metrics from order assignment."""
         order_tax = self._extract_order_taxonomy(tax_counters)
         if order_tax:
-            completeness, duplication, weighted_completeness, confidence_score = (
-                self.calculate_order_metrics(counts_file, order_tax)
-            )
-            result["order_completeness"] = completeness
-            result["order_dup"] = duplication
-            result["order_weighted_completeness"] = weighted_completeness
-            result["order_confidence_score"] = confidence_score
+            result.update(self.calculate_order_metrics(counts_file, order_tax))
             return
 
-        result["order_completeness"] = 0.0
-        result["order_dup"] = 0.0
-        result["order_weighted_completeness"] = 0.0
-        result["order_confidence_score"] = 0.0
+        result.update(self._default_order_metrics(order_tax))
 
     def summarize_query_full(
         self,
