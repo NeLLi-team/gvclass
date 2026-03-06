@@ -20,7 +20,7 @@ from src.bin.cli_display import print_banner, print_configuration
 from src.bin.progress_monitor import ResourceMonitor
 
 
-SOFTWARE_VERSION = "v1.5.0"
+SOFTWARE_VERSION = "v1.4.0"
 PLAIN_OUTPUT_ENV = "GVCLASS_PLAIN_OUTPUT"
 DATABASE_PATH_ENV = "GVCLASS_DB"
 TWO_DECIMAL_SUMMARY_COLUMNS = {
