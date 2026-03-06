@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+import csv
 import logging
 import shutil
 import tarfile
@@ -89,6 +90,7 @@ def process_single_query(
         prepared_input.best_code,
         logger,
     )
+    _write_contamination_candidates_file(query_output_dir, query_name, summary_data, logger)
     logger.info(f"Writing summary file to {query_output_dir / f'{query_name}.summary.tab'}")
     write_individual_summary_file(query_output_dir, query_name, summary_data, logger)
     _post_process_query(query_name, query_output_dir, output_base, logger)
@@ -646,6 +648,59 @@ def _create_output_dirs(query_output_dir: Path) -> None:
     for dir_name in ["query_faa", "query_fna", "query_gff"]:
         (query_output_dir / dir_name).mkdir(exist_ok=True, parents=True)
 
+
+def _write_contamination_candidates_file(
+    query_output_dir: Path,
+    query_name: str,
+    summary_data: Dict[str, Any],
+    logger,
+) -> Optional[Path]:
+    candidates = summary_data.get("_contamination_candidates", [])
+    if not candidates:
+        return None
+    if summary_data.get("contamination_type", "clean") in {"clean", "uncertain"}:
+        return None
+
+    stats_dir = query_output_dir / "stats"
+    stats_dir.mkdir(exist_ok=True, parents=True)
+    candidate_file = stats_dir / f"{query_name}.contamination_candidates.tsv"
+    fieldnames = [
+        "query",
+        "contamination_type",
+        "estimated_contamination",
+        "contig_id",
+        "candidate_type",
+        "reason",
+        "length_bp",
+        "cellular_marker_count",
+        "phage_marker_count",
+        "viral_marker_count",
+        "nonviral_fraction",
+        "foreign_viral_fraction",
+    ]
+    with open(candidate_file, "w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames, delimiter="\t")
+        writer.writeheader()
+        for candidate in candidates:
+            writer.writerow(
+                {
+                    "query": query_name,
+                    "contamination_type": summary_data.get("contamination_type", ""),
+                    "estimated_contamination": summary_data.get("estimated_contamination", ""),
+                    "contig_id": candidate.get("contig_id", ""),
+                    "candidate_type": candidate.get("candidate_type", ""),
+                    "reason": candidate.get("reason", ""),
+                    "length_bp": candidate.get("length_bp", ""),
+                    "cellular_marker_count": candidate.get("cellular_marker_count", ""),
+                    "phage_marker_count": candidate.get("phage_marker_count", ""),
+                    "viral_marker_count": candidate.get("viral_marker_count", ""),
+                    "nonviral_fraction": candidate.get("nonviral_fraction", ""),
+                    "foreign_viral_fraction": candidate.get("foreign_viral_fraction", ""),
+                }
+            )
+    logger.info("Contamination candidate file written: %s", candidate_file)
+    return candidate_file
+
 def _copy_final_sequence_outputs(
     query_file: Path,
     query_name: str,
@@ -694,6 +749,7 @@ def _post_process_query(
     post_process_start = time.time()
     try:
         _copy_query_summary_tab(query_name, query_output_dir, output_base, logger)
+        _copy_query_contamination_candidates(query_name, query_output_dir, output_base, logger)
         _log_tree_nn_file(query_name, query_output_dir, logger)
         _archive_query_output(query_name, query_output_dir, output_base, logger)
         _remove_reformatted_file(query_name, output_base, logger)
@@ -731,6 +787,17 @@ def _copy_query_summary_tab(
     logger.warning(
         f"Summary tab file not found in {summary_tab_file} or {summary_tab_file_stats}"
     )
+
+
+def _copy_query_contamination_candidates(
+    query_name: str, query_output_dir: Path, output_base: Path, logger
+) -> None:
+    candidate_file = query_output_dir / "stats" / f"{query_name}.contamination_candidates.tsv"
+    if not candidate_file.exists():
+        return
+    destination = output_base / f"{query_name}.contamination_candidates.tsv"
+    shutil.copy2(candidate_file, destination)
+    logger.info("✓ Copied contamination candidates to %s", destination)
 
 def _log_tree_nn_file(query_name: str, query_output_dir: Path, logger) -> None:
     tree_nn_file = query_output_dir / "stats" / f"{query_name}.tree_nn"
