@@ -116,7 +116,7 @@ pixi run gvclass --contigs my_genome.fna -o results -t 32
 
 Results are saved to `<input_name>_results/` containing:
 - `gvclass_summary.csv`, `gvclass_summary.tsv`
-- Optional per-query `*.contamination_candidates.tsv` files when contamination is above the reporting threshold, the type is interpretable, and suspicious contigs are identified
+- Optional per-query `*.contamination_candidates.tsv` files when `estimated_contamination >= 10`, the type is interpretable, and suspicious contigs are identified
 - Individual query subdirectories with detailed analysis
 
 ### Output Columns Explained
@@ -133,7 +133,7 @@ For developer-facing formulas, training provenance, and the exact role of each c
 | order_dup | Average copy number of expected order-level markers; elevated values suggest duplicated, chimeric, or mixed bins |
 | estimated_completeness | Estimated percentage of the expected genome recovered for the assigned lineage. Determined by the novelty-aware completeness model by default |
 | estimated_contamination | Estimated percentage of the assembly likely to represent contaminant or mixed-origin sequence. Determined by the trained `hist_gbm_v1` contamination model |
-| contamination_type | High-level contamination interpretation (`clean`, `cellular`, `mixed_viral`, `phage`, `duplication`, or `uncertain`) when contamination exceeds the reporting threshold |
+| contamination_type | High-level contamination interpretation (`clean`, `cellular`, `mixed_viral`, `phage`, `duplication`, or `uncertain`) when `estimated_contamination >= 10` |
 | gvog4_unique | Count of unique GVOG4 markers found |
 | gvog8_unique/total/dup | GVOG8 marker counts and duplication |
 | ncldv_mcp_total | NCLDV-specific MCP marker count |
@@ -325,7 +325,7 @@ Use sensitive mode when you want a more permissive marker search:
 
 ### Contamination and mixed populations
 - `estimated_contamination` is the only contamination estimate exposed in the final summary table. It is the trained model output and should be treated as the primary contamination estimate.
-- `contamination_type` is the high-level interpretation of the likely contamination source when the model estimate exceeds its reporting threshold.
+- `contamination_type` is the high-level interpretation of the likely contamination source when `estimated_contamination >= 10`.
 - Detailed diagnostic contamination fields remain available in the codebase and developer docs, but they are intentionally omitted from the main summary table.
 - `order_dup` and `gvog8_dup` summarize marker duplication. Values above ~2 suggest multiple populations or assembly chimeras; below ~1.5 is typically clean.
 - `gvog8_total` and `gvog8_unique` help distinguish true gene expansions (high total, moderate duplication) from assembly artefacts (high duplication, low uniqueness).

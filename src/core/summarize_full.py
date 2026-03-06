@@ -764,7 +764,7 @@ class FullSummarizer:
 
     def _contamination_reporting_threshold(self) -> float:
         threshold = float(self.contamination_scorer.ml_threshold or 0.0)
-        return threshold if threshold > 0 else 5.0
+        return max(10.0, threshold)
 
     @staticmethod
     def _candidate_type_for_reason(reason: str) -> str:
