@@ -41,3 +41,10 @@ stena_bin7_vs_vr_results/
 run_gvclass_*.sh
 gvclass_*.out
 gvclass_*.err
+refs-*
+contamination_benchmark*
+resources_v*.tar.gz
+resources_v*.tar.gz.sha256
+benchmarking_v*.tar.gz
+benchmarking_v*.tar.gz.sha256
+audit_example_results_*

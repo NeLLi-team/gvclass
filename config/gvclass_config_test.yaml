@@ -4,8 +4,8 @@
 # Database configuration
 database:
   path: resources
-  download_url: https://zenodo.org/records/18675742/files/resources_v1_2_2.tar.gz?download=1
-  expected_size: 1566
+  download_url: https://zenodo.org/records/18891278/files/resources_v1_5_0.tar.gz?download=1
+  expected_size: 1738
 
 # Pipeline settings - optimized for testing
 pipeline:

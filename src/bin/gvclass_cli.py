@@ -20,7 +20,7 @@ from src.bin.cli_display import print_banner, print_configuration
 from src.bin.progress_monitor import ResourceMonitor
 
 
-SOFTWARE_VERSION = "v1.4.0"
+SOFTWARE_VERSION = "v1.5.0"
 PLAIN_OUTPUT_ENV = "GVCLASS_PLAIN_OUTPUT"
 DATABASE_PATH_ENV = "GVCLASS_DB"
 TWO_DECIMAL_SUMMARY_COLUMNS = {
@@ -36,6 +36,13 @@ TWO_DECIMAL_SUMMARY_COLUMNS = {
     "order_completeness_v2_support_score",
     "order_completeness_v2_informative_fraction",
     "estimated_completeness",
+    "contamination_score_v1",
+    "contamination_cellular_signal_v1",
+    "contamination_phage_signal_v1",
+    "contamination_duplication_signal_v1",
+    "contamination_viral_mixture_signal_v1",
+    "contamination_nonviral_hit_fraction_v1",
+    "estimated_contamination",
     "weighted_order_completeness",
     "weighted_order_completeness_raw",
     "order_weighted_completeness",
@@ -235,8 +242,8 @@ def load_config(config_file: str, repo_dir: Path, output: CliOutput):
     default_config = {
         "database": {
             "path": str(repo_dir / "resources"),
-            "download_url": "https://zenodo.org/records/18675742/files/resources_v1_2_2.tar.gz?download=1",
-            "expected_size": 1566,
+            "download_url": "https://zenodo.org/records/18891278/files/resources_v1_5_0.tar.gz?download=1",
+            "expected_size": 1738,
         },
         "pipeline": {
             "tree_method": "fasttree",
@@ -392,11 +399,10 @@ def split_contig_inputs(contigs: ContigInput, output: CliOutput, min_length: int
 
 
 def check_and_setup_database(db_path: Path, output: CliOutput) -> bool:
-    required_checks = [
-        db_path / "models" / "combined.hmm",
-        db_path / "database",
-        db_path / "gvclassFeb26_labels.tsv",
-    ]
+    from src.utils.database_manager import DatabaseManager
+
+    required_checks = [db_path / relative_path for relative_path in DatabaseManager.REQUIRED_FILES]
+    required_checks.append(db_path / "database")
     if db_path.exists() and all(check.exists() for check in required_checks):
         output.line(f"Database found at: {db_path}", key="success")
         return True
@@ -405,8 +411,6 @@ def check_and_setup_database(db_path: Path, output: CliOutput) -> bool:
     output.line("Setting up database...", key="download")
 
     try:
-        from src.utils.database_manager import DatabaseManager
-
         DatabaseManager.setup_database(str(db_path))
         output.line("Database setup complete!", key="success")
         return True
@@ -573,6 +577,13 @@ def build_runtime_env(repo_dir: Path):
 
 
 def combine_summary_files(output_dir: Path, output: CliOutput):
+    combined_tsv = output_dir / "gvclass_summary.tsv"
+    combined_csv = output_dir / "gvclass_summary.csv"
+    if combined_tsv.exists() and combined_csv.exists():
+        output.line(f"Combined summary written to: {combined_tsv}", key="success")
+        output.line(f"CSV summary written to: {combined_csv}", key="success")
+        return
+
     summary_files = list(output_dir.glob("*.summary.tab"))
     if not summary_files:
         output.line("No individual summary files found", key="warning")
@@ -602,8 +613,6 @@ def combine_summary_files(output_dir: Path, output: CliOutput):
         output.line("No summary data found to combine", key="warning")
         return
 
-    combined_tsv = output_dir / "gvclass_summary.tsv"
-    combined_csv = output_dir / "gvclass_summary.csv"
     with open(combined_tsv, "w") as tsv_handle, open(combined_csv, "w", newline="") as csv_handle:
         writer = csv.writer(csv_handle)
         tsv_handle.write("\t".join(headers) + "\n")

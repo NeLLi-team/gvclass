@@ -21,9 +21,21 @@ class DatabaseManager:
         "models/combined.hmm",  # Combined HMM file with all models
         "gvclassFeb26_labels.tsv",
         "order_completeness.tab",
+        "novelty_completeness_config.json",
+        "novelty_strategy2_tiers.tsv",
+        "novelty_strategy2_baselines.tsv",
+        "novelty_strategy3_model_metadata.tsv",
+        "novelty_strategy3_models.joblib",
+        "contamination_model.joblib",
     ]
 
     DATABASE_SOURCES = [
+        {
+            "version": "v1.5.0",
+            "url": "https://zenodo.org/records/18891278/files/resources_v1_5_0.tar.gz?download=1",
+            "filename": "resources_v1_5_0.tar.gz",
+            "sha256": "b249112fc3890a4d069ffe6ff41cee086c88899c69ca2ac990f9d7a433aca2d4",
+        },
         {
             "version": "v1.2.2",
             "url": "https://zenodo.org/records/18675742/files/resources_v1_2_2.tar.gz?download=1",

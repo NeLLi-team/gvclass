@@ -8,9 +8,9 @@ database:
   path: resources
   # URL for automatic download if database not found
   # Note: Update this URL to the actual database location when available
-  download_url: https://zenodo.org/records/18675742/files/resources_v1_2_2.tar.gz?download=1
+  download_url: https://zenodo.org/records/18891278/files/resources_v1_5_0.tar.gz?download=1
   # Expected size for validation (in MB)
-  expected_size: 1566
+  expected_size: 1738
 
 # Pipeline settings
 pipeline:
