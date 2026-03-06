@@ -43,9 +43,10 @@ def print_run_configuration(
     cluster_type: str,
     tree_method: str,
     mode_fast: bool,
+    completeness_mode: str,
     sensitive: bool,
 ) -> None:
-    click.echo("GVClass Pipeline v1.3.0")
+    click.echo("GVClass Pipeline v1.4.0")
     click.echo(f"Query directory: {query_path}")
     click.echo(f"Output directory: {output_path}")
     click.echo(f"Database: {db_path if db_path else 'Will download/use default'}")
@@ -59,6 +60,7 @@ def print_run_configuration(
     click.echo(f"Cluster type: {cluster_type}")
     click.echo(f"Tree method: {tree_method}")
     click.echo(f"Fast mode: {mode_fast}")
+    click.echo(f"Completeness mode: {completeness_mode}")
     click.echo(f"Sensitive mode: {sensitive}")
     click.echo("")
 
@@ -72,6 +74,7 @@ def run_flow(
     threads_per_worker: int | None,
     tree_method: str,
     mode_fast: bool,
+    completeness_mode: str,
     sensitive: bool,
     cluster_type: str,
     cluster_config: dict,
@@ -86,6 +89,7 @@ def run_flow(
         threads_per_worker=threads_per_worker,
         tree_method=tree_method,
         mode_fast=mode_fast,
+        completeness_mode=completeness_mode,
         sensitive_mode=sensitive,
         cluster_type=cluster_type,
         cluster_config=cluster_config if cluster_config else None,
@@ -106,6 +110,7 @@ def prepare_cli_context(
     cluster_type: str,
     tree_method: str,
     mode_fast: bool,
+    completeness_mode: str,
     sensitive: bool,
 ) -> tuple[Path, Path, str | None, dict]:
     query_path, output_path = resolve_paths(querydir, output_dir)
@@ -125,6 +130,7 @@ def prepare_cli_context(
         cluster_type=cluster_type,
         tree_method=tree_method,
         mode_fast=mode_fast,
+        completeness_mode=completeness_mode,
         sensitive=sensitive,
     )
     return query_path, output_path, db_path, cluster_config
@@ -139,6 +145,7 @@ def execute_cli_flow(
     threads_per_worker: int | None,
     tree_method: str,
     mode_fast: bool,
+    completeness_mode: str,
     sensitive: bool,
     cluster_type: str,
     cluster_config: dict,
@@ -153,6 +160,7 @@ def execute_cli_flow(
         threads_per_worker=threads_per_worker,
         tree_method=tree_method,
         mode_fast=mode_fast,
+        completeness_mode=completeness_mode,
         sensitive=sensitive,
         cluster_type=cluster_type,
         cluster_config=cluster_config,
@@ -192,6 +200,13 @@ def execute_cli_flow(
     help="Fast mode (default) or extended mode with all marker trees",
 )
 @click.option(
+    "--completeness-mode",
+    default="legacy",
+    type=click.Choice(["legacy", "novelty-aware"]),
+    show_default=True,
+    help="Completeness estimator to surface as the primary estimate",
+)
+@click.option(
     "--sensitive",
     is_flag=True,
     help="Sensitive HMM mode: use E-value 1e-5 instead of GA cutoffs",
@@ -213,7 +228,7 @@ def execute_cli_flow(
     is_flag=True,
     help="Resume from previous run, skipping completed queries",
 )
-def main(querydir, output_dir, database, threads, max_workers, threads_per_worker, tree_method, mode_fast, sensitive, cluster_type, cluster_queue, cluster_project, cluster_walltime, verbose, resume):
+def main(querydir, output_dir, database, threads, max_workers, threads_per_worker, tree_method, mode_fast, completeness_mode, sensitive, cluster_type, cluster_queue, cluster_project, cluster_walltime, verbose, resume):
     log_level = "DEBUG" if verbose else "INFO"
     logger = setup_logging("gvclass_prefect", level=log_level)
 
@@ -231,9 +246,10 @@ def main(querydir, output_dir, database, threads, max_workers, threads_per_worke
             cluster_type=cluster_type,
             tree_method=tree_method,
             mode_fast=mode_fast,
+            completeness_mode=completeness_mode,
             sensitive=sensitive,
         )
-        execute_cli_flow(query_path, output_path, db_path, threads, max_workers, threads_per_worker, tree_method, mode_fast, sensitive, cluster_type, cluster_config, resume)
+        execute_cli_flow(query_path, output_path, db_path, threads, max_workers, threads_per_worker, tree_method, mode_fast, completeness_mode, sensitive, cluster_type, cluster_config, resume)
     except FileNotFoundError as exc:
         click.echo(f"Error: {exc}", err=True)
         sys.exit(1)

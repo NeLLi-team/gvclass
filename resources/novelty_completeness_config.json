@@ -1,0 +1,28 @@
+{
+  "order_expected_marker_counts": {
+    "Algavirales": 71,
+    "Asfuvirales": 49,
+    "Chitovirales": 128,
+    "Imitervirales": 44,
+    "MIRUS": 40,
+    "Pandoravirales": 11,
+    "Pimascovirales": 48,
+    "basal_chitovirales": 10,
+    "o_": 32,
+    "split_Imitervirales": 158
+  },
+  "resource_version": "v1",
+  "strategy2_config": {
+    "accessory_prevalence": 0.5,
+    "core_max_copy": 1.2,
+    "core_prevalence": 0.9,
+    "family_min_informative_markers": 2,
+    "family_min_ref_genomes": 3,
+    "name": "cfg_241",
+    "shared_max_copy": 1.5,
+    "shared_prevalence": 0.65,
+    "weight_accessory": 0.1,
+    "weight_core": 0.7,
+    "weight_shared": 0.2
+  }
+}

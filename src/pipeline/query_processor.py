@@ -13,6 +13,7 @@ def run_query_processing(
     genetic_codes: List[int],
     tree_method: str,
     mode_fast: bool,
+    completeness_mode: str = "legacy",
     sensitive_mode: bool = False,
     threads: int = 4,
 ) -> Dict[str, Any]:
@@ -24,6 +25,7 @@ def run_query_processing(
         genetic_codes=genetic_codes,
         tree_method=tree_method,
         mode_fast=mode_fast,
+        completeness_mode=completeness_mode,
         sensitive_mode=sensitive_mode,
         threads=threads,
     )

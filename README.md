@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-v1.3.0-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/version-v1.4.0-blue.svg" alt="Version">
   <img src="https://img.shields.io/badge/license-BSD--3--Clause-green.svg" alt="License">
   <img src="https://img.shields.io/badge/python-3.11-blue.svg" alt="Python">
   <img src="https://img.shields.io/badge/pixi-enabled-orange.svg" alt="Pixi">
@@ -129,6 +129,9 @@ Results are saved to `<input_name>_results/` containing:
 | avgdist | Average tree distance to references |
 | order_dup | Duplication factor indicating contamination level |
 | order_completeness | Order-specific completeness (% unique markers found) |
+| order_completeness_v2 | Novelty-aware completeness using family/order reference tiers and calibrated shrinkage |
+| estimated_completeness | The primary completeness estimate selected by `--completeness-mode` |
+| estimated_completeness_strategy | Strategy label for the selected completeness estimate |
 | gvog4_unique | Count of unique GVOG4 markers found |
 | gvog8_unique/total/dup | GVOG8 marker counts and duplication |
 | ncldv_mcp_total | NCLDV-specific MCP marker count |
@@ -162,6 +165,7 @@ database:
 pipeline:
   tree_method: fasttree             # or 'iqtree' for more accuracy
   mode_fast: false                  # Skip order-level marker trees when true (speeds up analysis)
+  completeness_mode: legacy         # or 'novelty-aware' to surface the new estimate
   sensitive_mode: false             # Use E-value 1e-5 for pyhmmer instead of GA cutoffs
   contigs_min_length: 10000         # In --contigs mode, skip contigs shorter than this (bp)
   threads: 16                       # Default thread count
@@ -181,11 +185,12 @@ pixi run setup-db
 pixi run gvclass example -o example_results
 ```
 
-## What's New in v1.3.0
+## What's New in v1.4.0
 
-- **Completeness Scoring Update**: Order completeness is now baseline-normalized against the expected marker recovery of complete reference genomes in each order.
-- **Output Schema Update**: Summary outputs now retain raw completeness values alongside normalized completeness and the reference baseline used for scaling.
-- **Weighted Completeness Transparency**: The output now makes it explicit when raw and normalized weighted completeness are being reported for downstream comparison.
+- **Novelty-Aware Completeness**: Added a second completeness estimator that combines family/order marker tiers, family-normalized strategy-2 scoring, and calibrated strategy-3 predictions.
+- **OOD Diagnostics**: Output now reports support, reference group, validation mode, and an out-of-distribution flag for low-support or novel genomes.
+- **Mode Selection**: Use `--completeness-mode legacy|novelty-aware` to choose which estimate is surfaced as `estimated_completeness`.
+- **Baseline-Normalized Legacy Score**: The `v1.3.0` order-baseline completeness remains available as the legacy comparison score.
 
 ## Advanced Usage
 
@@ -233,6 +238,7 @@ apptainer push gvclass.sif library://nelligroup-jgi/gvclass/gvclass:1.2.2
 | `--tree-method` | | `fasttree` or `iqtree` | fasttree |
 | `--mode-fast` | `-f` | Fast mode: core markers only | True |
 | `--extended` | `-e` | Extended mode: all marker trees | False |
+| `--completeness-mode` | | `legacy` or `novelty-aware` for `estimated_completeness` | legacy |
 | `--sensitive` | | Sensitive HMM mode (`E=1e-5`, `domE=1e-5`, skip GA cutoffs) | False |
 | `--contigs` | `-C` | Treat each contig as an independent query genome | False |
 | `--resume` | | Resume interrupted run | False |
@@ -500,4 +506,4 @@ The GVClass v1.2.2 reference database includes genomes from the following source
 BSD 3-Clause License - see LICENSE file for details
 
 ---
-<sub>Version 1.3.0 - March 2026</sub>
+<sub>Version 1.4.0 - March 2026</sub>

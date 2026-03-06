@@ -31,8 +31,9 @@ def run_pyhmmer_search_simple(hmm_file: str, query_file: str, output_file: str) 
         with pyhmmer.easel.SequenceFile(query_file, digital=True) as seq_handle:
             sequences = list(seq_handle)
 
-        # Run search with default parameters
-        results = pyhmmer.hmmsearch(profiles, sequences, cpus=4)
+        # Keep the genetic-code evaluation path single-threaded so it works
+        # in restricted runtimes that do not allow shared-memory temp files.
+        results = pyhmmer.hmmsearch(profiles, sequences, cpus=1)
 
         # Write results in simplified domtblout format
         with open(output_file, "w") as out_handle:
