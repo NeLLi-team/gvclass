@@ -727,8 +727,8 @@ class FullSummarizer:
         try:
             primary_order = self._extract_order_taxonomy(tax_counters)
             primary_family = self._extract_family_taxonomy(tax_counters)
-            query_fna = query_output_dir / "query_fna" / f"{query_id}.fna"
-            query_faa = query_output_dir / "query_faa" / f"{query_id}.faa"
+            query_fna = self._resolve_query_fna_path(query_id, query_output_dir)
+            query_faa = self._resolve_query_faa_path(query_id, query_output_dir)
             contig_features_raw = self.contamination_scorer.collect_contig_features(
                 query_fna,
                 query_faa,
@@ -748,10 +748,73 @@ class FullSummarizer:
             result.update(
                 self.contamination_scorer.predict_contamination(result, contig_features)
             )
+            result["contamination_type"] = self._classify_contamination_type(result)
+            result["_contamination_reporting_threshold"] = self._contamination_reporting_threshold()
+            result["_contamination_candidates"] = [
+                {
+                    **candidate,
+                    "candidate_type": self._candidate_type_for_reason(candidate.get("reason", "")),
+                }
+                for candidate in contig_features_raw.get("suspicious_contigs", [])
+            ]
         except Exception as exc:
             raise RuntimeError(
                 f"Failed to compute contamination estimate with the trained model: {exc}"
             ) from exc
+
+    def _contamination_reporting_threshold(self) -> float:
+        threshold = float(self.contamination_scorer.ml_threshold or 0.0)
+        return threshold if threshold > 0 else 5.0
+
+    @staticmethod
+    def _candidate_type_for_reason(reason: str) -> str:
+        mapping = {
+            "cellular_markers": "cellular",
+            "cellular_hits": "cellular",
+            "phage_markers": "phage",
+            "phage_hits": "phage",
+            "viral_mixture": "mixed_viral",
+        }
+        return mapping.get(str(reason), "uncertain")
+
+    def _classify_contamination_type(self, result: Dict[str, any]) -> str:
+        estimated = float(result.get("estimated_contamination", 0.0) or 0.0)
+        if estimated < self._contamination_reporting_threshold():
+            return "clean"
+
+        source = str(result.get("contamination_source_v1", "none") or "none")
+        mapping = {
+            "cellular": "cellular",
+            "phage": "phage",
+            "duplication": "duplication",
+            "viral_mixture": "mixed_viral",
+            "none": "uncertain",
+        }
+        return mapping.get(source, "uncertain")
+
+    @staticmethod
+    def _resolve_query_fna_path(query_id: str, query_output_dir: Path) -> Path:
+        candidates = [
+            query_output_dir / "query_fna" / f"{query_id}.fna",
+            query_output_dir / f"{query_id}_reformatted.fna",
+            query_output_dir / "gene_calling" / f"{query_id}_reformatted" / f"{query_id}_reformatted.fna",
+        ]
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
+        return Path()
+
+    @staticmethod
+    def _resolve_query_faa_path(query_id: str, query_output_dir: Path) -> Path:
+        candidates = [
+            query_output_dir / "query_faa" / f"{query_id}.faa",
+            query_output_dir / "gene_calling" / f"{query_id}_reformatted" / f"{query_id}_reformatted.faa",
+        ]
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
+        matches = sorted(query_output_dir.glob("gene_calling/**/*.faa"))
+        return matches[0] if matches else Path()
 
     def summarize_query_full(
         self,

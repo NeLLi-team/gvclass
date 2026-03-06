@@ -159,3 +159,58 @@ def test_final_summary_columns_surface_single_qc_estimates() -> None:
 
     for column in ["order_dup", "gvog8_dup", "vp_df", "mirus_df", "cellular_dup"]:
         assert column in FINAL_SUMMARY_COLUMNS
+
+
+def test_classify_contamination_type_uses_threshold_and_source(
+    temp_database_dir: Path,
+) -> None:
+    summarizer = FullSummarizer(temp_database_dir)
+    summarizer.contamination_scorer.ml_threshold = 5.0
+
+    assert summarizer._classify_contamination_type(
+        {"estimated_contamination": 2.0, "contamination_source_v1": "cellular"}
+    ) == "clean"
+    assert summarizer._classify_contamination_type(
+        {"estimated_contamination": 12.0, "contamination_source_v1": "cellular"}
+    ) == "cellular"
+    assert summarizer._classify_contamination_type(
+        {"estimated_contamination": 12.0, "contamination_source_v1": "viral_mixture"}
+    ) == "mixed_viral"
+
+
+def test_write_contamination_candidates_file_gated_by_contamination_type(
+    tmp_path: Path,
+) -> None:
+    from src.pipeline.query_processing_engine import _write_contamination_candidates_file
+
+    query_output_dir = tmp_path / "query1"
+    summary_data = {
+        "contamination_type": "cellular",
+        "estimated_contamination": 18.0,
+        "_contamination_candidates": [
+            {
+                "contig_id": "contig_7",
+                "candidate_type": "cellular",
+                "reason": "cellular_hits",
+                "length_bp": 12000,
+                "cellular_marker_count": 2,
+                "phage_marker_count": 0,
+                "viral_marker_count": 1,
+                "nonviral_fraction": 87.5,
+                "foreign_viral_fraction": 0.0,
+            }
+        ],
+    }
+
+    output = _write_contamination_candidates_file(
+        query_output_dir=query_output_dir,
+        query_name="query1",
+        summary_data=summary_data,
+        logger=Mock(),
+    )
+
+    assert output is not None
+    assert output.exists()
+    text = output.read_text()
+    assert "contig_7" in text
+    assert "cellular" in text

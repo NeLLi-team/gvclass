@@ -161,6 +161,7 @@ FINAL_SUMMARY_COLUMNS: List[str] = [
     "order_dup",
     "estimated_completeness",
     "estimated_contamination",
+    "contamination_type",
     "gvog4_unique",
     "gvog8_unique",
     "gvog8_total",
