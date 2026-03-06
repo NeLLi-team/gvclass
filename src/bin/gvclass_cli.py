@@ -248,7 +248,7 @@ def load_config(config_file: str, repo_dir: Path, output: CliOutput):
         "pipeline": {
             "tree_method": "fasttree",
             "mode_fast": True,
-            "completeness_mode": "legacy",
+            "completeness_mode": "novelty-aware",
             "sensitive_mode": False,
             "contigs_min_length": 10000,
             "threads": 16,

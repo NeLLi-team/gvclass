@@ -201,7 +201,7 @@ def execute_cli_flow(
 )
 @click.option(
     "--completeness-mode",
-    default="legacy",
+    default="novelty-aware",
     type=click.Choice(["legacy", "novelty-aware"]),
     show_default=True,
     help="Completeness estimator to surface as the primary estimate",
