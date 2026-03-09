@@ -5,11 +5,13 @@ Handles downloading and validating the reference database.
 
 import hashlib
 import logging
+import os
 import shutil
 import subprocess
 import tarfile
 from pathlib import Path, PurePosixPath
 from typing import Optional
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -29,13 +31,13 @@ class DatabaseManager:
         "contamination_model.joblib",
     ]
 
-    DATABASE_SOURCES = [
-        {
-            "version": "v1.5.0",
-            "url": "https://zenodo.org/records/18891278/files/resources_v1_5_0.tar.gz?download=1",
-            "filename": "resources_v1_5_0.tar.gz",
-            "sha256": "b249112fc3890a4d069ffe6ff41cee086c88899c69ca2ac990f9d7a433aca2d4",
-        },
+    DEFAULT_DATABASE_SOURCE = {
+        "version": "v1.4.0",
+        "url": "https://zenodo.org/records/18926264/files/resources_v1_4_0.tar.gz?download=1",
+        "filename": "resources_v1_4_0.tar.gz",
+        "sha256": "95e2d75b5229a33f1910e16849fc067f3a2f55db5d12fbc25fb593aa61d9f3da",
+    }
+    LEGACY_DATABASE_SOURCES = [
         {
             "version": "v1.2.2",
             "url": "https://zenodo.org/records/18675742/files/resources_v1_2_2.tar.gz?download=1",
@@ -67,7 +69,8 @@ class DatabaseManager:
             "sha256": None,
         },
     ]
-    DATABASE_VERSION = DATABASE_SOURCES[0]["version"]
+    DATABASE_SOURCES = [DEFAULT_DATABASE_SOURCE, *LEGACY_DATABASE_SOURCES]
+    DATABASE_VERSION = DEFAULT_DATABASE_SOURCE["version"]
 
     @classmethod
     def get_database_version(cls, database_path: Path) -> str:
@@ -92,12 +95,17 @@ class DatabaseManager:
         version_file.write_text(cls.DATABASE_VERSION)
 
     @classmethod
-    def setup_database(cls, database_path: Optional[str] = None) -> Path:
+    def setup_database(
+        cls,
+        database_path: Optional[str] = None,
+        preferred_source: Optional[dict] = None,
+    ) -> Path:
         """
         Setup the GVClass database.
 
         Args:
             database_path: Custom database location. If None, uses 'resources' in current directory.
+            preferred_source: Optional download source override from config/env.
 
         Returns:
             Path to the database directory
@@ -120,7 +128,7 @@ class DatabaseManager:
                 logger.warning(f"Database exists but missing files: {missing_files}")
 
         # Download and extract database
-        cls._download_database(db_path)
+        cls._download_database(db_path, preferred_source=preferred_source)
 
         # Verify all files are present
         missing_files = cls._check_missing_files(db_path)
@@ -142,12 +150,12 @@ class DatabaseManager:
         return missing
 
     @classmethod
-    def _download_database(cls, db_path: Path):
+    def _download_database(cls, db_path: Path, preferred_source: Optional[dict] = None):
         """Download and extract the database."""
         db_path.mkdir(parents=True, exist_ok=True)
         errors = []
 
-        for source in cls.DATABASE_SOURCES:
+        for source in cls._resolve_database_sources(preferred_source):
             version = source["version"]
             archive_path = db_path / source["filename"]
 
@@ -166,6 +174,61 @@ class DatabaseManager:
             if errors
             else "Failed to download database: no sources succeeded"
         )
+
+    @classmethod
+    def _resolve_database_sources(cls, preferred_source: Optional[dict] = None) -> list[dict]:
+        """Resolve download sources in priority order with config/env overrides first."""
+        sources = []
+        for candidate in (cls._source_from_env(), preferred_source, *cls.DATABASE_SOURCES):
+            normalized = cls._normalize_source(candidate)
+            if normalized and all(existing["url"] != normalized["url"] for existing in sources):
+                sources.append(normalized)
+        return sources
+
+    @classmethod
+    def _source_from_env(cls) -> Optional[dict]:
+        """Read an optional database source override from environment variables."""
+        url = os.environ.get("GVCLASS_DB_URL", "").strip()
+        if not url:
+            return None
+
+        return {
+            "version": os.environ.get(
+                "GVCLASS_DB_VERSION",
+                cls.DEFAULT_DATABASE_SOURCE["version"],
+            ).strip(),
+            "url": url,
+            "filename": os.environ.get("GVCLASS_DB_FILENAME", "").strip() or None,
+            "sha256": os.environ.get("GVCLASS_DB_SHA256", "").strip() or None,
+        }
+
+    @classmethod
+    def _normalize_source(cls, source: Optional[dict]) -> Optional[dict]:
+        """Fill in missing download-source metadata and discard empty entries."""
+        if not source:
+            return None
+
+        url = str(source.get("url", "")).strip()
+        if not url:
+            return None
+
+        filename = str(source.get("filename", "")).strip()
+        if not filename:
+            filename = PurePosixPath(urlparse(url).path).name
+        if not filename:
+            raise ValueError(f"Could not derive archive filename from URL: {url}")
+
+        version = str(source.get("version", "")).strip() or cls.DEFAULT_DATABASE_SOURCE["version"]
+        sha256 = source.get("sha256")
+        if sha256 is not None:
+            sha256 = str(sha256).strip() or None
+
+        return {
+            "version": version,
+            "url": url,
+            "filename": filename,
+            "sha256": sha256,
+        }
 
     @classmethod
     def _install_database_source(cls, db_path: Path, source: dict, archive_path: Path):

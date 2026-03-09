@@ -31,7 +31,7 @@ apptainer build gvclass.sif containers/apptainer/gvclass.def
 This creates a ~992MB self-contained image including:
 - Complete Pixi environment
 - All Python dependencies  
-- Full 850MB reference database
+- Full reference database downloaded during the image build
 - GVClass source code
 
 ### Usage
@@ -84,7 +84,7 @@ docker run -v /path/to/data:/data gvclass:1.4.0 /data -t 32
 ## Container Features
 
 Both formats include:
-- **Database**: 850MB reference database (no download needed)
+- **Database**: full reference database embedded in the final image; fetched during image creation rather than tracked in git
 - **Dependencies**: All tools installed via Pixi
 - **Python packages**: pyhmmer, pyrodigal, veryfasttree, etc.
 - **Workflow**: direct GVClass pipeline execution with multi-threaded query parallelism
@@ -97,7 +97,7 @@ Both formats include:
 ## Notes
 
 - No sudo/root required for Apptainer
-- Database is embedded (no external downloads)
+- The final image embeds the runtime database, but the repo checkout keeps `resources/` local-only
 - Supports bind mounting for input/output
 - Compatible with HPC schedulers (SLURM, PBS, SGE)
 - The `.dockerignore` file must remain in project root for Docker builds

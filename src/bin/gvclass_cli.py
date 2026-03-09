@@ -242,7 +242,9 @@ def load_config(config_file: str, repo_dir: Path, output: CliOutput):
     default_config = {
         "database": {
             "path": str(repo_dir / "resources"),
-            "download_url": "https://zenodo.org/records/18891278/files/resources_v1_5_0.tar.gz?download=1",
+            "download_url": "https://zenodo.org/records/18926264/files/resources_v1_4_0.tar.gz?download=1",
+            "download_version": "v1.4.0",
+            "download_sha256": "95e2d75b5229a33f1910e16849fc067f3a2f55db5d12fbc25fb593aa61d9f3da",
             "expected_size": 1738,
         },
         "pipeline": {
@@ -296,6 +298,26 @@ def resolve_database_path(args, config, repo_dir: Path) -> Path:
     if not database.is_absolute():
         database = repo_dir / database
     return database.resolve()
+
+
+def resolve_database_download_source(config) -> Optional[dict]:
+    database_config = config.get("database", {})
+    url = str(database_config.get("download_url", "")).strip()
+    if not url:
+        return None
+
+    source = {"url": url}
+    version = str(database_config.get("download_version", "")).strip()
+    if version:
+        source["version"] = version
+
+    sha256 = database_config.get("download_sha256")
+    if sha256 is not None:
+        sha256 = str(sha256).strip()
+        if sha256:
+            source["sha256"] = sha256
+
+    return source
 
 
 def resolve_tree_method(args, config) -> str:
@@ -398,7 +420,7 @@ def split_contig_inputs(contigs: ContigInput, output: CliOutput, min_length: int
     return temp_dir, n_contigs, n_files
 
 
-def check_and_setup_database(db_path: Path, output: CliOutput) -> bool:
+def check_and_setup_database(db_path: Path, config, output: CliOutput) -> bool:
     from src.utils.database_manager import DatabaseManager
 
     required_checks = [db_path / relative_path for relative_path in DatabaseManager.REQUIRED_FILES]
@@ -411,7 +433,10 @@ def check_and_setup_database(db_path: Path, output: CliOutput) -> bool:
     output.line("Setting up database...", key="download")
 
     try:
-        DatabaseManager.setup_database(str(db_path))
+        DatabaseManager.setup_database(
+            str(db_path),
+            preferred_source=resolve_database_download_source(config),
+        )
         output.line("Database setup complete!", key="success")
         return True
     except Exception as exc:
@@ -707,7 +732,7 @@ def resolve_pipeline_context(args, repo_dir: Path, output: CliOutput) -> Pipelin
     contigs_min_length = resolve_contigs_min_length(config)
     output_dir = resolve_output_dir(args, query_dir, config)
 
-    if not check_and_setup_database(database, output):
+    if not check_and_setup_database(database, config, output):
         raise RuntimeError("Database setup failed")
 
     temp_contigs_dir, _, n_input_files = split_contig_inputs(

@@ -20,8 +20,8 @@ From: ghcr.io/prefix-dev/pixi:latest
         && apt-get clean \
         && rm -rf /var/lib/apt/lists/*
     
-    # Move only required project files from staging to final location,
-    # including resources bundled in this image.
+    # Move only the tracked project files from staging to final location.
+    # Runtime resources are downloaded into the image during the build.
     mkdir -p /opt/gvclass
     cd /opt/gvclass_staging
 
@@ -38,17 +38,11 @@ From: ghcr.io/prefix-dev/pixi:latest
         pixi.lock \
         pixi.toml \
         release_notes \
-        resources \
         src
     do
         [ -e "$item" ] || continue
         cp -r "$item" /opt/gvclass/
     done
-    
-    # Fix permissions on database files to make them readable
-    chmod -R 755 /opt/gvclass/resources/database/ 2>/dev/null || true
-    chmod 644 /opt/gvclass/resources/*.tsv 2>/dev/null || true
-    chmod 644 /opt/gvclass/resources/*.tab 2>/dev/null || true
     
     cd /opt/gvclass
     
@@ -63,6 +57,11 @@ From: ghcr.io/prefix-dev/pixi:latest
             exit 1
         }
     fi
+
+    # Fix permissions on database files to make them readable
+    chmod -R 755 /opt/gvclass/resources/database/ 2>/dev/null || true
+    chmod 644 /opt/gvclass/resources/*.tsv 2>/dev/null || true
+    chmod 644 /opt/gvclass/resources/*.tab 2>/dev/null || true
     
     # Clean up pixi cache and staging directory
     pixi clean cache -y || true

@@ -10,7 +10,12 @@ from pathlib import Path
 # Add parent directory to path to import src modules
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.bin.gvclass_cli import CliOutput, load_config, resolve_database_path
+from src.bin.gvclass_cli import (
+    CliOutput,
+    load_config,
+    resolve_database_download_source,
+    resolve_database_path,
+)
 from src.utils.database_manager import DatabaseManager
 
 
@@ -30,9 +35,12 @@ def parse_args():
     return parser.parse_args()
 
 
-def resolve_setup_database_path(args, repo_dir: Path) -> Path:
+def resolve_setup_database_context(args, repo_dir: Path) -> tuple[Path, dict | None]:
     config = load_config(args.config, repo_dir, CliOutput(plain_output=True))
-    return resolve_database_path(args, config, repo_dir)
+    return (
+        resolve_database_path(args, config, repo_dir),
+        resolve_database_download_source(config),
+    )
 
 
 def main():
@@ -40,10 +48,13 @@ def main():
     print("Setting up GVClass database...")
     args = parse_args()
     repo_dir = Path(__file__).resolve().parents[2]
-    target_path = resolve_setup_database_path(args, repo_dir)
+    target_path, preferred_source = resolve_setup_database_context(args, repo_dir)
 
     try:
-        db_path = DatabaseManager.setup_database(str(target_path))
+        db_path = DatabaseManager.setup_database(
+            str(target_path),
+            preferred_source=preferred_source,
+        )
         print(f"✅ Database successfully set up at: {db_path}")
         return 0
     except Exception as exc:
