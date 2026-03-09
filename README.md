@@ -121,7 +121,7 @@ Results are saved to `<input_name>_results/` containing:
 
 ### Output Columns Explained
 
-For developer-facing formulas, training provenance, and the exact role of each completeness/contamination field, see [docs/quality_metrics.md](/home/fschulz/dev/software/gvclass/docs/quality_metrics.md).
+For developer-facing formulas, training provenance, and the exact role of each completeness/contamination field, see [docs/quality_metrics.md](docs/quality_metrics.md).
 
 | Column | Description |
 |--------|-------------|
