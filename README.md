@@ -30,7 +30,10 @@ cd gvclass
 # 3. Install dependencies (pixi handles everything)
 pixi install
 
-# 4. Run GVClass (must run from repo directory)
+# 4. Download runtime resources (one-time per database location)
+pixi run setup-db
+
+# 5. Run GVClass (must run from repo directory)
 pixi run gvclass <input_directory> -t 16
 
 # Optional: install CLI wrappers into ~/bin
@@ -162,6 +165,8 @@ Create `gvclass_config.yaml` to set defaults:
 database:
   path: resources                    # Relative path: <gvclass_repo>/resources
   # path: /media/shared-expansion/dbs/gvclass_resources  # Absolute path on shared storage
+  download_url: https://zenodo.org/records/18926264/files/resources_v1_4_0.tar.gz?download=1
+  download_version: v1.4.0
 
 pipeline:
   tree_method: fasttree             # or 'iqtree' for more accuracy
@@ -190,6 +195,7 @@ pixi run gvclass example -o example_results
 
 - **Trained Contamination Model Default**: `estimated_contamination` now comes from the shipped trained contamination bundle instead of the rule-based score.
 - **Resource Validation Tightened**: Production resources are now expected to contain both the contamination bundle and the novelty-aware completeness resources.
+- **Setup-Driven Runtime Resources**: `resources/` is now treated as local runtime state populated by `pixi run setup-db` or first-run download, not as committed repository content.
 - **Benchmarking Workspace Separation**: Benchmark/reference workdirs moved under `benchmarking/` so runtime `resources/` stays production-focused.
 - **Full Summary Preservation**: The CLI preserves the richer final summary schema instead of collapsing back to the older per-query header set.
 
@@ -236,7 +242,7 @@ apptainer push gvclass.sif library://nelligroup-jgi/gvclass/gvclass:1.4.0
 
 Runtime resources and benchmarking assets are intentionally split:
 
-- `resources/` is the production runtime database and model bundle used by GVClass.
+- `resources/` is the local production runtime database/model directory created by `pixi run setup-db` (or the first CLI run) and ignored in git.
 - `benchmarking/` contains local/private reproducibility assets for contamination and completeness benchmarking.
 
 The benchmark workspace is not intended for public release yet. It can be packaged separately for private transfer (`scp`, shared storage, internal archive) without inflating the production download tarball.

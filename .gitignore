@@ -12,6 +12,7 @@ gvclass.sif
 .snakemake
 example/results
 update
+# Runtime resources are downloaded locally during setup and must stay out of git.
 resources/
 CLAUDE.md
 AGENTS.md

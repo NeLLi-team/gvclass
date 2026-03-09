@@ -31,8 +31,8 @@ Expected outcome:
 Build a runtime archive containing only production assets:
 
 ```bash
-tar -czf resources_v1_5_0.tar.gz resources
-sha256sum resources_v1_5_0.tar.gz > resources_v1_5_0.tar.gz.sha256
+tar -czf resources_v1_4_0.tar.gz resources
+sha256sum resources_v1_4_0.tar.gz > resources_v1_4_0.tar.gz.sha256
 ```
 
 ## Private Benchmark Archive
@@ -40,8 +40,8 @@ sha256sum resources_v1_5_0.tar.gz > resources_v1_5_0.tar.gz.sha256
 Build a separate private benchmarking archive:
 
 ```bash
-tar -czf benchmarking_v1_5_0.tar.gz benchmarking
-sha256sum benchmarking_v1_5_0.tar.gz > benchmarking_v1_5_0.tar.gz.sha256
+tar -czf benchmarking_v1_4_0.tar.gz benchmarking
+sha256sum benchmarking_v1_4_0.tar.gz > benchmarking_v1_4_0.tar.gz.sha256
 ```
 
 ## Fresh-Start Local Validation
@@ -49,11 +49,11 @@ sha256sum benchmarking_v1_5_0.tar.gz > benchmarking_v1_5_0.tar.gz.sha256
 Validate the runtime archive without relying on the in-place `resources/` directory:
 
 ```bash
-mkdir -p /tmp/gvclass_v1_5_0_test
-tar -xzf resources_v1_5_0.tar.gz -C /tmp/gvclass_v1_5_0_test
+mkdir -p /tmp/gvclass_v1_4_0_test
+tar -xzf resources_v1_4_0.tar.gz -C /tmp/gvclass_v1_4_0_test
 pixi run gvclass example \
-  -d /tmp/gvclass_v1_5_0_test/resources \
-  -o /tmp/gvclass_v1_5_0_test/example_results \
+  -d /tmp/gvclass_v1_4_0_test/resources \
+  -o /tmp/gvclass_v1_4_0_test/example_results \
   --threads 4 \
   --plain-output
 ```
@@ -63,18 +63,14 @@ pixi run gvclass example \
 Do not publish the benchmarking archive yet. If internal sharing is needed, copy it to private storage explicitly, for example:
 
 ```bash
-scp benchmarking_v1_5_0.tar.gz user@private-host:/path/to/staging/
-scp benchmarking_v1_5_0.tar.gz.sha256 user@private-host:/path/to/staging/
+scp benchmarking_v1_4_0.tar.gz user@private-host:/path/to/staging/
+scp benchmarking_v1_4_0.tar.gz.sha256 user@private-host:/path/to/staging/
 ```
 
 ## Public Release Follow-Up
 
 After the runtime archive is uploaded publicly:
 
-1. Update the published download URL in:
-   - `src/utils/database_manager.py`
-   - `config/gvclass_config.yaml`
-   - `config/gvclass_config_test.yaml`
+1. Create the `v1.4.0` git tag/release and upload `resources_v1_4_0.tar.gz` plus `resources_v1_4_0.tar.gz.sha256` as release assets.
 2. Re-test a clean install using the published archive.
-3. Push the repo release changes.
-4. Publish the updated Apptainer image to Sylabs.
+3. Publish the updated Apptainer image to Sylabs.

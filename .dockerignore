@@ -54,8 +54,10 @@ logs/
 .cache/
 .prefect/
 
+# Local runtime resources are downloaded during image builds.
+resources/
+
 # Large data files (if any)
 *.tar.gz
 *.zip
 *.sif
-# Don't exclude resources - we want to include the database in the image

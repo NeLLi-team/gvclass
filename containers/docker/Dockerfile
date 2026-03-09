@@ -14,11 +14,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Create application directory
 WORKDIR /opt/gvclass
 
-# Copy the entire project including resources
+# Copy the tracked project files; runtime resources are downloaded during build.
 COPY . /opt/gvclass/
 
 # Install GVClass dependencies using pixi
-RUN pixi install
+RUN pixi install && pixi run setup-db
 
 # Clean up pixi cache to reduce image size
 RUN pixi clean cache -y || true && \
