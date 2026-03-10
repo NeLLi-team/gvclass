@@ -40,7 +40,7 @@ pixi run gvclass <input_directory> -t 16
 pixi run install-cli
 
 # Test installation with example data
-pixi run run-example
+pixi run example
 ```
 
 ### Option 2: Apptainer/Singularity (HPC)
@@ -190,6 +190,10 @@ export GVCLASS_DB=/media/shared-expansion/dbs/gvclass_resources
 pixi run setup-db
 pixi run gvclass example -o example_results
 ```
+
+When the configured database source is a Zenodo record, GVClass now prints the installed
+database version, checks Zenodo for the latest published version, and offers to update with
+`yes` as the default response in interactive sessions.
 
 ## What's New in v1.4.0
 

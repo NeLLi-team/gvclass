@@ -45,6 +45,7 @@ click = "==8.3.1"
 gvclass = "./gvclass"
 
 # Run example data
+example = "./gvclass example -o example_results --threads 8"
 run-example = "./gvclass example -o example_results --threads 8"
 
 # Install CLI entrypoints to ~/bin
