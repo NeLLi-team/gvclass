@@ -19,7 +19,6 @@ from typing import Optional
 from src.bin.cli_display import print_banner, print_configuration
 from src.bin.progress_monitor import ResourceMonitor
 
-
 SOFTWARE_VERSION = "v1.4.0"
 PLAIN_OUTPUT_ENV = "GVCLASS_PLAIN_OUTPUT"
 DATABASE_PATH_ENV = "GVCLASS_DB"
@@ -155,7 +154,9 @@ def _add_core_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "-t", "--threads", type=int, help="Number of threads (overrides config)"
     )
-    parser.add_argument("-j", "--max-workers", type=int, help="Maximum parallel workers")
+    parser.add_argument(
+        "-j", "--max-workers", type=int, help="Maximum parallel workers"
+    )
     parser.add_argument("--threads-per-worker", type=int, help="Threads per worker")
     parser.add_argument(
         "--tree-method",
@@ -218,11 +219,15 @@ def _add_cluster_arguments(parser: argparse.ArgumentParser) -> None:
 
 def _add_misc_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
-    parser.add_argument("--version", action="store_true", help="Show version information")
+    parser.add_argument(
+        "--version", action="store_true", help="Show version information"
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run GVClass pipeline with clean output")
+    parser = argparse.ArgumentParser(
+        description="Run GVClass pipeline with clean output"
+    )
     _add_core_arguments(parser)
     _add_mode_arguments(parser)
     _add_cluster_arguments(parser)
@@ -420,22 +425,140 @@ def split_contig_inputs(contigs: ContigInput, output: CliOutput, min_length: int
     return temp_dir, n_contigs, n_files
 
 
+def inspect_local_database_state(db_path: Path) -> dict:
+    from src.utils.database_manager import DatabaseManager
+
+    if not db_path.exists():
+        return {
+            "exists": False,
+            "complete": False,
+            "version": "not installed",
+            "missing_files": list(DatabaseManager.REQUIRED_FILES),
+        }
+
+    missing_files = DatabaseManager._check_missing_files(db_path)
+    if not (db_path / "database").exists():
+        missing_files = [*missing_files, "database"]
+    return {
+        "exists": True,
+        "complete": not missing_files,
+        "version": DatabaseManager.get_database_version(db_path),
+        "missing_files": missing_files,
+    }
+
+
+def prompt_yes_no(prompt: str, default: bool = True) -> bool:
+    suffix = "[Y/n]" if default else "[y/N]"
+    while True:
+        try:
+            response = input(f"{prompt} {suffix}: ").strip().lower()
+        except EOFError:
+            return default
+
+        if not response:
+            return default
+        if response in {"y", "yes"}:
+            return True
+        if response in {"n", "no"}:
+            return False
+
+        print("Please answer yes or no.")
+
+
+def should_offer_database_update(
+    local_version: str, latest_source: Optional[dict]
+) -> bool:
+    from src.utils.database_manager import DatabaseManager
+
+    if not latest_source:
+        return False
+    return DatabaseManager.is_newer_version(latest_source["version"], local_version)
+
+
 def check_and_setup_database(db_path: Path, config, output: CliOutput) -> bool:
     from src.utils.database_manager import DatabaseManager
 
-    required_checks = [db_path / relative_path for relative_path in DatabaseManager.REQUIRED_FILES]
-    required_checks.append(db_path / "database")
-    if db_path.exists() and all(check.exists() for check in required_checks):
+    preferred_source = resolve_database_download_source(config)
+    db_state = inspect_local_database_state(db_path)
+    latest_source = DatabaseManager.get_latest_database_source(preferred_source)
+
+    if db_state["exists"] and db_state["complete"]:
         output.line(f"Database found at: {db_path}", key="success")
+        output.line(
+            f"Installed database version: {db_state['version']}", key="database"
+        )
+        if latest_source:
+            output.line(
+                f"Latest database version on Zenodo: {latest_source['version']}",
+                key="download",
+            )
+
+        if should_offer_database_update(db_state["version"], latest_source):
+            if sys.stdin.isatty() and sys.stdout.isatty():
+                wants_update = prompt_yes_no(
+                    f"Update database from {db_state['version']} to {latest_source['version']}?",
+                    default=True,
+                )
+            else:
+                output.line(
+                    "Newer database version available, but this session is non-interactive; "
+                    "skipping update prompt.",
+                    key="warning",
+                )
+                wants_update = False
+
+            if wants_update:
+                output.line(
+                    f"Updating database from {db_state['version']} to {latest_source['version']}...",
+                    key="download",
+                )
+                try:
+                    DatabaseManager.setup_database(
+                        str(db_path),
+                        preferred_source=latest_source,
+                        force=True,
+                    )
+                    output.line("Database setup complete!", key="success")
+                except Exception as exc:
+                    output.line(f"\nFailed to setup database: {exc}", key="error")
+                    output.line("You can try manually with: pixi run setup-db")
+                    return False
         return True
 
-    output.line(f"\nDatabase not found at {db_path}", key="database")
-    output.line("Setting up database...", key="download")
+    if db_state["exists"]:
+        output.line(
+            f"Database exists but missing files: {db_state['missing_files']}",
+            key="warning",
+        )
+        output.line(
+            f"Installed database version: {db_state['version']}", key="database"
+        )
+    else:
+        output.line(f"\nDatabase not found at {db_path}", key="database")
+
+    if latest_source:
+        output.line(
+            f"Latest database version on Zenodo: {latest_source['version']}",
+            key="download",
+        )
+
+    install_source = latest_source or preferred_source
+    if (
+        db_state["exists"]
+        and latest_source
+        and should_offer_database_update(db_state["version"], latest_source)
+    ):
+        output.line(
+            f"Updating database from {db_state['version']} to {latest_source['version']}...",
+            key="download",
+        )
+    else:
+        output.line("Setting up database...", key="download")
 
     try:
         DatabaseManager.setup_database(
             str(db_path),
-            preferred_source=resolve_database_download_source(config),
+            preferred_source=install_source,
         )
         output.line("Database setup complete!", key="success")
         return True
@@ -450,17 +573,23 @@ def count_resume_skips(output_dir: Path) -> int:
         path.name.replace(".summary.tab", "")
         for path in output_dir.glob("*.summary.tab")
     )
-    tar_files = set(path.name.replace(".tar.gz", "") for path in output_dir.glob("*.tar.gz"))
+    tar_files = set(
+        path.name.replace(".tar.gz", "") for path in output_dir.glob("*.tar.gz")
+    )
     return len(summary_files & tar_files)
 
 
 def calculate_worker_plan(args, n_queries: int, threads: int) -> WorkerPlan:
     if args.max_workers and args.threads_per_worker:
-        return WorkerPlan(workers=args.max_workers, threads_per_worker=args.threads_per_worker)
+        return WorkerPlan(
+            workers=args.max_workers, threads_per_worker=args.threads_per_worker
+        )
 
     if args.max_workers:
         workers = args.max_workers
-        return WorkerPlan(workers=workers, threads_per_worker=max(1, threads // workers))
+        return WorkerPlan(
+            workers=workers, threads_per_worker=max(1, threads // workers)
+        )
 
     if args.threads_per_worker:
         workers = min(n_queries, max(1, threads // args.threads_per_worker))
@@ -468,7 +597,9 @@ def calculate_worker_plan(args, n_queries: int, threads: int) -> WorkerPlan:
 
     if n_queries <= 4 and threads >= n_queries * 2:
         workers = n_queries
-        return WorkerPlan(workers=workers, threads_per_worker=max(1, threads // workers))
+        return WorkerPlan(
+            workers=workers, threads_per_worker=max(1, threads // workers)
+        )
 
     threads_per_worker = 4
     workers = min(n_queries, max(1, threads // threads_per_worker))
@@ -483,7 +614,9 @@ def resolve_runtime_python(repo_dir: Path):
     return python_exe, pixi_cmd, use_pixi_run
 
 
-def check_missing_dependencies(repo_dir: Path, python_exe: str, pixi_cmd: Optional[str], use_pixi_run: bool):
+def check_missing_dependencies(
+    repo_dir: Path, python_exe: str, pixi_cmd: Optional[str], use_pixi_run: bool
+):
     missing = []
     for dep in ["click"]:
         if use_pixi_run and pixi_cmd:
@@ -502,12 +635,20 @@ def check_missing_dependencies(repo_dir: Path, python_exe: str, pixi_cmd: Option
     return missing
 
 
-def ensure_dependencies(repo_dir: Path, python_exe: str, pixi_cmd: Optional[str], use_pixi_run: bool, output: CliOutput):
+def ensure_dependencies(
+    repo_dir: Path,
+    python_exe: str,
+    pixi_cmd: Optional[str],
+    use_pixi_run: bool,
+    output: CliOutput,
+):
     missing = check_missing_dependencies(repo_dir, python_exe, pixi_cmd, use_pixi_run)
     if missing and pixi_cmd:
         output.line("Installing dependencies with pixi...", key="database")
         subprocess.run([pixi_cmd, "install"], cwd=repo_dir)
-        missing = check_missing_dependencies(repo_dir, python_exe, pixi_cmd, use_pixi_run)
+        missing = check_missing_dependencies(
+            repo_dir, python_exe, pixi_cmd, use_pixi_run
+        )
 
     if not missing:
         return True
@@ -638,7 +779,9 @@ def combine_summary_files(output_dir: Path, output: CliOutput):
         output.line("No summary data found to combine", key="warning")
         return
 
-    with open(combined_tsv, "w") as tsv_handle, open(combined_csv, "w", newline="") as csv_handle:
+    with open(combined_tsv, "w") as tsv_handle, open(
+        combined_csv, "w", newline=""
+    ) as csv_handle:
         writer = csv.writer(csv_handle)
         tsv_handle.write("\t".join(headers) + "\n")
         writer.writerow(headers)
@@ -717,8 +860,16 @@ def show_version(config_path: str, database_override: Optional[str], repo_dir: P
     else:
         print("  Database version: not installed")
 
+    latest_source = DatabaseManager.get_latest_database_source(
+        resolve_database_download_source(config)
+    )
+    if latest_source:
+        print(f"  Latest Zenodo database: {latest_source['version']}")
 
-def resolve_pipeline_context(args, repo_dir: Path, output: CliOutput) -> PipelineContext:
+
+def resolve_pipeline_context(
+    args, repo_dir: Path, output: CliOutput
+) -> PipelineContext:
     config = load_config(args.config, repo_dir, output)
     query_dir = Path(args.query_dir).resolve()
 
@@ -799,7 +950,9 @@ def validate_and_summarize_outputs(
     if validation["success"]:
         output.line("All outputs validated successfully", key="success")
     else:
-        output.line(f"Validation found {len(validation['issues'])} issue(s):", key="warning")
+        output.line(
+            f"Validation found {len(validation['issues'])} issue(s):", key="warning"
+        )
         for issue in validation["issues"][:5]:
             print(f"  - {issue}")
 
@@ -818,7 +971,9 @@ def report_runtime(
     output.line(f"Results saved to: {output_dir}", key="summary")
 
 
-def display_startup_configuration(args, context: PipelineContext, output: CliOutput) -> None:
+def display_startup_configuration(
+    args, context: PipelineContext, output: CliOutput
+) -> None:
     print_banner(output.plain_output, SOFTWARE_VERSION)
     print_configuration(
         args=args,
@@ -838,7 +993,9 @@ def display_startup_configuration(args, context: PipelineContext, output: CliOut
     output.line(f"Completeness mode: {context.completeness_mode}")
 
 
-def build_runtime_command(args, context: PipelineContext, repo_dir: Path, output: CliOutput):
+def build_runtime_command(
+    args, context: PipelineContext, repo_dir: Path, output: CliOutput
+):
     python_exe, pixi_cmd, use_pixi_run = resolve_runtime_python(repo_dir)
     deps_ok = ensure_dependencies(repo_dir, python_exe, pixi_cmd, use_pixi_run, output)
     if not deps_ok:
@@ -889,7 +1046,9 @@ def execute_pipeline_command(
     return 0
 
 
-def resolve_cli_context(args, repo_dir: Path, output: CliOutput) -> Optional[PipelineContext]:
+def resolve_cli_context(
+    args, repo_dir: Path, output: CliOutput
+) -> Optional[PipelineContext]:
     try:
         return resolve_pipeline_context(args, repo_dir, output)
     except ValueError as exc:

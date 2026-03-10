@@ -12,15 +12,16 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.bin.gvclass_cli import (
     CliOutput,
+    check_and_setup_database,
     load_config,
-    resolve_database_download_source,
     resolve_database_path,
 )
-from src.utils.database_manager import DatabaseManager
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Download and setup the GVClass database.")
+    parser = argparse.ArgumentParser(
+        description="Download and setup the GVClass database."
+    )
     parser.add_argument(
         "-c",
         "--config",
@@ -35,27 +36,20 @@ def parse_args():
     return parser.parse_args()
 
 
-def resolve_setup_database_context(args, repo_dir: Path) -> tuple[Path, dict | None]:
-    config = load_config(args.config, repo_dir, CliOutput(plain_output=True))
-    return (
-        resolve_database_path(args, config, repo_dir),
-        resolve_database_download_source(config),
-    )
-
-
 def main():
     """Download and setup the GVClass database."""
     print("Setting up GVClass database...")
     args = parse_args()
     repo_dir = Path(__file__).resolve().parents[2]
-    target_path, preferred_source = resolve_setup_database_context(args, repo_dir)
+    output = CliOutput()
+    config = load_config(args.config, repo_dir, output)
+    target_path = resolve_database_path(args, config, repo_dir)
 
     try:
-        db_path = DatabaseManager.setup_database(
-            str(target_path),
-            preferred_source=preferred_source,
-        )
-        print(f"✅ Database successfully set up at: {db_path}")
+        if not check_and_setup_database(target_path, config, output):
+            print("❌ Database setup was not completed")
+            return 1
+        print(f"✅ Database successfully set up at: {target_path}")
         return 0
     except Exception as exc:
         print(f"❌ Error setting up database: {exc}")

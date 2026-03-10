@@ -4,20 +4,29 @@ Handles downloading and validating the reference database.
 """
 
 import hashlib
+import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import tarfile
 from pathlib import Path, PurePosixPath
 from typing import Optional
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
+from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
 
 
 class DatabaseManager:
     """Manages GVClass reference database."""
+
+    REMOTE_LOOKUP_TIMEOUT_SECONDS = 5
+    ZENODO_RECORD_RE = re.compile(
+        r"https?://(?:www\.)?zenodo\.org/(?:api/)?records/(?P<record_id>\d+)"
+    )
 
     REQUIRED_FILES = [
         "models/combined.hmm",  # Combined HMM file with all models
@@ -85,20 +94,108 @@ class DatabaseManager:
         """
         version_file = database_path / "DB_VERSION"
         if version_file.exists():
-            return version_file.read_text().strip()
+            version = version_file.read_text().strip()
+            if version:
+                return cls.normalize_version_label(version)
         return "unknown"
 
     @classmethod
-    def write_database_version(cls, database_path: Path) -> None:
+    def write_database_version(
+        cls, database_path: Path, version: Optional[str] = None
+    ) -> None:
         """Write the database version to a file."""
         version_file = database_path / "DB_VERSION"
-        version_file.write_text(cls.DATABASE_VERSION)
+        version_file.write_text(
+            cls.normalize_version_label(version or cls.DATABASE_VERSION)
+        )
+
+    @staticmethod
+    def normalize_version_label(version: Optional[str]) -> str:
+        """Normalize version labels to the repo's preferred v-prefixed format."""
+        normalized = str(version or "").strip()
+        if not normalized:
+            return "unknown"
+        if normalized.lower() in {"unknown", "not installed"}:
+            return normalized.lower()
+        if normalized.startswith("v"):
+            return normalized
+        if normalized[0].isdigit():
+            return f"v{normalized}"
+        return normalized
+
+    @classmethod
+    def is_newer_version(cls, candidate_version: str, current_version: str) -> bool:
+        """Compare two database version labels, falling back gracefully for unknowns."""
+        candidate_parts = cls._parse_version(candidate_version)
+        current_parts = cls._parse_version(current_version)
+
+        if candidate_parts is not None and current_parts is not None:
+            return candidate_parts > current_parts
+        if cls.normalize_version_label(current_version) in {"unknown", "not installed"}:
+            return cls.normalize_version_label(candidate_version) not in {
+                "unknown",
+                "not installed",
+            }
+        return cls.normalize_version_label(
+            candidate_version
+        ) != cls.normalize_version_label(current_version)
+
+    @staticmethod
+    def _parse_version(version: Optional[str]) -> Optional[tuple[int, ...]]:
+        """Parse dotted numeric versions such as v1.4.0."""
+        normalized = str(version or "").strip()
+        match = re.search(r"(\d+(?:\.\d+)*)", normalized)
+        if not match:
+            return None
+        return tuple(int(part) for part in match.group(1).split("."))
+
+    @classmethod
+    def get_effective_database_source(
+        cls, preferred_source: Optional[dict] = None
+    ) -> dict:
+        """Return the highest-priority download source after env/config resolution."""
+        sources = cls._resolve_database_sources(preferred_source)
+        if not sources:
+            raise ValueError("No database download source is configured")
+        return sources[0]
+
+    @classmethod
+    def get_latest_database_source(
+        cls, preferred_source: Optional[dict] = None
+    ) -> Optional[dict]:
+        """Resolve the latest Zenodo-backed database source from the effective source."""
+        try:
+            effective_source = cls.get_effective_database_source(preferred_source)
+        except ValueError:
+            return None
+
+        record_id = cls._extract_zenodo_record_id(effective_source["url"])
+        if not record_id:
+            return None
+
+        try:
+            record = cls._fetch_json(f"https://zenodo.org/api/records/{record_id}")
+            latest_url = record.get("links", {}).get("latest")
+            latest_record = cls._fetch_json(latest_url) if latest_url else record
+            return cls._source_from_zenodo_record(latest_record)
+        except (
+            HTTPError,
+            URLError,
+            TimeoutError,
+            ValueError,
+            json.JSONDecodeError,
+        ) as exc:
+            logger.warning(
+                "Could not resolve latest database version from Zenodo: %s", exc
+            )
+            return None
 
     @classmethod
     def setup_database(
         cls,
         database_path: Optional[str] = None,
         preferred_source: Optional[dict] = None,
+        force: bool = False,
     ) -> Path:
         """
         Setup the GVClass database.
@@ -106,6 +203,7 @@ class DatabaseManager:
         Args:
             database_path: Custom database location. If None, uses 'resources' in current directory.
             preferred_source: Optional download source override from config/env.
+            force: Reinstall even when the current database appears complete.
 
         Returns:
             Path to the database directory
@@ -119,13 +217,15 @@ class DatabaseManager:
         logger.info(f"Setting up database at: {db_path}")
 
         # Check if database exists and is complete
-        if db_path.exists():
+        if db_path.exists() and not force:
             missing_files = cls._check_missing_files(db_path)
             if not missing_files:
                 logger.info("Database already exists and is complete")
                 return db_path
             else:
                 logger.warning(f"Database exists but missing files: {missing_files}")
+        elif db_path.exists() and force:
+            logger.info("Forcing database reinstall at: %s", db_path)
 
         # Download and extract database
         cls._download_database(db_path, preferred_source=preferred_source)
@@ -176,12 +276,20 @@ class DatabaseManager:
         )
 
     @classmethod
-    def _resolve_database_sources(cls, preferred_source: Optional[dict] = None) -> list[dict]:
+    def _resolve_database_sources(
+        cls, preferred_source: Optional[dict] = None
+    ) -> list[dict]:
         """Resolve download sources in priority order with config/env overrides first."""
         sources = []
-        for candidate in (cls._source_from_env(), preferred_source, *cls.DATABASE_SOURCES):
+        for candidate in (
+            cls._source_from_env(),
+            preferred_source,
+            *cls.DATABASE_SOURCES,
+        ):
             normalized = cls._normalize_source(candidate)
-            if normalized and all(existing["url"] != normalized["url"] for existing in sources):
+            if normalized and all(
+                existing["url"] != normalized["url"] for existing in sources
+            ):
                 sources.append(normalized)
         return sources
 
@@ -218,7 +326,10 @@ class DatabaseManager:
         if not filename:
             raise ValueError(f"Could not derive archive filename from URL: {url}")
 
-        version = str(source.get("version", "")).strip() or cls.DEFAULT_DATABASE_SOURCE["version"]
+        version = cls.normalize_version_label(
+            str(source.get("version", "")).strip()
+            or cls.DEFAULT_DATABASE_SOURCE["version"]
+        )
         sha256 = source.get("sha256")
         if sha256 is not None:
             sha256 = str(sha256).strip() or None
@@ -242,7 +353,97 @@ class DatabaseManager:
         cls._extract_archive(archive_path, db_path)
 
         cls.DATABASE_VERSION = version
-        cls.write_database_version(db_path)
+        cls.write_database_version(db_path, version=version)
+
+    @classmethod
+    def _extract_zenodo_record_id(cls, url: str) -> Optional[str]:
+        """Extract a Zenodo record identifier from a standard record/files URL."""
+        match = cls.ZENODO_RECORD_RE.search(url or "")
+        if not match:
+            return None
+        return match.group("record_id")
+
+    @staticmethod
+    def _fetch_json(url: str) -> dict:
+        """Fetch a JSON document from a remote API."""
+        request = Request(
+            url,
+            headers={
+                "Accept": "application/json",
+                "User-Agent": "gvclass-database-manager",
+            },
+        )
+        with urlopen(
+            request, timeout=DatabaseManager.REMOTE_LOOKUP_TIMEOUT_SECONDS
+        ) as response:
+            return json.loads(response.read().decode("utf-8"))
+
+    @staticmethod
+    def _fetch_text(url: str) -> str:
+        """Fetch a plain-text document from a remote URL."""
+        request = Request(url, headers={"User-Agent": "gvclass-database-manager"})
+        with urlopen(
+            request, timeout=DatabaseManager.REMOTE_LOOKUP_TIMEOUT_SECONDS
+        ) as response:
+            return response.read().decode("utf-8").strip()
+
+    @classmethod
+    def _source_from_zenodo_record(cls, record: dict) -> dict:
+        """Build a download source descriptor from a Zenodo record payload."""
+        files = record.get("files", [])
+        archive_file = next(
+            (
+                candidate
+                for candidate in files
+                if candidate.get("key", "").endswith(".tar.gz")
+                and not candidate.get("key", "").endswith(".tar.gz.sha256")
+            ),
+            None,
+        )
+        if archive_file is None:
+            raise ValueError("Zenodo record does not include a database archive")
+
+        archive_name = archive_file.get("key", "")
+        archive_url = archive_file.get("links", {}).get("self")
+        if not archive_url:
+            raise ValueError(
+                f"Zenodo record archive is missing a download link: {archive_name}"
+            )
+
+        sha256_file = next(
+            (
+                candidate
+                for candidate in files
+                if candidate.get("key") == f"{archive_name}.sha256"
+            ),
+            None,
+        )
+        sha256 = None
+        if sha256_file:
+            sha256_url = sha256_file.get("links", {}).get("self")
+            if sha256_url:
+                try:
+                    sha256_text = cls._fetch_text(sha256_url)
+                except (HTTPError, URLError, TimeoutError, ValueError) as exc:
+                    logger.warning(
+                        "Could not retrieve SHA256 sidecar for Zenodo record %s: %s",
+                        record.get("id") or record.get("recid") or "unknown",
+                        exc,
+                    )
+                else:
+                    sha256 = sha256_text.split()[0] if sha256_text else None
+
+        return {
+            "version": cls.normalize_version_label(
+                record.get("metadata", {}).get("version")
+            ),
+            "url": archive_url,
+            "filename": archive_name,
+            "sha256": sha256,
+            "record_id": str(record.get("id") or record.get("recid") or "").strip()
+            or None,
+            "conceptrecid": str(record.get("conceptrecid") or "").strip() or None,
+        }
 
     @classmethod
     def _download_archive(cls, url: str, archive_path: Path) -> None:
@@ -257,7 +458,11 @@ class DatabaseManager:
             if idx > 0:
                 logger.warning(f"{commands[idx - 1][0]} failed, trying {tool}...")
             result = cls._run_download_command(command, tool)
-            if result.returncode == 0 and archive_path.exists() and archive_path.stat().st_size > 0:
+            if (
+                result.returncode == 0
+                and archive_path.exists()
+                and archive_path.stat().st_size > 0
+            ):
                 return
 
             archive_path.unlink(missing_ok=True)
@@ -270,7 +475,9 @@ class DatabaseManager:
         raise RuntimeError("download failed (" + "; ".join(errors) + ")")
 
     @staticmethod
-    def _run_download_command(command: list, tool_name: str) -> subprocess.CompletedProcess:
+    def _run_download_command(
+        command: list, tool_name: str
+    ) -> subprocess.CompletedProcess:
         """Run a download command and normalize missing-binary errors."""
         try:
             return subprocess.run(command, capture_output=True, text=True)
@@ -338,7 +545,9 @@ class DatabaseManager:
             if member.issym() or member.islnk():
                 raise RuntimeError(f"archive member uses links: {member.name}")
 
-            target_path = cls._resolve_safe_target(base_path, relative_path, member.name)
+            target_path = cls._resolve_safe_target(
+                base_path, relative_path, member.name
+            )
             if member.isdir():
                 target_path.mkdir(parents=True, exist_ok=True)
                 continue
@@ -353,9 +562,13 @@ class DatabaseManager:
                 shutil.copyfileobj(extracted, out_f)
 
     @staticmethod
-    def _normalize_member_path(member_name: str, strip_components: int) -> Optional[Path]:
+    def _normalize_member_path(
+        member_name: str, strip_components: int
+    ) -> Optional[Path]:
         """Normalize member path and apply strip-components behavior."""
-        raw_parts = [part for part in PurePosixPath(member_name).parts if part not in ("", ".")]
+        raw_parts = [
+            part for part in PurePosixPath(member_name).parts if part not in ("", ".")
+        ]
         if len(raw_parts) <= strip_components:
             return None
 
@@ -365,13 +578,17 @@ class DatabaseManager:
         return Path(*stripped_parts)
 
     @staticmethod
-    def _resolve_safe_target(base_path: Path, relative_path: Path, member_name: str) -> Path:
+    def _resolve_safe_target(
+        base_path: Path, relative_path: Path, member_name: str
+    ) -> Path:
         """Resolve extraction target and ensure it stays under base_path."""
         target_path = (base_path / relative_path).resolve()
         try:
             target_path.relative_to(base_path)
         except ValueError as exc:
-            raise RuntimeError(f"path traversal detected in archive member: {member_name}") from exc
+            raise RuntimeError(
+                f"path traversal detected in archive member: {member_name}"
+            ) from exc
         return target_path
 
     @classmethod
