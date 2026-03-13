@@ -3,3 +3,5 @@ completeness/
 checksums/*
 *.tar.gz
 *.tar.gz.sha256
+README.md
+RUNBOOK.md

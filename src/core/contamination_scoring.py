@@ -103,20 +103,29 @@ class ContaminationScorer:
         return labels
 
     def _load_ml_model(self) -> None:
-        model_path = self.database_path / CONTAMINATION_MODEL_FILE
-        if not model_path.exists():
-            return
-        try:
-            import joblib
+        bundled_model_path = (
+            Path(__file__).resolve().parents[1] / "bundled_models" / CONTAMINATION_MODEL_FILE
+        )
+        candidate_paths = [bundled_model_path, self.database_path / CONTAMINATION_MODEL_FILE]
+        for model_path in candidate_paths:
+            if not model_path.exists():
+                continue
+            try:
+                import joblib
 
-            bundle = joblib.load(model_path)
-            self.ml_model = bundle["model"]
-            self.ml_model_name = str(bundle.get("model_name", "hist_gbm"))
-            self.ml_threshold = bundle.get("threshold", 0.0)
-            self.ml_available = True
-            logger.info("Loaded ML contamination model from %s", model_path)
-        except Exception as exc:
-            logger.warning("Failed to load ML contamination model: %s", exc)
+                bundle = joblib.load(model_path)
+                self.ml_model = bundle["model"]
+                self.ml_model_name = str(bundle.get("model_name", "hist_gbm"))
+                self.ml_threshold = bundle.get("threshold", 0.0)
+                self.ml_available = True
+                logger.info("Loaded ML contamination model from %s", model_path)
+                return
+            except Exception as exc:
+                logger.warning(
+                    "Failed to load ML contamination model from %s: %s",
+                    model_path,
+                    exc,
+                )
 
     def predict_contamination(
         self, result: Dict[str, Any], contig_features: Dict[str, Any]

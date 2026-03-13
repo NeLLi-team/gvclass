@@ -70,8 +70,8 @@ if [ -f "gvclass.sif" ]; then
     echo "Using local Apptainer image: gvclass.sif"
     IMAGE="gvclass.sif"
 else
-    echo "Using Docker Hub image: gvclass:1.4.1"
-    IMAGE="docker://gvclass:1.4.1"
+    echo "Using Docker Hub image: gvclass:1.4.2"
+    IMAGE="docker://gvclass:1.4.2"
     # If Docker Hub image doesn't exist, build it locally
     if ! apptainer inspect "$IMAGE" &> /dev/null; then
         echo "Building Apptainer image from Dockerfile..."
