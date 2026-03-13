@@ -37,7 +37,6 @@ class DatabaseManager:
         "novelty_strategy2_baselines.tsv",
         "novelty_strategy3_model_metadata.tsv",
         "novelty_strategy3_models.joblib",
-        "contamination_model.joblib",
     ]
 
     DEFAULT_DATABASE_SOURCE = {

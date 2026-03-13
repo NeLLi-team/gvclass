@@ -49,3 +49,7 @@ resources_v*.tar.gz.sha256
 benchmarking_v*.tar.gz
 benchmarking_v*.tar.gz.sha256
 audit_example_results_*
+.codexloop/
+MEMORY.md
+src/bin/benchmark_real_contig_contamination.py
+tests/test_real_contig_contamination_benchmark.py

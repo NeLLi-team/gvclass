@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-v1.4.1-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/version-v1.4.2-blue.svg" alt="Version">
   <img src="https://img.shields.io/badge/license-BSD--3--Clause-green.svg" alt="License">
   <img src="https://img.shields.io/badge/python-3.11-blue.svg" alt="Python">
   <img src="https://img.shields.io/badge/pixi-enabled-orange.svg" alt="Pixi">
@@ -199,6 +199,13 @@ When the configured database source is a Zenodo record, GVClass now prints the i
 database version, checks Zenodo for the latest published version, and offers to update with
 `yes` as the default response in interactive sessions.
 
+## What's New in v1.4.2
+
+- **Contamination Model Recalibrated**: The bundled contamination regressor now uses the updated `extra_trees` model tuned on the new real-contig benchmark subset, which sharply reduces false contamination on clean long viral references.
+- **Contamination Model Bundled In Source**: `estimated_contamination` now resolves its trained model from `src/bundled_models/contamination_model.joblib` before checking runtime resources, so contamination-model updates no longer require a refreshed `resources/` archive.
+- **Local Benchmark Workspace Kept Out Of Git**: Benchmark docs and local benchmark/codexloop artifacts are now kept out of GitHub while remaining usable in local checkouts.
+- **Software Version Bump**: The software release is now `v1.4.2` while the runtime completeness resource bundle remains `v1.4.0`.
+
 ## What's New in v1.4.1
 
 - **Sensitive HMM Filtering Default**: GVClass now enables the `1e-5` pyhmmer
@@ -216,9 +223,8 @@ database version, checks Zenodo for the latest published version, and offers to 
 ## What's New in v1.4.0
 
 - **Trained Contamination Model Default**: `estimated_contamination` now comes from the shipped trained contamination bundle instead of the rule-based score.
-- **Resource Validation Tightened**: Production resources are now expected to contain both the contamination bundle and the novelty-aware completeness resources.
+- **Resource Validation Tightened**: Production resources are expected to contain the novelty-aware completeness resources.
 - **Setup-Driven Runtime Resources**: `resources/` is now treated as local runtime state populated by `pixi run setup-db` or first-run download, not as committed repository content.
-- **Benchmarking Workspace Separation**: Benchmark/reference workdirs moved under `benchmarking/` so runtime `resources/` stays production-focused.
 - **Full Summary Preservation**: The CLI preserves the richer final summary schema instead of collapsing back to the older per-query header set.
 
 ## Advanced Usage
@@ -230,18 +236,18 @@ The `gvclass-a` wrapper handles container execution automatically. For manual co
 ```bash
 # Pull the image manually (works without auth token for public images)
 apptainer pull --library https://library.sylabs.io \
-  gvclass_1.4.1.sif library://nelligroup-jgi/gvclass/gvclass:1.4.1
+  gvclass_1.4.2.sif library://nelligroup-jgi/gvclass/gvclass:1.4.2
 
 # Run with manual bind mounts
 apptainer run -B /path/to/data:/input -B /path/to/results:/output \
-  gvclass_1.4.1.sif /input -o /output -t 32
+  gvclass_1.4.2.sif /input -o /output -t 32
 ```
 
 The wrapper is simpler and handles bind mounts automatically.
 
 ### Contamination Model Requirement
 
-Primary contamination estimates are produced by a trained model bundle in `resources/contamination_model.joblib`.
+Primary contamination estimates are produced by a trained model bundle in `src/bundled_models/contamination_model.joblib`.
 The rule-based score remains in the output as a diagnostic/model feature, but it is no longer the production estimate surfaced as `estimated_contamination`.
 If the trained bundle is missing, GVClass should be treated as not fully configured for contamination estimation.
 
@@ -257,17 +263,8 @@ apptainer build gvclass.sif containers/apptainer/gvclass.def
 apptainer remote login
 
 # Push the image to the library
-apptainer push gvclass.sif library://nelligroup-jgi/gvclass/gvclass:1.4.1
+apptainer push gvclass.sif library://nelligroup-jgi/gvclass/gvclass:1.4.2
 ```
-
-### Benchmarking Assets
-
-Runtime resources and benchmarking assets are intentionally split:
-
-- `resources/` is the local production runtime database/model directory created by `pixi run setup-db` (or the first CLI run) and ignored in git.
-- `benchmarking/` contains local/private reproducibility assets for contamination and completeness benchmarking.
-
-The benchmark workspace is not intended for public release yet. It can be packaged separately for private transfer (`scp`, shared storage, internal archive) without inflating the production download tarball.
 
 ### Full CLI Reference (gvclass)
 
@@ -552,4 +549,4 @@ The GVClass runtime resources include genomes/models derived from the following 
 BSD 3-Clause License - see LICENSE file for details
 
 ---
-<sub>Version 1.4.1 - March 2026</sub>
+<sub>Version 1.4.2 - March 2026</sub>
