@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-v1.4.0-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/version-v1.4.1-blue.svg" alt="Version">
   <img src="https://img.shields.io/badge/license-BSD--3--Clause-green.svg" alt="License">
   <img src="https://img.shields.io/badge/python-3.11-blue.svg" alt="Python">
   <img src="https://img.shields.io/badge/pixi-enabled-orange.svg" alt="Pixi">
@@ -172,10 +172,14 @@ pipeline:
   tree_method: fasttree             # or 'iqtree' for more accuracy
   mode_fast: false                  # Skip order-level marker trees when true (speeds up analysis)
   completeness_mode: novelty-aware  # or 'legacy' to surface the old estimate
-  sensitive_mode: false             # Use E-value 1e-5 for pyhmmer instead of GA cutoffs
+  sensitive_mode: true              # Default: use E-value 1e-5 for pyhmmer instead of GA cutoffs
   contigs_min_length: 10000         # In --contigs mode, skip contigs shorter than this (bp)
   threads: 16                       # Default thread count
 ```
+
+Sensitive HMM filtering is enabled by default as of `v1.4.1`. Set
+`sensitive_mode: false` in your config if you need the legacy GA-based
+filtering behavior for a specific run.
 
 Database path precedence:
 - `--database` CLI flag
@@ -195,6 +199,20 @@ When the configured database source is a Zenodo record, GVClass now prints the i
 database version, checks Zenodo for the latest published version, and offers to update with
 `yes` as the default response in interactive sessions.
 
+## What's New in v1.4.1
+
+- **Sensitive HMM Filtering Default**: GVClass now enables the `1e-5` pyhmmer
+  sensitivity mode by default in the shipped configuration and deployment
+  templates.
+- **Duplicate Marker Counts Fixed**: Repeated hits from the same protein to the
+  same marker model are now collapsed before writing filtered HMM outputs and
+  marker count tables.
+- **Summary Metrics Corrected**: Downstream marker summaries now inherit the
+  corrected per-protein-per-model counts, preventing inflated GVOG and related
+  totals in sensitive-mode runs.
+- **Software Version Bump**: The software release is now `v1.4.1` while the
+  runtime resource bundle remains `v1.4.0`.
+
 ## What's New in v1.4.0
 
 - **Trained Contamination Model Default**: `estimated_contamination` now comes from the shipped trained contamination bundle instead of the rule-based score.
@@ -212,11 +230,11 @@ The `gvclass-a` wrapper handles container execution automatically. For manual co
 ```bash
 # Pull the image manually (works without auth token for public images)
 apptainer pull --library https://library.sylabs.io \
-  gvclass_1.4.0.sif library://nelligroup-jgi/gvclass/gvclass:1.4.0
+  gvclass_1.4.1.sif library://nelligroup-jgi/gvclass/gvclass:1.4.1
 
 # Run with manual bind mounts
 apptainer run -B /path/to/data:/input -B /path/to/results:/output \
-  gvclass_1.4.0.sif /input -o /output -t 32
+  gvclass_1.4.1.sif /input -o /output -t 32
 ```
 
 The wrapper is simpler and handles bind mounts automatically.
@@ -239,7 +257,7 @@ apptainer build gvclass.sif containers/apptainer/gvclass.def
 apptainer remote login
 
 # Push the image to the library
-apptainer push gvclass.sif library://nelligroup-jgi/gvclass/gvclass:1.4.0
+apptainer push gvclass.sif library://nelligroup-jgi/gvclass/gvclass:1.4.1
 ```
 
 ### Benchmarking Assets
@@ -534,4 +552,4 @@ The GVClass runtime resources include genomes/models derived from the following 
 BSD 3-Clause License - see LICENSE file for details
 
 ---
-<sub>Version 1.4.0 - March 2026</sub>
+<sub>Version 1.4.1 - March 2026</sub>

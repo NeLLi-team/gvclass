@@ -15,8 +15,8 @@ pipeline:
   tree_method: fasttree
   # Enable fast mode for testing
   mode_fast: true
-  # Keep default GA-based filtering for tests unless explicitly overridden
-  sensitive_mode: false
+  # Match the production default: sensitive pyhmmer filtering is enabled
+  sensitive_mode: true
   # Surface the tuned novelty-aware completeness estimate by default
   completeness_mode: novelty-aware
   # Minimum contig length (bp) used in --contigs mode when splitting files

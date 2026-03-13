@@ -2,15 +2,15 @@
 Full summarization module for GVClass results matching original output format.
 """
 
+from collections import Counter
 import logging
 import re
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
+
 import pandas as pd
-from collections import Counter
 
 from src.config.marker_sets import (
-    MIRUS_MODELS,
     MIRUS_CATEGORY_MODELS,
     BUSCO_MODELS,
     PHAGE_MODELS,
@@ -22,6 +22,13 @@ from src.config.marker_sets import (
     MRYA_MODELS,
     VP_CATEGORY_PREFIXES,
     PLV_PREFIX,
+)
+from src.core.marker_extraction import (
+    count_unique_proteins_by_category_models,
+    count_unique_proteins_by_category_prefixes,
+    count_unique_proteins_for_markers,
+    count_unique_proteins_for_prefixes,
+    parse_hmm_output,
 )
 from src.core.weighted_completeness import create_weighted_calculator
 from src.core.novelty_completeness import create_novelty_completeness_scorer
@@ -104,7 +111,9 @@ class FullSummarizer:
         return genome_id, tax_parts
 
     def calculate_vp_metrics(
-        self, marker_counts: Dict[str, int]
+        self,
+        marker_counts: Dict[str, int],
+        marker_hits: Optional[Dict[str, Set[str]]] = None,
     ) -> Tuple[str, int, int, float]:
         """Calculate VP (Virophage) completeness metrics.
 
@@ -118,11 +127,24 @@ class FullSummarizer:
             - plv_count: count of unique proteins hitting PLV markers
             - vp_df: duplication factor (total VP hits / 4)
         """
+        if marker_hits:
+            category_counts = count_unique_proteins_by_category_prefixes(
+                marker_hits, VP_CATEGORY_PREFIXES
+            )
+            categories_present = {
+                category for category, count in category_counts.items() if count > 0
+            }
+            vp_mcp_count = category_counts.get("MCP", 0)
+            total_vp_hits = sum(category_counts.values())
+            plv_count = count_unique_proteins_for_prefixes(marker_hits, [PLV_PREFIX])
+            completeness = len(categories_present)
+            vp_df = total_vp_hits / 4.0 if total_vp_hits > 0 else 0.0
+            return f"{completeness}/4", vp_mcp_count, plv_count, vp_df
+
         categories_present = set()
         vp_mcp_count = 0
         total_vp_hits = 0
         plv_count = 0
-
         for marker, count in marker_counts.items():
             if count <= 0:
                 continue
@@ -145,7 +167,9 @@ class FullSummarizer:
         return f"{completeness}/4", vp_mcp_count, plv_count, vp_df
 
     def calculate_mirus_completeness(
-        self, marker_counts: Dict[str, int]
+        self,
+        marker_counts: Dict[str, int],
+        marker_hits: Optional[Dict[str, Set[str]]] = None,
     ) -> Tuple[str, float]:
         """Calculate Mirusviricota completeness metrics.
 
@@ -160,9 +184,20 @@ class FullSummarizer:
             - completeness_str: "n/4" format
             - mirus_df: duplication factor (total Mirus hits / 4)
         """
+        if marker_hits:
+            category_counts = count_unique_proteins_by_category_models(
+                marker_hits, MIRUS_CATEGORY_MODELS
+            )
+            categories_present = {
+                category for category, count in category_counts.items() if count > 0
+            }
+            total_mirus_hits = sum(category_counts.values())
+            completeness = len(categories_present)
+            mirus_df = total_mirus_hits / 4.0 if total_mirus_hits > 0 else 0.0
+            return f"{completeness}/4", mirus_df
+
         categories_present = set()
         total_mirus_hits = 0
-
         for marker, count in marker_counts.items():
             if count <= 0:
                 continue
@@ -397,6 +432,17 @@ class FullSummarizer:
             logger.error(f"Error reading marker counts from {counts_file}: {e}")
         return marker_counts
 
+    def _load_marker_hits(self, hmmout_file: Path) -> Dict[str, Set[str]]:
+        """Load per-marker protein hits from a filtered HMM output file."""
+        if not hmmout_file.exists():
+            return {}
+
+        try:
+            return parse_hmm_output(hmmout_file)
+        except Exception as exc:
+            logger.error("Error reading marker hits from %s: %s", hmmout_file, exc)
+            return {}
+
     def _calculate_traditional_order_metrics(
         self, marker_counts: Dict[str, int], order_ogs: List[str]
     ) -> Tuple[float, float]:
@@ -590,7 +636,10 @@ class FullSummarizer:
         result["taxonomy_strict"] = taxonomy_strict
 
     def _add_marker_metrics(
-        self, result: Dict[str, any], marker_counts: Dict[str, int]
+        self,
+        result: Dict[str, any],
+        marker_counts: Dict[str, int],
+        marker_hits: Optional[Dict[str, Set[str]]] = None,
     ) -> None:
         """Populate marker-based metrics for the query."""
         result["gvog4_unique"] = sum(1 for m in GVOG4M_MODELS if marker_counts.get(m, 0) > 0)
@@ -601,30 +650,52 @@ class FullSummarizer:
         result["gvog8_total"] = gvog8_total
         result["gvog8_dup"] = gvog8_total / gvog8_unique if gvog8_unique > 0 else 0
 
-        result["ncldv_mcp_total"] = sum(marker_counts.get(m, 0) for m in NCLDV_MCP_MODELS)
-        result["mcp_total"] = sum(marker_counts.get(m, 0) for m in MCP_MODELS)
+        if marker_hits:
+            result["ncldv_mcp_total"] = count_unique_proteins_for_markers(
+                marker_hits, NCLDV_MCP_MODELS
+            )
+            result["mcp_total"] = count_unique_proteins_for_markers(
+                marker_hits, MCP_MODELS
+            )
+            result["mrya_total"] = count_unique_proteins_for_markers(
+                marker_hits, MRYA_MODELS
+            )
+            result["phage_total"] = count_unique_proteins_for_markers(
+                marker_hits, PHAGE_MODELS
+            )
+            cellular_models = UNI56_MODELS + BUSCO_MODELS
+            cellular_total = count_unique_proteins_for_markers(
+                marker_hits, cellular_models
+            )
+        else:
+            result["ncldv_mcp_total"] = sum(marker_counts.get(m, 0) for m in NCLDV_MCP_MODELS)
+            result["mcp_total"] = sum(marker_counts.get(m, 0) for m in MCP_MODELS)
+            result["mrya_total"] = sum(marker_counts.get(m, 0) for m in MRYA_MODELS)
+            result["phage_total"] = sum(marker_counts.get(m, 0) for m in PHAGE_MODELS)
+            cellular_models = UNI56_MODELS + BUSCO_MODELS
+            cellular_total = sum(marker_counts.get(m, 0) for m in cellular_models)
 
-        vp_completeness, vp_mcp, plv_count, vp_df = self.calculate_vp_metrics(marker_counts)
+        vp_completeness, vp_mcp, plv_count, vp_df = self.calculate_vp_metrics(
+            marker_counts, marker_hits
+        )
         result["vp_completeness"] = vp_completeness
         result["vp_mcp"] = vp_mcp
         result["plv"] = plv_count
         result["vp_df"] = vp_df
 
-        mirus_completeness, mirus_df = self.calculate_mirus_completeness(marker_counts)
+        mirus_completeness, mirus_df = self.calculate_mirus_completeness(
+            marker_counts, marker_hits
+        )
         result["mirus_completeness"] = mirus_completeness
         result["mirus_df"] = mirus_df
 
         mrya_unique = sum(1 for m in MRYA_MODELS if marker_counts.get(m, 0) > 0)
         result["mrya_unique"] = mrya_unique
-        result["mrya_total"] = sum(marker_counts.get(m, 0) for m in MRYA_MODELS)
 
         phage_unique = sum(1 for m in PHAGE_MODELS if marker_counts.get(m, 0) > 0)
         result["phage_unique"] = phage_unique
-        result["phage_total"] = sum(marker_counts.get(m, 0) for m in PHAGE_MODELS)
 
-        cellular_models = UNI56_MODELS + BUSCO_MODELS
         cellular_unique = sum(1 for m in cellular_models if marker_counts.get(m, 0) > 0)
-        cellular_total = sum(marker_counts.get(m, 0) for m in cellular_models)
         result["cellular_unique"] = cellular_unique
         result["cellular_total"] = cellular_total
         result["cellular_dup"] = cellular_total / cellular_unique if cellular_unique > 0 else 0
@@ -831,9 +902,11 @@ class FullSummarizer:
         self._add_taxonomy_summary(result, tax_counters, distances)
 
         counts_file = query_output_dir / "hmmout" / "models.counts"
+        marker_hits_file = query_output_dir / "hmmout" / "models.out.filtered"
         marker_counts = self._load_marker_counts(counts_file)
+        marker_hits = self._load_marker_hits(marker_hits_file)
         if marker_counts:
-            self._add_marker_metrics(result, marker_counts)
+            self._add_marker_metrics(result, marker_counts, marker_hits)
         else:
             self._set_default_marker_metrics(result)
 

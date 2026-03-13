@@ -145,17 +145,16 @@ def _collect_filtered_search_results(
     cutoffs: Dict[str, Tuple[float, float]],
     has_ga_cutoffs: bool,
 ) -> Tuple[Dict[str, List[Tuple[str, float]]], List[str], int, int, int]:
-    model_hits: Dict[str, List[Tuple[str, float]]] = defaultdict(list)
-    filtered_lines: List[str] = []
+    best_hits: Dict[Tuple[str, str], Tuple[float, float, str]] = {}
+    header_lines: List[str] = []
     total_lines = 0
     hit_lines = 0
-    passed_cutoffs = 0
 
     with open(output_file, "r") as f:
         for line in f:
             total_lines += 1
             if line.startswith("#"):
-                filtered_lines.append(line)
+                header_lines.append(line)
                 continue
 
             parts = line.strip().split()
@@ -173,9 +172,19 @@ def _collect_filtered_search_results(
             ):
                 continue
 
-            filtered_lines.append(line)
-            model_hits[model_name].append((query_name, seq_score))
-            passed_cutoffs += 1
+            key = (query_name, model_name)
+            current = best_hits.get(key)
+            candidate = (seq_score, dom_score, line)
+            if current is None or (seq_score, dom_score) > (current[0], current[1]):
+                best_hits[key] = candidate
+
+    model_hits: Dict[str, List[Tuple[str, float]]] = defaultdict(list)
+    filtered_lines = list(header_lines)
+    for (query_name, model_name), (seq_score, _, line) in best_hits.items():
+        filtered_lines.append(line)
+        model_hits[model_name].append((query_name, seq_score))
+
+    passed_cutoffs = len(best_hits)
 
     return model_hits, filtered_lines, total_lines, hit_lines, passed_cutoffs
 
@@ -467,6 +476,7 @@ def generate_counts_from_output(output_file: str, counts_file: str) -> None:
     from collections import defaultdict
 
     counts = defaultdict(int)
+    seen_hits = set()
 
     try:
         with open(output_file, "r") as f:
@@ -475,7 +485,12 @@ def generate_counts_from_output(output_file: str, counts_file: str) -> None:
                     continue
                 parts = line.strip().split("\t")
                 if len(parts) >= 4:
+                    query_name = parts[0]
                     model_name = parts[3]  # Query name is the model
+                    key = (query_name, model_name)
+                    if key in seen_hits:
+                        continue
+                    seen_hits.add(key)
                     counts[model_name] += 1
 
         # Write counts
@@ -536,16 +551,13 @@ def _store_og_hit(
     genomeid: str,
     key: HitKey,
     record: HitRecord,
-    outfile: TextIO,
 ) -> None:
     if key not in protein_hits_order[genomeid]:
         protein_hits_order[genomeid][key] = record
-        outfile.write(record[3])
         return
 
     if record[1] > protein_hits_order[genomeid][key][1]:
         protein_hits_order[genomeid][key] = record
-        outfile.write(record[3])
 
 
 def _find_existing_non_og_hit(
@@ -575,7 +587,6 @@ def _process_hmmout_hit_line(
     cutoffs: Dict[str, Tuple[float, float]],
     protein_hits: GenomeHits,
     protein_hits_order: GenomeHits,
-    outfile: TextIO,
 ) -> None:
     protein_id, genomeid, model, score, length = _parse_hmmout_hit(line)
     if not _passes_process_cutoff(model, score, length, cutoffs):
@@ -584,10 +595,16 @@ def _process_hmmout_hit_line(
     key: HitKey = (protein_id, model)
     record: HitRecord = (model, score, length, line)
     if model.startswith("OG"):
-        _store_og_hit(protein_hits_order, genomeid, key, record, outfile)
+        _store_og_hit(protein_hits_order, genomeid, key, record)
         return
 
     _store_non_og_hit(protein_hits, genomeid, key, record)
+
+
+def _write_og_hits(outfile: TextIO, protein_hits_order: GenomeHits) -> None:
+    for _, protein_dict in protein_hits_order.items():
+        for _, (_, _, _, line) in protein_dict.items():
+            outfile.write(f"{line}\n")
 
 
 def _write_non_og_hits(outfile: TextIO, protein_hits: GenomeHits) -> None:
@@ -608,9 +625,8 @@ def _filter_hmmout_to_hits(
             if line.startswith("#"):
                 outfile.write(line)
                 continue
-            _process_hmmout_hit_line(
-                line, cutoffs, protein_hits, protein_hits_order, outfile
-            )
+            _process_hmmout_hit_line(line, cutoffs, protein_hits, protein_hits_order)
+        _write_og_hits(outfile, protein_hits_order)
         _write_non_og_hits(outfile, protein_hits)
 
 

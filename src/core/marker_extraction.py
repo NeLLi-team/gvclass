@@ -6,7 +6,7 @@ This module implements the functionality of the extract_qhits rule from the Snak
 
 from pathlib import Path
 from collections import defaultdict
-from typing import Dict, Set, List, Tuple
+from typing import Dict, Iterable, Set, List, Tuple
 from Bio import SeqIO
 
 from src.utils import setup_logging
@@ -189,3 +189,45 @@ def count_marker_hits(hmm_output: Path) -> Dict[str, int]:
     """
     marker_hits = parse_hmm_output(hmm_output)
     return {marker: len(hits) for marker, hits in marker_hits.items()}
+
+
+def count_unique_proteins_for_markers(
+    marker_hits: Dict[str, Set[str]], markers: Iterable[str]
+) -> int:
+    """Count unique proteins matched by any marker in a category."""
+    proteins: Set[str] = set()
+    for marker in markers:
+        proteins.update(marker_hits.get(marker, set()))
+    return len(proteins)
+
+
+def count_unique_proteins_for_prefixes(
+    marker_hits: Dict[str, Set[str]], prefixes: Iterable[str]
+) -> int:
+    """Count unique proteins matched by markers sharing one of the prefixes."""
+    prefix_tuple = tuple(prefixes)
+    proteins: Set[str] = set()
+    for marker, hits in marker_hits.items():
+        if marker.startswith(prefix_tuple):
+            proteins.update(hits)
+    return len(proteins)
+
+
+def count_unique_proteins_by_category_models(
+    marker_hits: Dict[str, Set[str]], category_models: Dict[str, Iterable[str]]
+) -> Dict[str, int]:
+    """Count unique proteins for each category defined by explicit marker names."""
+    return {
+        category: count_unique_proteins_for_markers(marker_hits, models)
+        for category, models in category_models.items()
+    }
+
+
+def count_unique_proteins_by_category_prefixes(
+    marker_hits: Dict[str, Set[str]], category_prefixes: Dict[str, str]
+) -> Dict[str, int]:
+    """Count unique proteins for each category defined by a marker prefix."""
+    return {
+        category: count_unique_proteins_for_prefixes(marker_hits, [prefix])
+        for category, prefix in category_prefixes.items()
+    }

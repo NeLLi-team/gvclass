@@ -19,7 +19,7 @@ from typing import Optional
 from src.bin.cli_display import print_banner, print_configuration
 from src.bin.progress_monitor import ResourceMonitor
 
-SOFTWARE_VERSION = "v1.4.0"
+SOFTWARE_VERSION = "v1.4.1"
 PLAIN_OUTPUT_ENV = "GVCLASS_PLAIN_OUTPUT"
 DATABASE_PATH_ENV = "GVCLASS_DB"
 TWO_DECIMAL_SUMMARY_COLUMNS = {
@@ -178,7 +178,7 @@ def _add_mode_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--sensitive",
         action="store_true",
-        help="Sensitive HMM mode: use E-value 1e-5 instead of GA cutoffs",
+        help="Force sensitive HMM mode: use E-value 1e-5 instead of GA cutoffs",
     )
     parser.add_argument(
         "--completeness-mode",
@@ -256,7 +256,7 @@ def load_config(config_file: str, repo_dir: Path, output: CliOutput):
             "tree_method": "fasttree",
             "mode_fast": True,
             "completeness_mode": "novelty-aware",
-            "sensitive_mode": False,
+            "sensitive_mode": True,
             "contigs_min_length": 10000,
             "threads": 16,
             "output_pattern": "{query_dir}_results",
@@ -340,7 +340,7 @@ def resolve_mode_fast(args, config) -> bool:
 
 
 def resolve_sensitive_mode(args, config) -> bool:
-    return args.sensitive or config["pipeline"].get("sensitive_mode", False)
+    return args.sensitive or config["pipeline"].get("sensitive_mode", True)
 
 
 def resolve_completeness_mode(args, config) -> str:
