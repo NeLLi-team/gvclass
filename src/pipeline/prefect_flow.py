@@ -316,7 +316,7 @@ def create_local_deployment():
             "cluster_type": "local",
             "total_threads": 16,
             "mode_fast": True,
-            "sensitive_mode": False,
+            "sensitive_mode": True,
         },
         tags=["gvclass", "local"],
         description="GVClass pipeline for local execution",
@@ -336,7 +336,7 @@ def create_slurm_deployment():
         parameters={
             "cluster_type": "slurm",
             "total_threads": 128,
-            "sensitive_mode": False,
+            "sensitive_mode": True,
             "cluster_config": {
                 "queue": "normal",
                 "project": "gvclass",

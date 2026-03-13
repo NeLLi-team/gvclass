@@ -10,13 +10,17 @@ import logging
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Tuple
+from typing import Any, Dict, List
 
 from Bio import SeqIO
 
 import numpy as np
 
 from src.config.marker_sets import BUSCO_MODELS, PHAGE_MODELS, UNI56_MODELS
+from src.core.marker_extraction import (
+    count_unique_proteins_for_markers,
+    parse_hmm_output,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -307,10 +311,26 @@ class ContaminationScorer:
         tax_counters: Dict[str, Counter],
         query_output_dir: Path,
     ) -> Dict[str, Any]:
+        marker_hits = {}
+        hmmout_file = query_output_dir / "hmmout" / "models.out.filtered"
+        if hmmout_file.exists():
+            try:
+                marker_hits = parse_hmm_output(hmmout_file)
+            except Exception as exc:
+                logger.warning("Failed to parse marker hits from %s: %s", hmmout_file, exc)
+
         cellular_unique = sum(1 for m in CELLULAR_MODELS if marker_counts.get(m, 0) > 0)
-        cellular_total = sum(marker_counts.get(m, 0) for m in CELLULAR_MODELS)
         phage_unique = sum(1 for m in PHAGE_MODELS_SET if marker_counts.get(m, 0) > 0)
-        phage_total = sum(marker_counts.get(m, 0) for m in PHAGE_MODELS_SET)
+        if marker_hits:
+            cellular_total = count_unique_proteins_for_markers(
+                marker_hits, CELLULAR_MODELS
+            )
+            phage_total = count_unique_proteins_for_markers(
+                marker_hits, PHAGE_MODELS_SET
+            )
+        else:
+            cellular_total = sum(marker_counts.get(m, 0) for m in CELLULAR_MODELS)
+            phage_total = sum(marker_counts.get(m, 0) for m in PHAGE_MODELS_SET)
         order_dup = float(result.get("order_dup", 0.0) or 0.0)
         gvog8_dup = float(result.get("gvog8_dup", 0.0) or 0.0)
 

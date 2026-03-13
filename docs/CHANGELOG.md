@@ -5,6 +5,22 @@ All notable changes to GVClass will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.4.1] - 2026-03-12
+
+### Changed
+- Enabled sensitive pyhmmer filtering (`E=1e-5` / `domE=1e-5`) by default in the
+  shipped configuration and deployment templates.
+
+### Fixed
+- Collapsed repeated hits from the same protein to the same marker model before
+  writing filtered HMM outputs and marker count tables.
+- Corrected downstream marker summaries so GVOG and related totals inherit the
+  deduplicated per-protein-per-model counts.
+
+### Notes
+- The GVClass software release is `v1.4.1`.
+- The bundled runtime resource bundle remains `v1.4.0`.
+
 ## [v1.2.1] - 2026-02-12
 
 ### Highlights
