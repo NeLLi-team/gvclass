@@ -41,71 +41,84 @@ def test_bundled_model_card_advertises_matching_sha256() -> None:
     assert card["sha256"] == CONTAMINATION_MODEL_SHA256
 
 
-def test_load_ml_model_raises_on_sha256_mismatch(tmp_path: Path) -> None:
-    """Any tampering with the bundle must fail-closed before ``joblib.load``."""
-    from src.core.contamination_scoring import ContaminationScorer
+def test_load_ml_model_raises_on_sha256_mismatch_and_never_reaches_joblib(
+    tmp_path: Path,
+) -> None:
+    """Any tampering with the bundle must fail-closed before ``joblib.load``.
 
-    # Point the scorer at the bundled model but patch the expected digest to
-    # a value that does not match the on-disk file.
+    Also asserts that ``joblib.load`` is never called when the digest check
+    fails — closes a TOCTOU regression where a pre-hash/post-load swap could
+    still reach the pickle deserializer.
+    """
+    import src.core.contamination_scoring as scoring
+
     with patch(
         "src.core.contamination_scoring.CONTAMINATION_MODEL_SHA256",
         "deadbeef" * 8,
-    ):
+    ), patch("joblib.load") as joblib_load:
         with pytest.raises(RuntimeError, match="SHA-256 mismatch"):
-            ContaminationScorer(tmp_path)
+            scoring.ContaminationScorer(tmp_path)
+    # Critical invariant: the untrusted bytes must never reach joblib.load.
+    joblib_load.assert_not_called()
 
 
-def test_load_ml_model_raises_when_bundled_file_missing(
-    tmp_path: Path, monkeypatch
-) -> None:
+def _redirect_bundled_model_to(tmp_dir: Path) -> Path:
+    """Copy the bundled contamination model into a sibling ``bundled_models``
+    directory under ``tmp_dir`` and return the faux
+    ``contamination_scoring.py`` file whose ``parents[1]`` points at
+    ``tmp_dir``.
+
+    The scorer resolves its bundled-model path via
+    ``Path(__file__).resolve().parents[1] / "bundled_models" / CONTAMINATION_MODEL_FILE``.
+    Pointing ``__file__`` at a file two directories deep lets each test
+    work on its own isolated tree without renaming the shared repo artefact
+    (which would race with concurrent pytest workers).
+    """
+    core_dir = tmp_dir / "src" / "core"
+    bundled_dir = tmp_dir / "src" / "bundled_models"
+    core_dir.mkdir(parents=True)
+    bundled_dir.mkdir(parents=True)
+    fake_scoring_module = core_dir / "contamination_scoring.py"
+    fake_scoring_module.write_text("# test redirect target\n")
+    return fake_scoring_module
+
+
+def test_load_ml_model_raises_when_bundled_file_missing(tmp_path: Path) -> None:
     """If the bundled model is physically missing, construction must fail
-    loudly rather than silently degrading to ``ml_available=False``."""
+    loudly rather than silently degrading to ``ml_available=False``.
+
+    Uses an isolated ``tmp_path`` tree with no bundled model present so the
+    test never touches the shared repo artefact.
+    """
     import src.core.contamination_scoring as scoring
 
-    # Redirect the bundled-model lookup to a path that does not exist.
-    missing_root = tmp_path / "no_bundled_models"
-
-    original_init = scoring.ContaminationScorer.__init__
-
-    def patched_init(self, database_path, sensitive_mode=False):
-        # Ensure the bundled path resolver walks up to a nonexistent tree.
-        monkeypatch.setattr(
-            scoring.Path,
-            "__file__",
-            str(missing_root / "contamination_scoring.py"),
-            raising=False,
-        )
-        original_init(self, database_path, sensitive_mode)
-
-    # Instead of monkeypatching __file__ (which does not propagate via
-    # parents[1]), rename the bundled file temporarily.
-    real_path = _bundled_model_path()
-    backup = real_path.with_suffix(".joblib.test_backup")
-    real_path.rename(backup)
-    try:
+    fake_module = _redirect_bundled_model_to(tmp_path)
+    # Intentionally do NOT drop a joblib into bundled_dir.
+    with patch.object(scoring, "__file__", str(fake_module)):
         with pytest.raises(RuntimeError, match="Contamination model not found"):
             scoring.ContaminationScorer(tmp_path)
-    finally:
-        backup.rename(real_path)
 
 
-def test_sensitive_mode_scorer_skips_model_load(tmp_path: Path, monkeypatch) -> None:
+def test_sensitive_mode_scorer_skips_model_load(tmp_path: Path) -> None:
     """When sensitive_mode=True, the SHA-256 gate and ``joblib.load`` must not
-    execute at all. Removing the bundled file would normally raise; under
-    sensitive_mode construction succeeds with ``ml_available=False``."""
-    from src.core.contamination_scoring import ContaminationScorer
+    execute at all. Even with no bundled file present, construction must
+    succeed with ``ml_available=False``.
 
-    real_path = _bundled_model_path()
-    backup = real_path.with_suffix(".joblib.test_backup")
-    real_path.rename(backup)
-    try:
-        scorer = ContaminationScorer(tmp_path, sensitive_mode=True)
-    finally:
-        backup.rename(real_path)
+    Uses an isolated ``tmp_path`` tree so the test does not rename or
+    otherwise perturb the shared repo artefact.
+    """
+    import src.core.contamination_scoring as scoring
+
+    fake_module = _redirect_bundled_model_to(tmp_path)
+    with patch.object(scoring, "__file__", str(fake_module)), patch(
+        "joblib.load"
+    ) as joblib_load:
+        scorer = scoring.ContaminationScorer(tmp_path, sensitive_mode=True)
 
     assert scorer.sensitive_mode is True
     assert scorer.ml_available is False
     assert scorer.ml_model is None
+    joblib_load.assert_not_called()
 
 
 def test_rotate_contamination_model_script_prints_current_digest() -> None:

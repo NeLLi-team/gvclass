@@ -131,15 +131,18 @@ class ContaminationScorer:
 
         Only ``src/bundled_models/contamination_model.joblib`` is accepted — the
         previous ``database_path`` fallback was removed so there is exactly one
-        canonical model file to guard. The SHA-256 of the file on disk is
-        compared against :data:`CONTAMINATION_MODEL_SHA256`; any mismatch
-        raises ``RuntimeError`` and the pipeline aborts before ``joblib.load``
-        has a chance to execute arbitrary pickle bytecode. Missing-file and
-        load-failure paths also raise now, replacing the previous silent
+        canonical model file to guard. The file is read into memory once; the
+        SHA-256 of those same bytes is compared against
+        :data:`CONTAMINATION_MODEL_SHA256` and the verified bytes are handed
+        directly to ``joblib.load`` via ``BytesIO``. This closes the TOCTOU
+        window where an attacker could swap the file between a path-based
+        hash check and a path-based deserialize. Missing-file and load
+        failures also raise now, replacing the previous silent
         ``logger.warning + continue`` fallback so a broken install cannot
         stealth-degrade to a zero-contamination default.
         """
-        from src.utils.common import sha256_file
+        import hashlib
+        import io
 
         bundled_model_path = (
             Path(__file__).resolve().parents[1] / "bundled_models" / CONTAMINATION_MODEL_FILE
@@ -149,10 +152,14 @@ class ContaminationScorer:
             raise RuntimeError(
                 f"Contamination model not found at {bundled_model_path}. "
                 "The bundled model is required for non-sensitive runs; "
-                "reinstall or pull the v1.4.3 tag to restore it."
+                "restore it by reinstalling the GVClass distribution "
+                "or re-downloading the bundled_models/ directory."
             )
 
-        digest = sha256_file(bundled_model_path)
+        # Read once, verify the in-memory bytes, then deserialize the same
+        # bytes. Nothing on disk gets re-read between hash check and load.
+        model_bytes = bundled_model_path.read_bytes()
+        digest = hashlib.sha256(model_bytes).hexdigest()
         if digest != CONTAMINATION_MODEL_SHA256:
             raise RuntimeError(
                 "Contamination model SHA-256 mismatch at "
@@ -165,7 +172,7 @@ class ContaminationScorer:
         try:
             import joblib
 
-            bundle = joblib.load(bundled_model_path)
+            bundle = joblib.load(io.BytesIO(model_bytes))
         except Exception as exc:
             raise RuntimeError(
                 f"Failed to load contamination model from {bundled_model_path}: {exc}"
