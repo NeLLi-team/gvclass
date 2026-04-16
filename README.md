@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-v1.4.2-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/version-v1.4.3-blue.svg" alt="Version">
   <img src="https://img.shields.io/badge/license-BSD--3--Clause-green.svg" alt="License">
   <img src="https://img.shields.io/badge/python-3.11-blue.svg" alt="Python">
   <img src="https://img.shields.io/badge/pixi-enabled-orange.svg" alt="Pixi">
@@ -236,11 +236,11 @@ The `gvclass-a` wrapper handles container execution automatically. For manual co
 ```bash
 # Pull the image manually (works without auth token for public images)
 apptainer pull --library https://library.sylabs.io \
-  gvclass_1.4.2.sif library://nelligroup-jgi/gvclass/gvclass:1.4.2
+  gvclass_1.4.3.sif library://nelligroup-jgi/gvclass/gvclass:1.4.3
 
 # Run with manual bind mounts
 apptainer run -B /path/to/data:/input -B /path/to/results:/output \
-  gvclass_1.4.2.sif /input -o /output -t 32
+  gvclass_1.4.3.sif /input -o /output -t 32
 ```
 
 The wrapper is simpler and handles bind mounts automatically.
@@ -263,7 +263,7 @@ apptainer build gvclass.sif containers/apptainer/gvclass.def
 apptainer remote login
 
 # Push the image to the library
-apptainer push gvclass.sif library://nelligroup-jgi/gvclass/gvclass:1.4.2
+apptainer push gvclass.sif library://nelligroup-jgi/gvclass/gvclass:1.4.3
 ```
 
 ### Full CLI Reference (gvclass)
@@ -549,4 +549,4 @@ The GVClass runtime resources include genomes/models derived from the following 
 BSD 3-Clause License - see LICENSE file for details
 
 ---
-<sub>Version 1.4.2 - March 2026</sub>
+<sub>Version 1.4.3 - April 2026</sub>

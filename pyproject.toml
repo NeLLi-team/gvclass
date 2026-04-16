@@ -1,0 +1,65 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gvclass"
+dynamic = ["version"]
+description = "Giant virus classification tool using phylogenetic analysis"
+authors = [{ name = "Frederik Schulz", email = "fschulz@lbl.gov" }]
+requires-python = ">=3.11,<3.12"
+license = { text = "BSD-3-Clause" }
+readme = "README.md"
+keywords = [
+  "bioinformatics",
+  "virus",
+  "phylogenetics",
+  "nucleocytoviricota",
+  "giant-virus",
+  "classification",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: BSD License",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+
+[project.urls]
+Homepage = "https://github.com/NeLLi-team/gvclass"
+Issues = "https://github.com/NeLLi-team/gvclass/issues"
+
+[project.scripts]
+gvclass = "src.bin.gvclass_cli:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "src.__version__.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+exclude = ["src.test*", "tests*"]
+
+[tool.setuptools.package-data]
+"src.bundled_models" = ["*.joblib", "*.yaml", "*.sha256"]
+"src.config" = ["*.py", "*.tsv", "*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "src/test"]
+python_files = ["test_*.py"]
+addopts = ["-ra", "--strict-markers"]
+markers = [
+  "slow: tests that take more than a few seconds",
+  "requires_db: tests that need the GVClass reference database",
+]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+
+[tool.black]
+line-length = 88
+target-version = ["py311"]

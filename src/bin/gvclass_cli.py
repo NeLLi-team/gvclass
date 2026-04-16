@@ -16,10 +16,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+from src.__version__ import __version__ as _GVCLASS_VERSION
 from src.bin.cli_display import print_banner, print_configuration
 from src.bin.progress_monitor import ResourceMonitor
 
-SOFTWARE_VERSION = "v1.4.2"
+SOFTWARE_VERSION = f"v{_GVCLASS_VERSION}"
 PLAIN_OUTPUT_ENV = "GVCLASS_PLAIN_OUTPUT"
 DATABASE_PATH_ENV = "GVCLASS_DB"
 TWO_DECIMAL_SUMMARY_COLUMNS = {
