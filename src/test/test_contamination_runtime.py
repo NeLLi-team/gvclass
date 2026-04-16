@@ -214,3 +214,177 @@ def test_write_contamination_candidates_file_gated_by_contamination_type(
     text = output.read_text()
     assert "contig_7" in text
     assert "cellular" in text
+
+
+# ---------------------------------------------------------------------------
+# Phase 1.2: sensitive-mode gate regressions.
+# ---------------------------------------------------------------------------
+
+
+def test_sensitive_mode_short_circuits_before_ml_available_guard(
+    temp_database_dir: Path, tmp_path: Path
+) -> None:
+    """sensitive_mode=True must succeed even when the trained contamination
+    model cannot be loaded. The short-circuit precedes the ``ml_available``
+    guard so Phase 1.4's fail-closed loader does not block sensitive runs."""
+    import math
+
+    summarizer = FullSummarizer(temp_database_dir, sensitive_mode=True)
+    summarizer.contamination_scorer.score_rule_based = Mock(
+        return_value={
+            "contamination_score_v1": 12.5,
+            "contamination_flag_v1": "low",
+            "contamination_source_v1": "cellular",
+            "contamination_cellular_signal_v1": 25.0,
+            "contamination_phage_signal_v1": 0.0,
+            "contamination_duplication_signal_v1": 0.0,
+            "contamination_viral_mixture_signal_v1": 0.0,
+            "contamination_nonviral_hit_fraction_v1": 10.0,
+            "estimated_contamination": 12.5,
+            "estimated_contamination_strategy": "rule_based_v1",
+        }
+    )
+    summarizer.contamination_scorer.collect_contig_features = Mock(
+        return_value={"suspicious_bp_fraction": 0.0, "suspicious_contig_count": 0}
+    )
+    # Model deliberately unavailable; sensitive gate must still succeed.
+    summarizer.contamination_scorer.ml_available = False
+    summarizer.contamination_scorer.predict_contamination = Mock(
+        side_effect=AssertionError("predict_contamination must NOT be called under sensitive_mode")
+    )
+
+    result: dict[str, object] = {}
+    summarizer._add_contamination_metrics(
+        result=result,
+        query_id="query1",
+        query_output_dir=tmp_path / "query1",
+        marker_counts={},
+        tax_counters={"order": Counter(), "family": Counter()},
+    )
+
+    # Rule-based score remains visible as a diagnostic.
+    assert result["contamination_score_v1"] == 12.5
+    # ML estimate replaced by NaN marker.
+    assert math.isnan(result["estimated_contamination"])
+    assert result["estimated_contamination_strategy"] == "skipped_sensitive_mode"
+    assert result["contamination_type"] == "uncertain_sensitive_mode"
+    assert result["_contamination_candidates"] == []
+    summarizer.contamination_scorer.predict_contamination.assert_not_called()
+
+
+def test_standard_mode_still_raises_when_model_missing(
+    temp_database_dir: Path, tmp_path: Path
+) -> None:
+    """Without sensitive_mode the existing fail-closed behavior must stand."""
+    summarizer = FullSummarizer(temp_database_dir, sensitive_mode=False)
+    summarizer.contamination_scorer.score_rule_based = Mock(
+        return_value={
+            "contamination_score_v1": 12.5,
+            "contamination_flag_v1": "low",
+            "contamination_source_v1": "cellular",
+            "contamination_cellular_signal_v1": 25.0,
+            "contamination_phage_signal_v1": 0.0,
+            "contamination_duplication_signal_v1": 0.0,
+            "contamination_viral_mixture_signal_v1": 0.0,
+            "contamination_nonviral_hit_fraction_v1": 10.0,
+            "estimated_contamination": 12.5,
+            "estimated_contamination_strategy": "rule_based_v1",
+        }
+    )
+    summarizer.contamination_scorer.collect_contig_features = Mock(
+        return_value={"suspicious_bp_fraction": 0.0, "suspicious_contig_count": 0}
+    )
+    summarizer.contamination_scorer.ml_available = False
+
+    with pytest.raises(RuntimeError, match="trained contamination model"):
+        summarizer._add_contamination_metrics(
+            result={},
+            query_id="query1",
+            query_output_dir=tmp_path / "query1",
+            marker_counts={},
+            tax_counters={"order": Counter(), "family": Counter()},
+        )
+
+
+def test_classify_contamination_type_returns_sensitive_marker_for_nan(
+    temp_database_dir: Path,
+) -> None:
+    summarizer = FullSummarizer(temp_database_dir)
+    summarizer.contamination_scorer.ml_threshold = 5.0
+
+    assert (
+        summarizer._classify_contamination_type(
+            {"estimated_contamination": float("nan"), "contamination_source_v1": "cellular"}
+        )
+        == "uncertain_sensitive_mode"
+    )
+
+
+def test_final_summary_emits_nan_literal_for_skipped_contamination(tmp_path: Path) -> None:
+    """NaN must survive formatting so the summary TSV clearly shows ``NaN``
+    instead of collapsing to ``0.00`` under the sensitive-mode gate."""
+    from src.pipeline.summary_writer import write_final_summary_files
+
+    results = [
+        {
+            "query": "q1",
+            "status": "complete",
+            "summary_data": {
+                "query": "q1",
+                "taxonomy_majority": "d_NCLDV",
+                "estimated_completeness": 73.5,
+                "estimated_contamination": float("nan"),
+                "contamination_type": "uncertain_sensitive_mode",
+                "gvog4_unique": 4,
+                "ncldv_mcp_total": 2,
+            },
+        }
+    ]
+
+    summary_tsv = write_final_summary_files(results, tmp_path)
+    text = summary_tsv.read_text()
+    # Header + one row.
+    lines = [line for line in text.splitlines() if line.strip()]
+    assert len(lines) == 2
+    header, row = lines[0].split("\t"), lines[1].split("\t")
+    columns = dict(zip(header, row))
+    assert columns["estimated_contamination"] == "NaN"
+    assert columns["contamination_type"] == "uncertain_sensitive_mode"
+    # Completeness still formatted normally.
+    assert columns["estimated_completeness"] == "73.50"
+
+
+def test_contamination_candidates_suppressed_under_sensitive_mode(tmp_path: Path) -> None:
+    """Candidate TSV must not be emitted when the contamination_type marker is
+    ``uncertain_sensitive_mode``."""
+    from src.pipeline.query_processing_engine import _write_contamination_candidates_file
+
+    query_output_dir = tmp_path / "query1"
+    summary_data = {
+        "contamination_type": "uncertain_sensitive_mode",
+        "estimated_contamination": float("nan"),
+        "_contamination_candidates": [
+            {
+                "contig_id": "contig_7",
+                "candidate_type": "cellular",
+                "reason": "cellular_hits",
+                "length_bp": 12000,
+                "cellular_marker_count": 2,
+                "phage_marker_count": 0,
+                "viral_marker_count": 1,
+                "nonviral_fraction": 87.5,
+                "foreign_viral_fraction": 0.0,
+            }
+        ],
+    }
+
+    output = _write_contamination_candidates_file(
+        query_output_dir=query_output_dir,
+        query_name="query1",
+        summary_data=summary_data,
+        logger=Mock(),
+    )
+
+    assert output is None
+    # The stats directory must not have been created either.
+    assert not (query_output_dir / "stats" / "query1.contamination_candidates.tsv").exists()

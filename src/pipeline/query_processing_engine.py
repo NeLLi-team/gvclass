@@ -128,6 +128,7 @@ def _run_query_stages(
         tree_nn_results,
         mode_fast,
         completeness_mode,
+        sensitive_mode,
         logger,
     )
     return prepared_input, summary_data
@@ -623,11 +624,16 @@ def _generate_summary_data(
     tree_nn_results: Dict[str, Any],
     mode_fast: bool,
     completeness_mode: str,
+    sensitive_mode: bool,
     logger,
 ) -> Dict[str, Any]:
     logger.info(f"Generating full summary: {query_name}")
     try:
-        summarizer = FullSummarizer(database_path, completeness_mode=completeness_mode)
+        summarizer = FullSummarizer(
+            database_path,
+            completeness_mode=completeness_mode,
+            sensitive_mode=sensitive_mode,
+        )
         summary_data = summarizer.summarize_query_full(
             query_id=query_name,
             query_output_dir=query_output_dir,
@@ -665,7 +671,15 @@ def _write_contamination_candidates_file(
     candidates = summary_data.get("_contamination_candidates", [])
     if not candidates:
         return None
-    if summary_data.get("contamination_type", "clean") in {"clean", "uncertain"}:
+    # ``uncertain_sensitive_mode`` is the marker emitted when the trained
+    # contamination model is bypassed under sensitive_mode; suppress
+    # candidate emission in that regime alongside the regular ``clean`` /
+    # ``uncertain`` cases.
+    if summary_data.get("contamination_type", "clean") in {
+        "clean",
+        "uncertain",
+        "uncertain_sensitive_mode",
+    }:
         return None
 
     stats_dir = query_output_dir / "stats"

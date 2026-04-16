@@ -135,8 +135,8 @@ For developer-facing formulas, training provenance, and the exact role of each c
 | avgdist | Average tree distance to references |
 | order_dup | Average copy number of expected order-level markers; elevated values suggest duplicated, chimeric, or mixed bins |
 | estimated_completeness | Estimated percentage of the expected genome recovered for the assigned lineage. Determined by the novelty-aware completeness model by default |
-| estimated_contamination | Estimated percentage of the assembly likely to represent contaminant or mixed-origin sequence. Determined by the trained `hist_gbm_v1` contamination model |
-| contamination_type | High-level contamination interpretation (`clean`, `cellular`, `mixed_viral`, `phage`, `duplication`, or `uncertain`) when `estimated_contamination >= 10` |
+| estimated_contamination | Estimated percentage of the assembly likely to represent contaminant or mixed-origin sequence. Determined by the trained `hist_gbm_v1` contamination model when `sensitive_mode=false`. Reported as `NaN` when `sensitive_mode=true` (the current default) because the trained model was fit on GA-cutoff-filtered HMM features and is not calibrated against sensitive-mode feature distributions. See "Sensitive mode and the contamination model" below. |
+| contamination_type | High-level contamination interpretation (`clean`, `cellular`, `mixed_viral`, `phage`, `duplication`, `uncertain`, or `uncertain_sensitive_mode`) when `estimated_contamination >= 10` or the model was skipped |
 | gvog4_unique | Count of unique GVOG4 markers found |
 | gvog8_unique/total/dup | GVOG8 marker counts and duplication |
 | ncldv_mcp_total | NCLDV-specific MCP marker count |
@@ -180,6 +180,31 @@ pipeline:
 Sensitive HMM filtering is enabled by default as of `v1.4.1`. Set
 `sensitive_mode: false` in your config if you need the legacy GA-based
 filtering behavior for a specific run.
+
+### Sensitive mode and the contamination model
+
+As of `v1.4.3`, the trained contamination model (`src/bundled_models/contamination_model.joblib`)
+is **skipped automatically when `sensitive_mode=true`** (the shipped default).
+The model was trained on features derived from GA-cutoff-filtered HMM output;
+sensitive mode replaces GA/TC/NC bit-score cutoffs with a flat `E=1e-5`, which
+materially shifts the feature distribution (inflated `cellular_total`,
+`mrya_total`, and duplication-based signals). Feeding sensitive-mode features
+into a GA-trained model returns numbers that look precise but are
+miscalibrated, which is worse than no prediction.
+
+Therefore, under default `sensitive_mode=true`:
+
+- `estimated_contamination` is reported as `NaN` (preserved literally in the
+  TSV and CSV summaries).
+- `contamination_type` is set to `uncertain_sensitive_mode`.
+- `*.contamination_candidates.tsv` per-query files are not emitted.
+- The rule-based `contamination_score_v1` column still reflects the
+  sensitive-mode features and is retained as a diagnostic.
+
+To obtain a numeric contamination estimate, override sensitive mode in the
+config (`pipeline.sensitive_mode: false`) or pass no flag when running with
+the default config. A sensitive-mode-trained variant of the contamination
+model is planned for a future release.
 
 Database path precedence:
 - `--database` CLI flag
