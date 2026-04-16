@@ -356,47 +356,12 @@ def gvclass_flow(
     return summary_file
 
 
-# Deployment configurations for different environments
-def create_local_deployment():
-    """Create deployment for local execution."""
-    from prefect.deployments import Deployment
-
-    deployment = Deployment.build_from_flow(
-        flow=gvclass_flow,
-        name="gvclass-local",
-        parameters={
-            "cluster_type": "local",
-            "total_threads": 16,
-            "mode_fast": True,
-            "sensitive_mode": True,
-        },
-        tags=["gvclass", "local"],
-        description="GVClass pipeline for local execution",
-    )
-
-    return deployment
-
-
-
-def create_slurm_deployment():
-    """Create deployment for SLURM cluster execution."""
-    from prefect.deployments import Deployment
-
-    deployment = Deployment.build_from_flow(
-        flow=gvclass_flow,
-        name="gvclass-slurm",
-        parameters={
-            "cluster_type": "slurm",
-            "total_threads": 128,
-            "sensitive_mode": True,
-            "cluster_config": {
-                "queue": "normal",
-                "project": "gvclass",
-                "walltime": "08:00:00",
-            },
-        },
-        tags=["gvclass", "hpc", "slurm"],
-        description="GVClass pipeline for SLURM cluster execution",
-    )
-
-    return deployment
+# NOTE (v1.4.3 cleanup): the former create_local_deployment /
+# create_slurm_deployment helpers were removed. They imported
+# `prefect.deployments.Deployment`, were never wired to the CLI, and
+# were the only source of a live Prefect dependency in this module.
+# Renaming this file to `parallel_runner.py` (and the sibling CLI
+# wrapper to `gvclass_runner`) is deferred to v1.5.0 because the CLI
+# currently spawns `python -m src.bin.gvclass_prefect` as a subprocess.
+# If/when we truly adopt Prefect (@flow / @task / retry / persistence)
+# file a follow-up issue.

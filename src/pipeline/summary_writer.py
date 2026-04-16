@@ -10,6 +10,7 @@ from typing import Any, Dict, List
 LEGACY_SUMMARY_HEADERS: List[str] = [
     "query",
     "taxonomy_majority",
+    "taxonomy_confidence",
     "species",
     "genus",
     "family",
@@ -80,6 +81,7 @@ LEGACY_SUMMARY_HEADERS: List[str] = [
 LEGACY_SUMMARY_KEY_MAPPING: Dict[str, str] = {
     "query": "query",
     "taxonomy_majority": "taxonomy_majority",
+    "taxonomy_confidence": "taxonomy_confidence",
     "species": "species",
     "genus": "genus",
     "family": "family",
@@ -151,6 +153,7 @@ FINAL_SUMMARY_COLUMNS: List[str] = [
     "query",
     "taxonomy_majority",
     "taxonomy_strict",
+    "taxonomy_confidence",
     "species",
     "genus",
     "family",
