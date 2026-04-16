@@ -16,9 +16,8 @@ update
 resources/
 CLAUDE.md
 AGENTS.md
-docs/
+docs/plans/
 .pixi*
-pixi.lock
 .ruff*
 .claude*
 out*

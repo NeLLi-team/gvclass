@@ -46,7 +46,9 @@ def print_run_configuration(
     completeness_mode: str,
     sensitive: bool,
 ) -> None:
-    click.echo("GVClass Pipeline v1.4.2")
+    from src.__version__ import __version__ as _gvclass_version
+
+    click.echo(f"GVClass Pipeline v{_gvclass_version}")
     click.echo(f"Query directory: {query_path}")
     click.echo(f"Output directory: {output_path}")
     click.echo(f"Database: {db_path if db_path else 'Will download/use default'}")

@@ -1,6 +1,8 @@
 # Use the official Pixi base image (includes Pixi pre-installed)
 FROM ghcr.io/prefix-dev/pixi:latest
 
+ARG GVCLASS_VERSION=1.4.3
+
 # Install build dependencies needed for pyrodigal compilation
 USER root
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -34,14 +36,16 @@ ENV PYTHONPATH="/opt/gvclass:${PYTHONPATH}"
 RUN mkdir -p /data /results && chmod 777 /data /results
 
 # Create an entrypoint script
-RUN echo '#!/bin/bash\n\
-if [ -z "$1" ] || [[ "$1" == -* ]]; then\n\
-    echo "Error: Please provide input directory as first argument"\n\
-    echo "Usage: docker run -v /your/data:/data gvclass:1.4.0 /data/input_dir [options]"\n\
-    exit 1\n\
-fi\n\
-cd /opt/gvclass\n\
-exec ./gvclass "$@"' > /entrypoint.sh && \
+RUN printf '%s\n' \
+        '#!/bin/bash' \
+        'if [ -z "$1" ] || [[ "$1" == -* ]]; then' \
+        '    echo "Error: Please provide input directory as first argument"' \
+        "    echo \"Usage: docker run -v /your/data:/data gvclass:${GVCLASS_VERSION} /data/input_dir [options]\"" \
+        '    exit 1' \
+        'fi' \
+        'cd /opt/gvclass' \
+        'exec ./gvclass "$@"' \
+    > /entrypoint.sh && \
     chmod +x /entrypoint.sh
 
 ENTRYPOINT ["/entrypoint.sh"]
@@ -49,7 +53,7 @@ ENTRYPOINT ["/entrypoint.sh"]
 # Metadata
 LABEL maintainer="fschulz@lbl.gov"
 LABEL description="GVClass - Giant Virus Classification Tool with pre-installed database"
-LABEL version="1.4.0"
+LABEL version="${GVCLASS_VERSION}"
 LABEL database.included="true"
 LABEL database.size="~850MB"
-LABEL usage.docker="docker run -v /path/to/data:/data gvclass:1.4.0 '/data -t 32'"
+LABEL usage.docker="docker run -v /path/to/data:/data gvclass:${GVCLASS_VERSION} '/data -t 32'"
