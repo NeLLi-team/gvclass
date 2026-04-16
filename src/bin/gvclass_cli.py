@@ -570,14 +570,27 @@ def check_and_setup_database(db_path: Path, config, output: CliOutput) -> bool:
 
 
 def count_resume_skips(output_dir: Path) -> int:
-    summary_files = set(
-        path.name.replace(".summary.tab", "")
+    """Count queries that resume will skip.
+
+    The v1.4.3 SUCCESS sentinel is the primary marker; pre-1.4.3 runs
+    still count via the legacy summary+tar intersection so the CLI's pre-run
+    preview matches the actual resume behavior in
+    :func:`src.pipeline.prefect_flow._query_is_resume_complete`.
+    """
+    sentinel_names = {
+        path.name.removesuffix(".SUCCESS")
+        for path in output_dir.glob("*.SUCCESS")
+    }
+    summary_names = {
+        path.name.removesuffix(".summary.tab")
         for path in output_dir.glob("*.summary.tab")
-    )
-    tar_files = set(
-        path.name.replace(".tar.gz", "") for path in output_dir.glob("*.tar.gz")
-    )
-    return len(summary_files & tar_files)
+    }
+    tar_names = {
+        path.name.removesuffix(".tar.gz")
+        for path in output_dir.glob("*.tar.gz")
+    }
+    legacy_names = (summary_names & tar_names) - sentinel_names
+    return len(sentinel_names) + len(legacy_names)
 
 
 def calculate_worker_plan(args, n_queries: int, threads: int) -> WorkerPlan:
