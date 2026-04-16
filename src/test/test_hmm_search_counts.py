@@ -205,3 +205,34 @@ def test_dedup_domtbl_file_preserves_single_rows(tmp_path: Path) -> None:
         if line and not line.startswith("#")
     ]
     assert len(data_lines) == 3
+
+
+def test_dedup_domtbl_file_rejects_truncated_rows(tmp_path: Path) -> None:
+    """Rows with fewer columns than :func:`_format_domain_line` emits must be
+    rejected so ``models.out.filtered`` never carries structurally invalid
+    lines (Codex-audit finding)."""
+    raw_file = tmp_path / "models.out"
+    filtered_file = tmp_path / "models.out.filtered"
+    # Well-formed 22-column row (from _domtbl_line) + a truncated 15-column
+    # row that the previous ``len(parts) >= 15`` check would have preserved.
+    truncated_row = (
+        "prot_bad\t-\t100\tGVOGm0099\t-\t300\t1e-20\t42.0\t0.0\t"
+        "1\t1\t1e-20\t1e-20\t41.0\t0.0\n"
+    )
+    raw_file.write_text(
+        "# header\n"
+        + _domtbl_line("prot_good", "GVOGm0022", 50.0, 50.0)
+        + truncated_row
+    )
+
+    written = dedup_domtbl_file(str(raw_file), str(filtered_file))
+
+    data_lines = [
+        line
+        for line in filtered_file.read_text().splitlines()
+        if line and not line.startswith("#")
+    ]
+    assert written == 1
+    assert len(data_lines) == 1
+    assert "prot_good" in data_lines[0]
+    assert "prot_bad" not in filtered_file.read_text()
