@@ -5,6 +5,127 @@ All notable changes to GVClass will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.4.3] - 2026-04-16
+
+### Highlights
+- Closed three load-bearing correctness bugs surfaced by the v1.4.2 code
+  review (multi-HMM dedup bypass, sensitive-mode invalidating the trained
+  contamination model, resume accepting corrupt runs).
+- Added a SHA-256 gate on the bundled contamination model plus a model card
+  so any swap of the joblib fails fast and goes through code review.
+- Added an opt-in `--allow-short` flag and hardened input validation to
+  fail-closed on short / malformed FASTA.
+- Added `src/__version__.py` as the single source of truth, `pyproject.toml`
+  for `pip install -e .`, committed `pixi.lock`, and introduced
+  `.github/workflows/ci.yml` with lint/test + PR golden-file regression.
+
+### Fixed (correctness)
+- **Multi-HMM dedup**: `src/pipeline/query_processing_engine.py::_run_hmm_search`
+  previously copied the raw per-domain HMM output verbatim into
+  `models.out.filtered`. A new `dedup_domtbl_file` helper
+  (`src/core/hmm_search_multi.py`) collapses the file to one row per
+  `(protein, model)` pair, matching the single-HMM path. Domtbl rows with
+  fewer than the emitted 22 fields are now rejected to prevent malformed
+  input from slipping through the dedup pipeline.
+- **Sensitive-mode contamination model gate**: `FullSummarizer` now takes
+  a `sensitive_mode` flag and short-circuits before the `ml_available`
+  guard. Under sensitive mode `estimated_contamination = NaN`,
+  `contamination_type = uncertain_sensitive_mode`, and no
+  `*.contamination_candidates.tsv` sidecar is emitted. The rule-based
+  score is preserved as a diagnostic.
+- **Resume reliability**: per-query tarballs are written atomically
+  (`.tar.gz.part` + `is_tarfile` verification + `os.replace` + parent
+  `fsync`). A new JSON `*.SUCCESS` sentinel (with summary/tar SHA-256,
+  software version, completion timestamp) is the primary resume marker;
+  the legacy `(summary.tab, tar.gz)` pair is accepted only if the tar
+  passes `tarfile.is_tarfile`. On reruns, `_clear_prior_outputs` wipes
+  every resumable artefact so a crash mid-regeneration cannot leave a
+  silently-skippable legacy pair on disk. Database install also extracts
+  into `<db_path>.new` and atomically swaps, with rollback on failure.
+- **Taxonomy majority per marker**: `summarize_full.py::_collect_taxonomy_counts`
+  now tracks a per-marker breakdown; the consensus rule uses one-vote-
+  per-marker with a minimum number of supporting markers per level
+  (order=3 normal, 2 fast-mode; others=2) and emits a new
+  `taxonomy_confidence` column. Deterministic alphabetic tiebreak ensures
+  two runs on the same data cannot disagree.
+- **Marker extraction**: `marker_extraction.extract_marker_sequences` now
+  indexes by both `record.id` and `record.description` so headers with
+  trailing annotation (pyrodigal-style `"prot_1 # start # end"`) resolve.
+- **Genetic-code deterministic tiebreak**: `select_best_code` uses an
+  explicit `_CODE_PREFERENCE_RANK` map (11, 1, 4, 0, 6, 15, 29, 106, 129).
+  A non-meta code must clear an absolute margin over meta (>=2 extra
+  complete hits or 10% higher avg best-hit score) to override. Prevents
+  noise-driven flips to exotic codes.
+- **Thread coordination**: `build_runtime_env` now seeds
+  `OMP/OPENBLAS/MKL/NUMEXPR_NUM_THREADS` at the per-marker budget, and
+  `veryfasttree.run` actually receives the `threads` argument (previously
+  single-threaded regardless of allocation).
+- **Contig splitter**: now transactional. `split_contigs` and the
+  directory-mode wrapper detect sanitized filename collisions in a plan
+  phase before any files are written; a collision leaves the output dir
+  empty.
+- **`.fasta` / `.fas` content validation**: extension-agnostic inputs now
+  route through content-alphabet inference so DNA/protein character
+  checks run. Directory validation (`validate_query_directory`) re-raises
+  per-file errors instead of the previous log-and-continue.
+- **Novelty R² gating**: predicted completeness is now gated on
+  `r2_holdout`. Below `0.5` the strategy-2 tier score is the primary
+  estimate and the ML prediction surfaces only as
+  `estimated_completeness_advisory`. New `estimated_completeness_quality`
+  column (high / moderate / advisory_only) and `estimated_completeness_r2_holdout`.
+  NaN r2 values are treated as missing.
+
+### Fixed (security)
+- SHA-256 gate on `src/bundled_models/contamination_model.joblib`. The
+  constant (`CONTAMINATION_MODEL_SHA256`) is in Python source rather than
+  a sidecar so rotation requires a `.py` change. Verification hashes and
+  deserializes the same in-memory bytes to close the TOCTOU window
+  between the hash and `joblib.load`. New rotation helper at
+  `scripts/rotate_contamination_model.py`.
+
+### Added
+- `src/__version__.py` as the single source of truth.
+- `pyproject.toml` with console script `gvclass = src.bin.gvclass_cli:main`.
+- `.github/workflows/ci.yml`: lint + type-check + pytest on push/PR;
+  golden-file regression (`tests/fixtures/expected_example_summary.tsv`)
+  on PR with DB caching; container build + SBOM on tag push.
+- `docs/quality_metrics.md` (now tracked) and model-card YAML at
+  `src/bundled_models/contamination_model.yaml`.
+- `--allow-short` CLI flag for below-minimum inputs.
+- New output columns: `taxonomy_confidence`,
+  `estimated_completeness_quality`, `estimated_completeness_advisory`,
+  `estimated_completeness_r2_holdout`.
+
+### Changed
+- `.gitignore` no longer masks `pixi.lock` or `docs/` (plans directory
+  still ignored). `pixi.lock` is now committed.
+- `resolve_completeness_mode` fallback matches `default_config`
+  (`novelty-aware`), closing the documented/actual drift.
+- README resolution claim walked back from "domain to species level" to
+  "domain to family level; genus / species only when a near-identical
+  reference exists".
+- Query enumeration now accepts `.fasta` / `.fas` in addition to `.fna` / `.faa`.
+
+### Removed
+- Dead Prefect deployment helpers (`create_local_deployment`,
+  `create_slurm_deployment`) from `src/pipeline/prefect_flow.py`.
+
+### Deferred to v1.5.0
+- Renaming `prefect_flow.py` → `parallel_runner.py` (CLI currently shells
+  the module path).
+- Unifying `.blastpout` / `.m8` naming so BLAST only runs once per query
+  (`_run_blast_search` carries a TODO + regression test for now).
+- Retraining the contamination model on sensitive-mode features.
+- Tree-NN quality filter (min tips, bootstrap / patristic gate).
+- MRYA generic `ATPase` HMM retightening.
+
+### Notes
+- Software release is `v1.4.3`; runtime resource bundle remains `v1.4.0`.
+- `pixi run test` reports 107 passed (+12 new in this release, golden-file
+  opt-in via `GVCLASS_RUN_GOLDEN=1`).
+- Verified end-to-end: `pixi run gvclass example -t 8 --mode-fast`
+  completes in 43s; three queries report `taxonomy_confidence = high`.
+
 ## [v1.4.1] - 2026-03-12
 
 ### Changed
