@@ -388,3 +388,34 @@ def test_contamination_candidates_suppressed_under_sensitive_mode(tmp_path: Path
     assert output is None
     # The stats directory must not have been created either.
     assert not (query_output_dir / "stats" / "query1.contamination_candidates.tsv").exists()
+
+
+def test_stale_contamination_candidates_file_removed_on_suppression(tmp_path: Path) -> None:
+    """On reruns (resume or mode switch) a pre-existing candidate file from a
+    previous run must be deleted when the current gate suppresses emission,
+    so the stale file is not copied to the output root or archived into
+    the per-query tarball (Codex-audit finding)."""
+    from src.pipeline.query_processing_engine import _write_contamination_candidates_file
+
+    query_output_dir = tmp_path / "query1"
+    stats_dir = query_output_dir / "stats"
+    stats_dir.mkdir(parents=True)
+    stale = stats_dir / "query1.contamination_candidates.tsv"
+    stale.write_text("query\tcontamination_type\nquery1\tcellular\n")
+    assert stale.exists()
+
+    summary_data = {
+        "contamination_type": "uncertain_sensitive_mode",
+        "estimated_contamination": float("nan"),
+        "_contamination_candidates": [],
+    }
+
+    output = _write_contamination_candidates_file(
+        query_output_dir=query_output_dir,
+        query_name="query1",
+        summary_data=summary_data,
+        logger=Mock(),
+    )
+
+    assert output is None
+    assert not stale.exists(), "Stale candidate file should be deleted on suppression"

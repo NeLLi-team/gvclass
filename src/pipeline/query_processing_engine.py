@@ -662,6 +662,25 @@ def _create_output_dirs(query_output_dir: Path) -> None:
         (query_output_dir / dir_name).mkdir(exist_ok=True, parents=True)
 
 
+def _remove_stale_candidate_file(
+    query_output_dir: Path, query_name: str, logger
+) -> None:
+    """Delete any pre-existing candidate TSV from a prior run.
+
+    Reruns on a partial query directory (e.g. resume, or a prior non-sensitive
+    run followed by a sensitive run) would otherwise carry the old
+    ``*.contamination_candidates.tsv`` forward into the copy/archive stages
+    even when the current gate suppresses a fresh write.
+    """
+    stale = query_output_dir / "stats" / f"{query_name}.contamination_candidates.tsv"
+    if stale.exists():
+        try:
+            stale.unlink()
+            logger.info(f"Removed stale contamination candidates file: {stale}")
+        except OSError as exc:
+            logger.warning(f"Could not remove stale {stale}: {exc}")
+
+
 def _write_contamination_candidates_file(
     query_output_dir: Path,
     query_name: str,
@@ -669,17 +688,19 @@ def _write_contamination_candidates_file(
     logger,
 ) -> Optional[Path]:
     candidates = summary_data.get("_contamination_candidates", [])
-    if not candidates:
-        return None
     # ``uncertain_sensitive_mode`` is the marker emitted when the trained
     # contamination model is bypassed under sensitive_mode; suppress
     # candidate emission in that regime alongside the regular ``clean`` /
-    # ``uncertain`` cases.
-    if summary_data.get("contamination_type", "clean") in {
+    # ``uncertain`` cases. Any stale candidate file from a previous run must
+    # also be removed so the downstream copy/archive path does not carry it
+    # forward.
+    suppressed_type = summary_data.get("contamination_type", "clean") in {
         "clean",
         "uncertain",
         "uncertain_sensitive_mode",
-    }:
+    }
+    if not candidates or suppressed_type:
+        _remove_stale_candidate_file(query_output_dir, query_name, logger)
         return None
 
     stats_dir = query_output_dir / "stats"
