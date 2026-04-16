@@ -36,6 +36,7 @@ TWO_DECIMAL_SUMMARY_COLUMNS = {
     "order_completeness_v2_support_score",
     "order_completeness_v2_informative_fraction",
     "estimated_completeness",
+    "estimated_completeness_advisory",
     "contamination_score_v1",
     "contamination_cellular_signal_v1",
     "contamination_phage_signal_v1",
@@ -201,6 +202,15 @@ def _add_mode_arguments(parser: argparse.ArgumentParser) -> None:
         "--resume",
         action="store_true",
         help="Resume from previous run, skipping completed queries",
+    )
+    parser.add_argument(
+        "--allow-short",
+        action="store_true",
+        help=(
+            "Accept input FNA files shorter than the 20 kb minimum. "
+            "Use for per-contig runs (often paired with --contigs) or for "
+            "exploratory runs on short inputs."
+        ),
     )
 
 
@@ -709,6 +719,8 @@ def _append_optional_pipeline_flags(
         cmd.append("--verbose")
     if args.resume:
         cmd.append("--resume")
+    if getattr(args, "allow_short", False):
+        cmd.append("--allow-short")
 
 
 def build_pipeline_command(

@@ -81,6 +81,7 @@ def run_flow(
     cluster_type: str,
     cluster_config: dict,
     resume: bool,
+    allow_short: bool = False,
 ):
     return gvclass_flow(
         query_dir=str(query_path),
@@ -96,6 +97,7 @@ def run_flow(
         cluster_type=cluster_type,
         cluster_config=cluster_config if cluster_config else None,
         resume=resume,
+        allow_short=allow_short,
     )
 
 
@@ -152,6 +154,7 @@ def execute_cli_flow(
     cluster_type: str,
     cluster_config: dict,
     resume: bool,
+    allow_short: bool = False,
 ):
     result = run_flow(
         query_path=query_path,
@@ -167,6 +170,7 @@ def execute_cli_flow(
         cluster_type=cluster_type,
         cluster_config=cluster_config,
         resume=resume,
+        allow_short=allow_short,
     )
     click.echo("\nPipeline completed successfully!")
     click.echo(f"Results written to: {result}")
@@ -230,7 +234,16 @@ def execute_cli_flow(
     is_flag=True,
     help="Resume from previous run, skipping completed queries",
 )
-def main(querydir, output_dir, database, threads, max_workers, threads_per_worker, tree_method, mode_fast, completeness_mode, sensitive, cluster_type, cluster_queue, cluster_project, cluster_walltime, verbose, resume):
+@click.option(
+    "--allow-short",
+    is_flag=True,
+    help=(
+        "Accept input FNA files shorter than the 20 kb minimum. Use for "
+        "per-contig runs (often paired with --contigs) or for exploratory "
+        "runs on short inputs."
+    ),
+)
+def main(querydir, output_dir, database, threads, max_workers, threads_per_worker, tree_method, mode_fast, completeness_mode, sensitive, cluster_type, cluster_queue, cluster_project, cluster_walltime, verbose, resume, allow_short):
     log_level = "DEBUG" if verbose else "INFO"
     logger = setup_logging("gvclass_prefect", level=log_level)
 
@@ -251,7 +264,7 @@ def main(querydir, output_dir, database, threads, max_workers, threads_per_worke
             completeness_mode=completeness_mode,
             sensitive=sensitive,
         )
-        execute_cli_flow(query_path, output_path, db_path, threads, max_workers, threads_per_worker, tree_method, mode_fast, completeness_mode, sensitive, cluster_type, cluster_config, resume)
+        execute_cli_flow(query_path, output_path, db_path, threads, max_workers, threads_per_worker, tree_method, mode_fast, completeness_mode, sensitive, cluster_type, cluster_config, resume, allow_short=allow_short)
     except FileNotFoundError as exc:
         click.echo(f"Error: {exc}", err=True)
         sys.exit(1)

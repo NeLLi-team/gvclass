@@ -334,11 +334,14 @@ def test_resume_all_skipped_does_not_crash_on_zero_workers(tmp_path: Path) -> No
     # Run with resume=True; the flow should detect zero remaining queries
     # and short-circuit without spawning any workers. It still writes a
     # final summary from whatever is on disk (empty in this synthetic case).
+    # The synthetic FNAs are far below the Phase 3.2 20 kb floor, so pass
+    # allow_short=True to let validate_query_directory accept them.
     summary_file = gvclass_flow(
         query_dir=str(query_dir),
         output_dir=str(output_dir),
         database_path=None,
         total_threads=4,
         resume=True,
+        allow_short=True,
     )
     assert Path(summary_file).exists()
