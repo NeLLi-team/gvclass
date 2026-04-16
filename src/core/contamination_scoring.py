@@ -31,6 +31,20 @@ CELLULAR_MODELS = set(BUSCO_MODELS + UNI56_MODELS)
 PHAGE_MODELS_SET = set(PHAGE_MODELS)
 
 CONTAMINATION_MODEL_FILE = "contamination_model.joblib"
+#: Expected SHA-256 digest of ``src/bundled_models/contamination_model.joblib``.
+#:
+#: Keeping this as a Python constant rather than a committed sidecar file is
+#: intentional: the bundled model is loaded through ``joblib.load`` which is a
+#: pickle-based deserializer, so a malicious swap of the ``.joblib`` file is
+#: arbitrary code execution at runtime. A sidecar ``.sha256`` would be a
+#: single-file swap for the attacker; a code-level constant forces a ``.py``
+#: change that lands through code review.
+#:
+#: Rotate with ``scripts/rotate_contamination_model.py`` whenever the model is
+#: retrained.
+CONTAMINATION_MODEL_SHA256 = (
+    "b3d42e3076b54146f2de5a5492517d57da25840ae1273d71c804672b65d7b234"
+)
 CONTAMINATION_MODEL_FEATURES = [
     "contamination_score_v1",
     "contamination_cellular_signal_v1",
@@ -65,15 +79,25 @@ class BlastHit:
 class ContaminationScorer:
     """Runtime rule-based contamination scorer with reusable feature extractors."""
 
-    def __init__(self, database_path: Path):
+    def __init__(self, database_path: Path, sensitive_mode: bool = False):
+        """Initialize the contamination scorer.
+
+        ``sensitive_mode=True`` skips loading the trained contamination model
+        entirely — including the SHA-256 gate — because the caller will short
+        -circuit to a ``NaN`` / ``uncertain_sensitive_mode`` emission before
+        the model is ever consulted (see
+        :meth:`src.core.summarize_full.FullSummarizer._add_contamination_metrics`).
+        """
         self.database_path = database_path
+        self.sensitive_mode = sensitive_mode
         self.labels_file = database_path / "gvclassFeb26_labels.tsv"
         self.labels = self._load_labels()
         self.ml_model = None
         self.ml_model_name = "hist_gbm"
         self.ml_threshold = 0.0
         self.ml_available = False
-        self._load_ml_model()
+        if not sensitive_mode:
+            self._load_ml_model()
 
     def _load_labels(self) -> Dict[str, Dict[str, str]]:
         labels: Dict[str, Dict[str, str]] = {}
@@ -103,29 +127,55 @@ class ContaminationScorer:
         return labels
 
     def _load_ml_model(self) -> None:
+        """Load the bundled contamination model after a SHA-256 gate.
+
+        Only ``src/bundled_models/contamination_model.joblib`` is accepted — the
+        previous ``database_path`` fallback was removed so there is exactly one
+        canonical model file to guard. The SHA-256 of the file on disk is
+        compared against :data:`CONTAMINATION_MODEL_SHA256`; any mismatch
+        raises ``RuntimeError`` and the pipeline aborts before ``joblib.load``
+        has a chance to execute arbitrary pickle bytecode. Missing-file and
+        load-failure paths also raise now, replacing the previous silent
+        ``logger.warning + continue`` fallback so a broken install cannot
+        stealth-degrade to a zero-contamination default.
+        """
+        from src.utils.common import sha256_file
+
         bundled_model_path = (
             Path(__file__).resolve().parents[1] / "bundled_models" / CONTAMINATION_MODEL_FILE
         )
-        candidate_paths = [bundled_model_path, self.database_path / CONTAMINATION_MODEL_FILE]
-        for model_path in candidate_paths:
-            if not model_path.exists():
-                continue
-            try:
-                import joblib
 
-                bundle = joblib.load(model_path)
-                self.ml_model = bundle["model"]
-                self.ml_model_name = str(bundle.get("model_name", "hist_gbm"))
-                self.ml_threshold = bundle.get("threshold", 0.0)
-                self.ml_available = True
-                logger.info("Loaded ML contamination model from %s", model_path)
-                return
-            except Exception as exc:
-                logger.warning(
-                    "Failed to load ML contamination model from %s: %s",
-                    model_path,
-                    exc,
-                )
+        if not bundled_model_path.exists():
+            raise RuntimeError(
+                f"Contamination model not found at {bundled_model_path}. "
+                "The bundled model is required for non-sensitive runs; "
+                "reinstall or pull the v1.4.3 tag to restore it."
+            )
+
+        digest = sha256_file(bundled_model_path)
+        if digest != CONTAMINATION_MODEL_SHA256:
+            raise RuntimeError(
+                "Contamination model SHA-256 mismatch at "
+                f"{bundled_model_path}: expected {CONTAMINATION_MODEL_SHA256}, "
+                f"got {digest}. Refusing to load an untrusted pickle. "
+                "If the model was intentionally retrained, rotate the constant "
+                "via scripts/rotate_contamination_model.py."
+            )
+
+        try:
+            import joblib
+
+            bundle = joblib.load(bundled_model_path)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Failed to load contamination model from {bundled_model_path}: {exc}"
+            ) from exc
+
+        self.ml_model = bundle["model"]
+        self.ml_model_name = str(bundle.get("model_name", "hist_gbm"))
+        self.ml_threshold = bundle.get("threshold", 0.0)
+        self.ml_available = True
+        logger.info("Loaded ML contamination model from %s", bundled_model_path)
 
     def predict_contamination(
         self, result: Dict[str, Any], contig_features: Dict[str, Any]
@@ -548,5 +598,7 @@ class ContaminationScorer:
         }
 
 
-def create_contamination_scorer(database_path: Path) -> ContaminationScorer:
-    return ContaminationScorer(database_path)
+def create_contamination_scorer(
+    database_path: Path, sensitive_mode: bool = False
+) -> ContaminationScorer:
+    return ContaminationScorer(database_path, sensitive_mode=sensitive_mode)

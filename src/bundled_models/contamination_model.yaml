@@ -1,0 +1,63 @@
+# Model card for src/bundled_models/contamination_model.joblib
+#
+# Consumed at runtime by `src.core.contamination_scoring.ContaminationScorer._load_ml_model`
+# after a SHA-256 gate against `CONTAMINATION_MODEL_SHA256` in that module.
+
+model: HistGradientBoostingRegressor
+framework: scikit-learn
+# The bundled .joblib payload advertises the model_name string that
+# `create_contamination_scorer` surfaces as the `estimated_contamination_strategy`
+# column on non-sensitive runs.
+model_name: hist_gbm
+training_profile: standard_ga_cutoffs
+# Reporting threshold (min of `max(10.0, ml_threshold)` in
+# FullSummarizer._contamination_reporting_threshold). Kept in sync with the
+# value stored inside the joblib bundle.
+threshold: 10.0
+
+# --- Training provenance ---------------------------------------------------
+# The model was retrained for v1.4.2 on the extra_trees regressor variant
+# tuned against the real-contig benchmark subset; it was serialized into the
+# current joblib bundle on 2026-03-13. See `docs/CHANGELOG.md` v1.4.2.
+training_dataset: benchmarking/contamination/refs-Feb-2026-fna-pox10-genus10
+training_script: src/bin/benchmark_contamination_methods_faa.py
+trained_by: NeLLi Team
+trained_at: "2026-03-13"
+
+# --- Integrity gate --------------------------------------------------------
+# Expected digest of the bundled .joblib file. Rotate this value via
+# `scripts/rotate_contamination_model.py` whenever the model is retrained;
+# the code-level constant in `src/core/contamination_scoring.py` must match
+# or the pipeline refuses to load the pickle.
+sha256: b3d42e3076b54146f2de5a5492517d57da25840ae1273d71c804672b65d7b234
+bytes: 1081069
+
+# --- Features --------------------------------------------------------------
+# Exact column order expected by .predict(); must match
+# CONTAMINATION_MODEL_FEATURES in src/core/contamination_scoring.py.
+features:
+  - contamination_score_v1
+  - contamination_cellular_signal_v1
+  - contamination_phage_signal_v1
+  - contamination_duplication_signal_v1
+  - contamination_viral_mixture_signal_v1
+  - contamination_nonviral_hit_fraction_v1
+  - order_dup
+  - gvog8_dup
+  - cellular_unique
+  - cellular_total
+  - phage_unique
+  - phage_total
+  - contigs
+  - suspicious_bp_fraction_v2
+  - suspicious_contig_count_v2
+  - estimated_completeness
+
+# --- Warnings --------------------------------------------------------------
+notes: >-
+  Features were generated with GA/TC/NC bit-score cutoffs applied during
+  pyhmmer search. Do NOT use this model on runs with `sensitive_mode=true`
+  (E=1e-5, no GA cutoffs) because the feature distribution is shifted.
+  v1.4.3 gates on `sensitive_mode` and emits `estimated_contamination = NaN`
+  with `contamination_type = uncertain_sensitive_mode` in that regime.
+  A sensitive-mode-trained variant is planned for a future release.

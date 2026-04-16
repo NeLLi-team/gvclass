@@ -87,7 +87,9 @@ class FullSummarizer:
         # Initialize weighted completeness calculator
         self.weighted_calculator = create_weighted_calculator(database_path)
         self.novelty_scorer = create_novelty_completeness_scorer(database_path)
-        self.contamination_scorer = create_contamination_scorer(database_path)
+        self.contamination_scorer = create_contamination_scorer(
+            database_path, sensitive_mode=sensitive_mode
+        )
 
     def load_labels(self) -> Dict[str, List[str]]:
         """Load taxonomy labels from file."""
