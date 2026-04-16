@@ -2,7 +2,7 @@
 Full summarization module for GVClass results matching original output format.
 """
 
-from collections import Counter
+from collections import Counter, defaultdict
 import logging
 import math
 import re
@@ -581,12 +581,30 @@ class FullSummarizer:
 
     def _collect_taxonomy_counts(
         self, tree_nn_results: Dict[str, Dict[str, Dict[str, float]]]
-    ) -> Tuple[Dict[str, Counter], List[float]]:
-        """Aggregate taxonomy counts and distance statistics from NN tree hits."""
-        tax_counters = {level: Counter() for level in self.TAX_LEVELS}
-        distances = []
+    ) -> Tuple[
+        Dict[str, Counter],
+        Dict[str, Dict[str, Counter]],
+        List[float],
+    ]:
+        """Aggregate taxonomy counts from NN tree hits.
 
-        for query_neighbors in tree_nn_results.values():
+        Returns a tuple of:
+        * ``tax_counters`` — flat per-level Counter (legacy shape, used by
+          contamination scoring and the per-level detailed columns).
+        * ``per_marker_counters`` — ``Dict[level, Dict[marker, Counter]]``
+          that retains the per-marker breakdown. The per-marker majority
+          rule in :meth:`_build_consensus_taxonomies` uses this to avoid
+          the prior bug where a single marker with many paralog hits could
+          dominate the majority vote by sheer count.
+        * ``distances`` — flat list of patristic distances for the mean.
+        """
+        tax_counters = {level: Counter() for level in self.TAX_LEVELS}
+        per_marker_counters: Dict[str, Dict[str, Counter]] = {
+            level: defaultdict(Counter) for level in self.TAX_LEVELS
+        }
+        distances: List[float] = []
+
+        for marker, query_neighbors in tree_nn_results.items():
             for neighbors in query_neighbors.values():
                 for neighbor, distance in neighbors.items():
                     genome_id = self._extract_genome_id(neighbor)
@@ -597,9 +615,12 @@ class FullSummarizer:
                     self._add_taxonomy_counts_for_neighbor(
                         genome_id, tax_info, tax_counters
                     )
+                    self._add_taxonomy_counts_for_marker(
+                        genome_id, tax_info, per_marker_counters, marker
+                    )
                     distances.append(distance)
 
-        return tax_counters, distances
+        return tax_counters, per_marker_counters, distances
 
     def _add_taxonomy_counts_for_neighbor(
         self, genome_id: str, tax_info: List[str], tax_counters: Dict[str, Counter]
@@ -614,6 +635,23 @@ class FullSummarizer:
             tax_key = self._build_taxonomy_key(level, domain_prefix, tax_value)
             tax_counters[level][tax_key] += 1
 
+    def _add_taxonomy_counts_for_marker(
+        self,
+        genome_id: str,
+        tax_info: List[str],
+        per_marker_counters: Dict[str, Dict[str, Counter]],
+        marker: str,
+    ) -> None:
+        domain_prefix = genome_id.split("__")[0] if "__" in genome_id else ""
+        for level, idx in self.TAX_LEVEL_MAPPING.items():
+            if idx >= len(tax_info):
+                continue
+            tax_value = tax_info[idx].strip()
+            if not tax_value:
+                continue
+            tax_key = self._build_taxonomy_key(level, domain_prefix, tax_value)
+            per_marker_counters[level][marker][tax_key] += 1
+
     @staticmethod
     def _build_taxonomy_key(level: str, domain_prefix: str, tax_value: str) -> str:
         if level == "domain":
@@ -622,36 +660,146 @@ class FullSummarizer:
             return f"{domain_prefix}__{tax_value}"
         return tax_value
 
+    # --- Per-marker majority -------------------------------------------------
+    #
+    # Each level has a minimum number of distinct supporting markers required
+    # before a consensus assignment is accepted. Below that floor the level
+    # is emitted as an empty label (``d_``, ``p_``, ...) and
+    # ``taxonomy_confidence`` is set to ``low_support``. Order-level markers
+    # are skipped under ``mode_fast=True``, so the order threshold drops to
+    # 2 in that regime and ``taxonomy_confidence`` becomes
+    # ``reduced_fastmode`` when the relaxed threshold is what let the
+    # assignment through.
+    _MIN_MARKERS_FOR_LEVEL: Dict[str, int] = {
+        "domain": 2,
+        "phylum": 2,
+        "class": 2,
+        "order": 3,
+        "family": 2,
+        "genus": 2,
+        "species": 2,
+    }
+    _MIN_MARKERS_FOR_LEVEL_FAST: Dict[str, int] = {
+        **_MIN_MARKERS_FOR_LEVEL,
+        "order": 2,
+    }
+
+    @classmethod
+    def _min_markers_for_level(cls, level: str, mode_fast: bool) -> int:
+        threshold_map = cls._MIN_MARKERS_FOR_LEVEL_FAST if mode_fast else cls._MIN_MARKERS_FOR_LEVEL
+        return threshold_map.get(level, 2)
+
+    @staticmethod
+    def _per_marker_majority(
+        per_marker_level_counters: Dict[str, Counter],
+    ) -> Tuple[Optional[str], int, int]:
+        """Tally one winning taxon per marker and return the across-marker vote.
+
+        For each marker, the most-common taxon within that marker's Counter
+        is the marker's vote. Markers with no assigned taxon contribute no
+        vote. Returns ``(winning_taxon, supporting_markers, total_markers)``.
+        """
+        marker_votes: Counter = Counter()
+        total_markers = 0
+        for counter in per_marker_level_counters.values():
+            if not counter:
+                continue
+            total_markers += 1
+            (winner, _), = counter.most_common(1)
+            marker_votes[winner] += 1
+
+        if not marker_votes:
+            return None, 0, total_markers
+
+        (winning_taxon, supporting_markers), = marker_votes.most_common(1)
+        return winning_taxon, supporting_markers, total_markers
+
     def _build_consensus_taxonomies(
-        self, tax_counters: Dict[str, Counter]
-    ) -> Tuple[str, str]:
-        """Build majority and strict taxonomy strings from per-level counters."""
+        self,
+        tax_counters: Dict[str, Counter],
+        per_marker_counters: Dict[str, Dict[str, Counter]],
+        mode_fast: bool,
+    ) -> Tuple[str, str, str]:
+        """Build majority and strict taxonomy strings and a confidence label.
+
+        The majority call now uses a per-marker vote: one winning taxon per
+        marker, then the across-marker winner. A minimum number of distinct
+        supporting markers is required (see ``_min_markers_for_level``);
+        otherwise the level is emitted unassigned. Strict consensus
+        continues to require 100% agreement within the flat counter for
+        backward compatibility with pre-1.4.3 callers.
+        """
         majority_parts = []
         strict_parts = []
+        confidence_flags: List[str] = []
 
         for level in reversed(self.TAX_LEVELS):
-            majority, strict = self.get_tax_consensus(tax_counters[level], level)
+            flat_counter = tax_counters[level]
+            per_marker_level = per_marker_counters.get(level, {})
+            threshold = self._min_markers_for_level(level, mode_fast)
+            winning, supporting, total = self._per_marker_majority(per_marker_level)
+
+            if winning is not None and supporting >= threshold:
+                majority = self._format_tax_label(level, winning)
+                if mode_fast and self._MIN_MARKERS_FOR_LEVEL[level] > threshold:
+                    confidence_flags.append("reduced_fastmode")
+            else:
+                majority = f"{level[0]}_"
+                if total > 0:
+                    confidence_flags.append("low_support")
+
+            # Strict keeps the flat-counter 100% rule.
+            _, strict = self.get_tax_consensus(flat_counter, level)
             majority_parts.append(majority)
             strict_parts.append(strict)
 
-        return ";".join(reversed(majority_parts)), ";".join(reversed(strict_parts))
+        majority_str = ";".join(reversed(majority_parts))
+        strict_str = ";".join(reversed(strict_parts))
+        confidence = self._aggregate_confidence_flags(confidence_flags)
+        return majority_str, strict_str, confidence
+
+    @staticmethod
+    def _format_tax_label(level: str, tax_key: str) -> str:
+        if level == "domain":
+            return f"{level[0]}_{tax_key}"
+        if "__" in tax_key:
+            parts = tax_key.split("__")
+            tax_name = parts[-1] if len(parts) > 1 and parts[-1] else tax_key
+        else:
+            tax_name = tax_key
+        return f"{level[0]}_{tax_name}"
+
+    @staticmethod
+    def _aggregate_confidence_flags(flags: List[str]) -> str:
+        if not flags:
+            return "high"
+        # Preserve a stable priority so the string always reports the
+        # strongest caveat first.
+        priority = {"low_support": 0, "reduced_fastmode": 1}
+        unique = sorted(set(flags), key=lambda flag: priority.get(flag, 99))
+        return ",".join(unique)
 
     def _add_taxonomy_summary(
         self,
         result: Dict[str, any],
         tax_counters: Dict[str, Counter],
+        per_marker_counters: Dict[str, Dict[str, Counter]],
         distances: List[float],
+        mode_fast: bool,
     ) -> None:
         """Populate taxonomy count and consensus fields on the result payload."""
         for level in self.TAX_LEVELS:
             result[level] = self.format_tax_level_counts(tax_counters[level])
 
         result["avgdist"] = sum(distances) / len(distances) if distances else 0.0
-        taxonomy_majority, taxonomy_strict = self._build_consensus_taxonomies(
-            tax_counters
+        taxonomy_majority, taxonomy_strict, taxonomy_confidence = (
+            self._build_consensus_taxonomies(
+                tax_counters, per_marker_counters, mode_fast
+            )
         )
         result["taxonomy_majority"] = taxonomy_majority
         result["taxonomy_strict"] = taxonomy_strict
+        result["taxonomy_confidence"] = taxonomy_confidence
 
     def _add_marker_metrics(
         self,
@@ -942,8 +1090,12 @@ class FullSummarizer:
         basic_stats = self._load_basic_stats(query_id, query_output_dir)
         result = self._initialize_summary_result(query_id, basic_stats)
 
-        tax_counters, distances = self._collect_taxonomy_counts(tree_nn_results)
-        self._add_taxonomy_summary(result, tax_counters, distances)
+        tax_counters, per_marker_counters, distances = self._collect_taxonomy_counts(
+            tree_nn_results
+        )
+        self._add_taxonomy_summary(
+            result, tax_counters, per_marker_counters, distances, mode_fast
+        )
 
         counts_file = query_output_dir / "hmmout" / "models.counts"
         marker_hits_file = query_output_dir / "hmmout" / "models.out.filtered"

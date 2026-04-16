@@ -347,7 +347,12 @@ def resolve_sensitive_mode(args, config) -> bool:
 def resolve_completeness_mode(args, config) -> str:
     if args.completeness_mode:
         return args.completeness_mode
-    return config["pipeline"].get("completeness_mode", "legacy")
+    # Align the missing-key fallback with the documented default_config
+    # ("novelty-aware" on line ~258). The previous "legacy" fallback meant
+    # users with a config file that happened to omit completeness_mode would
+    # silently get legacy behavior while users with no config file got
+    # novelty-aware — two "defaults" that quietly disagreed.
+    return config["pipeline"].get("completeness_mode", "novelty-aware")
 
 
 def resolve_contigs_min_length(config) -> int:
@@ -743,7 +748,16 @@ def build_pipeline_command(
     return cmd
 
 
-def build_runtime_env(repo_dir: Path):
+def build_runtime_env(repo_dir: Path, context: Optional[PipelineContext] = None):
+    """Build the environment for the Prefect subprocess.
+
+    When ``context`` is provided, the per-marker thread budget is clamped at
+    the process level by setting ``OMP_NUM_THREADS`` / ``OPENBLAS_NUM_THREADS``
+    / ``MKL_NUM_THREADS`` / ``NUMEXPR_NUM_THREADS``. Without this clamp each
+    inner library (``pyhmmer``, ``pyswrd``, ``pyfamsa``, NumPy/BLAS) would
+    independently spawn up to ``threads_per_worker`` threads, leading to
+    heavy oversubscription on 64+ core hosts.
+    """
     env = os.environ.copy()
     existing_pythonpath = env.get("PYTHONPATH", "")
     repo_str = str(repo_dir)
@@ -753,6 +767,16 @@ def build_runtime_env(repo_dir: Path):
     else:
         env["PYTHONPATH"] = repo_str
     env["PYTHONWARNINGS"] = "ignore"
+
+    if context is not None:
+        # Half of ``threads_per_worker`` mirrors the per-marker thread cap
+        # applied inside the engine (see _calculate_marker_threading).
+        per_marker_threads = str(max(1, context.workers.threads_per_worker // 2))
+        env.setdefault("OMP_NUM_THREADS", per_marker_threads)
+        env.setdefault("OPENBLAS_NUM_THREADS", per_marker_threads)
+        env.setdefault("MKL_NUM_THREADS", per_marker_threads)
+        env.setdefault("NUMEXPR_NUM_THREADS", per_marker_threads)
+
     return env
 
 
@@ -1021,7 +1045,7 @@ def build_runtime_command(
         pixi_cmd=pixi_cmd,
         use_pixi_run=use_pixi_run,
     )
-    return cmd, build_runtime_env(repo_dir)
+    return cmd, build_runtime_env(repo_dir, context=context)
 
 
 def execute_pipeline_command(
