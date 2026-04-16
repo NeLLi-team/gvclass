@@ -321,6 +321,11 @@ def _dedup_hits(
     return [line for _, _, line in best.values()]
 
 
+#: Number of tab-separated columns emitted by :func:`_format_domain_line`.
+#: Rows with a different width are rejected as malformed.
+_EXPECTED_DOMTBL_COLUMNS = 22
+
+
 def _parse_domtbl_dedup_key(
     line: str,
 ) -> Tuple[str, str, float, float] | None:
@@ -328,12 +333,15 @@ def _parse_domtbl_dedup_key(
 
     Returns None for comment lines or malformed rows. Score columns follow the
     custom domtbl written by :func:`_format_domain_line` (parts[7] = seq score,
-    parts[13] = domain score).
+    parts[13] = domain score). Rows that do not have the exact column count
+    produced by :func:`_format_domain_line` are rejected so downstream
+    consumers that assume the full 22-field schema cannot be fed structurally
+    invalid data through the dedup pipeline.
     """
     if line.startswith("#"):
         return None
     parts = line.rstrip("\n").split("\t")
-    if len(parts) < 15:
+    if len(parts) != _EXPECTED_DOMTBL_COLUMNS:
         return None
     try:
         return parts[0], parts[3], float(parts[7]), float(parts[13])
