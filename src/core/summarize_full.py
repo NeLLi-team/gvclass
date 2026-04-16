@@ -690,14 +690,33 @@ class FullSummarizer:
         return threshold_map.get(level, 2)
 
     @staticmethod
+    def _stable_top(counter: Counter) -> Optional[Tuple[str, int]]:
+        """Return the counter entry with the highest count, breaking ties on
+        lexicographic key so the result does not depend on upstream insertion
+        order. ``Counter.most_common(1)`` alone is insertion-stable, which is
+        non-deterministic when the feeder iterates an unordered glob
+        (``tree_dir.glob("*.treefile")``)."""
+        if not counter:
+            return None
+        # Sort descending by (count, key) with key as tiebreaker. Negative
+        # count keeps the primary sort descending; key asc ensures stable
+        # alphabetic tiebreak across runs.
+        return min(counter.items(), key=lambda kv: (-kv[1], kv[0]))
+
+    @classmethod
     def _per_marker_majority(
+        cls,
         per_marker_level_counters: Dict[str, Counter],
     ) -> Tuple[Optional[str], int, int]:
         """Tally one winning taxon per marker and return the across-marker vote.
 
-        For each marker, the most-common taxon within that marker's Counter
-        is the marker's vote. Markers with no assigned taxon contribute no
-        vote. Returns ``(winning_taxon, supporting_markers, total_markers)``.
+        For each marker, the per-marker winner is chosen with a stable
+        lexicographic tiebreaker on taxon name. The across-marker winner is
+        chosen the same way, so two pipelines processing the same data
+        cannot disagree on the consensus call purely because they iterated
+        markers in different filesystem orders.
+
+        Returns ``(winning_taxon, supporting_markers, total_markers)``.
         """
         marker_votes: Counter = Counter()
         total_markers = 0
@@ -705,13 +724,15 @@ class FullSummarizer:
             if not counter:
                 continue
             total_markers += 1
-            (winner, _), = counter.most_common(1)
-            marker_votes[winner] += 1
+            winner_pair = cls._stable_top(counter)
+            if winner_pair is None:
+                continue
+            marker_votes[winner_pair[0]] += 1
 
         if not marker_votes:
             return None, 0, total_markers
 
-        (winning_taxon, supporting_markers), = marker_votes.most_common(1)
+        winning_taxon, supporting_markers = cls._stable_top(marker_votes)
         return winning_taxon, supporting_markers, total_markers
 
     def _build_consensus_taxonomies(
@@ -741,7 +762,17 @@ class FullSummarizer:
 
             if winning is not None and supporting >= threshold:
                 majority = self._format_tax_label(level, winning)
-                if mode_fast and self._MIN_MARKERS_FOR_LEVEL[level] > threshold:
+                # Only flag reduced_fastmode when the relaxed threshold is
+                # what actually allowed the call — i.e. the support falls
+                # below the standard-mode threshold but clears the fast-mode
+                # one. A fast-mode run that already has 3+ supporting
+                # order-level markers should not be downgraded.
+                standard_threshold = self._MIN_MARKERS_FOR_LEVEL.get(level, 2)
+                if (
+                    mode_fast
+                    and threshold < standard_threshold
+                    and supporting < standard_threshold
+                ):
                     confidence_flags.append("reduced_fastmode")
             else:
                 majority = f"{level[0]}_"

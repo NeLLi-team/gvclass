@@ -114,6 +114,60 @@ def test_taxonomy_confidence_column_present_in_summary_schemas() -> None:
     assert "taxonomy_confidence" in LEGACY_SUMMARY_HEADERS
 
 
+def test_per_marker_majority_deterministic_on_ties(tmp_path: Path) -> None:
+    """Codex-audit regression: ties must resolve by lexicographic key so that
+    upstream iteration order (``tree_dir.glob``) does not change the consensus
+    across runs on the same data."""
+    summarizer = _make_summarizer(tmp_path)
+
+    # Same vote counts, inserted in two different orders.
+    case1 = {
+        "mA": Counter({"NCLDV__Alpha": 1}),
+        "mB": Counter({"NCLDV__Beta": 1}),
+    }
+    case2 = {
+        "mB": Counter({"NCLDV__Beta": 1}),
+        "mA": Counter({"NCLDV__Alpha": 1}),
+    }
+
+    w1, _, _ = summarizer._per_marker_majority(case1)
+    w2, _, _ = summarizer._per_marker_majority(case2)
+
+    assert w1 == w2
+    # Alphabetic tiebreak: "Alpha" < "Beta".
+    assert w1 == "NCLDV__Alpha"
+
+
+def test_fast_mode_not_flagged_when_support_meets_standard_threshold(
+    tmp_path: Path,
+) -> None:
+    """Codex-audit regression: ``reduced_fastmode`` must only appear when the
+    relaxed fast-mode threshold is what allowed the assignment through.
+    Three supporting markers already clear the standard threshold (3), so
+    the fast-mode flag should NOT fire."""
+    summarizer = _make_summarizer(tmp_path)
+
+    flat_counters: Dict[str, Counter] = {
+        level: Counter() for level in summarizer.TAX_LEVELS
+    }
+    flat_counters["order"]["NCLDV__Imitervirales"] = 3
+
+    per_marker: Dict[str, Dict[str, Counter]] = {
+        level: defaultdict(Counter) for level in summarizer.TAX_LEVELS
+    }
+    for marker in ("MARKER_A", "MARKER_B", "MARKER_C"):
+        per_marker["order"][marker]["NCLDV__Imitervirales"] = 1
+
+    majority, _, confidence = summarizer._build_consensus_taxonomies(
+        flat_counters, per_marker, mode_fast=True
+    )
+
+    assert "o_Imitervirales" in majority
+    # With 3 supporting markers (meets the standard-mode floor), the
+    # ``reduced_fastmode`` caveat must not be emitted.
+    assert confidence == "high"
+
+
 # ---------------------------------------------------------------------------
 # 2.2 Marker extraction by record.id with description fallback.
 # ---------------------------------------------------------------------------
