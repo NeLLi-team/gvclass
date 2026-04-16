@@ -13,12 +13,17 @@ from src.utils.database_manager import DatabaseManager
 
 
 def validate_and_setup_task(
-    query_dir: str, output_dir: str, database_path: Optional[str] = None
+    query_dir: str,
+    output_dir: str,
+    database_path: Optional[str] = None,
+    allow_short: bool = False,
 ) -> Dict[str, Any]:
     """Validate inputs and setup directories."""
     logger = logging.getLogger("gvclass_prefect")
     logger.info(f"Validating inputs - Query: {query_dir}, Output: {output_dir}")
-    query_path = InputValidator.validate_query_directory(query_dir)
+    query_path = InputValidator.validate_query_directory(
+        query_dir, allow_short=allow_short
+    )
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
     db_path = DatabaseManager.setup_database(database_path)
@@ -296,11 +301,14 @@ def gvclass_flow(
     cluster_type: str = "local",
     cluster_config: Optional[Dict[str, Any]] = None,
     resume: bool = False,
+    allow_short: bool = False,
 ):
     """Main GVClass pipeline."""
     logger = logging.getLogger("gvclass_prefect")
     logger.info("Validating inputs and setting up directories")
-    config = validate_and_setup_task(query_dir, output_dir, database_path)
+    config = validate_and_setup_task(
+        query_dir, output_dir, database_path, allow_short=allow_short
+    )
     _apply_resume_filter(config, resume, logger)
 
     n_queries = len(config["query_files"])

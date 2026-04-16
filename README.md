@@ -11,7 +11,7 @@
 
 # GVClass - Giant Virus Classification Tool
 
-GVClass assigns taxonomy to giant virus contigs and metagenome-assembled genomes (GVMAGs). It uses phylogenetic analysis based on giant virus orthologous groups (GVOGs) to provide accurate classification from domain to species level.
+GVClass assigns taxonomy to giant virus contigs and metagenome-assembled genomes (GVMAGs). It uses phylogenetic analysis based on giant virus orthologous groups (GVOGs) to provide classification from domain to family level; genus- and species-level calls are only meaningful when the query is very close to an existing reference and should be treated as "nearest-reference label" rather than an ICTV assignment.
 
 ## Quick Start
 
