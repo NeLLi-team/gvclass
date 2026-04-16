@@ -117,6 +117,44 @@ def calculate_optimal_workers(
     return max(1, n_workers), max(min_threads_per_worker, threads_per_worker)
 
 
+def _query_is_resume_complete(output_path: Path, query_name: str, logger) -> bool:
+    """Return True when ``query_name`` is safe to skip under ``--resume``.
+
+    Preferred gate: a ``<query_name>.SUCCESS`` JSON sentinel (v1.4.3+).
+    Legacy fallback: the pre-1.4.3 ``<query_name>.summary.tab`` +
+    ``<query_name>.tar.gz`` combination, additionally validated with
+    ``tarfile.is_tarfile`` so a truncated archive from a crashed run is
+    not accepted. A single INFO log records the fallback so operators can
+    migrate runs by re-running without ``--resume``.
+    """
+    import tarfile
+
+    sentinel = output_path / f"{query_name}.SUCCESS"
+    if sentinel.exists():
+        return True
+
+    summary_file = output_path / f"{query_name}.summary.tab"
+    tar_file = output_path / f"{query_name}.tar.gz"
+    if not (summary_file.exists() and tar_file.exists()):
+        return False
+    try:
+        if not tarfile.is_tarfile(tar_file):
+            logger.warning(
+                f"Legacy resume fallback: tar file is malformed, re-processing {query_name}"
+            )
+            return False
+    except (OSError, tarfile.TarError) as exc:
+        logger.warning(
+            f"Legacy resume fallback: cannot verify {tar_file} ({exc}); re-processing {query_name}"
+        )
+        return False
+    logger.info(
+        f"Legacy resume fallback: accepting pre-v1.4.3 outputs for {query_name} "
+        "(no SUCCESS sentinel). Re-run without --resume to upgrade."
+    )
+    return True
+
+
 def _apply_resume_filter(config: Dict[str, Any], resume: bool, logger) -> None:
     if not resume:
         return
@@ -126,9 +164,7 @@ def _apply_resume_filter(config: Dict[str, Any], resume: bool, logger) -> None:
     skipped_count = 0
     for query_file in list(config["query_files"]):
         query_name = query_file.stem
-        summary_file = output_path / f"{query_name}.summary.tab"
-        tar_file = output_path / f"{query_name}.tar.gz"
-        if summary_file.exists() and tar_file.exists():
+        if _query_is_resume_complete(output_path, query_name, logger):
             logger.info(f"Skipping completed query: {query_name}")
             skipped_count += 1
         else:
@@ -269,6 +305,22 @@ def gvclass_flow(
 
     n_queries = len(config["query_files"])
     logger.info(f"Found {n_queries} queries to process")
+
+    # When --resume is set and every query already has a SUCCESS sentinel (or a
+    # valid legacy summary+tar pair), we have nothing to process. Creating a
+    # ThreadPoolExecutor with max_workers=0 would raise ValueError, so short-
+    # circuit and emit the summary from whatever is already on disk.
+    if n_queries == 0:
+        logger.info(
+            "No queries remaining after resume filter; skipping parallel processing."
+        )
+        summary_file = create_final_summary_task([], config["output_path"])
+        logger.info(f"Pipeline completed! Results in: {config['output_path']}")
+        logger.info(f"Summary written to: {summary_file}")
+        _ = cluster_type
+        _ = cluster_config
+        return summary_file
+
     n_workers, threads_per_worker = _resolve_worker_distribution(
         n_queries, total_threads, max_workers, threads_per_worker
     )

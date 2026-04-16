@@ -2,17 +2,21 @@
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
 import csv
+import json
 import logging
+import os
 import shutil
 import tarfile
 import time
 import traceback
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
+from src.__version__ import __version__ as _GVCLASS_VERSION
 from src.core.genetic_code_optimizer import GeneticCodeOptimizer
 from src.core.hmm_search import run_pyhmmer_search_with_filtering
 from src.core.marker_extraction import extract_marker_hits, get_marker_database_path
@@ -21,7 +25,11 @@ from src.core.reformat import calculate_stats, reformat_sequences
 from src.core.summarize_full import FullSummarizer
 from src.core.tree_analysis import TreeAnalyzer
 from src.pipeline.summary_writer import write_individual_summary_file
+from src.utils.common import sha256_file
 from src.utils.error_handling import ProcessingError
+
+SUCCESS_SENTINEL_VERSION = 1
+_SOFTWARE_VERSION = f"v{_GVCLASS_VERSION}"
 
 from Bio import SeqIO
 
@@ -788,6 +796,9 @@ def _post_process_query(
     logger.info(f"Post-processing results for query {query_name}")
     logger.debug(f"Query output directory: {query_output_dir}")
     logger.debug(f"Output base directory: {output_base}")
+    # A prior SUCCESS sentinel from an earlier run must not mislead resume
+    # logic into skipping a query whose outputs we are about to regenerate.
+    _clear_success_sentinel(query_name, output_base, logger)
     post_process_start = time.time()
     try:
         _copy_query_summary_tab(query_name, query_output_dir, output_base, logger)
@@ -795,6 +806,9 @@ def _post_process_query(
         _log_tree_nn_file(query_name, query_output_dir, logger)
         _archive_query_output(query_name, query_output_dir, output_base, logger)
         _remove_reformatted_file(query_name, output_base, logger)
+        # Sentinel is the last write: resume trusts it only after the tar and
+        # summary have landed atomically on disk.
+        _write_success_sentinel(query_name, output_base, logger)
         shutil.rmtree(query_output_dir)
         logger.info(f"✓ Removed original directory: {query_output_dir}")
         elapsed = time.time() - post_process_start
@@ -850,14 +864,104 @@ def _log_tree_nn_file(query_name: str, query_output_dir: Path, logger) -> None:
 def _archive_query_output(
     query_name: str, query_output_dir: Path, output_base: Path, logger
 ) -> None:
+    """Write the per-query tarball atomically.
+
+    The archive lands at ``<query_name>.tar.gz`` only after: (a) the tarball
+    has been written to a sibling ``.tar.gz.part``, (b) the file handle has
+    been fsynced, (c) ``tarfile.is_tarfile`` confirms the archive is well
+    formed, (d) ``os.replace`` atomically swaps the final name into place,
+    and (e) the parent directory is fsynced. A crash or SIGKILL at any
+    point leaves either the previous final archive untouched or a
+    ``.tar.gz.part`` that resume correctly ignores — never a truncated
+    ``<query_name>.tar.gz`` that the SUCCESS-sentinel / legacy resume
+    fallback would wrongly accept.
+    """
     tar_file = output_base / f"{query_name}.tar.gz"
-    logger.debug(f"Creating archive: {tar_file}")
+    tar_tmp = output_base / f"{query_name}.tar.gz.part"
+    if tar_tmp.exists():
+        # Orphan from a prior crash; safe to discard before we open a fresh
+        # writer at the same path.
+        tar_tmp.unlink()
+    logger.debug(f"Creating archive: {tar_file} (via {tar_tmp})")
     file_count = sum(1 for file_path in query_output_dir.rglob("*") if file_path.is_file())
     logger.debug(f"Archiving {file_count} files from {query_output_dir}")
-    with tarfile.open(tar_file, "w:gz") as tar_handle:
+    with tarfile.open(tar_tmp, "w:gz") as tar_handle:
         tar_handle.add(query_output_dir, arcname=query_name)
+    # fsync the data file before any rename so the payload is durable.
+    with open(tar_tmp, "rb") as fh:
+        os.fsync(fh.fileno())
+    if not tarfile.is_tarfile(tar_tmp):
+        tar_tmp.unlink(missing_ok=True)
+        raise RuntimeError(
+            f"Archive verification failed for {tar_tmp}; refusing to publish {tar_file}"
+        )
+    os.replace(tar_tmp, tar_file)
+    # fsync the parent directory so the rename itself is durable on POSIX.
+    try:
+        dir_fd = os.open(str(tar_file.parent), os.O_RDONLY)
+    except OSError:
+        dir_fd = None
+    if dir_fd is not None:
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
     archive_size = tar_file.stat().st_size
     logger.info(f"✓ Created archive: {tar_file} ({archive_size:,} bytes, {file_count} files)")
+
+
+def _success_sentinel_path(query_name: str, output_base: Path) -> Path:
+    return output_base / f"{query_name}.SUCCESS"
+
+
+def _clear_success_sentinel(query_name: str, output_base: Path, logger) -> None:
+    sentinel = _success_sentinel_path(query_name, output_base)
+    if sentinel.exists():
+        try:
+            sentinel.unlink()
+            logger.debug(f"Cleared stale SUCCESS sentinel: {sentinel}")
+        except OSError as exc:
+            logger.warning(f"Could not remove stale sentinel {sentinel}: {exc}")
+
+
+def _write_success_sentinel(
+    query_name: str, output_base: Path, logger
+) -> Optional[Path]:
+    """Write a JSON SUCCESS sentinel once the summary + tarball are durable.
+
+    The sentinel is the v1.4.3 signal that a query fully completed and is
+    safe to skip under ``--resume``. It records the software version,
+    completion timestamp, and SHA-256 checksums of the two artefacts
+    resume previously gated on (``summary.tab`` + ``tar.gz``). Reruns that
+    regenerate those artefacts clear the old sentinel before any new write
+    via :func:`_clear_success_sentinel`.
+    """
+    summary_file = output_base / f"{query_name}.summary.tab"
+    tar_file = output_base / f"{query_name}.tar.gz"
+    missing = [p.name for p in (summary_file, tar_file) if not p.exists()]
+    if missing:
+        logger.warning(
+            f"Not writing SUCCESS sentinel for {query_name}: missing {missing}"
+        )
+        return None
+
+    sentinel = _success_sentinel_path(query_name, output_base)
+    payload = {
+        "sentinel_version": SUCCESS_SENTINEL_VERSION,
+        "query": query_name,
+        "software_version": _SOFTWARE_VERSION,
+        "completed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "tar_filename": tar_file.name,
+        "tar_sha256": sha256_file(tar_file),
+        "tar_bytes": tar_file.stat().st_size,
+        "summary_filename": summary_file.name,
+        "summary_sha256": sha256_file(summary_file),
+    }
+    tmp_sentinel = sentinel.with_suffix(".SUCCESS.part")
+    tmp_sentinel.write_text(json.dumps(payload, indent=2) + "\n")
+    os.replace(tmp_sentinel, sentinel)
+    logger.info(f"✓ Wrote SUCCESS sentinel: {sentinel}")
+    return sentinel
 
 def _remove_reformatted_file(query_name: str, output_base: Path, logger) -> None:
     reformatted_file = output_base / f"{query_name}_reformatted.fna"

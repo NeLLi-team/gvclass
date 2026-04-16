@@ -250,16 +250,37 @@ class DatabaseManager:
 
     @classmethod
     def _download_database(cls, db_path: Path, preferred_source: Optional[dict] = None):
-        """Download and extract the database."""
-        db_path.mkdir(parents=True, exist_ok=True)
-        errors = []
+        """Download and extract the database via an atomic staging swap.
 
+        Extraction writes into ``<db_path>.new`` and only swaps into place
+        after the archive is verified, fully extracted, and the DB_VERSION
+        marker is written. A mid-extraction crash leaves the prior
+        ``db_path`` (if any) untouched and the half-built staging directory
+        is removed on the next attempt. The downloaded archive is parked in
+        ``db_path.parent`` as a sibling so it never contaminates the
+        staging tree.
+        """
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        # Clean up any leftover staging directory from a prior failed attempt
+        # before we start, so the swap logic sees a predictable state.
+        staging_path = db_path.parent / f"{db_path.name}.new"
+        if staging_path.exists():
+            logger.warning(
+                f"Removing stale database staging directory: {staging_path}"
+            )
+            shutil.rmtree(staging_path, ignore_errors=True)
+
+        errors = []
         for source in cls._resolve_database_sources(preferred_source):
             version = source["version"]
-            archive_path = db_path / source["filename"]
+            # Archive lands outside db_path and outside staging_path, so the
+            # staging tree contains only extracted content.
+            archive_path = db_path.parent / source["filename"]
 
             try:
-                cls._install_database_source(db_path, source, archive_path)
+                cls._install_database_source_atomic(
+                    db_path, source, archive_path, staging_path
+                )
                 logger.info(f"Database version {version} installed")
                 return
             except Exception as exc:
@@ -267,6 +288,8 @@ class DatabaseManager:
                 logger.warning(f"Database source {version} failed: {exc}")
             finally:
                 archive_path.unlink(missing_ok=True)
+                if staging_path.exists():
+                    shutil.rmtree(staging_path, ignore_errors=True)
 
         raise RuntimeError(
             "Failed to download database. Attempts: " + "; ".join(errors)
@@ -341,18 +364,79 @@ class DatabaseManager:
         }
 
     @classmethod
-    def _install_database_source(cls, db_path: Path, source: dict, archive_path: Path):
-        """Download, verify, and extract a single database source."""
+    def _install_database_source_atomic(
+        cls,
+        db_path: Path,
+        source: dict,
+        archive_path: Path,
+        staging_path: Path,
+    ) -> None:
+        """Download, verify, extract to staging, then atomically swap into db_path.
+
+        Replaces the previous in-place extraction so a crash or verification
+        failure cannot leave a half-installed database tree. See
+        :meth:`_download_database` for caller-level orchestration.
+        """
         version = source["version"]
         url = source["url"]
 
         logger.info(f"Attempting download of database {version} from {url}")
         cls._download_archive(url, archive_path)
         cls._verify_archive_checksum(source, archive_path)
-        cls._extract_archive(archive_path, db_path)
 
+        staging_path.mkdir(parents=True, exist_ok=False)
+        cls._extract_archive(archive_path, staging_path)
+        cls.write_database_version(staging_path, version=version)
+
+        cls._atomic_swap_directory(staging_path, db_path)
         cls.DATABASE_VERSION = version
-        cls.write_database_version(db_path, version=version)
+
+    @classmethod
+    def _atomic_swap_directory(cls, staging_path: Path, db_path: Path) -> None:
+        """Swap ``staging_path`` into ``db_path`` with rollback on failure.
+
+        If ``db_path`` already exists it is renamed aside, the staging tree
+        is moved into place, and the old tree is removed. On any failure
+        the previous database is restored. A parent-directory fsync on
+        POSIX anchors the rename in the filesystem journal so a crash
+        immediately after the swap still resolves to a durable state.
+        """
+        backup_path = db_path.parent / f"{db_path.name}.old"
+        if backup_path.exists():
+            logger.warning(f"Removing stale database backup: {backup_path}")
+            shutil.rmtree(backup_path, ignore_errors=True)
+
+        had_previous = db_path.exists()
+        try:
+            if had_previous:
+                os.replace(db_path, backup_path)
+            os.replace(staging_path, db_path)
+        except Exception:
+            # Restore the previous database if we already moved it aside.
+            if had_previous and backup_path.exists() and not db_path.exists():
+                try:
+                    os.replace(backup_path, db_path)
+                except OSError as restore_exc:
+                    logger.error(
+                        f"Failed to restore previous database from backup: {restore_exc}"
+                    )
+            raise
+        else:
+            # Best-effort fsync of the parent directory so the rename is
+            # durable on POSIX (no-op on platforms where O_RDONLY on dirs
+            # is not supported).
+            try:
+                dir_fd = os.open(str(db_path.parent), os.O_RDONLY)
+            except OSError:
+                dir_fd = None
+            if dir_fd is not None:
+                try:
+                    os.fsync(dir_fd)
+                finally:
+                    os.close(dir_fd)
+        finally:
+            if backup_path.exists():
+                shutil.rmtree(backup_path, ignore_errors=True)
 
     @classmethod
     def _extract_zenodo_record_id(cls, url: str) -> Optional[str]:
