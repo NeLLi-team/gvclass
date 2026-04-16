@@ -127,12 +127,20 @@ class PipelineContext:
     workers: WorkerPlan
 
 
+#: FASTA extensions (nucleotide + protein) that GVClass accepts as query
+#: inputs. ``.fasta`` / ``.fas`` are routed through content-alphabet
+#: inference in :class:`InputValidator` so they end up on one of the
+#: canonical branches at discovery time.
+_QUERY_FILE_EXTENSIONS = ("*.fna", "*.faa", "*.fasta", "*.fas")
+
+
 def count_query_files(directory: Path) -> int:
     if not directory.exists():
         return 0
-    fna_files = list(directory.glob("*.fna"))
-    faa_files = list(directory.glob("*.faa"))
-    return len(fna_files) + len(faa_files)
+    total = 0
+    for pattern in _QUERY_FILE_EXTENSIONS:
+        total += len(list(directory.glob(pattern)))
+    return total
 
 
 def _add_core_arguments(parser: argparse.ArgumentParser) -> None:

@@ -410,7 +410,18 @@ class NoveltyAwareCompletenessScorer:
         # advisory column instead so users who trust it can still read it.
         r2_raw = meta.get("r2_holdout")
         try:
-            r2_holdout = float(r2_raw) if r2_raw not in (None, "") else None
+            if r2_raw in (None, ""):
+                r2_holdout = None
+            else:
+                r2_holdout = float(r2_raw)
+                # NaN (from "nan" / "NaN" literals in the TSV or a failed
+                # training run) must be treated as missing, not as a
+                # finite number that falls through to the high-quality
+                # branch (Codex audit).
+                import math as _math
+
+                if _math.isnan(r2_holdout):
+                    r2_holdout = None
         except (TypeError, ValueError):
             r2_holdout = None
 
