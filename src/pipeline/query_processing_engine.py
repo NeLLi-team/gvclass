@@ -423,6 +423,12 @@ def _run_blast_search(
     threads: int,
     logger,
 ) -> None:
+    # TODO(v1.5.0): this helper writes ``*.blastpout`` files that nothing
+    # downstream consumes — contamination scoring reads ``*.m8`` files
+    # produced independently by MarkerProcessor.blast_and_merge in
+    # src/core/marker_processing.py. Running BLAST twice per query is
+    # wasted compute; unify on the ``.m8`` suffix and share the output.
+    # Tracked by tests/test_blast_redundancy.py.
     logger.info(f"Running BLAST search: {query_name}")
     blast_dir = query_output_dir / "blastp_out"
     blast_dir.mkdir(exist_ok=True)
