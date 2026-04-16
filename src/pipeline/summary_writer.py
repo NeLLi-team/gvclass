@@ -1,9 +1,10 @@
 """Summary file writers for query and pipeline outputs."""
 
+import csv
+import math
+import traceback
 from pathlib import Path
 from typing import Any, Dict, List
-import csv
-import traceback
 
 
 LEGACY_SUMMARY_HEADERS: List[str] = [
@@ -265,6 +266,11 @@ def _get_legacy_summary_value(summary_data: Dict[str, Any], header: str) -> str:
 
 def _format_legacy_summary_value(header: str, value: Any) -> str:
     if isinstance(value, float):
+        if math.isnan(value):
+            # Preserve NaN verbatim so downstream readers can distinguish
+            # "skipped / not computed" (e.g. sensitive-mode contamination
+            # gate) from a genuine 0.0 score.
+            return "NaN"
         if header in LEGACY_TWO_DECIMAL_COLUMNS:
             return f"{value:.2f}"
         return f"{value:.0f}"
@@ -302,6 +308,10 @@ def _build_final_summary_row(result: Dict[str, Any]) -> List[str]:
 def _format_final_summary_value(column: str, value: Any) -> str:
     if not isinstance(value, float):
         return str(value)
+    if math.isnan(value):
+        # See _format_legacy_summary_value: preserve NaN rather than collapse
+        # to 0.00, so the sensitive-mode contamination skip is visible.
+        return "NaN"
     if column in TWO_DECIMAL_COLUMNS:
         return f"{value:.2f}"
     return f"{value:.0f}"

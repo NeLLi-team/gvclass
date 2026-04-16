@@ -4,9 +4,10 @@ Full summarization module for GVClass results matching original output format.
 
 from collections import Counter
 import logging
+import math
 import re
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import pandas as pd
 
@@ -59,10 +60,25 @@ class FullSummarizer:
         "species": 6,
     }
 
-    def __init__(self, database_path: Path, completeness_mode: str = "legacy"):
-        """Initialize with database path."""
+    def __init__(
+        self,
+        database_path: Path,
+        completeness_mode: str = "legacy",
+        sensitive_mode: bool = False,
+    ):
+        """Initialize with database path.
+
+        ``sensitive_mode=True`` disables the trained contamination model because
+        its training features were generated under GA-cutoff-filtered HMM
+        output; feeding sensitive-mode (E=1e-5, no GA) feature distributions
+        into that model would return miscalibrated predictions without any
+        warning. The gate short-circuits the ML branch of
+        :meth:`_add_contamination_metrics` and emits an explicit NaN +
+        ``uncertain_sensitive_mode`` contamination-type marker.
+        """
         self.database_path = database_path
         self.completeness_mode = completeness_mode
+        self.sensitive_mode = sensitive_mode
         self.labels_file = database_path / "gvclassFeb26_labels.tsv"
         self.completeness_table = database_path / "order_completeness.tab"
         self.order_stats_df = self._load_order_stats()
@@ -812,6 +828,24 @@ class FullSummarizer:
                 "suspicious_contig_count_v2": contig_features_raw["suspicious_contig_count"],
             }
             result.update(contig_features)
+
+            # IMPORTANT: the sensitive-mode gate must precede the ml_available
+            # guard below. The trained contamination model was fit on features
+            # generated under GA-cutoff-filtered HMM search; sensitive mode
+            # uses a flat E=1e-5 and skips GA/TC/NC cutoffs, shifting the
+            # feature distribution. Surfacing a numeric prediction in that
+            # regime silently misreports contamination, which is worse than
+            # no prediction. Emit an explicit NaN marker instead.
+            if self.sensitive_mode:
+                result["estimated_contamination"] = float("nan")
+                result["estimated_contamination_strategy"] = "skipped_sensitive_mode"
+                result["contamination_type"] = "uncertain_sensitive_mode"
+                result["_contamination_reporting_threshold"] = (
+                    self._contamination_reporting_threshold()
+                )
+                result["_contamination_candidates"] = []
+                return
+
             if not self.contamination_scorer.ml_available:
                 raise RuntimeError(
                     "A trained contamination model is required for production contamination estimates"
@@ -849,7 +883,15 @@ class FullSummarizer:
         return mapping.get(str(reason), "uncertain")
 
     def _classify_contamination_type(self, result: Dict[str, any]) -> str:
-        estimated = float(result.get("estimated_contamination", 0.0) or 0.0)
+        raw_estimate = result.get("estimated_contamination", 0.0)
+        try:
+            estimated = float(raw_estimate) if raw_estimate is not None else 0.0
+        except (TypeError, ValueError):
+            estimated = 0.0
+        # NaN propagates from the sensitive-mode gate; callers should not
+        # interpret it as a sub-threshold ``clean`` bin.
+        if math.isnan(estimated):
+            return "uncertain_sensitive_mode"
         if estimated < self._contamination_reporting_threshold():
             return "clean"
 
