@@ -28,6 +28,8 @@ STABLE_COLUMNS = [
     "taxonomy_confidence",
     "estimated_completeness",
     "estimated_completeness_quality",
+    "estimated_completeness_advisory",
+    "estimated_completeness_r2_holdout",
     "estimated_contamination",
     "contamination_type",
     "gvog4_unique",

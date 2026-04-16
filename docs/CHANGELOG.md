@@ -121,8 +121,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Notes
 - Software release is `v1.4.3`; runtime resource bundle remains `v1.4.0`.
-- `pixi run test` reports 107 passed (+12 new in this release, golden-file
-  opt-in via `GVCLASS_RUN_GOLDEN=1`).
+- Test coverage grew from 44 passing tests at `v1.4.2` to 107 passing
+  (+1 opt-in golden-file) on the v1.4.3 remediation branch — 63 new
+  pytest cases across ~64 new test functions. The golden-file test runs
+  only when `GVCLASS_RUN_GOLDEN=1` (matches the PR-only CI job).
 - Verified end-to-end: `pixi run gvclass example -t 8 --mode-fast`
   completes in 43s; three queries report `taxonomy_confidence = high`.
 

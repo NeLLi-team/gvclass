@@ -36,26 +36,47 @@ MARKER_PROCESSING = REPO_ROOT / "src" / "core" / "marker_processing.py"
 
 
 def test_engine_emits_blastpout_files_for_now() -> None:
-    """Snapshot: the engine still writes ``.blastpout`` until v1.5.0 unifies."""
-    assert ".blastpout" in _read(ENGINE)
+    """Snapshot: the engine still writes ``.blastpout`` files keyed by
+    ``{query_name}.{marker}`` until v1.5.0 unifies. Lock in the exact
+    emission pattern so a silent rename does not skate past the test."""
+    text = _read(ENGINE)
+    assert re.search(
+        r'blast_out\s*=\s*blast_dir\s*/\s*f"\{query_name\}\.\{marker\}\.blastpout"',
+        text,
+    ), "engine no longer writes {query}.{marker}.blastpout — unify BLAST naming"
 
 
-def test_contamination_reads_m8_not_blastpout() -> None:
-    """Contamination scoring globs ``*.m8``, not ``*.blastpout``."""
+def test_contamination_reads_m8_exactly() -> None:
+    """Contamination scoring must iterate ``blast_dir.glob("*.m8")`` at
+    the specific site in collect_contig_features. Pinning the literal
+    expression ensures a glob-pattern regression is caught."""
     text = _read(CONTAMINATION)
-    assert "blast_dir.glob(\"*.m8\")" in text
+    assert 'blast_dir.glob("*.m8")' in text
+    # And must not accidentally pick up the stale blastpout naming.
     assert "*.blastpout" not in text
 
 
-def test_marker_processing_still_produces_m8() -> None:
-    """The .m8 artefact that contamination scoring depends on is produced
-    by MarkerProcessor, not by _run_blast_search."""
+def test_marker_processing_produces_exact_m8_path() -> None:
+    """MarkerProcessor is the canonical .m8 producer. Lock in the exact
+    path pattern so any refactor that drops the .m8 suffix trips here
+    rather than silently breaks contamination scoring."""
     text = _read(MARKER_PROCESSING)
-    assert re.search(r"\.m8", text)
+    assert re.search(
+        r'blast_out\s*=\s*self\.blast_dir\s*/\s*f"\{self\.marker\}\.m8"',
+        text,
+    ), "MarkerProcessor no longer emits {marker}.m8 — contamination scoring will break"
 
 
-def test_run_blast_search_has_v150_todo() -> None:
-    """Ensure the Phase 4.3 TODO comment is present so reviewers remember
-    to unify the output naming in v1.5.0."""
-    assert "v1.5.0" in _read(ENGINE)
-    assert "blastpout" in _read(ENGINE)
+def test_run_blast_search_has_scoped_v150_todo() -> None:
+    """The Phase 4.3 TODO must stay attached to the _run_blast_search
+    function body so reviewers see it at the call site. Match the exact
+    comment token rather than a bare substring."""
+    text = _read(ENGINE)
+    # Find the function def and ensure the TODO appears within the next
+    # 30 lines of the signature (scoped assertion rather than a
+    # whole-file substring match).
+    match = re.search(r"def _run_blast_search\(", text)
+    assert match is not None
+    window = text[match.start() : match.start() + 1500]
+    assert "TODO(v1.5.0)" in window, "v1.5.0 TODO not attached to _run_blast_search"
+    assert "blastpout" in window
