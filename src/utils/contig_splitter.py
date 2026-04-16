@@ -139,49 +139,74 @@ def split_contigs_from_directory(
     if not input_dir.is_dir():
         raise ValueError(f"Input path is not a directory: {input_dir}")
 
+    # Find all FNA files first so we can plan the full split before touching
+    # the output directory. The Codex-audit requirement is that a collision
+    # anywhere in the directory leaves no partial files on disk.
+    fna_extensions = {".fna", ".fa", ".fasta"}
+    fna_files = sorted(
+        f for f in input_dir.iterdir()
+        if f.is_file() and f.suffix.lower() in fna_extensions
+    )
+    if not fna_files:
+        raise ValueError(f"No FNA files found in {input_dir}")
+
+    # Plan phase: collect every record we intend to write and check for
+    # cross-file filename collisions before any output is materialized.
+    planned: list[tuple[str, object]] = []
+    filename_to_sources: Dict[str, List[str]] = defaultdict(list)
+    files_with_data = 0
+    for fna_file in fna_files:
+        prefix = sanitize_contig_id(fna_file.stem)
+        file_records = list(SeqIO.parse(fna_file, "fasta"))
+        retained = _detect_collisions(
+            file_records, min_length=min_length, prefix=prefix
+        )
+        if not retained:
+            continue
+        files_with_data += 1
+        for record in retained:
+            filename = _plan_output_filename(record, prefix)
+            filename_to_sources[filename].append(f"{fna_file.name}:{record.id}")
+            planned.append((filename, record))
+
+    cross_file_collisions = {
+        filename: sources
+        for filename, sources in filename_to_sources.items()
+        if len(sources) > 1
+    }
+    if cross_file_collisions:
+        pretty = "; ".join(
+            f"{filename} <- {sources}"
+            for filename, sources in sorted(cross_file_collisions.items())
+        )
+        raise ContigIdCollisionError(
+            f"Sanitized contig filenames collide across input files: {pretty}. "
+            "Rename the conflicting contigs before running --contigs on this "
+            "directory."
+        )
+
+    if not planned:
+        raise ValueError(
+            f"No contigs extracted from {len(fna_files)} files in {input_dir} "
+            f"(min_length filter: {min_length} bp)"
+        )
+
+    # Write phase: only now do we create the output directory and write
+    # records. An exception during writes still leaves the caller with a
+    # well-defined (albeit partially-populated) directory, but by
+    # construction we've validated there are no collisions to worry about.
     if output_dir is None:
         output_dir = Path(tempfile.mkdtemp(prefix="gvclass_contigs_"))
     else:
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Find all FNA files
-    fna_extensions = {".fna", ".fa", ".fasta"}
-    fna_files = sorted(
-        f for f in input_dir.iterdir()
-        if f.is_file() and f.suffix.lower() in fna_extensions
-    )
+    for filename, record in planned:
+        contig_file = output_dir / filename
+        with open(contig_file, "w") as f:
+            SeqIO.write(record, f, "fasta")
 
-    if not fna_files:
-        raise ValueError(f"No FNA files found in {input_dir}")
-
-    total_contigs = 0
-    files_processed = 0
-
-    for fna_file in fna_files:
-        # Use filename (without extension) as prefix for uniqueness
-        prefix = sanitize_contig_id(fna_file.stem)
-
-        try:
-            _, n_contigs = split_contigs(
-                fna_file,
-                output_dir=output_dir,
-                min_length=min_length,
-                prefix=prefix,
-            )
-            total_contigs += n_contigs
-            files_processed += 1
-        except ValueError:
-            # Skip files with no valid contigs
-            continue
-
-    if total_contigs == 0:
-        raise ValueError(
-            f"No contigs extracted from {files_processed} files in {input_dir} "
-            f"(min_length filter: {min_length} bp)"
-        )
-
-    return output_dir, total_contigs, files_processed
+    return output_dir, len(planned), files_with_data
 
 
 def sanitize_contig_id(contig_id: str) -> str:

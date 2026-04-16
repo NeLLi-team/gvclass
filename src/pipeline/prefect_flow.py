@@ -29,8 +29,12 @@ def validate_and_setup_task(
     db_path = DatabaseManager.setup_database(database_path)
     logger.info(f"Using database at: {db_path}")
 
+    # InputValidator already accepts .fna / .faa / .fasta / .fas via
+    # alphabet inference, so enumerate the same set here — otherwise a
+    # directory of .fasta inputs would validate but yield zero queries
+    # (Codex-audit finding).
     query_files = []
-    for ext in [".fna", ".faa"]:
+    for ext in (".fna", ".faa", ".fasta", ".fas"):
         query_files.extend(query_path.glob(f"*{ext}"))
 
     logger.info(f"Found {len(query_files)} query files")
