@@ -277,6 +277,43 @@ def test_atomic_swap_directory_replaces_previous_and_cleans_backup(tmp_path: Pat
     assert not staging_path.exists()
 
 
+def test_clear_prior_outputs_removes_legacy_artefacts(tmp_path: Path) -> None:
+    """Regression for Codex-audit finding: clearing only SUCCESS is not enough.
+
+    A rerun that crashes after the sentinel is cleared but before the new
+    tar is published would otherwise leave the previous run's
+    ``.summary.tab`` + ``.tar.gz`` pair on disk. ``_query_is_resume_complete``
+    would then still return True via the legacy fallback and the rerun
+    would be silently skipped next time. ``_clear_prior_outputs`` must
+    wipe every resumable marker up front so the post-crash state is
+    obviously incomplete.
+    """
+    from src.pipeline.prefect_flow import _query_is_resume_complete
+    from src.pipeline.query_processing_engine import _clear_prior_outputs
+
+    output_base = tmp_path / "out"
+    output_base.mkdir()
+    (output_base / "q1.SUCCESS").write_text("{}")
+    (output_base / "q1.summary.tab").write_text("query\nq1\n")
+    _make_tar(output_base / "q1.tar.gz", content=b"stale-payload")
+    # Also drop a dangling .part from a previous crash to make sure it is
+    # wiped along with the final artefacts.
+    (output_base / "q1.tar.gz.part").write_bytes(b"half-written")
+    (output_base / "q1.contamination_candidates.tsv").write_text("stale\n")
+
+    _clear_prior_outputs("q1", output_base, LOGGER)
+
+    assert not (output_base / "q1.SUCCESS").exists()
+    assert not (output_base / "q1.summary.tab").exists()
+    assert not (output_base / "q1.tar.gz").exists()
+    assert not (output_base / "q1.tar.gz.part").exists()
+    assert not (output_base / "q1.contamination_candidates.tsv").exists()
+
+    # After cleanup, resume must NOT treat the query as complete via
+    # either the sentinel or the legacy fallback.
+    assert _query_is_resume_complete(output_base, "q1", Mock()) is False
+
+
 def test_resume_all_skipped_does_not_crash_on_zero_workers(tmp_path: Path) -> None:
     """Regression: if every query has a SUCCESS sentinel, the flow must not
     instantiate ThreadPoolExecutor(max_workers=0)."""

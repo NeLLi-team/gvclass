@@ -796,9 +796,11 @@ def _post_process_query(
     logger.info(f"Post-processing results for query {query_name}")
     logger.debug(f"Query output directory: {query_output_dir}")
     logger.debug(f"Output base directory: {output_base}")
-    # A prior SUCCESS sentinel from an earlier run must not mislead resume
-    # logic into skipping a query whose outputs we are about to regenerate.
-    _clear_success_sentinel(query_name, output_base, logger)
+    # Clear every resumable marker for this query before we start rewriting
+    # its outputs. If the rerun crashes after this point but before the new
+    # tar is published, resume must NOT see a legacy (summary, tar) pair
+    # from the previous run and wrongly skip the query.
+    _clear_prior_outputs(query_name, output_base, logger)
     post_process_start = time.time()
     try:
         _copy_query_summary_tab(query_name, query_output_dir, output_base, logger)
@@ -922,6 +924,31 @@ def _clear_success_sentinel(query_name: str, output_base: Path, logger) -> None:
             logger.debug(f"Cleared stale SUCCESS sentinel: {sentinel}")
         except OSError as exc:
             logger.warning(f"Could not remove stale sentinel {sentinel}: {exc}")
+
+
+def _clear_prior_outputs(query_name: str, output_base: Path, logger) -> None:
+    """Remove every per-query artefact the resume filter can see.
+
+    Called at the start of post-processing for a rerun. Drops the sentinel,
+    the summary TSV, the archive (and any leftover ``.tar.gz.part``), and
+    the contamination-candidates sidecar. If the rerun crashes mid-way the
+    query is left with only the ``query_output_dir`` working tree, which
+    resume correctly ignores.
+    """
+    _clear_success_sentinel(query_name, output_base, logger)
+    victims = [
+        output_base / f"{query_name}.summary.tab",
+        output_base / f"{query_name}.tar.gz",
+        output_base / f"{query_name}.tar.gz.part",
+        output_base / f"{query_name}.contamination_candidates.tsv",
+    ]
+    for victim in victims:
+        if victim.exists():
+            try:
+                victim.unlink()
+                logger.debug(f"Cleared stale artefact: {victim}")
+            except OSError as exc:
+                logger.warning(f"Could not remove stale {victim}: {exc}")
 
 
 def _write_success_sentinel(
