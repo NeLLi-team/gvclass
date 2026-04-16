@@ -5,7 +5,7 @@ Processes multiple HMM files separately and combines results.
 """
 import os
 import tempfile
-from typing import List, Tuple, Any, Iterable, TextIO
+from typing import Dict, List, Tuple, Any, Iterable, Iterator, TextIO
 from pathlib import Path
 import pyhmmer.plan7
 import pyhmmer.easel
@@ -232,8 +232,7 @@ def _domain_coordinates(
     return 1, hmm_length, domain.env_from, domain.env_to, target_length
 
 
-def _write_domain_line(
-    out: TextIO,
+def _format_domain_line(
     target_name: str,
     target_accession: str,
     target_length: int,
@@ -243,39 +242,46 @@ def _write_domain_line(
     hit: Any,
     domain: Any,
     domain_idx: int,
+    domain_count: int,
     hmm_from: int,
     hmm_to: int,
     target_from: int,
     target_to: int,
-) -> None:
-    out.write(f"{target_name}\t{target_accession}\t{target_length}\t")
-    out.write(f"{hmm_name}\t{hmm_accession}\t{hmm_length}\t")
-    out.write(f"{hit.evalue:.2e}\t{hit.score:.1f}\t{hit.bias:.1f}\t")
-    out.write(f"{domain_idx+1}\t{len(hit.domains)}\t")
-    out.write(f"{domain.c_evalue:.2e}\t{domain.i_evalue:.2e}\t")
-    out.write(f"{domain.score:.1f}\t{domain.bias:.1f}\t")
-    out.write(f"{hmm_from + 1}\t{hmm_to + 1}\t")
-    out.write(f"{target_from + 1}\t{target_to + 1}\t")
-    out.write(f"{domain.env_from + 1}\t{domain.env_to + 1}\t")
-    out.write("0.90\n")
+) -> str:
+    return (
+        f"{target_name}\t{target_accession}\t{target_length}\t"
+        f"{hmm_name}\t{hmm_accession}\t{hmm_length}\t"
+        f"{hit.evalue:.2e}\t{hit.score:.1f}\t{hit.bias:.1f}\t"
+        f"{domain_idx + 1}\t{domain_count}\t"
+        f"{domain.c_evalue:.2e}\t{domain.i_evalue:.2e}\t"
+        f"{domain.score:.1f}\t{domain.bias:.1f}\t"
+        f"{hmm_from + 1}\t{hmm_to + 1}\t"
+        f"{target_from + 1}\t{target_to + 1}\t"
+        f"{domain.env_from + 1}\t{domain.env_to + 1}\t"
+        "0.90\n"
+    )
 
 
-def _write_top_hits_results(
-    out: TextIO, top_hits: Any, source_file: str, sequences: List[Any]
-) -> int:
+def _collect_hit_rows(
+    top_hits: Any, source_file: str, sequences: List[Any]
+) -> Iterator[Tuple[str, str, float, float, str]]:
+    """Yield (target_name, hmm_name, seq_score, dom_score, line) for every domain.
+
+    Multi-domain emission is preserved; callers that want one line per
+    (target, model) should run ``_dedup_hits`` on the iterator first.
+    """
     hmm_name, hmm_accession, hmm_length = _get_hmm_info(top_hits, source_file)
-    written_hits = 0
     for hit in top_hits:
         target_name = _decode_name(hit.name)
         target_accession = "-"
         target_length = len(sequences[0]) if sequences else 1000
+        domain_count = len(hit.domains)
 
         for domain_idx, domain in enumerate(hit.domains):
             hmm_from, hmm_to, target_from, target_to, target_length = _domain_coordinates(
                 domain, hmm_length, target_length
             )
-            _write_domain_line(
-                out,
+            line = _format_domain_line(
                 target_name,
                 target_accession,
                 target_length,
@@ -285,12 +291,115 @@ def _write_top_hits_results(
                 hit,
                 domain,
                 domain_idx,
+                domain_count,
                 hmm_from,
                 hmm_to,
                 target_from,
                 target_to,
             )
-            written_hits += 1
+            yield target_name, hmm_name, float(hit.score), float(domain.score), line
+
+
+def _dedup_hits(
+    rows: Iterable[Tuple[str, str, float, float, str]]
+) -> List[str]:
+    """Collapse to the best (seq_score, dom_score) line per (target_name, model_name).
+
+    Matches the single-HMM filter path (``_collect_filtered_search_results`` in
+    ``src/core/hmm_search.py``) so ``models.out.filtered`` has identical
+    one-row-per-(protein, model) semantics in both the single- and multi-HMM
+    paths. Does NOT apply score cutoffs — it only deduplicates, which is safe
+    under sensitive mode where cutoffs are already disabled upstream.
+    """
+    best: Dict[Tuple[str, str], Tuple[float, float, str]] = {}
+    for target_name, model_name, seq_score, dom_score, line in rows:
+        key = (target_name, model_name)
+        current = best.get(key)
+        candidate = (seq_score, dom_score, line)
+        if current is None or (seq_score, dom_score) > (current[0], current[1]):
+            best[key] = candidate
+    return [line for _, _, line in best.values()]
+
+
+def _parse_domtbl_dedup_key(
+    line: str,
+) -> Tuple[str, str, float, float] | None:
+    """Extract (target_name, model_name, seq_score, dom_score) from one domtbl line.
+
+    Returns None for comment lines or malformed rows. Score columns follow the
+    custom domtbl written by :func:`_format_domain_line` (parts[7] = seq score,
+    parts[13] = domain score).
+    """
+    if line.startswith("#"):
+        return None
+    parts = line.rstrip("\n").split("\t")
+    if len(parts) < 15:
+        return None
+    try:
+        return parts[0], parts[3], float(parts[7]), float(parts[13])
+    except (IndexError, ValueError):
+        return None
+
+
+def dedup_domtbl_file(input_file: str, output_file: str) -> int:
+    """Read the raw per-domain domtbl at ``input_file`` and write a dedup'd copy
+    to ``output_file``.
+
+    One line per (target protein, HMM model) pair is kept — the one with the
+    best ``(seq_score, dom_score)`` tuple. Comment/header lines are preserved
+    verbatim at the top of the output. Returns the number of dedup'd data rows
+    written.
+
+    This is the multi-HMM equivalent of the dedup pass that
+    ``_collect_filtered_search_results`` performs inline in the single-HMM
+    filter path. It fixes a long-standing bug where the multi-HMM engine
+    produced ``models.out.filtered`` as a verbatim copy of the per-domain raw
+    output, leaving duplicate ``(query, model)`` rows for any protein that
+    aligned via multiple HMM domains.
+    """
+    best: Dict[Tuple[str, str], Tuple[float, float, str]] = {}
+    header_lines: List[str] = []
+
+    with open(input_file, "r") as handle:
+        for line in handle:
+            if line.startswith("#"):
+                header_lines.append(line)
+                continue
+            parsed = _parse_domtbl_dedup_key(line)
+            if parsed is None:
+                continue
+            target_name, model_name, seq_score, dom_score = parsed
+            key = (target_name, model_name)
+            current = best.get(key)
+            candidate = (seq_score, dom_score, line)
+            if current is None or (seq_score, dom_score) > (current[0], current[1]):
+                best[key] = candidate
+
+    with open(output_file, "w") as out:
+        for line in header_lines:
+            out.write(line)
+        for _, _, line in best.values():
+            out.write(line)
+
+    error_handler.log_info(
+        f"Deduplicated {input_file} -> {output_file}: {len(best)} unique (query, model) rows"
+    )
+    return len(best)
+
+
+def _write_top_hits_results(
+    out: TextIO, top_hits: Any, source_file: str, sequences: List[Any]
+) -> int:
+    """Write all per-domain rows for ``top_hits`` without dedup.
+
+    ``models.out`` is the raw per-domain artefact; dedup happens in the pure
+    file transform :func:`dedup_domtbl_file` when ``models.out.filtered`` is
+    produced.
+    """
+    written_hits = 0
+    for _, _, _, _, line in _collect_hit_rows(top_hits, source_file, sequences):
+        out.write(line)
+        written_hits += 1
     return written_hits
 
 
@@ -301,11 +410,16 @@ def write_combined_results(
     sequences: List,
 ) -> None:
     """
-    Write combined results from multiple HMM searches.
+    Write combined raw per-domain results from multiple HMM searches.
+
+    The written file is the unfiltered per-domain domtblout — the multi-HMM
+    equivalent of ``models.out`` from the single-HMM path. Callers that want
+    the dedup'd ``models.out.filtered`` view must run
+    :func:`dedup_domtbl_file` on this file.
 
     Args:
         all_results: List of (source_file, results) tuples
-        output_file: Output file path
+        output_file: Output file path (raw per-domain)
         hmm_files: List of HMM files used
         sequences: Query sequences
     """
@@ -316,4 +430,4 @@ def write_combined_results(
         for source_file, top_hits in all_results:
             total_hits += _write_top_hits_results(out, top_hits, source_file, sequences)
 
-    error_handler.log_info(f"Wrote {total_hits} hits to {output_file}")
+    error_handler.log_info(f"Wrote {total_hits} raw per-domain hits to {output_file}")

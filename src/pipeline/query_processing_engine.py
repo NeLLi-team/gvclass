@@ -373,7 +373,10 @@ def _run_hmm_search(
 ) -> None:
     if len(hmm_files) > 1:
         from src.core.hmm_search import generate_counts_from_output
-        from src.core.hmm_search_multi import run_pyhmmer_search_multi
+        from src.core.hmm_search_multi import (
+            dedup_domtbl_file,
+            run_pyhmmer_search_multi,
+        )
 
         run_pyhmmer_search_multi(
             hmm_files=hmm_files,
@@ -382,7 +385,11 @@ def _run_hmm_search(
             threads=threads,
             sensitive_mode=sensitive_mode,
         )
-        shutil.copy2(str(models_out), str(models_out_filtered))
+        # Collapse per-domain duplicates in models.out.filtered so it matches the
+        # single-HMM filter-path semantics (one row per (query, model) pair).
+        # Without this, any protein that aligned through multiple HMM domains
+        # would leak extra rows into downstream count/score/marker aggregators.
+        dedup_domtbl_file(str(models_out), str(models_out_filtered))
         generate_counts_from_output(str(models_out_filtered), str(models_counts))
         return
 
