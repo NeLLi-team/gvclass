@@ -45,7 +45,7 @@ HMM_MODEL_FILES = [
 
 
 def _pipeline_logger():
-    return logging.getLogger("gvclass_prefect")
+    return logging.getLogger("gvclass_runner")
 
 
 @dataclass
@@ -330,6 +330,15 @@ def _run_hmm_and_blast(
     sensitive_mode: bool,
     logger,
 ) -> Path:
+    """Run the per-query HMM search.
+
+    Historically this also ran a separate per-marker BLAST pass that wrote
+    ``*.blastpout`` files. Those files were never read downstream —
+    contamination scoring reads ``*.m8`` files produced by
+    :class:`MarkerProcessor`, and the tree-building pipeline also owns its
+    own BLAST pass. The redundant pass was removed in v1.4.3 to halve the
+    per-query BLAST workload.
+    """
     logger.info(f"Running HMM search: {query_name}")
     hmmout_dir = query_output_dir / "hmmout"
     hmmout_dir.mkdir(exist_ok=True)
@@ -345,10 +354,6 @@ def _run_hmm_and_blast(
         threads,
         sensitive_mode,
     )
-    from src.core.marker_extraction import parse_hmm_output
-
-    hmm_results = parse_hmm_output(str(models_out_filtered))
-    _run_blast_search(query_name, query_output_dir, database_path, protein_file, hmm_results, threads, logger)
     return models_out_filtered
 
 def _resolve_hmm_files(database_path: Path) -> List[str]:
@@ -414,40 +419,12 @@ def _run_hmm_search(
         sensitive_mode=sensitive_mode,
     )
 
-def _run_blast_search(
-    query_name: str,
-    query_output_dir: Path,
-    database_path: Path,
-    protein_file: Path,
-    hmm_results: Any,
-    threads: int,
-    logger,
-) -> None:
-    # TODO(v1.5.0): this helper writes ``*.blastpout`` files that nothing
-    # downstream consumes — contamination scoring reads ``*.m8`` files
-    # produced independently by MarkerProcessor.blast_and_merge in
-    # src/core/marker_processing.py. Running BLAST twice per query is
-    # wasted compute; unify on the ``.m8`` suffix and share the output.
-    # Tracked by tests/test_blast_redundancy.py.
-    logger.info(f"Running BLAST search: {query_name}")
-    blast_dir = query_output_dir / "blastp_out"
-    blast_dir.mkdir(exist_ok=True)
-    if not hmm_results:
-        return
-
-    from src.core.blast import run_blastp
-
-    for marker in hmm_results:
-        ref_faa = database_path / "database" / "alignment" / f"{marker}.ref.faa"
-        if not ref_faa.exists():
-            continue
-        blast_out = blast_dir / f"{query_name}.{marker}.blastpout"
-        run_blastp(
-            queryfaa=str(protein_file),
-            refdb=str(ref_faa),
-            blastpout=str(blast_out),
-            threads=threads,
-        )
+# Removed in v1.4.3: a former ``_run_blast_search`` helper ran a per-marker
+# BLAST pass that emitted ``<query>.<marker>.blastpout`` files. Those files
+# were never read — contamination scoring reads ``<marker>.m8`` files
+# produced by :class:`MarkerProcessor` (see ``src/core/marker_processing.py``)
+# which also feeds the tree-building pipeline. Removing the duplicate pass
+# halves the per-query BLAST cost.
 
 def _process_markers(
     query_name: str,
