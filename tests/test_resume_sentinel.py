@@ -149,7 +149,7 @@ def _make_tar(path: Path, content: bytes = b"ok") -> None:
 
 
 def test_query_is_resume_complete_accepts_sentinel(tmp_path: Path) -> None:
-    from src.pipeline.prefect_flow import _query_is_resume_complete
+    from src.pipeline.parallel_runner import _query_is_resume_complete
 
     output_path = tmp_path / "out"
     output_path.mkdir()
@@ -161,7 +161,7 @@ def test_query_is_resume_complete_accepts_sentinel(tmp_path: Path) -> None:
 
 
 def test_query_is_resume_complete_legacy_fallback_accepts_valid_pair(tmp_path: Path) -> None:
-    from src.pipeline.prefect_flow import _query_is_resume_complete
+    from src.pipeline.parallel_runner import _query_is_resume_complete
 
     output_path = tmp_path / "out"
     output_path.mkdir()
@@ -175,7 +175,7 @@ def test_query_is_resume_complete_legacy_fallback_accepts_valid_pair(tmp_path: P
 
 
 def test_query_is_resume_complete_rejects_corrupt_tar(tmp_path: Path) -> None:
-    from src.pipeline.prefect_flow import _query_is_resume_complete
+    from src.pipeline.parallel_runner import _query_is_resume_complete
 
     output_path = tmp_path / "out"
     output_path.mkdir()
@@ -189,7 +189,7 @@ def test_query_is_resume_complete_rejects_corrupt_tar(tmp_path: Path) -> None:
 
 
 def test_query_is_resume_complete_rejects_missing_pair(tmp_path: Path) -> None:
-    from src.pipeline.prefect_flow import _query_is_resume_complete
+    from src.pipeline.parallel_runner import _query_is_resume_complete
 
     output_path = tmp_path / "out"
     output_path.mkdir()
@@ -288,7 +288,7 @@ def test_clear_prior_outputs_removes_legacy_artefacts(tmp_path: Path) -> None:
     wipe every resumable marker up front so the post-crash state is
     obviously incomplete.
     """
-    from src.pipeline.prefect_flow import _query_is_resume_complete
+    from src.pipeline.parallel_runner import _query_is_resume_complete
     from src.pipeline.query_processing_engine import _clear_prior_outputs
 
     output_base = tmp_path / "out"
@@ -317,7 +317,7 @@ def test_clear_prior_outputs_removes_legacy_artefacts(tmp_path: Path) -> None:
 def test_resume_all_skipped_does_not_crash_on_zero_workers(tmp_path: Path) -> None:
     """Regression: if every query has a SUCCESS sentinel, the flow must not
     instantiate ThreadPoolExecutor(max_workers=0)."""
-    from src.pipeline.prefect_flow import gvclass_flow
+    from src.pipeline.parallel_runner import gvclass_flow
 
     query_dir = tmp_path / "queries"
     output_dir = tmp_path / "out"
