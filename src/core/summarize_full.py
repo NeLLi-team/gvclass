@@ -68,13 +68,13 @@ class FullSummarizer:
     ):
         """Initialize with database path.
 
-        ``sensitive_mode=True`` disables the trained contamination model because
-        its training features were generated under GA-cutoff-filtered HMM
-        output; feeding sensitive-mode (E=1e-5, no GA) feature distributions
-        into that model would return miscalibrated predictions without any
-        warning. The gate short-circuits the ML branch of
-        :meth:`_add_contamination_metrics` and emits an explicit NaN +
-        ``uncertain_sensitive_mode`` contamination-type marker.
+        ``sensitive_mode`` is propagated to
+        :class:`~src.core.contamination_scoring.ContaminationScorer` for
+        diagnostics/logging. As of v1.4.3 the bundled contamination model
+        is trained on sensitive-mode features
+        (``training_profile: sensitive_mode_features`` in the model card),
+        so the same trained-model path runs under both sensitive and
+        non-sensitive settings.
         """
         self.database_path = database_path
         self.completeness_mode = completeness_mode
@@ -1061,10 +1061,13 @@ class FullSummarizer:
             estimated = float(raw_estimate) if raw_estimate is not None else 0.0
         except (TypeError, ValueError):
             estimated = 0.0
-        # NaN propagates from the sensitive-mode gate; callers should not
-        # interpret it as a sub-threshold ``clean`` bin.
+        # NaN is not a sub-threshold ``clean`` bin — it reflects an
+        # unavailable estimate (e.g. a future model-skip path, or a
+        # scorer that returned no numeric prediction). Report it as
+        # ``uncertain`` so downstream consumers treat it as missing
+        # rather than clean.
         if math.isnan(estimated):
-            return "uncertain_sensitive_mode"
+            return "uncertain"
         if estimated < self._contamination_reporting_threshold():
             return "clean"
 

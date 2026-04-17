@@ -10,10 +10,14 @@ framework: scikit-learn
 # `estimated_contamination_strategy` column (e.g. `extra_trees_v1`).
 model_name: extra_trees
 training_profile: sensitive_mode_features
-# Reporting threshold (min of `max(10.0, ml_threshold)` in
-# FullSummarizer._contamination_reporting_threshold). Kept in sync with the
-# value stored inside the joblib bundle.
-threshold: 10.0
+# Decision threshold stored inside the joblib bundle and read by
+# ``ContaminationScorer._load_ml_model`` at runtime. This value is the one
+# F1-optimized on the real-contig benchmark training data.
+# FullSummarizer._contamination_reporting_threshold lifts it to
+# ``max(10.0, threshold)`` before using it as the summary display gate,
+# so contamination < 10% is still surfaced as ``clean`` in the output
+# TSV regardless of this raw threshold.
+threshold: 1.5
 
 # --- Training provenance ---------------------------------------------------
 # Retrained for v1.4.3 from scratch under sensitive_mode=true (E=1e-5, no
