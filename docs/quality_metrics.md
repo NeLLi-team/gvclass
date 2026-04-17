@@ -14,7 +14,7 @@ It complements the user-facing summaries in the README by describing the actual 
 - Offline completeness resource builder:
   [src/bin/build_novelty_completeness_resources.py](/home/fschulz/dev/software/gvclass/src/bin/build_novelty_completeness_resources.py)
 - Offline contamination benchmark/export workflow:
-  [src/bin/benchmark_contamination_methods_faa.py](/home/fschulz/dev/software/gvclass/src/bin/benchmark_contamination_methods_faa.py)
+  [src/bin/benchmark_real_contig_contamination.py](/home/fschulz/dev/software/gvclass/src/bin/benchmark_real_contig_contamination.py)
 
 ## Completeness Metrics
 
@@ -327,11 +327,22 @@ The summary fields report:
 ### Production Contamination Estimate
 
 The shipped production estimate is the trained model in `src/bundled_models/contamination_model.joblib`.
+See the companion model card at
+[src/bundled_models/contamination_model.yaml](/home/fschulz/dev/software/gvclass/src/bundled_models/contamination_model.yaml)
+for the full provenance, integrity digest, and threshold.
 
-The shipped bundle currently reports:
+The shipped bundle currently reports (v1.4.3):
 
-- `model_name = hist_gbm`
-- runtime strategy label = `hist_gbm_v1`
+- `model_name = extra_trees`
+- runtime strategy label = `extra_trees_v1`
+- training profile = `sensitive_mode_features` (features generated with
+  `sensitive_mode=true`, E=1e-5, GA/TC/NC cutoffs disabled)
+- held-out MAE on the real-contig benchmark test set = `3.92`
+- mean predicted contamination on clean bins = `0.14%`
+- integrity gate: SHA-256 of the `.joblib` file is verified against
+  `CONTAMINATION_MODEL_SHA256` in
+  [src/core/contamination_scoring.py](/home/fschulz/dev/software/gvclass/src/core/contamination_scoring.py)
+  before `joblib.load` is allowed to run
 
 Model input features:
 
@@ -390,36 +401,85 @@ The shipped resource builder config is:
 
 Offline contamination model training/export is handled by:
 
-- [src/bin/benchmark_contamination_methods_faa.py](/home/fschulz/dev/software/gvclass/src/bin/benchmark_contamination_methods_faa.py)
+- [src/bin/benchmark_real_contig_contamination.py](/home/fschulz/dev/software/gvclass/src/bin/benchmark_real_contig_contamination.py)
 
 The benchmark design:
 
-- one-contig isolate references from 7 families
-- train/test split by genome within family
-- synthetic scenarios:
-  - `clean`
-  - `hgt_cellular_1gene`
-  - `hgt_cellular_5genes`
-  - `cellular_contig_10`
-  - `cellular_contig_25`
-  - `viral_divergent_10`
-  - `viral_divergent_25`
-  - `viral_related_10`
-  - `viral_related_25`
-- HGT-like scenarios are labeled as `0` true contamination
+- 30 real giant-virus base genomes with complete taxonomy coverage
+- per-base one-contig mixtures with cellular or foreign-viral contigs
+  drawn from independent donor genomes; donor bp targets span the
+  `clean`, `viral_pair`, `viral_triple`, `cellular_single_*`, and
+  `cellular_multi*` scenarios listed in the run manifest
+- train/test split by `base_accession` (no genome appears in both
+  splits) with a GroupKFold over base genomes for candidate selection
+- HGT-like single-gene cellular contributions are NOT labeled as
+  contamination — the model learns to predict cellular CONTIG burden,
+  not the ubiquitous eukaryote-like gene content that giant viruses
+  naturally carry via horizontal gene transfer (see the explanation of
+  `contamination_type = mixed_viral` below)
+
+Feature-generation mode for v1.4.3:
+
+- `sensitive_mode=true` is active through the HMM step, matching the
+  runtime default. Training and inference therefore see the same
+  feature distribution.
 
 Model family selection:
 
 - candidate models:
-  - `random_forest`
-  - `extra_trees`
-  - `hist_gbm`
+  - `random_forest` (`n_estimators=400, min_samples_leaf=2`)
+  - `extra_trees` (`n_estimators=500, min_samples_leaf=2`)
+  - `hist_gbm` (`max_depth=6, min_samples_leaf=5`)
 - selection objective:
-  - grouped cross-validation MAE on held-out genomes
+  - grouped cross-validation MAE on held-out base genomes
 - threshold optimization:
   - best F1 over thresholds `1.0..50.0` in `0.5` increments
 
-The trained production bundle is exported from the selected winning family on the full FAA feature table.
+The trained production bundle is exported from the winning family on
+the full feature table. v1.4.3 selected `extra_trees`.
+
+### Interpreting `contamination_type`
+
+The per-query `contamination_type` in the summary is a categorical
+label that names the dominant rule-based signal when the final
+`estimated_contamination` clears the reporting threshold:
+
+- `clean` — below threshold
+- `cellular` — the `cellular_signal` component dominates; at least one
+  eukaryotic / bacterial / archaeal / plastid / mitochondrial CONTIG
+  appears to carry conserved housekeeping markers (BUSCO odb10
+  eukaryotic set + UNI56 prokaryotic translation machinery). Giant
+  viruses are not expected to carry these markers at all — they are
+  ribosomal proteins, tRNA synthetases, and other core translation
+  genes that viruses obligately scavenge from their hosts. Two or more
+  such markers on a single contig flag the contig as cellular.
+- `phage` — phage-marker burden on contigs otherwise lacking giant
+  virus markers
+- `duplication` — elevated per-order or GVOG8 marker duplication,
+  typically a chimeric assembly rather than a foreign-contig problem
+- `mixed_viral` — the `viral_mixture_signal` component dominates;
+  multiple distinct giant-virus orders or families appear to be mixed
+  in the bin. This is NOT about "has EUK-like genes": giant viruses
+  routinely carry hundreds of eukaryote-derived genes via HGT and
+  those genes do not count as contamination here. `mixed_viral` is
+  triggered when, for example, the assembly carries proteins whose
+  tree neighbors land in both Pimascovirales and Imitervirales, or
+  where the second-place order/family in the per-marker taxonomy vote
+  exceeds a support threshold. See the `viral_mixture_signal` formula
+  in [Rule-Based Diagnostic Score](#rule-based-diagnostic-score).
+- `uncertain` — threshold cleared but no single signal dominates
+
+Why giant-virus eukaryote-like genes do not inflate the cellular
+signal: the `CELLULAR_MODELS` HMM set is deliberately limited to
+translation-machinery genes (ribosomal proteins, tRNA synthetases)
+that giant viruses do not encode. A Mimivirus translation-factor
+homolog, for example, is carried in the giant-virus-specific GVOG
+panel rather than in BUSCO / UNI56, and it therefore does not
+contribute to `cellular_signal`. Only when a eukaryotic CONTIG
+carrying at least two ribosomal / translation markers is co-assembled
+with the viral bin does the cellular path fire — a signal that
+reliably points at contaminating host sequence rather than legitimate
+HGT acquisition.
 
 ## Interpreting The Shipped Examples
 
@@ -427,24 +487,42 @@ The bundled example outputs are useful for checking which branch is active:
 
 - in novelty-aware runs, `estimated_completeness_strategy = novelty_aware_v1`
 - in legacy runs, `estimated_completeness_strategy = order_baseline_ratio_v1`
-- in all current production runs, `estimated_contamination_strategy = hist_gbm_v1`
+- in v1.4.3 production runs, `estimated_contamination_strategy = extra_trees_v1`
 
-Current example values from the novelty-aware run:
+Current example values from the sensitive-mode novelty-aware run
+(v1.4.3, bundled `example/` directory):
 
 - `AC3300027503___Ga0255182_1000024`
-  - `estimated_completeness = 79.62`
-  - `estimated_contamination = 21.66`
-  - `contamination_score_v1 = 7.98`
+  - `estimated_completeness = 81.73` (quality = advisory_only)
+  - `estimated_contamination = 0.00`
+  - `contamination_type = clean`
 - `GVMAG-S-1096109-37`
-  - `estimated_completeness = 89.88`
-  - `estimated_contamination = 3.43`
-  - `contamination_score_v1 = 0.80`
+  - `estimated_completeness = 82.86` (quality = advisory_only)
+  - `estimated_contamination = 27.13`
+  - `contamination_type = mixed_viral`
 - `PkV-RF01`
-  - `estimated_completeness = 95.15`
-  - `estimated_contamination = 0.56`
-  - `contamination_score_v1 = 26.22`
+  - `estimated_completeness = 95.43` (quality = advisory_only)
+  - `estimated_contamination = 0.09`
+  - `contamination_type = clean`
 
-These examples illustrate an important point:
+These examples illustrate several important points:
 
-- `contamination_score_v1` is not the primary contamination estimate
-- `estimated_contamination` can diverge substantially from the rule-based precursor because the trained model uses the full feature set rather than a single linear threshold on the rule-based score
+- Reference NCLDV genomes (`PkV-RF01`) predict near-zero contamination,
+  as expected for a clean viral reference.
+- `estimated_contamination` is NOT driven by the simple presence of
+  eukaryote-like genes. Giant viruses carry hundreds of HGT-derived
+  eukaryotic genes as part of their legitimate gene content, and the
+  contamination pipeline is explicitly designed not to flag those.
+- `GVMAG-S-1096109-37` is called `mixed_viral` because the per-marker
+  tree neighbors spread across multiple giant-virus orders AND show
+  substantial eukaryotic tree placement (see the per-level columns
+  `domain`, `phylum`, `class`, `order`, `family` in the detailed
+  summary: roughly 50% NCLDV, 45% EUK neighbors). A bin that
+  simultaneously lands in two distinct giant-virus orders or carries
+  proteins that tree-resolve primarily against eukaryotic references
+  (rather than the giant-virus references where viral HGT-origin
+  genes should fall) is an indicator of mixed-source sequence, not
+  of normal giant-virus HGT content. The `mixed_viral` label makes
+  the dominant signal visible without claiming the ML prediction
+  distinguishes mixed-virus from cellular-carryover — that
+  finer-grained call is still out of scope for the current model.
