@@ -309,9 +309,12 @@ def test_standard_mode_still_raises_when_model_missing(
         )
 
 
-def test_classify_contamination_type_returns_sensitive_marker_for_nan(
+def test_classify_contamination_type_treats_nan_as_uncertain(
     temp_database_dir: Path,
 ) -> None:
+    """An unavailable numeric estimate (NaN) must be classified as
+    ``uncertain`` so downstream consumers treat it as missing rather than
+    as sub-threshold ``clean``."""
     summarizer = FullSummarizer(temp_database_dir)
     summarizer.contamination_scorer.ml_threshold = 5.0
 
@@ -319,7 +322,7 @@ def test_classify_contamination_type_returns_sensitive_marker_for_nan(
         summarizer._classify_contamination_type(
             {"estimated_contamination": float("nan"), "contamination_source_v1": "cellular"}
         )
-        == "uncertain_sensitive_mode"
+        == "uncertain"
     )
 
 

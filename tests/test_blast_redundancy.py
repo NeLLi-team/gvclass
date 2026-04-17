@@ -43,7 +43,12 @@ def test_engine_no_longer_emits_blastpout_files() -> None:
         "Engine re-introduced _run_blast_search — merge its logic into "
         "the canonical MarkerProcessor BLAST pass instead."
     )
-    # Must not call run_blastp from the engine layer (that's MarkerProcessor's job).
+    # Must not call run_blastp from the engine layer. MarkerProcessor owns
+    # the per-query BLAST pass that contamination scoring consumes. Note:
+    # src/core/blast.py::reduce_ref and that module's own __main__ CLI
+    # still invoke run_blastp for offline / standalone use — those paths
+    # are outside the per-query pipeline and are not in scope for this
+    # single-pass contract.
     assert "run_blastp(" not in text, (
         "Engine called run_blastp directly — leave BLAST to MarkerProcessor."
     )
