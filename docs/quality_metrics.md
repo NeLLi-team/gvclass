@@ -500,6 +500,29 @@ Current example values from the sensitive-mode novelty-aware run
   - `estimated_completeness = 82.86` (quality = advisory_only)
   - `estimated_contamination = 27.13`
   - `contamination_type = mixed_viral`
+  - rule-based signal breakdown (from the `.summary.tab`):
+    - `cellular_signal = 3.00` (low — `cellular_unique = 1`,
+      `cellular_total = 3`; no CONTIG carries ≥2 translation markers)
+    - `phage_signal = 0.00`
+    - `duplication_signal = 18.04` (`order_dup = 1.52`,
+      `gvog8_dup = 1.43` — elevated but not extreme)
+    - `viral_mixture_signal = 69.50` — **dominant**
+    - `suspicious_contig_count_v2 = 0` — no contig-level cellular or
+      foreign-viral contig was flagged as suspicious
+  - `viral_mixture_signal` is driven here by the per-marker tax vote:
+    the order-level counter splits roughly NCLDV__Pimascovirales 50%,
+    EUK__NA 45%, with a PLV trace. The formula `max(0,
+    order_secondary_fraction - 10) * 1.3` contributes ~46 points on
+    its own, plus a similar term for family. Note that the
+    `order_secondary_fraction` term is agnostic to whether the
+    secondary order is viral or cellular; it is therefore better read
+    as "low purity of the per-marker tax call" than as
+    "multiple giant-virus orders present". A curator looking at this
+    row should check whether the EUK-leaning tree placements reflect
+    real cellular contigs (unlikely here — the contig-level rules
+    would have flagged them) or a sparse giant-virus reference for
+    this lineage pushing novel NCLDV markers to resolve against their
+    nearest EUK HGT-receiver.
 - `PkV-RF01`
   - `estimated_completeness = 95.43` (quality = advisory_only)
   - `estimated_contamination = 0.09`
