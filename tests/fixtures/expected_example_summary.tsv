@@ -1,4 +1,4 @@
 query	taxonomy_majority	taxonomy_confidence	estimated_completeness	estimated_completeness_quality	estimated_completeness_advisory	estimated_completeness_r2_holdout	estimated_contamination	contamination_type	gvog4_unique	gvog8_unique	ncldv_mcp_total	vp_completeness	mirus_completeness	ttable
-AC3300027503___Ga0255182_1000024	d_NCLDV;p_Nucleocytoviricota;c_Megaviricetes;o_Imitervirales;f_IM_01;g_g2284;s_S392	high	81.73	advisory_only	81.73		NaN	uncertain_sensitive_mode	2	6	2	0/4	0/4	codemeta
-GVMAG-S-1096109-37	d_NCLDV;p_Nucleocytoviricota;c_Megaviricetes;o_Pimascovirales;f_PM_01;g_g94;s_S679	high	82.86	advisory_only	82.86		NaN	uncertain_sensitive_mode	3	7	1	1/4	0/4	codemeta
-PkV-RF01	d_NCLDV;p_Nucleocytoviricota;c_Megaviricetes;o_Imitervirales;f_IM_19;g_g1787;s_singleton	high	95.43	advisory_only	95.43		NaN	uncertain_sensitive_mode	4	8	2	2/4	0/4	no_fna
+AC3300027503___Ga0255182_1000024	d_NCLDV;p_Nucleocytoviricota;c_Megaviricetes;o_Imitervirales;f_IM_01;g_g2284;s_S392	high	81.73	advisory_only	81.73		0.00	clean	2	6	2	0/4	0/4	codemeta
+GVMAG-S-1096109-37	d_NCLDV;p_Nucleocytoviricota;c_Megaviricetes;o_Pimascovirales;f_PM_01;g_g94;s_S679	high	82.86	advisory_only	82.86		27.13	mixed_viral	3	7	1	1/4	0/4	codemeta
+PkV-RF01	d_NCLDV;p_Nucleocytoviricota;c_Megaviricetes;o_Imitervirales;f_IM_19;g_g1787;s_singleton	high	95.43	advisory_only	95.43		0.09	clean	4	8	2	2/4	0/4	no_fna

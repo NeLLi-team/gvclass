@@ -43,7 +43,7 @@ CONTAMINATION_MODEL_FILE = "contamination_model.joblib"
 #: Rotate with ``scripts/rotate_contamination_model.py`` whenever the model is
 #: retrained.
 CONTAMINATION_MODEL_SHA256 = (
-    "b3d42e3076b54146f2de5a5492517d57da25840ae1273d71c804672b65d7b234"
+    "3ef1dc146ad723842a5aec8bf88020a21ed46699183264e3bb1d5ab33cc1d590"
 )
 CONTAMINATION_MODEL_FEATURES = [
     "contamination_score_v1",
@@ -82,11 +82,12 @@ class ContaminationScorer:
     def __init__(self, database_path: Path, sensitive_mode: bool = False):
         """Initialize the contamination scorer.
 
-        ``sensitive_mode=True`` skips loading the trained contamination model
-        entirely — including the SHA-256 gate — because the caller will short
-        -circuit to a ``NaN`` / ``uncertain_sensitive_mode`` emission before
-        the model is ever consulted (see
-        :meth:`src.core.summarize_full.FullSummarizer._add_contamination_metrics`).
+        The bundled model is trained on sensitive-mode features (see the
+        model card YAML) so it can be applied under both sensitive and
+        non-sensitive runs. The ``sensitive_mode`` argument is retained
+        for forward compatibility and to let callers distinguish the two
+        regimes in logs / diagnostics, but the SHA-256-gated model load
+        happens unconditionally.
         """
         self.database_path = database_path
         self.sensitive_mode = sensitive_mode
@@ -96,8 +97,7 @@ class ContaminationScorer:
         self.ml_model_name = "hist_gbm"
         self.ml_threshold = 0.0
         self.ml_available = False
-        if not sensitive_mode:
-            self._load_ml_model()
+        self._load_ml_model()
 
     def _load_labels(self) -> Dict[str, Dict[str, str]]:
         labels: Dict[str, Dict[str, str]] = {}

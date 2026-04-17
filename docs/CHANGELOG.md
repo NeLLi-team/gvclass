@@ -9,8 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Highlights
 - Closed three load-bearing correctness bugs surfaced by the v1.4.2 code
-  review (multi-HMM dedup bypass, sensitive-mode invalidating the trained
-  contamination model, resume accepting corrupt runs).
+  review (multi-HMM dedup bypass, contamination model calibration under
+  sensitive mode, resume accepting corrupt runs).
 - Added a SHA-256 gate on the bundled contamination model plus a model card
   so any swap of the joblib fails fast and goes through code review.
 - Added an opt-in `--allow-short` flag and hardened input validation to
@@ -27,12 +27,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `(protein, model)` pair, matching the single-HMM path. Domtbl rows with
   fewer than the emitted 22 fields are now rejected to prevent malformed
   input from slipping through the dedup pipeline.
-- **Sensitive-mode contamination model gate**: `FullSummarizer` now takes
-  a `sensitive_mode` flag and short-circuits before the `ml_available`
-  guard. Under sensitive mode `estimated_contamination = NaN`,
-  `contamination_type = uncertain_sensitive_mode`, and no
-  `*.contamination_candidates.tsv` sidecar is emitted. The rule-based
-  score is preserved as a diagnostic.
+- **Contamination model retrained under sensitive-mode features**:
+  rebuilt `src/bundled_models/contamination_model.joblib` from scratch
+  on the real-contig benchmark with `sensitive_mode=true` through the
+  HMM step (`training_profile: sensitive_mode_features` in the model
+  card YAML). Held-out MAE is 3.9% across the benchmark test set, with
+  a mean prediction of 0.14% on clean bins. The selected estimator is
+  `ExtraTreesRegressor` (`model_name: extra_trees`). The bundled
+  model is now safe to apply under both sensitive and non-sensitive
+  runs, and `FullSummarizer` no longer needs the transitional
+  NaN / `uncertain_sensitive_mode` gate in the sensitive regime.
 - **Resume reliability**: per-query tarballs are written atomically
   (`.tar.gz.part` + `is_tarfile` verification + `os.replace` + parent
   `fsync`). A new JSON `*.SUCCESS` sentinel (with summary/tar SHA-256,
@@ -108,14 +112,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 - Dead Prefect deployment helpers (`create_local_deployment`,
-  `create_slurm_deployment`) from `src/pipeline/prefect_flow.py`.
+  `create_slurm_deployment`) from the orchestration module.
+- Redundant per-query BLAST pass. The engine no longer emits
+  `*.blastpout` files; the canonical `<marker>.m8` BLAST output from
+  `MarkerProcessor` is the single source of truth for both
+  contamination scoring and tree building. Halves per-query BLAST cost.
+
+### Renamed
+- `src/pipeline/prefect_flow.py` → `src/pipeline/parallel_runner.py`.
+- `src/bin/gvclass_prefect.py` → `src/bin/gvclass_runner.py`. The
+  module never used Prefect at runtime, so the rename removes the
+  misleading dependency implication. The CLI subprocess spawn path,
+  all internal imports, and logger names were updated accordingly.
 
 ### Deferred to v1.5.0
-- Renaming `prefect_flow.py` → `parallel_runner.py` (CLI currently shells
-  the module path).
-- Unifying `.blastpout` / `.m8` naming so BLAST only runs once per query
-  (`_run_blast_search` carries a TODO + regression test for now).
-- Retraining the contamination model on sensitive-mode features.
 - Tree-NN quality filter (min tips, bootstrap / patristic gate).
 - MRYA generic `ATPase` HMM retightening.
 
