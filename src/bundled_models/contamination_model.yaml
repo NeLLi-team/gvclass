@@ -9,44 +9,55 @@ framework: scikit-learn
 # `create_contamination_scorer` surfaces as the
 # `estimated_contamination_strategy` column (e.g. `extra_trees_v1`).
 model_name: extra_trees
-training_profile: sensitive_mode_features
+training_profile: sensitive_mode_features_per_contig_purity_v1
 # Decision threshold stored inside the joblib bundle and read by
 # ``ContaminationScorer._load_ml_model`` at runtime. This value is the one
 # F1-optimized on the real-contig benchmark training data.
-# FullSummarizer._contamination_reporting_threshold lifts it to
-# ``max(10.0, threshold)`` before using it as the summary display gate,
-# so contamination < 10% is still surfaced as ``clean`` in the output
-# TSV regardless of this raw threshold.
-threshold: 1.5
+# FullSummarizer._contamination_reporting_threshold still enforces
+# ``max(10.0, threshold)`` so the user-facing clean-vs-flagged cutoff
+# is unchanged regardless of this raw threshold.
+threshold: 2.0
 
 # --- Training provenance ---------------------------------------------------
-# Retrained for v1.4.3 from scratch under sensitive_mode=true (E=1e-5, no
-# GA cutoffs) on the real-contig benchmark. The training features come
-# from the v1.4.3 pipeline, which includes the multi-HMM dedup fix so
-# feature distributions reflect the corrected counts.
+# Retrained for v1.4.3 Phase 2 on the real-contig benchmark under
+# sensitive_mode=true (E=1e-5, no GA cutoffs). Training features include the
+# five new per-contig taxonomic-purity features introduced in Phase 2
+# (see docs/plans/active/v1_4_3_contig_purity_contamination.md).
 training_dataset: benchmarking/contamination/real_contig_benchmark_current
 training_script: src/bin/benchmark_real_contig_contamination.py
 trained_by: NeLLi Team
-trained_at: "2026-04-16"
+trained_at: "2026-04-17"
 # Selection: extra_trees chose over random_forest and hist_gbm during
 # hyperparameter / candidate cross-validation inside
 # `train_and_benchmark`. Model hyperparameters:
 #   n_estimators=500, min_samples_leaf=2, random_state=42
 # Held-out test metrics (true vs tuned):
-#   mae_all = 3.92
-#   clean_mean = 0.14  (mean predicted contamination on clean bins)
+#   mae_all = 3.88
+#   clean_mean = 0.12  (mean predicted contamination on clean bins)
+
+# --- Hyperparameters (classifier thresholds, module-level constants) -------
+# These are fixed-not-grid-searched per the v1.4.3 Phase 2 plan; they come
+# from the classifier's biology (HGT-divergent viral genes sit at <55%
+# identity; a reliable per-contig call needs 3+ cellular proteins).
+hyperparameters:
+  MIN_CELLULAR_MARKERS: 3
+  PURITY_THRESHOLD: 0.6
+  MIN_CELLULAR_IDENTITY: 70.0
+  MIN_MARKER_PROTEINS_FOR_FRACTION: 5
+  WEAK_ATTRIBUTION_UNIQUE_CONTIG_FRACTION: 0.8
 
 # --- Integrity gate --------------------------------------------------------
 # Expected digest of the bundled .joblib file. Rotate this value via
 # `scripts/rotate_contamination_model.py` whenever the model is retrained;
 # the code-level constant in `src/core/contamination_scoring.py` must match
 # or the pipeline refuses to load the pickle.
-sha256: 3ef1dc146ad723842a5aec8bf88020a21ed46699183264e3bb1d5ab33cc1d590
-bytes: 1481389
+sha256: e39108dc2eeff24d37236150a70102cc7301cf622dfabb03fee676307dd9dd2e
+bytes: 1478400
 
 # --- Features --------------------------------------------------------------
 # Exact column order expected by .predict(); must match
 # CONTAMINATION_MODEL_FEATURES in src/core/contamination_scoring.py.
+# Phase 2 adds the last five per-contig purity features.
 features:
   - contamination_score_v1
   - contamination_cellular_signal_v1
@@ -64,11 +75,20 @@ features:
   - suspicious_bp_fraction_v2
   - suspicious_contig_count_v2
   - estimated_completeness
+  - cellular_coherent_contig_count
+  - cellular_coherent_protein_fraction
+  - cellular_lineage_purity_median
+  - cellular_hit_identity_median
+  - viral_bearing_contig_count
 
 # --- Notes -----------------------------------------------------------------
 notes: >-
   Trained on features generated with sensitive_mode=true (E=1e-5,
-  GA/TC/NC cutoffs disabled). Safe to apply under both sensitive and
-  non-sensitive runs: the feature distributions overlap because the
-  rule-based contamination signals and per-marker counts do not depend
-  on the cutoff regime in the ways the model reads them.
+  GA/TC/NC cutoffs disabled) and the v1.4.3 Phase 2 per-contig
+  taxonomic-purity classifier active. Safe to apply under both
+  sensitive and non-sensitive runs. The classifier distinguishes
+  genuine host-contig contamination (coherent cellular lineage on a
+  contig with no viral markers and high-identity cellular BLAST hits)
+  from HGT-acquired eukaryote-like genes in novel giant viruses,
+  which previously confounded the bin-level mixed_viral signal. See
+  docs/quality_metrics.md for the full methodology.

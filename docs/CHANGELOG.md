@@ -5,12 +5,21 @@ All notable changes to GVClass will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [v1.4.3] - 2026-04-16
+## [v1.4.3] - 2026-04-17
 
 ### Highlights
 - Closed three load-bearing correctness bugs surfaced by the v1.4.2 code
   review (multi-HMM dedup bypass, contamination model calibration under
   sensitive mode, resume accepting corrupt runs).
+- **Per-contig taxonomic-purity classifier** added to the contamination
+  pipeline so novel giant-virus bins are no longer falsely flagged as
+  contaminated when their markers tree-resolve to scattered eukaryotic
+  HGT-recipients. A contig is only called `cellular_coherent` when it
+  carries ≥3 cellular-leaning proteins, zero viral markers, ≥60%
+  order-level agreement, AND median cellular-hit BLAST identity ≥70%.
+  Bins with the novel-virus signature (no cellular_coherent contigs +
+  ≥3 viral_bearing contigs + viral_mixture rule-based source)
+  downgrade from `mixed_viral` to `uncertain` so curators can triage.
 - Added a SHA-256 gate on the bundled contamination model plus a model card
   so any swap of the joblib fails fast and goes through code review.
 - Added an opt-in `--allow-short` flag and hardened input validation to
@@ -27,16 +36,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `(protein, model)` pair, matching the single-HMM path. Domtbl rows with
   fewer than the emitted 22 fields are now rejected to prevent malformed
   input from slipping through the dedup pipeline.
-- **Contamination model retrained under sensitive-mode features**:
-  rebuilt `src/bundled_models/contamination_model.joblib` from scratch
-  on the real-contig benchmark with `sensitive_mode=true` through the
-  HMM step (`training_profile: sensitive_mode_features` in the model
-  card YAML). Held-out MAE is 3.9% across the benchmark test set, with
-  a mean prediction of 0.14% on clean bins. The selected estimator is
-  `ExtraTreesRegressor` (`model_name: extra_trees`). The bundled
-  model is now safe to apply under both sensitive and non-sensitive
-  runs, and `FullSummarizer` no longer needs the transitional
-  NaN / `uncertain_sensitive_mode` gate in the sensitive regime.
+- **Contamination model retrained twice under sensitive-mode features**:
+  rebuilt `src/bundled_models/contamination_model.joblib` first to take
+  sensitive-mode features as training input, then again to add the five
+  per-contig purity features introduced by the Phase 2 classifier
+  (`training_profile: sensitive_mode_features_per_contig_purity_v1` in
+  the model card YAML). Held-out MAE is 3.88% across the benchmark test
+  set, with a mean prediction of 0.12% on clean bins. The selected
+  estimator is `ExtraTreesRegressor` (`model_name: extra_trees`). The
+  bundled model is now safe to apply under both sensitive and
+  non-sensitive runs, and `FullSummarizer` no longer needs the
+  transitional NaN / `uncertain_sensitive_mode` gate.
 - **Resume reliability**: per-query tarballs are written atomically
   (`.tar.gz.part` + `is_tarfile` verification + `os.replace` + parent
   `fsync`). A new JSON `*.SUCCESS` sentinel (with summary/tar SHA-256,
@@ -99,6 +109,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - New output columns: `taxonomy_confidence`,
   `estimated_completeness_quality`, `estimated_completeness_advisory`,
   `estimated_completeness_r2_holdout`.
+- New per-contig taxonomic-purity output columns:
+  `cellular_coherent_contig_count`,
+  `cellular_coherent_protein_fraction`,
+  `cellular_coherent_bp_fraction`,
+  `cellular_lineage_purity_median`,
+  `cellular_hit_identity_median`,
+  `viral_bearing_contig_count`,
+  `contig_attribution_mode`.
 
 ### Changed
 - `.gitignore` no longer masks `pixi.lock` or `docs/` (plans directory

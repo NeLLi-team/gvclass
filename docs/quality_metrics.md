@@ -438,6 +438,80 @@ Model family selection:
 The trained production bundle is exported from the winning family on
 the full feature table. v1.4.3 selected `extra_trees`.
 
+### Per-contig taxonomic-purity classifier (v1.4.3 Phase 2)
+
+Added in v1.4.3 to distinguish two bin shapes that the rule-based
+`viral_mixture_signal` collapsed into one label:
+
+1. **Novel-virus sparse-reference case** — a new giant-virus lineage
+   whose markers tree-resolve to scattered eukaryotic HGT-recipients
+   because no close NCLDV reference is available. EUK-leaning
+   placements sit on the same contigs as NCLDV markers.
+2. **Real host-contig contamination** — a eukaryotic contig
+   co-assembled with the viral bin. That contig carries ribosomal /
+   translation markers whose tree placements all agree on ONE
+   cellular lineage, and those contigs have NO giant-virus markers.
+
+The classifier runs per-contig, aggregating each protein's dominant
+tree-NN lineage (drawn from `stats/<query>.tree_nn`) across every
+marker that protein hit. A contig is classified as:
+
+- **`viral_bearing`** if ≥ 1 protein's dominant NN lineage is in
+  `{NCLDV, MIRUS, MRYA, VP, PLV}` — these contigs are genuinely
+  viral and the classifier refuses to call them cellular even if
+  they carry scattered EUK markers alongside.
+- **`cellular_coherent`** if the contig has 0 viral proteins AND
+  ≥ `MIN_CELLULAR_MARKERS = 3` cellular proteins AND
+  ≥ `PURITY_THRESHOLD = 60 %` of those cellular proteins agree on
+  the same top-vote `(domain, order)` AND the median BLAST identity
+  of the cellular hits on that contig is ≥ `MIN_CELLULAR_IDENTITY
+  = 70 %`. The identity floor is the key guard against novel-virus
+  HGT contigs whose cellular-resolving genes sit at 25-55 % identity
+  to their donors; only genuine host contigs land at ≥ 70 % across
+  multiple ribosomal / translation markers.
+- **`ambiguous`** otherwise (fragmentary contigs, scattered
+  lineages, low identity, mixed HGT signals).
+
+Six new summary columns expose the classifier state:
+
+- `cellular_coherent_contig_count` — count of contigs that passed all
+  four gates. Primary host-contig-contamination indicator.
+- `cellular_coherent_protein_fraction` — fraction of
+  marker-bearing proteins on `cellular_coherent` contigs. Primary ML
+  feature for the size of the cellular burden; invariant across
+  `.fna` and `.faa` inputs.
+- `cellular_coherent_bp_fraction` — fraction of total assembly bp on
+  `cellular_coherent` contigs. Diagnostic only; omitted from the ML
+  feature set because the `len(seq) * 3` proxy used in `.faa` runs
+  would mis-scale it.
+- `cellular_lineage_purity_median` — median purity across the
+  `cellular_coherent` contigs (how sharp the cellular call is
+  when it fires).
+- `cellular_hit_identity_median` — median BLAST identity of the
+  cellular-hit proteins on those contigs (genuine host contigs
+  carry high-identity hits).
+- `viral_bearing_contig_count` — dilution signal; a bin with many
+  viral-bearing contigs and zero cellular-coherent contigs is a
+  novel-virus candidate rather than a contaminated bin.
+
+#### Fallback contract
+
+The classifier has two degenerate regimes in which it emits all six
+features at their neutral values (`0`) and the legacy
+`cellular_marker_count >= 2` rule becomes the sole cellular trigger:
+
+- **Low-data regime** — fewer than
+  `MIN_MARKER_PROTEINS_FOR_FRACTION = 5` marker-bearing proteins in
+  the bin. Per-contig aggregation is not informative below this floor.
+- **Weak-attribution regime** — `.faa`-only input whose protein IDs
+  do not encode the source contig, measured as
+  `n_distinct_contigs / n_proteins >= 0.8`. In this regime every
+  protein maps to its own pseudo-contig and the per-contig classifier
+  is structurally meaningless. A new `contig_attribution_mode` column
+  reports which regime fired (`fna_gene_calling`,
+  `faa_contig_encoded`, or `faa_weak_per_protein`) and an INFO log
+  is emitted when the fallback activates.
+
 ### Interpreting `contamination_type`
 
 The per-query `contamination_type` in the summary is a categorical
@@ -498,8 +572,11 @@ Current example values from the sensitive-mode novelty-aware run
   - `contamination_type = clean`
 - `GVMAG-S-1096109-37`
   - `estimated_completeness = 82.86` (quality = advisory_only)
-  - `estimated_contamination = 27.13`
-  - `contamination_type = mixed_viral`
+  - `estimated_contamination = 26.93`
+  - `contamination_type = uncertain` (downgraded from `mixed_viral` by
+    the Phase 2 novel-virus-candidate rule — see below)
+  - `cellular_coherent_contig_count = 0` (no host-contig evidence)
+  - `viral_bearing_contig_count = 3` (three contigs carry NCLDV markers)
   - rule-based signal breakdown (from the `.summary.tab`):
     - `cellular_signal = 3.00` (low — `cellular_unique = 1`,
       `cellular_total = 3`; no CONTIG carries ≥2 translation markers)
@@ -517,12 +594,25 @@ Current example values from the sensitive-mode novelty-aware run
     `order_secondary_fraction` term is agnostic to whether the
     secondary order is viral or cellular; it is therefore better read
     as "low purity of the per-marker tax call" than as
-    "multiple giant-virus orders present". A curator looking at this
-    row should check whether the EUK-leaning tree placements reflect
-    real cellular contigs (unlikely here — the contig-level rules
-    would have flagged them) or a sparse giant-virus reference for
-    this lineage pushing novel NCLDV markers to resolve against their
-    nearest EUK HGT-receiver.
+    "multiple giant-virus orders present".
+  - **Phase 2 per-contig classifier resolves the ambiguity**: the
+    per-contig taxonomic-purity classifier (see the dedicated section
+    below) examines each contig in this bin and finds **zero**
+    `cellular_coherent` contigs — no contig has the combination of
+    coherent cellular lineage, no viral markers, and high-identity
+    cellular BLAST hits that would indicate real host contamination.
+    The three `viral_bearing` contigs (≥1 NCLDV marker each) dominate
+    the bin. With `cellular_coherent_contig_count = 0`,
+    `viral_bearing_contig_count = 3`, and
+    `contamination_source_v1 = viral_mixture`,
+    `_classify_contamination_type` recognises this as the
+    novel-virus fingerprint and downgrades the label from
+    `mixed_viral` to `uncertain`, so curators see the evidence
+    for-and-against contamination rather than a firm mixed-viral
+    call. The absolute ML score (26.93 %) is still surfaced because
+    the trained model has not yet seen novel-virus examples with
+    truth label 0 in its benchmark, so it over-estimates here — a
+    future release will expand the benchmark to close that gap.
 - `PkV-RF01`
   - `estimated_completeness = 95.43` (quality = advisory_only)
   - `estimated_contamination = 0.09`

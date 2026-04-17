@@ -169,6 +169,14 @@ FINAL_SUMMARY_COLUMNS: List[str] = [
     "estimated_completeness_r2_holdout",
     "estimated_contamination",
     "contamination_type",
+    # Per-contig taxonomic-purity features (v1.4.3 Phase 2).
+    "cellular_coherent_contig_count",
+    "cellular_coherent_protein_fraction",
+    "cellular_coherent_bp_fraction",
+    "cellular_lineage_purity_median",
+    "cellular_hit_identity_median",
+    "viral_bearing_contig_count",
+    "contig_attribution_mode",
     "gvog4_unique",
     "gvog8_unique",
     "gvog8_total",
@@ -206,6 +214,11 @@ TWO_DECIMAL_COLUMNS = {
     "estimated_contamination",
     "GCperc",
     "CODINGperc",
+    # Per-contig taxonomic-purity features (v1.4.3 Phase 2).
+    "cellular_coherent_protein_fraction",
+    "cellular_coherent_bp_fraction",
+    "cellular_lineage_purity_median",
+    "cellular_hit_identity_median",
 }
 
 LEGACY_TWO_DECIMAL_COLUMNS = {
