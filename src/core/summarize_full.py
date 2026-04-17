@@ -963,6 +963,7 @@ class FullSummarizer:
         query_output_dir: Path,
         marker_counts: Dict[str, int],
         tax_counters: Dict[str, Counter],
+        tree_nn_results: Optional[Dict[str, Dict[str, Dict[str, float]]]] = None,
     ) -> None:
         """Populate contamination metrics (rule-based, then ML override if available)."""
         try:
@@ -1003,10 +1004,33 @@ class FullSummarizer:
                 query_output_dir / "blastp_out",
                 primary_order,
                 primary_family,
+                tree_nn_results=tree_nn_results or {},
             )
             contig_features = {
                 "suspicious_bp_fraction_v2": contig_features_raw["suspicious_bp_fraction"],
                 "suspicious_contig_count_v2": contig_features_raw["suspicious_contig_count"],
+                # v1.4.3 Phase 2 per-contig purity features.
+                "cellular_coherent_contig_count": contig_features_raw.get(
+                    "cellular_coherent_contig_count", 0
+                ),
+                "cellular_coherent_protein_fraction": contig_features_raw.get(
+                    "cellular_coherent_protein_fraction", 0.0
+                ),
+                "cellular_coherent_bp_fraction": contig_features_raw.get(
+                    "cellular_coherent_bp_fraction", 0.0
+                ),
+                "cellular_lineage_purity_median": contig_features_raw.get(
+                    "cellular_lineage_purity_median", 0.0
+                ),
+                "cellular_hit_identity_median": contig_features_raw.get(
+                    "cellular_hit_identity_median", 0.0
+                ),
+                "viral_bearing_contig_count": contig_features_raw.get(
+                    "viral_bearing_contig_count", 0
+                ),
+                "contig_attribution_mode": contig_features_raw.get(
+                    "contig_attribution_mode", "fna_gene_calling"
+                ),
             }
             result.update(contig_features)
 
@@ -1071,7 +1095,31 @@ class FullSummarizer:
         if estimated < self._contamination_reporting_threshold():
             return "clean"
 
+        # v1.4.3 Phase 2: when the per-contig classifier is active and has
+        # identified at least one cellular_coherent contig, the cellular
+        # path takes precedence over the rule-based source. This is the
+        # sharper per-contig signal promised in the plan — it fires on
+        # genuine host-contig contamination (consistent cellular lineage
+        # with no viral markers on the same contig) rather than on
+        # scattered HGT-leaning tree placements.
+        cellular_coherent = int(result.get("cellular_coherent_contig_count", 0) or 0)
+        if cellular_coherent >= 1:
+            return "cellular"
+
         source = str(result.get("contamination_source_v1", "none") or "none")
+
+        # v1.4.3 Phase 2: downgrade `mixed_viral` to `uncertain` when the
+        # per-contig classifier found zero cellular_coherent contigs AND
+        # the bin carries a real viral signature (≥ 3 viral_bearing
+        # contigs). That pattern is the fingerprint of a novel giant
+        # virus whose markers scatter against non-coherent EUK neighbors
+        # due to sparse references, rather than a bin that actually
+        # carries multiple giant-virus orders. The absolute ML score is
+        # still surfaced so users can curate.
+        viral_bearing = int(result.get("viral_bearing_contig_count", 0) or 0)
+        if source == "viral_mixture" and cellular_coherent == 0 and viral_bearing >= 3:
+            return "uncertain"
+
         mapping = {
             "cellular": "cellular",
             "phage": "phage",
@@ -1133,5 +1181,12 @@ class FullSummarizer:
             self._set_default_marker_metrics(result)
 
         self._add_order_metrics(result, counts_file, tax_counters)
-        self._add_contamination_metrics(result, query_id, query_output_dir, marker_counts, tax_counters)
+        self._add_contamination_metrics(
+            result,
+            query_id,
+            query_output_dir,
+            marker_counts,
+            tax_counters,
+            tree_nn_results=tree_nn_results,
+        )
         return result
