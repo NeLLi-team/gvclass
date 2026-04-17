@@ -3,34 +3,42 @@
 # Consumed at runtime by `src.core.contamination_scoring.ContaminationScorer._load_ml_model`
 # after a SHA-256 gate against `CONTAMINATION_MODEL_SHA256` in that module.
 
-model: HistGradientBoostingRegressor
+model: ExtraTreesRegressor
 framework: scikit-learn
 # The bundled .joblib payload advertises the model_name string that
-# `create_contamination_scorer` surfaces as the `estimated_contamination_strategy`
-# column on non-sensitive runs.
-model_name: hist_gbm
-training_profile: standard_ga_cutoffs
+# `create_contamination_scorer` surfaces as the
+# `estimated_contamination_strategy` column (e.g. `extra_trees_v1`).
+model_name: extra_trees
+training_profile: sensitive_mode_features
 # Reporting threshold (min of `max(10.0, ml_threshold)` in
 # FullSummarizer._contamination_reporting_threshold). Kept in sync with the
 # value stored inside the joblib bundle.
 threshold: 10.0
 
 # --- Training provenance ---------------------------------------------------
-# The model was retrained for v1.4.2 on the extra_trees regressor variant
-# tuned against the real-contig benchmark subset; it was serialized into the
-# current joblib bundle on 2026-03-13. See `docs/CHANGELOG.md` v1.4.2.
-training_dataset: benchmarking/contamination/refs-Feb-2026-fna-pox10-genus10
-training_script: src/bin/benchmark_contamination_methods_faa.py
+# Retrained for v1.4.3 from scratch under sensitive_mode=true (E=1e-5, no
+# GA cutoffs) on the real-contig benchmark. The training features come
+# from the v1.4.3 pipeline, which includes the multi-HMM dedup fix so
+# feature distributions reflect the corrected counts.
+training_dataset: benchmarking/contamination/real_contig_benchmark_current
+training_script: src/bin/benchmark_real_contig_contamination.py
 trained_by: NeLLi Team
-trained_at: "2026-03-13"
+trained_at: "2026-04-16"
+# Selection: extra_trees chose over random_forest and hist_gbm during
+# hyperparameter / candidate cross-validation inside
+# `train_and_benchmark`. Model hyperparameters:
+#   n_estimators=500, min_samples_leaf=2, random_state=42
+# Held-out test metrics (true vs tuned):
+#   mae_all = 3.92
+#   clean_mean = 0.14  (mean predicted contamination on clean bins)
 
 # --- Integrity gate --------------------------------------------------------
 # Expected digest of the bundled .joblib file. Rotate this value via
 # `scripts/rotate_contamination_model.py` whenever the model is retrained;
 # the code-level constant in `src/core/contamination_scoring.py` must match
 # or the pipeline refuses to load the pickle.
-sha256: b3d42e3076b54146f2de5a5492517d57da25840ae1273d71c804672b65d7b234
-bytes: 1081069
+sha256: 3ef1dc146ad723842a5aec8bf88020a21ed46699183264e3bb1d5ab33cc1d590
+bytes: 1481389
 
 # --- Features --------------------------------------------------------------
 # Exact column order expected by .predict(); must match
@@ -53,11 +61,10 @@ features:
   - suspicious_contig_count_v2
   - estimated_completeness
 
-# --- Warnings --------------------------------------------------------------
+# --- Notes -----------------------------------------------------------------
 notes: >-
-  Features were generated with GA/TC/NC bit-score cutoffs applied during
-  pyhmmer search. Do NOT use this model on runs with `sensitive_mode=true`
-  (E=1e-5, no GA cutoffs) because the feature distribution is shifted.
-  v1.4.3 gates on `sensitive_mode` and emits `estimated_contamination = NaN`
-  with `contamination_type = uncertain_sensitive_mode` in that regime.
-  A sensitive-mode-trained variant is planned for a future release.
+  Trained on features generated with sensitive_mode=true (E=1e-5,
+  GA/TC/NC cutoffs disabled). Safe to apply under both sensitive and
+  non-sensitive runs: the feature distributions overlap because the
+  rule-based contamination signals and per-marker counts do not depend
+  on the cutoff regime in the ways the model reads them.

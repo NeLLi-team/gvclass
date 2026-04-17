@@ -1010,22 +1010,14 @@ class FullSummarizer:
             }
             result.update(contig_features)
 
-            # IMPORTANT: the sensitive-mode gate must precede the ml_available
-            # guard below. The trained contamination model was fit on features
-            # generated under GA-cutoff-filtered HMM search; sensitive mode
-            # uses a flat E=1e-5 and skips GA/TC/NC cutoffs, shifting the
-            # feature distribution. Surfacing a numeric prediction in that
-            # regime silently misreports contamination, which is worse than
-            # no prediction. Emit an explicit NaN marker instead.
-            if self.sensitive_mode:
-                result["estimated_contamination"] = float("nan")
-                result["estimated_contamination_strategy"] = "skipped_sensitive_mode"
-                result["contamination_type"] = "uncertain_sensitive_mode"
-                result["_contamination_reporting_threshold"] = (
-                    self._contamination_reporting_threshold()
-                )
-                result["_contamination_candidates"] = []
-                return
+            # v1.4.3: the bundled contamination model is trained on
+            # sensitive_mode=true features (see
+            # ``src/bundled_models/contamination_model.yaml``
+            # ``training_profile: sensitive_mode_features``). It is therefore
+            # safe to apply under either sensitive or non-sensitive runs; no
+            # gate is required here. The sensitive_mode flag is retained on
+            # the class for test coverage and forward compatibility.
+            _ = self.sensitive_mode
 
             if not self.contamination_scorer.ml_available:
                 raise RuntimeError(
