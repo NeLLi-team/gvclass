@@ -135,8 +135,8 @@ For developer-facing formulas, training provenance, and the exact role of each c
 | avgdist | Average tree distance to references |
 | order_dup | Average copy number of expected order-level markers; elevated values suggest duplicated, chimeric, or mixed bins |
 | estimated_completeness | Estimated percentage of the expected genome recovered for the assigned lineage. Determined by the novelty-aware completeness model by default |
-| estimated_contamination | Estimated percentage of the assembly likely to represent contaminant or mixed-origin sequence. Determined by the trained `hist_gbm_v1` contamination model when `sensitive_mode=false`. Reported as `NaN` when `sensitive_mode=true` (the current default) because the trained model was fit on GA-cutoff-filtered HMM features and is not calibrated against sensitive-mode feature distributions. See "Sensitive mode and the contamination model" below. |
-| contamination_type | High-level contamination interpretation (`clean`, `cellular`, `mixed_viral`, `phage`, `duplication`, `uncertain`, or `uncertain_sensitive_mode`) when `estimated_contamination >= 10` or the model was skipped |
+| estimated_contamination | Estimated percentage of the assembly likely to represent contaminant or mixed-origin sequence. Determined by the trained `extra_trees_v1` contamination model (retrained in v1.4.3 under `sensitive_mode=true` features). See [docs/quality_metrics.md](docs/quality_metrics.md#production-contamination-estimate) for methodology. |
+| contamination_type | High-level contamination interpretation (`clean`, `cellular`, `mixed_viral`, `phage`, `duplication`, or `uncertain`) when `estimated_contamination >= 10`. `mixed_viral` does NOT mean "virus with HGT-derived eukaryotic genes" — see the note in [docs/quality_metrics.md](docs/quality_metrics.md#interpreting-contamination_type). |
 | gvog4_unique | Count of unique GVOG4 markers found |
 | gvog8_unique/total/dup | GVOG8 marker counts and duplication |
 | ncldv_mcp_total | NCLDV-specific MCP marker count |
@@ -181,30 +181,29 @@ Sensitive HMM filtering is enabled by default as of `v1.4.1`. Set
 `sensitive_mode: false` in your config if you need the legacy GA-based
 filtering behavior for a specific run.
 
-### Sensitive mode and the contamination model
+### Contamination model
 
-As of `v1.4.3`, the trained contamination model (`src/bundled_models/contamination_model.joblib`)
-is **skipped automatically when `sensitive_mode=true`** (the shipped default).
-The model was trained on features derived from GA-cutoff-filtered HMM output;
-sensitive mode replaces GA/TC/NC bit-score cutoffs with a flat `E=1e-5`, which
-materially shifts the feature distribution (inflated `cellular_total`,
-`mrya_total`, and duplication-based signals). Feeding sensitive-mode features
-into a GA-trained model returns numbers that look precise but are
-miscalibrated, which is worse than no prediction.
+As of `v1.4.3`, the bundled contamination model
+(`src/bundled_models/contamination_model.joblib`, `ExtraTreesRegressor`) is
+retrained on features generated with `sensitive_mode=true` (the shipped
+default since `v1.4.1`). Training and inference now see the same feature
+distribution, so the contamination estimate is applied under either
+sensitive or non-sensitive runs without a protective short-circuit.
 
-Therefore, under default `sensitive_mode=true`:
+Held-out performance on the real-contig benchmark: MAE 3.92% across the
+test set; mean predicted contamination on clean bins 0.14%.
 
-- `estimated_contamination` is reported as `NaN` (preserved literally in the
-  TSV and CSV summaries).
-- `contamination_type` is set to `uncertain_sensitive_mode`.
-- `*.contamination_candidates.tsv` per-query files are not emitted.
-- The rule-based `contamination_score_v1` column still reflects the
-  sensitive-mode features and is retained as a diagnostic.
-
-To obtain a numeric contamination estimate, override sensitive mode in the
-config (`pipeline.sensitive_mode: false`) or pass no flag when running with
-the default config. A sensitive-mode-trained variant of the contamination
-model is planned for a future release.
+A note on "contamination" in the giant virus context: giant viruses
+naturally carry hundreds of eukaryote-like genes acquired through
+horizontal gene transfer, and those genes are **not** counted as
+contamination by the pipeline. The cellular-marker signal is limited
+to conserved translation-machinery HMMs (BUSCO eukaryotic set + UNI56
+prokaryotic set) that giant viruses obligately lack. The `mixed_viral`
+category reflects multi-viral-order mixing on the same bin (e.g. both
+Pimascovirales and Imitervirales proteins present), not host HGT
+content. See
+[docs/quality_metrics.md](docs/quality_metrics.md#interpreting-contamination_type)
+for the full rule set.
 
 Database path precedence:
 - `--database` CLI flag
