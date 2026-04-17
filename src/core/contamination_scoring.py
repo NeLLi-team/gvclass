@@ -70,7 +70,7 @@ WEAK_ATTRIBUTION_UNIQUE_CONTIG_FRACTION = 0.8
 #: Rotate with ``scripts/rotate_contamination_model.py`` whenever the model is
 #: retrained.
 CONTAMINATION_MODEL_SHA256 = (
-    "e39108dc2eeff24d37236150a70102cc7301cf622dfabb03fee676307dd9dd2e"
+    "c349f2081f0682c64a0b0626571a025e716905e460274747874429b0d4a46329"
 )
 CONTAMINATION_MODEL_FEATURES = [
     "contamination_score_v1",
@@ -760,17 +760,6 @@ class ContaminationScorer:
                     contig_lengths[contig_id] = 0
                 contig_lengths[contig_id] += len(record.seq) * 3
 
-        attribution_mode = self._detect_contig_attribution_mode(
-            query_file_kind, protein_to_contig
-        )
-        if attribution_mode == "faa_weak_per_protein":
-            logger.info(
-                "Weak contig attribution (faa_weak_per_protein): every "
-                "protein mapped to its own pseudo-contig. Per-contig "
-                "purity classifier is suppressed; legacy "
-                "cellular_marker_count rule governs the cellular trigger."
-            )
-
         contig_markers: Dict[str, set[str]] = defaultdict(set)
         contig_cellular_markers: Dict[str, set[str]] = defaultdict(set)
         contig_phage_markers: Dict[str, set[str]] = defaultdict(set)
@@ -820,9 +809,57 @@ class ContaminationScorer:
             if contig_id:
                 contig_query_hits[contig_id].append(hit)
 
+        # Resolve the attribution mode once, from the subset of proteins
+        # that actually got marker hits (the same subset that drives the
+        # per-contig classifier). This ensures the reported
+        # contig_attribution_mode / INFO log never disagrees with the
+        # branch that actually fires (Codex audit).
+        marker_bearing_proteins = {
+            protein_id: protein_to_contig[protein_id]
+            for protein_id in best_hits
+            if protein_id in protein_to_contig
+        }
+        attribution_mode = self._detect_contig_attribution_mode(
+            query_file_kind, marker_bearing_proteins
+        )
+        if attribution_mode == "faa_weak_per_protein":
+            logger.info(
+                "Weak contig attribution (faa_weak_per_protein): every "
+                "marker-bearing protein mapped to its own pseudo-contig. "
+                "Per-contig purity classifier is suppressed; legacy "
+                "cellular_marker_count rule governs the cellular trigger."
+            )
+
+        # Per-contig purity features (v1.4.3 Phase 2). The classifier
+        # consumes the same marker_bearing_proteins set and attribution
+        # mode that we just computed, so the feature values and the
+        # user-facing mode always agree.
+        purity_features = self.compute_contig_purity_features(
+            protein_to_contig=marker_bearing_proteins,
+            contig_lengths=contig_lengths,
+            tree_nn_results=tree_nn_results or {},
+            best_hits=best_hits,
+            attribution_mode=attribution_mode,
+        )
+        coherent_contig_ids: set[str] = set()
+        if purity_features.get("per_contig_classifier_active"):
+            # Re-run the classifier per contig so we can fill the
+            # suspicious_contigs list with cellular_coherent_lineage
+            # entries (replacing the legacy cellular_markers /
+            # cellular_hits triggers per the plan).
+            contig_to_proteins: Dict[str, List[str]] = defaultdict(list)
+            for protein_id, contig_id in marker_bearing_proteins.items():
+                contig_to_proteins[contig_id].append(protein_id)
+            for contig_id, proteins in contig_to_proteins.items():
+                classification = self._classify_contig_purity(
+                    contig_id, proteins, tree_nn_results or {}, best_hits
+                )
+                if classification["classification"] == "cellular_coherent":
+                    coherent_contig_ids.add(contig_id)
+
         total_bp = sum(contig_lengths.values()) or 1
         suspicious_bp = 0
-        suspicious_contigs = []
+        suspicious_contigs: List[Dict[str, Any]] = []
         for contig_id, length in contig_lengths.items():
             hits = contig_query_hits.get(contig_id, [])
             strong = [hit for hit in hits if hit.identity >= 60.0 and hit.score >= 80.0]
@@ -841,21 +878,47 @@ class ContaminationScorer:
 
             suspicious = False
             reason = ""
-            if cellular_marker_count >= 2:
+            # v1.4.3 Phase 2: the new per-contig taxonomic-purity
+            # classifier owns the cellular trigger when it has enough
+            # data. Under the low-data or weak-attribution fallback
+            # regime (classifier inactive), the legacy cellular rules
+            # still govern, per the unified two-regime fallback contract
+            # documented in docs/plans/active/v1_4_3_contig_purity_contamination.md.
+            if contig_id in coherent_contig_ids:
                 suspicious = True
-                reason = "cellular_markers"
-            elif len(cellular_hits) >= 3 and nonviral_fraction >= 0.5 and viral_marker_count <= 1:
-                suspicious = True
-                reason = "cellular_hits"
-            elif phage_marker_count >= 2 and viral_marker_count <= 1:
-                suspicious = True
-                reason = "phage_markers"
-            elif len(phage_hits) >= 3 and nonviral_fraction >= 0.5 and viral_marker_count <= 1:
-                suspicious = True
-                reason = "phage_hits"
-            elif len(foreign_viral) >= 2 and foreign_viral_fraction >= 0.6 and viral_marker_count >= 2:
-                suspicious = True
-                reason = "viral_mixture"
+                reason = "cellular_coherent_lineage"
+            elif not purity_features.get("per_contig_classifier_active"):
+                if cellular_marker_count >= 2:
+                    suspicious = True
+                    reason = "cellular_markers"
+                elif (
+                    len(cellular_hits) >= 3
+                    and nonviral_fraction >= 0.5
+                    and viral_marker_count <= 1
+                ):
+                    suspicious = True
+                    reason = "cellular_hits"
+
+            if not suspicious:
+                # Phage and viral-mixture triggers are independent of the
+                # cellular path and stay on their legacy rules.
+                if phage_marker_count >= 2 and viral_marker_count <= 1:
+                    suspicious = True
+                    reason = "phage_markers"
+                elif (
+                    len(phage_hits) >= 3
+                    and nonviral_fraction >= 0.5
+                    and viral_marker_count <= 1
+                ):
+                    suspicious = True
+                    reason = "phage_hits"
+                elif (
+                    len(foreign_viral) >= 2
+                    and foreign_viral_fraction >= 0.6
+                    and viral_marker_count >= 2
+                ):
+                    suspicious = True
+                    reason = "viral_mixture"
 
             if suspicious:
                 suspicious_bp += length
@@ -873,25 +936,6 @@ class ContaminationScorer:
                 )
 
         suspicious_bp_fraction = (suspicious_bp / total_bp) * 100.0
-
-        # Per-contig purity features (v1.4.3 Phase 2). Only marker-bearing
-        # proteins participate in the classifier so the fractions match the
-        # denominator documented in the plan. Proteins that didn't hit any
-        # marker are irrelevant here.
-        marker_bearing_proteins = {
-            protein_id: protein_to_contig[protein_id]
-            for protein_id in best_hits
-            if protein_id in protein_to_contig
-        }
-        purity_features = self.compute_contig_purity_features(
-            protein_to_contig=marker_bearing_proteins,
-            contig_lengths=contig_lengths,
-            tree_nn_results=tree_nn_results or {},
-            best_hits=best_hits,
-            attribution_mode=self._detect_contig_attribution_mode(
-                query_file_kind, marker_bearing_proteins
-            ),
-        )
 
         return {
             "contig_count": len(contig_lengths),
