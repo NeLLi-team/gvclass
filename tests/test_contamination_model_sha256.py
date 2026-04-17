@@ -99,26 +99,20 @@ def test_load_ml_model_raises_when_bundled_file_missing(tmp_path: Path) -> None:
             scoring.ContaminationScorer(tmp_path)
 
 
-def test_sensitive_mode_scorer_skips_model_load(tmp_path: Path) -> None:
-    """When sensitive_mode=True, the SHA-256 gate and ``joblib.load`` must not
-    execute at all. Even with no bundled file present, construction must
-    succeed with ``ml_available=False``.
-
-    Uses an isolated ``tmp_path`` tree so the test does not rename or
-    otherwise perturb the shared repo artefact.
+def test_sensitive_mode_scorer_still_loads_model(tmp_path: Path) -> None:
+    """As of v1.4.3 the bundled contamination model is trained on
+    sensitive-mode features (see the model card YAML), so
+    ``sensitive_mode=True`` must NOT skip the load. Construction should
+    succeed with ``ml_available=True`` exactly as in the non-sensitive
+    path.
     """
-    import src.core.contamination_scoring as scoring
+    from src.core.contamination_scoring import ContaminationScorer
 
-    fake_module = _redirect_bundled_model_to(tmp_path)
-    with patch.object(scoring, "__file__", str(fake_module)), patch(
-        "joblib.load"
-    ) as joblib_load:
-        scorer = scoring.ContaminationScorer(tmp_path, sensitive_mode=True)
+    scorer = ContaminationScorer(tmp_path, sensitive_mode=True)
 
     assert scorer.sensitive_mode is True
-    assert scorer.ml_available is False
-    assert scorer.ml_model is None
-    joblib_load.assert_not_called()
+    assert scorer.ml_available is True
+    assert scorer.ml_model is not None
 
 
 def test_rotate_contamination_model_script_prints_current_digest() -> None:

@@ -221,14 +221,12 @@ def test_write_contamination_candidates_file_gated_by_contamination_type(
 # ---------------------------------------------------------------------------
 
 
-def test_sensitive_mode_short_circuits_before_ml_available_guard(
+def test_sensitive_mode_invokes_trained_model(
     temp_database_dir: Path, tmp_path: Path
 ) -> None:
-    """sensitive_mode=True must succeed even when the trained contamination
-    model cannot be loaded. The short-circuit precedes the ``ml_available``
-    guard so Phase 1.4's fail-closed loader does not block sensitive runs."""
-    import math
-
+    """As of v1.4.3 the bundled contamination model is trained on
+    sensitive-mode features, so ``sensitive_mode=True`` must invoke the
+    trained ML path exactly like non-sensitive runs. No NaN gate."""
     summarizer = FullSummarizer(temp_database_dir, sensitive_mode=True)
     summarizer.contamination_scorer.score_rule_based = Mock(
         return_value={
@@ -247,29 +245,34 @@ def test_sensitive_mode_short_circuits_before_ml_available_guard(
     summarizer.contamination_scorer.collect_contig_features = Mock(
         return_value={"suspicious_bp_fraction": 0.0, "suspicious_contig_count": 0}
     )
-    # Model deliberately unavailable; sensitive gate must still succeed.
-    summarizer.contamination_scorer.ml_available = False
+    summarizer.contamination_scorer.ml_available = True
     summarizer.contamination_scorer.predict_contamination = Mock(
-        side_effect=AssertionError("predict_contamination must NOT be called under sensitive_mode")
+        return_value={
+            "estimated_contamination": 7.5,
+            "estimated_contamination_strategy": "extra_trees_v1",
+        }
     )
+
+    query_output_dir = tmp_path / "query1"
+    (query_output_dir / "query_fna").mkdir(parents=True)
+    (query_output_dir / "query_faa").mkdir(parents=True)
+    (query_output_dir / "query_fna" / "query1.fna").write_text(">contig1\nATGC\n")
+    (query_output_dir / "query_faa" / "query1.faa").write_text(">query1|c1\nM\n")
 
     result: dict[str, object] = {}
     summarizer._add_contamination_metrics(
         result=result,
         query_id="query1",
-        query_output_dir=tmp_path / "query1",
+        query_output_dir=query_output_dir,
         marker_counts={},
         tax_counters={"order": Counter(), "family": Counter()},
     )
 
-    # Rule-based score remains visible as a diagnostic.
-    assert result["contamination_score_v1"] == 12.5
-    # ML estimate replaced by NaN marker.
-    assert math.isnan(result["estimated_contamination"])
-    assert result["estimated_contamination_strategy"] == "skipped_sensitive_mode"
-    assert result["contamination_type"] == "uncertain_sensitive_mode"
-    assert result["_contamination_candidates"] == []
-    summarizer.contamination_scorer.predict_contamination.assert_not_called()
+    # Trained-model path was exercised; NaN gate is gone.
+    assert result["estimated_contamination"] == 7.5
+    assert result["estimated_contamination_strategy"] == "extra_trees_v1"
+    assert result["contamination_type"] != "uncertain_sensitive_mode"
+    summarizer.contamination_scorer.predict_contamination.assert_called_once()
 
 
 def test_standard_mode_still_raises_when_model_missing(

@@ -598,7 +598,7 @@ def count_resume_skips(output_dir: Path) -> int:
     The v1.4.3 SUCCESS sentinel is the primary marker; pre-1.4.3 runs
     still count via the legacy summary+tar intersection so the CLI's pre-run
     preview matches the actual resume behavior in
-    :func:`src.pipeline.prefect_flow._query_is_resume_complete`.
+    :func:`src.pipeline.parallel_runner._query_is_resume_complete`.
     """
     sentinel_names = {
         path.name.removesuffix(".SUCCESS")
@@ -702,8 +702,8 @@ def _base_prefect_command(
     python_exe: str, pixi_cmd: Optional[str], use_pixi_run: bool
 ) -> list[str]:
     if use_pixi_run and pixi_cmd:
-        return [pixi_cmd, "run", "python", "-m", "src.bin.gvclass_prefect"]
-    return [python_exe, "-m", "src.bin.gvclass_prefect"]
+        return [pixi_cmd, "run", "python", "-m", "src.bin.gvclass_runner"]
+    return [python_exe, "-m", "src.bin.gvclass_runner"]
 
 
 def _append_optional_pipeline_flags(
