@@ -331,20 +331,29 @@ See the companion model card at
 [src/bundled_models/contamination_model.yaml](/home/fschulz/dev/software/gvclass/src/bundled_models/contamination_model.yaml)
 for the full provenance, integrity digest, and threshold.
 
-The shipped bundle currently reports (v1.4.3):
+The shipped bundle currently reports (v1.5.0):
 
 - `model_name = extra_trees`
 - runtime strategy label = `extra_trees_v1`
-- training profile = `sensitive_mode_features` (features generated with
-  `sensitive_mode=true`, E=1e-5, GA/TC/NC cutoffs disabled)
-- held-out MAE on the real-contig benchmark test set = `3.92`
-- mean predicted contamination on clean bins = `0.14%`
+- training profile = `simulated_mag_plus_intact_v1_5_0` (features generated
+  with `sensitive_mode=true`, E=1e-5, GA/TC/NC cutoffs disabled, per-contig
+  purity classifier active)
+- training set: 200 simulated giant-virus MAG bins (isolate genomes
+  fragmented into MAG-like contigs with added bacterial / eukaryotic /
+  NCLDV-host-eukaryotic / mixed-kingdom / viral-mixture contamination) +
+  50 clean intact isolate genomes
+- per-scenario training MAE: `clean_intact = 0.00`,
+  `clean_mag_canonical = 3.80`, `clean_mag_hgt_rich = 3.45`,
+  `cellular_bact = 1.80`, `cellular_euk = 2.08`,
+  `adversarial_euk_host = 3.28`, `mixed_cellular = 2.23`,
+  `viral_mix = 3.32`
+- contaminated-bin Pearson r = `0.97`
 - integrity gate: SHA-256 of the `.joblib` file is verified against
   `CONTAMINATION_MODEL_SHA256` in
   [src/core/contamination_scoring.py](/home/fschulz/dev/software/gvclass/src/core/contamination_scoring.py)
   before `joblib.load` is allowed to run
 
-Model input features:
+Model input features (21 columns, v1.5.0 profile):
 
 - `contamination_score_v1`
 - `contamination_cellular_signal_v1`
@@ -362,6 +371,11 @@ Model input features:
 - `suspicious_bp_fraction_v2`
 - `suspicious_contig_count_v2`
 - `estimated_completeness`
+- `cellular_coherent_contig_count`
+- `cellular_coherent_protein_fraction`
+- `cellular_lineage_purity_median`
+- `cellular_hit_identity_median`
+- `viral_bearing_contig_count`
 
 The model output is clipped to `0..100` and written to:
 
@@ -399,48 +413,65 @@ The shipped resource builder config is:
 
 ### Contamination Model
 
-Offline contamination model training/export is handled by:
+The v1.5.0 training script and simulated-MAG dataset are maintained
+privately in the `benchmarking/` tree and are not shipped with the
+release. What ships: the trained `ExtraTreesRegressor` joblib bundle
+at `src/bundled_models/contamination_model.joblib` plus its model card
+at `src/bundled_models/contamination_model.yaml`.
 
-- [src/bin/benchmark_real_contig_contamination.py](/home/fschulz/dev/software/gvclass/src/bin/benchmark_real_contig_contamination.py)
+High-level training setup:
 
-The benchmark design:
-
-- 30 real giant-virus base genomes with complete taxonomy coverage
-- per-base one-contig mixtures with cellular or foreign-viral contigs
-  drawn from independent donor genomes; donor bp targets span the
-  `clean`, `viral_pair`, `viral_triple`, `cellular_single_*`, and
-  `cellular_multi*` scenarios listed in the run manifest
-- train/test split by `base_accession` (no genome appears in both
-  splits) with a GroupKFold over base genomes for candidate selection
-- HGT-like single-gene cellular contributions are NOT labeled as
+- 50 giant-virus isolate genomes (≤ 5 contigs, ≥ 100 kb, diversified
+  across Nucleocytoviricota families including HGT-rich Mimi / Pitho /
+  Marseille / Medusa / Orpheo) provide the base panel
+- 200 simulated MAG bins generated from that panel across seven
+  scenarios: `clean_mag_canonical`, `clean_mag_hgt_rich`,
+  `viral_mix`, `cellular_bact`, `cellular_euk`,
+  `adversarial_euk_host`, `mixed_cellular`. Base genomes and
+  cellular donors are fragmented into MAG-like contigs with a
+  log-normal size distribution (median ~20 kb, floor 2 kb,
+  guaranteed long fragment ≥ 30 kb) so bin features look like
+  real metagenome-assembled bins rather than intact whole contigs
+- 50 additional clean intact (un-fragmented) isolate genomes are
+  included so the model generalises to both MAG-style and
+  curated whole-genome inputs
+- 10 isolates are reserved as a novel-virus holdout (clean
+  scenarios only) and never seen during training
+- HGT-like single-gene cellular contributions are NOT labelled as
   contamination — the model learns to predict cellular CONTIG burden,
   not the ubiquitous eukaryote-like gene content that giant viruses
   naturally carry via horizontal gene transfer (see the explanation of
   `contamination_type = mixed_viral` below)
 
-Feature-generation mode for v1.4.3:
+Feature-generation mode for v1.5.0:
 
 - `sensitive_mode=true` is active through the HMM step, matching the
   runtime default. Training and inference therefore see the same
-  feature distribution.
+  feature distribution. The per-contig purity classifier is active
+  during feature extraction so training labels incorporate the five
+  purity features.
 
 Model family selection:
 
 - candidate models:
-  - `random_forest` (`n_estimators=400, min_samples_leaf=2`)
-  - `extra_trees` (`n_estimators=500, min_samples_leaf=2`)
+  - `random_forest` (`n_estimators=500, min_samples_leaf=2`)
+  - `extra_trees` (`n_estimators=600, min_samples_leaf=2`)
   - `hist_gbm` (`max_depth=6, min_samples_leaf=5`)
 - selection objective:
-  - grouped cross-validation MAE on held-out base genomes
+  - grouped 5-fold cross-validation MAE on held-out base genomes
+    (`GroupKFold` grouped by `base_accession`)
 - threshold optimization:
-  - best F1 over thresholds `1.0..50.0` in `0.5` increments
+  - best F1 over thresholds `1.0..50.0` in `0.5` increments; v1.5.0
+    ships with `threshold = 10.0`
 
-The trained production bundle is exported from the winning family on
-the full feature table. v1.4.3 selected `extra_trees`.
+The trained production bundle is exported from the winning family
+(`extra_trees`) on the full training set. The runtime `FullSummarizer`
+also enforces a floor of `10.0` on the clean-vs-flagged boundary
+regardless of the model's internal threshold.
 
-### Per-contig taxonomic-purity classifier (v1.4.3 Phase 2)
+### Per-contig taxonomic-purity classifier (v1.5.0 Phase 2)
 
-Added in v1.4.3 to distinguish two bin shapes that the rule-based
+Added in v1.5.0 to distinguish two bin shapes that the rule-based
 `viral_mixture_signal` collapsed into one label:
 
 1. **Novel-virus sparse-reference case** — a new giant-virus lineage
@@ -561,10 +592,10 @@ The bundled example outputs are useful for checking which branch is active:
 
 - in novelty-aware runs, `estimated_completeness_strategy = novelty_aware_v1`
 - in legacy runs, `estimated_completeness_strategy = order_baseline_ratio_v1`
-- in v1.4.3 production runs, `estimated_contamination_strategy = extra_trees_v1`
+- in v1.5.0 production runs, `estimated_contamination_strategy = extra_trees_v1`
 
 Current example values from the sensitive-mode novelty-aware run
-(v1.4.3, bundled `example/` directory):
+(v1.5.0, bundled `example/` directory):
 
 - `AC3300027503___Ga0255182_1000024`
   - `estimated_completeness = 81.73` (quality = advisory_only)
@@ -572,9 +603,10 @@ Current example values from the sensitive-mode novelty-aware run
   - `contamination_type = clean`
 - `GVMAG-S-1096109-37`
   - `estimated_completeness = 82.86` (quality = advisory_only)
-  - `estimated_contamination = 26.93`
-  - `contamination_type = uncertain` (downgraded from `mixed_viral` by
-    the Phase 2 novel-virus-candidate rule — see below)
+  - `estimated_contamination = 0.08` (retrained v1.5.0 model; the
+    prior sensitive-mode bundle mis-predicted 26.93% for this novel
+    NCLDV because its training data lacked HGT-rich clean examples)
+  - `contamination_type = clean`
   - `cellular_coherent_contig_count = 0` (no host-contig evidence)
   - `viral_bearing_contig_count = 3` (three contigs carry NCLDV markers)
   - rule-based signal breakdown (from the `.summary.tab`):
