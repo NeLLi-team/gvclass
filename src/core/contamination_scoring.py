@@ -70,7 +70,7 @@ WEAK_ATTRIBUTION_UNIQUE_CONTIG_FRACTION = 0.8
 #: Rotate with ``scripts/rotate_contamination_model.py`` whenever the model is
 #: retrained.
 CONTAMINATION_MODEL_SHA256 = (
-    "c349f2081f0682c64a0b0626571a025e716905e460274747874429b0d4a46329"
+    "4f56b567b0a057fdaabe66d45a71574814bda6bebf2bff7e29a76e37d7255ca9"
 )
 CONTAMINATION_MODEL_FEATURES = [
     "contamination_score_v1",

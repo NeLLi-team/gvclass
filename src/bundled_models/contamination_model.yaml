@@ -9,37 +9,47 @@ framework: scikit-learn
 # `create_contamination_scorer` surfaces as the
 # `estimated_contamination_strategy` column (e.g. `extra_trees_v1`).
 model_name: extra_trees
-training_profile: sensitive_mode_features_per_contig_purity_v1
+training_profile: simulated_mag_plus_intact_v1_5_0
 # Decision threshold stored inside the joblib bundle and read by
 # ``ContaminationScorer._load_ml_model`` at runtime. This value is the one
-# F1-optimized on the real-contig benchmark training data.
-# FullSummarizer._contamination_reporting_threshold still enforces
-# ``max(10.0, threshold)`` so the user-facing clean-vs-flagged cutoff
-# is unchanged regardless of this raw threshold.
-threshold: 2.5
+# F1-optimized on the training data. FullSummarizer._contamination_reporting_threshold
+# still enforces ``max(10.0, threshold)`` so the user-facing clean-vs-flagged
+# cutoff is unchanged regardless of this raw threshold.
+threshold: 10.0
 
 # --- Training provenance ---------------------------------------------------
-# Retrained for v1.4.3 Phase 2 on the real-contig benchmark under
-# sensitive_mode=true (E=1e-5, no GA cutoffs). Training features include the
-# five new per-contig taxonomic-purity features introduced in Phase 2
-# (see docs/plans/active/v1_4_3_contig_purity_contamination.md).
-training_dataset: benchmarking/contamination/real_contig_benchmark_current
-training_script: src/bin/benchmark_real_contig_contamination.py
+# Retrained for v1.5.0 on a 250-row dataset combining:
+#   - 200 simulated giant-virus MAG bins built from isolate genomes
+#     fragmented into MAG-like contigs (log-normal size distribution, median
+#     ~20 kb). Contamination scenarios include bacterial, eukaryotic,
+#     NCLDV-host eukaryotic (GEVE-bearing), viral mixtures, mixed-kingdom
+#     contamination, and clean shredded NCLDV.
+#   - 50 clean intact (unshredded) base isolate genomes so the model
+#     generalises to whole-contig / curated inputs, not only shredded MAGs.
+# 50 base NCLDV isolates across 13 families, num_contigs <= 5,
+# genome_size >= 100 kb. 10 isolates held out from training as a novel-virus
+# generalisation panel.
 trained_by: NeLLi Team
-trained_at: "2026-04-17"
+trained_at: "2026-04-18"
 # Selection: extra_trees chose over random_forest and hist_gbm during
-# hyperparameter / candidate cross-validation inside
-# `train_and_benchmark`. Model hyperparameters:
-#   n_estimators=500, min_samples_leaf=2, random_state=42
-# Held-out test metrics (true vs tuned):
-#   mae_all = 4.37
-#   clean_mean = 0.34  (mean predicted contamination on clean bins)
-# The small MAE uptick vs the previous 3.88 reflects the Phase 2
-# suspicious-contig rule swap: the legacy cellular_marker_count /
-# cellular_hits triggers are no longer fed into suspicious_bp_fraction_v2
-# when the per-contig classifier is active, so the model now leans
-# more heavily on the five new purity features. Net effect is
-# biologically correct rather than statistically tighter.
+# GroupKFold cross-validation (groups=base_accession). Hyperparameters:
+#   n_estimators=600, min_samples_leaf=2, random_state=42
+# Training metrics per scenario (pred_mean / MAE):
+#   clean_intact         : 0.00 / 0.00
+#   clean_mag_canonical  : 3.80 / 3.80
+#   clean_mag_hgt_rich   : 3.45 / 3.45
+#   cellular_bact        : 21.11 / 1.80
+#   cellular_euk         : 20.40 / 2.08
+#   adversarial_euk_host : 20.58 / 3.28
+#   mixed_cellular       : 27.14 / 2.23
+#   viral_mix            : 39.16 / 3.32
+# Holdout (14 bins, 10 unseen isolates, clean only):
+#   clean_mag_canonical  : pred_mean 3.79, max 7.31
+#   clean_mag_hgt_rich   : pred_mean 6.60, max 19.27 (rare Schizomimi outlier)
+# The retrained bundle eliminates the novel-virus false-positive class
+# (mean predicted contamination on clean shredded NCLDV drops from 28.8% on
+# the previous bundle to ~4%) while preserving calibration on intact /
+# curated inputs.
 
 # --- Hyperparameters (classifier thresholds, module-level constants) -------
 # These are fixed-not-grid-searched per the v1.4.3 Phase 2 plan; they come
@@ -57,13 +67,12 @@ hyperparameters:
 # `scripts/rotate_contamination_model.py` whenever the model is retrained;
 # the code-level constant in `src/core/contamination_scoring.py` must match
 # or the pipeline refuses to load the pickle.
-sha256: c349f2081f0682c64a0b0626571a025e716905e460274747874429b0d4a46329
-bytes: 1471920
+sha256: 4f56b567b0a057fdaabe66d45a71574814bda6bebf2bff7e29a76e37d7255ca9
+bytes: 6956585
 
 # --- Features --------------------------------------------------------------
 # Exact column order expected by .predict(); must match
 # CONTAMINATION_MODEL_FEATURES in src/core/contamination_scoring.py.
-# Phase 2 adds the last five per-contig purity features.
 features:
   - contamination_score_v1
   - contamination_cellular_signal_v1
@@ -89,12 +98,15 @@ features:
 
 # --- Notes -----------------------------------------------------------------
 notes: >-
-  Trained on features generated with sensitive_mode=true (E=1e-5,
-  GA/TC/NC cutoffs disabled) and the v1.4.3 Phase 2 per-contig
-  taxonomic-purity classifier active. Safe to apply under both
-  sensitive and non-sensitive runs. The classifier distinguishes
-  genuine host-contig contamination (coherent cellular lineage on a
-  contig with no viral markers and high-identity cellular BLAST hits)
-  from HGT-acquired eukaryote-like genes in novel giant viruses,
-  which previously confounded the bin-level mixed_viral signal. See
-  docs/quality_metrics.md for the full methodology.
+  Retrained on a mixed training set: simulated giant-virus MAGs (isolate
+  genomes fragmented into MAG-like contigs with added bacterial,
+  eukaryotic, and viral contamination donors) plus clean intact isolate
+  genomes so the model generalises to both shredded and whole-contig
+  inputs. Training features are generated under sensitive_mode=true
+  (E=1e-5, GA/TC/NC cutoffs disabled) with the per-contig taxonomic-purity
+  classifier active. Safe to apply under both sensitive and non-sensitive
+  runs. The classifier distinguishes genuine host-contig contamination
+  (coherent cellular lineage on a contig with no viral markers and
+  high-identity cellular BLAST hits) from HGT-acquired eukaryote-like
+  genes in novel giant viruses, which previously confounded the bin-level
+  mixed_viral signal. See docs/quality_metrics.md for the full methodology.
