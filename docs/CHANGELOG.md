@@ -5,9 +5,19 @@ All notable changes to GVClass will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [v1.4.3] - 2026-04-17
+## [v1.5.0] - 2026-04-18
 
 ### Highlights
+- **Contamination model retrained on simulated MAGs.** Replaces the bundled
+  ExtraTrees contamination regressor with one trained on a dataset of
+  giant-virus MAG simulations (isolate genomes fragmented into MAG-like
+  contigs with added bacterial, eukaryotic, NCLDV-host eukaryotic,
+  and mixed-kingdom contamination) plus clean intact isolate genomes.
+  Eliminates the novel-virus false-positive class seen on prior releases:
+  mean predicted contamination on clean shredded NCLDV drops from ~29%
+  to ~4%, while calibration on curated intact inputs is preserved.
+  Contaminated-bin MAE improves 3–5× across scenarios; Pearson r on
+  contaminated bins reaches 0.97.
 - Closed three load-bearing correctness bugs surfaced by the v1.4.2 code
   review (multi-HMM dedup bypass, contamination model calibration under
   sensitive mode, resume accepting corrupt runs).
@@ -36,17 +46,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `(protein, model)` pair, matching the single-HMM path. Domtbl rows with
   fewer than the emitted 22 fields are now rejected to prevent malformed
   input from slipping through the dedup pipeline.
-- **Contamination model retrained twice under sensitive-mode features**:
-  rebuilt `src/bundled_models/contamination_model.joblib` first to take
-  sensitive-mode features as training input, then again to add the five
-  per-contig purity features introduced by the Phase 2 classifier
-  (`training_profile: sensitive_mode_features_per_contig_purity_v1` in
-  the model card YAML). Held-out MAE is 3.88% across the benchmark test
-  set, with a mean prediction of 0.12% on clean bins. The selected
-  estimator is `ExtraTreesRegressor` (`model_name: extra_trees`). The
-  bundled model is now safe to apply under both sensitive and
-  non-sensitive runs, and `FullSummarizer` no longer needs the
-  transitional NaN / `uncertain_sensitive_mode` gate.
+- **Contamination model retrained on simulated MAGs**: final v1.5.0
+  bundle (`src/bundled_models/contamination_model.joblib`,
+  `training_profile: simulated_mag_plus_intact_v1_5_0`) is fitted on a
+  250-row training set — 200 simulated giant-virus MAG bins
+  (isolate genomes fragmented to MAG-like contigs with added
+  bacterial, eukaryotic, NCLDV-host eukaryotic, and mixed-kingdom
+  contamination) plus 50 clean intact isolate genomes. Selected
+  estimator is `ExtraTreesRegressor` (`model_name: extra_trees`).
+  Per-scenario training MAE: clean_intact 0.00%, clean_mag_canonical
+  3.80%, clean_mag_hgt_rich 3.45%, cellular_bact 1.80%, cellular_euk
+  2.08%, adversarial_euk_host 3.28%, mixed_cellular 2.23%, viral_mix
+  3.32%. Contaminated Pearson r = 0.97. The bundled model is safe to
+  apply under both sensitive and non-sensitive runs, and
+  `FullSummarizer` no longer needs the transitional NaN /
+  `uncertain_sensitive_mode` gate.
 - **Resume reliability**: per-query tarballs are written atomically
   (`.tar.gz.part` + `is_tarfile` verification + `os.replace` + parent
   `fsync`). A new JSON `*.SUCCESS` sentinel (with summary/tar SHA-256,
@@ -148,9 +162,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - MRYA generic `ATPase` HMM retightening.
 
 ### Notes
-- Software release is `v1.4.3`; runtime resource bundle remains `v1.4.0`.
+- Software release is `v1.5.0`; runtime resource bundle remains `v1.4.0`.
 - Test coverage grew from 44 passing tests at `v1.4.2` to 107 passing
-  (+1 opt-in golden-file) on the v1.4.3 remediation branch — 63 new
+  (+1 opt-in golden-file) on the v1.5.0 branch — 63 new
   pytest cases across ~64 new test functions. The golden-file test runs
   only when `GVCLASS_RUN_GOLDEN=1` (matches the PR-only CI job).
 - Verified end-to-end: `pixi run gvclass example -t 8 --mode-fast`

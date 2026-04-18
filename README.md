@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-v1.4.3-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/version-v1.5.0-blue.svg" alt="Version">
   <img src="https://img.shields.io/badge/license-BSD--3--Clause-green.svg" alt="License">
   <img src="https://img.shields.io/badge/python-3.11-blue.svg" alt="Python">
   <img src="https://img.shields.io/badge/pixi-enabled-orange.svg" alt="Pixi">
@@ -135,8 +135,8 @@ For developer-facing formulas, training provenance, and the exact role of each c
 | avgdist | Average tree distance to references |
 | order_dup | Average copy number of expected order-level markers; elevated values suggest duplicated, chimeric, or mixed bins |
 | estimated_completeness | Estimated percentage of the expected genome recovered for the assigned lineage. Determined by the novelty-aware completeness model by default |
-| estimated_contamination | Estimated percentage of the assembly likely to represent contaminant or mixed-origin sequence. Determined by the trained `extra_trees_v1` contamination model (retrained in v1.4.3 under `sensitive_mode=true` features). See [docs/quality_metrics.md](docs/quality_metrics.md#production-contamination-estimate) for methodology. |
-| contamination_type | High-level contamination interpretation (`clean`, `cellular`, `mixed_viral`, `phage`, `duplication`, or `uncertain`) when `estimated_contamination >= 10`. v1.4.3 adds a per-contig taxonomic-purity classifier (see `cellular_coherent_contig_count` column); bins with a novel-virus signature (no coherent cellular contigs + ≥3 viral-bearing contigs + `viral_mixture` rule-based source) are downgraded from `mixed_viral` to `uncertain` so curators can triage. See [docs/quality_metrics.md](docs/quality_metrics.md#per-contig-taxonomic-purity-classifier-v143-phase-2) for the methodology. |
+| estimated_contamination | Estimated percentage of the assembly likely to represent contaminant or mixed-origin sequence. Determined by the trained `extra_trees_v1` contamination model (retrained in v1.5.0 under `sensitive_mode=true` features). See [docs/quality_metrics.md](docs/quality_metrics.md#production-contamination-estimate) for methodology. |
+| contamination_type | High-level contamination interpretation (`clean`, `cellular`, `mixed_viral`, `phage`, `duplication`, or `uncertain`) when `estimated_contamination >= 10`. v1.5.0 adds a per-contig taxonomic-purity classifier (see `cellular_coherent_contig_count` column); bins with a novel-virus signature (no coherent cellular contigs + ≥3 viral-bearing contigs + `viral_mixture` rule-based source) are downgraded from `mixed_viral` to `uncertain` so curators can triage. See [docs/quality_metrics.md](docs/quality_metrics.md#per-contig-taxonomic-purity-classifier-v143-phase-2) for the methodology. |
 | gvog4_unique | Count of unique GVOG4 markers found |
 | gvog8_unique/total/dup | GVOG8 marker counts and duplication |
 | ncldv_mcp_total | NCLDV-specific MCP marker count |
@@ -183,7 +183,7 @@ filtering behavior for a specific run.
 
 ### Contamination model
 
-As of `v1.4.3`, the bundled contamination model
+As of `v1.5.0`, the bundled contamination model
 (`src/bundled_models/contamination_model.joblib`, `ExtraTreesRegressor`) is
 retrained on features generated with `sensitive_mode=true` (the shipped
 default since `v1.4.1`). Training and inference now see the same feature
@@ -223,6 +223,45 @@ When the configured database source is a Zenodo record, GVClass now prints the i
 database version, checks Zenodo for the latest published version, and offers to update with
 `yes` as the default response in interactive sessions.
 
+## What's New in v1.5.0
+
+- **Contamination model retrained on simulated MAGs**: replaces the bundled
+  ExtraTrees contamination regressor with one trained on a dataset that
+  simulates giant-virus MAGs — isolate genomes fragmented into MAG-like
+  contigs with added bacterial, eukaryotic, and mixed-kingdom contamination,
+  alongside clean intact genomes. Eliminates the novel-virus false-positive
+  class observed on prior releases (mean predicted contamination on clean
+  shredded NCLDV drops from ~29% to ~4%) while preserving calibration on
+  intact curated inputs. Contaminated-bin MAE improves 3-5× across
+  scenarios; Pearson r on contaminated bins reaches 0.97.
+- **Per-contig taxonomic-purity classifier**: novel viruses with scattered
+  cellular markers from HGT no longer downgrade to `mixed_viral`. Bins with
+  no cellular-coherent contigs but ≥3 viral-bearing contigs downgrade to
+  `uncertain` so curators can triage. New per-contig output columns:
+  `cellular_coherent_contig_count`, `cellular_coherent_protein_fraction`,
+  `cellular_coherent_bp_fraction`, `cellular_lineage_purity_median`,
+  `cellular_hit_identity_median`, `viral_bearing_contig_count`,
+  `contig_attribution_mode`.
+- **Correctness fixes**: multi-HMM dedup on `models.out.filtered`;
+  contamination model now calibrated for sensitive-mode features;
+  resume uses atomic tar writes and a JSON SUCCESS sentinel;
+  TOCTOU-safe joblib load with SHA-256 gate; per-marker taxonomy majority
+  with deterministic tie-break and `taxonomy_confidence` column;
+  transactional contig splitter; hard-fail short-input validation with
+  opt-in `--allow-short`; R² gating on novelty-aware completeness.
+- **BLAST consolidation**: redundant per-query BLAST pass removed;
+  `<marker>.m8` is the single source of truth. Halves per-query BLAST cost.
+- **Module renames** (breaking for internal consumers):
+  `prefect_flow.py` → `parallel_runner.py`,
+  `gvclass_prefect.py` → `gvclass_runner.py`. Prefect was never used at
+  runtime; the rename removes the misleading dependency implication.
+- **Infrastructure**: `src/__version__.py` as single source of truth,
+  `pyproject.toml` with `gvclass` console script, committed `pixi.lock`,
+  CI workflow with lint / type-check / pytest plus PR-only golden-file
+  regression.
+- **Software Version Bump**: software release is now `v1.5.0` while the
+  runtime resource bundle remains `v1.4.0`.
+
 ## What's New in v1.4.2
 
 - **Contamination Model Recalibrated**: The bundled contamination regressor now uses the updated `extra_trees` model tuned on the new real-contig benchmark subset, which sharply reduces false contamination on clean long viral references.
@@ -260,11 +299,11 @@ The `gvclass-a` wrapper handles container execution automatically. For manual co
 ```bash
 # Pull the image manually (works without auth token for public images)
 apptainer pull --library https://library.sylabs.io \
-  gvclass_1.4.3.sif library://nelligroup-jgi/gvclass/gvclass:1.4.3
+  gvclass_1.5.0.sif library://nelligroup-jgi/gvclass/gvclass:1.5.0
 
 # Run with manual bind mounts
 apptainer run -B /path/to/data:/input -B /path/to/results:/output \
-  gvclass_1.4.3.sif /input -o /output -t 32
+  gvclass_1.5.0.sif /input -o /output -t 32
 ```
 
 The wrapper is simpler and handles bind mounts automatically.
@@ -287,7 +326,7 @@ apptainer build gvclass.sif containers/apptainer/gvclass.def
 apptainer remote login
 
 # Push the image to the library
-apptainer push gvclass.sif library://nelligroup-jgi/gvclass/gvclass:1.4.3
+apptainer push gvclass.sif library://nelligroup-jgi/gvclass/gvclass:1.5.0
 ```
 
 ### Full CLI Reference (gvclass)
@@ -573,4 +612,4 @@ The GVClass runtime resources include genomes/models derived from the following 
 BSD 3-Clause License - see LICENSE file for details
 
 ---
-<sub>Version 1.4.3 - April 2026</sub>
+<sub>Version 1.5.0 - April 2026</sub>
