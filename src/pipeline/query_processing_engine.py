@@ -357,7 +357,7 @@ def _run_hmm_and_blast(
     return models_out_filtered
 
 def _resolve_hmm_files(database_path: Path) -> List[str]:
-    model_dir = database_path / "models"
+    model_dir = database_path / "hmm"
     hmm_files = [str(model_dir / model_name) for model_name in HMM_MODEL_FILES]
     existing_hmm_files = [hmm_file for hmm_file in hmm_files if Path(hmm_file).exists()]
     if existing_hmm_files:
@@ -582,7 +582,7 @@ def _log_tree_files(tree_files: List[Path], logger) -> None:
 def _run_tree_analysis(
     query_name: str, query_output_dir: Path, database_path: Path, tree_dir: Path, logger
 ) -> Dict[str, Any]:
-    labels_file = database_path / "gvclassFeb26_labels.tsv"
+    labels_file = database_path / "labels.tsv"
     logger.info(f"Labels file: {labels_file}, exists: {labels_file.exists()}")
     stats_dir = query_output_dir / "stats"
     stats_dir.mkdir(exist_ok=True, parents=True)

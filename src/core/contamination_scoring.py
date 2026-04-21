@@ -30,7 +30,7 @@ GIANT_VIRUS_PREFIXES = {"NCLDV", "MIRUS", "MRYA"}
 CELLULAR_MODELS = set(BUSCO_MODELS + UNI56_MODELS)
 PHAGE_MODELS_SET = set(PHAGE_MODELS)
 
-CONTAMINATION_MODEL_FILE = "contamination_model.joblib"
+CONTAMINATION_MODEL_FILE = "contamination/model.joblib"
 
 # --- Per-contig taxonomic-purity classifier thresholds -----------------------
 #
@@ -58,7 +58,7 @@ MIN_MARKER_PROTEINS_FOR_FRACTION = 5
 #: this value, every protein mapped to its own pseudo-contig and the
 #: per-contig classifier is suppressed.
 WEAK_ATTRIBUTION_UNIQUE_CONTIG_FRACTION = 0.8
-#: Expected SHA-256 digest of ``src/bundled_models/contamination_model.joblib``.
+#: Expected SHA-256 digest of ``resources/contamination/model.joblib``.
 #:
 #: Keeping this as a Python constant rather than a committed sidecar file is
 #: intentional: the bundled model is loaded through ``joblib.load`` which is a
@@ -124,7 +124,7 @@ class ContaminationScorer:
         """
         self.database_path = database_path
         self.sensitive_mode = sensitive_mode
-        self.labels_file = database_path / "gvclassFeb26_labels.tsv"
+        self.labels_file = database_path / "labels.tsv"
         self.labels = self._load_labels()
         self.ml_model = None
         self.ml_model_name = "hist_gbm"
@@ -160,12 +160,11 @@ class ContaminationScorer:
         return labels
 
     def _load_ml_model(self) -> None:
-        """Load the bundled contamination model after a SHA-256 gate.
+        """Load the contamination model after a SHA-256 gate.
 
-        Only ``src/bundled_models/contamination_model.joblib`` is accepted — the
-        previous ``database_path`` fallback was removed so there is exactly one
-        canonical model file to guard. The file is read into memory once; the
-        SHA-256 of those same bytes is compared against
+        The model ships as part of the runtime resources bundle at
+        ``resources/contamination/model.joblib``. It is read into memory once;
+        the SHA-256 of those same bytes is compared against
         :data:`CONTAMINATION_MODEL_SHA256` and the verified bytes are handed
         directly to ``joblib.load`` via ``BytesIO``. This closes the TOCTOU
         window where an attacker could swap the file between a path-based
@@ -177,16 +176,15 @@ class ContaminationScorer:
         import hashlib
         import io
 
-        bundled_model_path = (
-            Path(__file__).resolve().parents[1] / "bundled_models" / CONTAMINATION_MODEL_FILE
-        )
+        bundled_model_path = self.database_path / CONTAMINATION_MODEL_FILE
 
         if not bundled_model_path.exists():
             raise RuntimeError(
                 f"Contamination model not found at {bundled_model_path}. "
-                "The bundled model is required for non-sensitive runs; "
-                "restore it by reinstalling the GVClass distribution "
-                "or re-downloading the bundled_models/ directory."
+                "The contamination model ships with the resources bundle "
+                "under resources/contamination/model.joblib; re-download "
+                "the resources archive or run `pixi run setup-db` to "
+                "restore it."
             )
 
         # Read once, verify the in-memory bytes, then deserialize the same

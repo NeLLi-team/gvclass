@@ -93,7 +93,7 @@ def load_order_table(resources_dir: Path) -> Tuple[Dict[str, List[str]], Dict[st
 
 def load_labels(resources_dir: Path) -> Dict[str, Dict[str, str]]:
     labels: Dict[str, Dict[str, str]] = {}
-    path = resources_dir / "gvclassFeb26_labels.tsv"
+    path = resources_dir / "labels.tsv"
     with path.open() as handle:
         for line in handle:
             if line.startswith("#"):

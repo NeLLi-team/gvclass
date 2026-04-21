@@ -16,10 +16,11 @@ def _make_scorer(tmp_path: Path):
     """Build a ContaminationScorer with a synthetic labels table covering
     the cellular lineages the tests reference."""
     from src.core.contamination_scoring import ContaminationScorer
+    from tests.conftest import stage_db_resources
 
     db = tmp_path / "db"
-    db.mkdir()
-    labels = db / "gvclassFeb26_labels.tsv"
+    stage_db_resources(db, markers=False)
+    labels = db / "labels.tsv"
     # _load_labels expects genome_id<TAB>pipe_delimited_tax.
     # Pipe columns (7 fields): [0]=phylum, [1]=class, [2]=order, [3]=family, [4]=genus, [5]=species.
     # ContaminationScorer reads "order" from parts[3] (index after phylum|class|order);

@@ -79,8 +79,8 @@ class FullSummarizer:
         self.database_path = database_path
         self.completeness_mode = completeness_mode
         self.sensitive_mode = sensitive_mode
-        self.labels_file = database_path / "gvclassFeb26_labels.tsv"
-        self.completeness_table = database_path / "order_completeness.tab"
+        self.labels_file = database_path / "labels.tsv"
+        self.completeness_table = database_path / "markers" / "order_completeness.tab"
         self.order_stats_df = self._load_order_stats()
         self.labels_dict = self.load_labels()
 
@@ -1036,7 +1036,7 @@ class FullSummarizer:
 
             # v1.4.3: the bundled contamination model is trained on
             # sensitive_mode=true features (see
-            # ``src/bundled_models/contamination_model.yaml``
+            # ``resources/contamination/model.yaml``
             # ``training_profile: sensitive_mode_features``). It is therefore
             # safe to apply under either sensitive or non-sensitive runs; no
             # gate is required here. The sensitive_mode flag is retained on

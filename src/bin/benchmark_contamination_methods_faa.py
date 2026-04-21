@@ -98,8 +98,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--workers", type=int, default=16)
     parser.add_argument("--force-regenerate", action="store_true")
     parser.add_argument("--force-rerun", action="store_true")
-    parser.add_argument("--export-model", nargs="?", const="src/bundled_models/contamination_model.joblib",
-                        help="Retrain on full data and save model bundle to path (default: src/bundled_models/contamination_model.joblib)")
+    parser.add_argument("--export-model", nargs="?", const="resources/contamination/model.joblib",
+                        help="Retrain on full data and save model bundle to path (default: resources/contamination/model.joblib)")
     return parser.parse_args()
 
 

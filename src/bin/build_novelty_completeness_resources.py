@@ -85,7 +85,7 @@ def load_order_table(resources_dir: Path) -> Tuple[Dict[str, List[str]], Dict[st
 
 def load_labels(resources_dir: Path) -> Dict[str, Dict[str, str]]:
     labels: Dict[str, Dict[str, str]] = {}
-    path = resources_dir / "gvclassFeb26_labels.tsv"
+    path = resources_dir / "labels.tsv"
     with path.open() as handle:
         for line in handle:
             if line.startswith("#"):
@@ -501,7 +501,7 @@ def write_resources(
     models: Dict[str, object],
     model_metadata: pd.DataFrame,
 ) -> None:
-    config_path = resources_dir / "novelty_completeness_config.json"
+    config_path = resources_dir / "completeness/config.json"
     config_payload = {
         "resource_version": "v1",
         "strategy2_config": asdict(CONFIG),
@@ -509,7 +509,7 @@ def write_resources(
     }
     config_path.write_text(json.dumps(config_payload, indent=2, sort_keys=True) + "\n")
 
-    tiers_path = resources_dir / "novelty_strategy2_tiers.tsv"
+    tiers_path = resources_dir / "completeness/tiers.tsv"
     with tiers_path.open("w", newline="") as handle:
         writer = csv.DictWriter(
             handle,
@@ -530,7 +530,7 @@ def write_resources(
                         }
                     )
 
-    baselines_path = resources_dir / "novelty_strategy2_baselines.tsv"
+    baselines_path = resources_dir / "completeness/baselines.tsv"
     with baselines_path.open("w", newline="") as handle:
         writer = csv.DictWriter(
             handle,
@@ -548,10 +548,10 @@ def write_resources(
                 }
             )
 
-    model_metadata.to_csv(resources_dir / "novelty_strategy3_model_metadata.tsv", sep="\t", index=False)
+    model_metadata.to_csv(resources_dir / "completeness/model_metadata.tsv", sep="\t", index=False)
     dump(
         {"models": models, "feature_names": FEATURE_NAMES},
-        resources_dir / "novelty_strategy3_models.joblib",
+        resources_dir / "completeness/model.joblib",
         compress=3,
     )
 

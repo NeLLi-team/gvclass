@@ -29,23 +29,33 @@ class DatabaseManager:
     )
 
     REQUIRED_FILES = [
-        "models/combined.hmm",  # Combined HMM file with all models
-        "gvclassFeb26_labels.tsv",
-        "order_completeness.tab",
-        "novelty_completeness_config.json",
-        "novelty_strategy2_tiers.tsv",
-        "novelty_strategy2_baselines.tsv",
-        "novelty_strategy3_model_metadata.tsv",
-        "novelty_strategy3_models.joblib",
+        "hmm/combined.hmm",
+        "labels.tsv",
+        "markers/order_completeness.tab",
+        "markers/stats.tsv",
+        "markers/annotations.tsv",
+        "completeness/config.json",
+        "completeness/tiers.tsv",
+        "completeness/baselines.tsv",
+        "completeness/model_metadata.tsv",
+        "completeness/model.joblib",
+        "contamination/model.joblib",
+        "contamination/model.yaml",
     ]
 
     DEFAULT_DATABASE_SOURCE = {
-        "version": "v1.4.0",
-        "url": "https://zenodo.org/records/18926264/files/resources_v1_4_0.tar.gz?download=1",
-        "filename": "resources_v1_4_0.tar.gz",
-        "sha256": "95e2d75b5229a33f1910e16849fc067f3a2f55db5d12fbc25fb593aa61d9f3da",
+        "version": "v1.5.0",
+        "url": "https://portal.nersc.gov/cfs/nelli/gvclassDB/resources_v1_5_0.tar.gz",
+        "filename": "resources_v1_5_0.tar.gz",
+        "sha256": "5357d96d99aa1eaf4b396ef701ed4c3b22d9015f79b7ae6c6be354c897704c80",
     }
     LEGACY_DATABASE_SOURCES = [
+        {
+            "version": "v1.4.0",
+            "url": "https://zenodo.org/records/18926264/files/resources_v1_4_0.tar.gz?download=1",
+            "filename": "resources_v1_4_0.tar.gz",
+            "sha256": "95e2d75b5229a33f1910e16849fc067f3a2f55db5d12fbc25fb593aa61d9f3da",
+        },
         {
             "version": "v1.2.2",
             "url": "https://zenodo.org/records/18675742/files/resources_v1_2_2.tar.gz?download=1",

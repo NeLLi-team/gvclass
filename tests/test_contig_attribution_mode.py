@@ -13,10 +13,11 @@ from pathlib import Path
 
 def _make_scorer(tmp_path: Path):
     from src.core.contamination_scoring import ContaminationScorer
+    from tests.conftest import stage_db_resources
 
     db = tmp_path / "db"
-    db.mkdir()
-    (db / "gvclassFeb26_labels.tsv").write_text("")
+    stage_db_resources(db, markers=False)
+    (db / "labels.tsv").write_text("")
     (db / "order_completeness.tab").write_text(
         "Order\tOrthogroups\tAverage_Percent\tStd_Percent\n"
     )
@@ -71,7 +72,9 @@ def test_faa_weak_per_protein_fallback_preserves_legacy_cellular_trigger(
     source, the legacy `cellular` label still fires from
     ``_classify_contamination_type``."""
     from src.core.summarize_full import FullSummarizer
+    from tests.conftest import stage_db_resources
 
+    stage_db_resources(tmp_path, markers=False)
     summarizer = FullSummarizer(tmp_path)
     summarizer.contamination_scorer.ml_threshold = 5.0
 
@@ -109,7 +112,9 @@ def test_novel_virus_downgrade_to_uncertain(tmp_path: Path) -> None:
     downgrades from ``mixed_viral`` to ``uncertain`` — this is the
     novel-virus-with-HGT-scatter pattern, not real multi-viral mixing."""
     from src.core.summarize_full import FullSummarizer
+    from tests.conftest import stage_db_resources
 
+    stage_db_resources(tmp_path, markers=False)
     summarizer = FullSummarizer(tmp_path)
     summarizer.contamination_scorer.ml_threshold = 5.0
 
@@ -129,7 +134,9 @@ def test_mixed_viral_preserved_when_multi_giant_virus_with_no_viral_bearing_cont
     multi-viral-order but has too few viral_bearing contigs keeps the
     legacy ``mixed_viral`` label."""
     from src.core.summarize_full import FullSummarizer
+    from tests.conftest import stage_db_resources
 
+    stage_db_resources(tmp_path, markers=False)
     summarizer = FullSummarizer(tmp_path)
     summarizer.contamination_scorer.ml_threshold = 5.0
 
