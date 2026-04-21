@@ -76,18 +76,16 @@ jobs:
             pixi run setup-db
           fi
 
-      - name: Run GVClass on bundled example input
+      - name: Run golden-fixture regression test
+        env:
+          GVCLASS_RUN_GOLDEN: "1"
         run: |
-          rm -rf /tmp/example_results
-          pixi run gvclass example -o /tmp/example_results -t 4 --tree-method fasttree
-
-      - name: Compare against golden fixture
-        run: |
-          if [ ! -f tests/fixtures/expected_example_summary.tsv ]; then
-            echo "::warning::Golden fixture tests/fixtures/expected_example_summary.tsv not present yet; skipping diff. Create the fixture on first green run."
-            exit 0
-          fi
-          diff -u tests/fixtures/expected_example_summary.tsv /tmp/example_results/gvclass_summary.tsv
+          # tests/test_golden_example_summary.py runs `pixi run gvclass example`
+          # with --mode-fast --plain-output, then projects the STABLE_COLUMNS
+          # subset and diffs against tests/fixtures/expected_example_summary.tsv.
+          # Keeps the test harness and the CI gate on exactly the same code
+          # path.
+          pixi run pytest tests/test_golden_example_summary.py -v
 
   container-build:
     name: Build Apptainer SIF and smoke-test
