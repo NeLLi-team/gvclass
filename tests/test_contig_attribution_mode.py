@@ -10,6 +10,12 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+import pytest
+
+from tests.conftest import skip_if_no_runtime_resources
+
+pytestmark = skip_if_no_runtime_resources()
+
 
 def _make_scorer(tmp_path: Path):
     from src.core.contamination_scoring import ContaminationScorer

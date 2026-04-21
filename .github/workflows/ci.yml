@@ -72,7 +72,7 @@ jobs:
       - name: Install pixi environment and download DB if not cached
         run: |
           pixi install
-          if [ ! -f resources/models/combined.hmm ]; then
+          if [ ! -f resources/hmm/combined.hmm ]; then
             pixi run setup-db
           fi
 

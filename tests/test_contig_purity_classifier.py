@@ -11,6 +11,10 @@ from pathlib import Path
 
 import pytest
 
+from tests.conftest import skip_if_no_runtime_resources
+
+pytestmark = skip_if_no_runtime_resources()
+
 
 def _make_scorer(tmp_path: Path):
     """Build a ContaminationScorer with a synthetic labels table covering
