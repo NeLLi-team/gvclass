@@ -19,7 +19,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_ROOT"
 
 # Ensure database exists before building container
-if [ ! -d "resources/database" ] || [ ! -f "resources/models/combined.hmm" ]; then
+if [ ! -d "resources/database" ] || [ ! -f "resources/hmm/combined.hmm" ]; then
     echo -e "${BLUE}Database not found locally. Downloading...${NC}"
     if command -v pixi &> /dev/null; then
         pixi run python -c 'from src.utils.database_manager import DatabaseManager; DatabaseManager.setup_database("resources")'
@@ -73,8 +73,8 @@ if command -v docker &> /dev/null; then
     read -r response
     if [[ "$response" =~ ^([yY][eE][sS]|[yY])$ ]]; then
         echo -e "${BLUE}Building Docker image...${NC}"
-        if docker build -t gvclass:1.4.0 -f containers/docker/Dockerfile .; then
-            docker tag gvclass:1.4.0 gvclass:latest
+        if docker build -t gvclass:1.5.0 -f containers/docker/Dockerfile .; then
+            docker tag gvclass:1.5.0 gvclass:latest
             echo -e "${GREEN}✓ Docker image built successfully${NC}"
             docker images | grep gvclass
         else
@@ -86,5 +86,5 @@ fi
 echo -e "\n${GREEN}Container build complete!${NC}"
 echo -e "\nUsage:"
 echo -e "  Apptainer:  singularity run -B /path/to/data:/data gvclass.sif /data/input_dir -t 32"
-echo -e "  Docker:     docker run -v /path/to/data:/data gvclass:1.4.0 /data -t 32"
+echo -e "  Docker:     docker run -v /path/to/data:/data gvclass:1.5.0 /data -t 32"
 echo -e "\nNote: The container includes the complete 850MB database."

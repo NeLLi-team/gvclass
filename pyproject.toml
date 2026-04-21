@@ -44,7 +44,9 @@ include = ["src*"]
 exclude = ["src.test*", "tests*"]
 
 [tool.setuptools.package-data]
-"src.bundled_models" = ["*.joblib", "*.yaml", "*.sha256"]
+# Contamination + completeness models ship via the runtime resources tarball
+# (under resources/contamination/ and resources/completeness/), not as Python
+# package data. Only the config tree is retained here.
 "src.config" = ["*.py", "*.tsv", "*.json"]
 
 [tool.pytest.ini_options]

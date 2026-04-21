@@ -34,7 +34,7 @@ class GeneticCodeOptimizer:
             threads: Total threads available (defaults to CPU count)
         """
         self.database_path = database_path
-        self.hmm_file = str(database_path / "models" / "combined.hmm")
+        self.hmm_file = str(database_path / "hmm" / "combined.hmm")
         self.threads = threads or multiprocessing.cpu_count()
 
     def run_gene_calling_for_code(
