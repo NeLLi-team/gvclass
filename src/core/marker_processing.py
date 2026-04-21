@@ -257,8 +257,13 @@ class MarkerProcessor:
         if tree_method == "fasttree":
             # Use VeryFastTree
             try:
+                # Forward `threads` so the per-marker worker budget is
+                # honored; the previous call was single-threaded regardless
+                # of how many threads the pipeline allocated per marker.
                 tree_result = veryfasttree.run(
-                    alignment=str(trimmed_alignment), quiet=True
+                    alignment=str(trimmed_alignment),
+                    quiet=True,
+                    threads=max(1, int(threads)),
                 )
 
                 with open(tree_out, "w") as f:

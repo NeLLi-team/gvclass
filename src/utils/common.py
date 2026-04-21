@@ -5,11 +5,15 @@ This module provides common utilities for secure subprocess execution,
 logging, and error handling.
 """
 
+import hashlib
 import logging
-import subprocess
 import shlex
-from typing import List, Tuple, Optional, Union
+import subprocess
 from pathlib import Path
+from typing import List, Optional, Tuple, Union
+
+# 1 MiB; matches the streaming chunk size used by DatabaseManager._compute_sha256
+_SHA256_CHUNK_SIZE = 1 << 20
 
 # Import error handling framework
 from .error_handling import (
@@ -179,6 +183,24 @@ def validate_file_path(file_path: Union[str, Path], must_exist: bool = True) -> 
         )
 
     return path
+
+
+def sha256_file(path: Union[str, Path]) -> str:
+    """Return the SHA-256 hex digest of ``path`` streaming in 1 MiB chunks.
+
+    Shared helper used by the resume-sentinel writer, the bundled-model
+    integrity gate, and the database-manager archive verification so all
+    integrity checks use an identical streaming implementation.
+    """
+    resolved = Path(path)
+    hasher = hashlib.sha256()
+    with open(resolved, "rb") as handle:
+        while True:
+            chunk = handle.read(_SHA256_CHUNK_SIZE)
+            if not chunk:
+                break
+            hasher.update(chunk)
+    return hasher.hexdigest()
 
 
 # Legacy compatibility

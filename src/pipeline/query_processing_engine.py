@@ -2,17 +2,21 @@
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
 import csv
+import json
 import logging
+import os
 import shutil
 import tarfile
 import time
 import traceback
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
+from src.__version__ import __version__ as _GVCLASS_VERSION
 from src.core.genetic_code_optimizer import GeneticCodeOptimizer
 from src.core.hmm_search import run_pyhmmer_search_with_filtering
 from src.core.marker_extraction import extract_marker_hits, get_marker_database_path
@@ -21,7 +25,11 @@ from src.core.reformat import calculate_stats, reformat_sequences
 from src.core.summarize_full import FullSummarizer
 from src.core.tree_analysis import TreeAnalyzer
 from src.pipeline.summary_writer import write_individual_summary_file
+from src.utils.common import sha256_file
 from src.utils.error_handling import ProcessingError
+
+SUCCESS_SENTINEL_VERSION = 1
+_SOFTWARE_VERSION = f"v{_GVCLASS_VERSION}"
 
 from Bio import SeqIO
 
@@ -37,7 +45,7 @@ HMM_MODEL_FILES = [
 
 
 def _pipeline_logger():
-    return logging.getLogger("gvclass_prefect")
+    return logging.getLogger("gvclass_runner")
 
 
 @dataclass
@@ -128,6 +136,7 @@ def _run_query_stages(
         tree_nn_results,
         mode_fast,
         completeness_mode,
+        sensitive_mode,
         logger,
     )
     return prepared_input, summary_data
@@ -321,6 +330,15 @@ def _run_hmm_and_blast(
     sensitive_mode: bool,
     logger,
 ) -> Path:
+    """Run the per-query HMM search.
+
+    Historically this also ran a separate per-marker BLAST pass that wrote
+    ``*.blastpout`` files. Those files were never read downstream —
+    contamination scoring reads ``*.m8`` files produced by
+    :class:`MarkerProcessor`, and the tree-building pipeline also owns its
+    own BLAST pass. The redundant pass was removed in v1.4.3 to halve the
+    per-query BLAST workload.
+    """
     logger.info(f"Running HMM search: {query_name}")
     hmmout_dir = query_output_dir / "hmmout"
     hmmout_dir.mkdir(exist_ok=True)
@@ -336,14 +354,10 @@ def _run_hmm_and_blast(
         threads,
         sensitive_mode,
     )
-    from src.core.marker_extraction import parse_hmm_output
-
-    hmm_results = parse_hmm_output(str(models_out_filtered))
-    _run_blast_search(query_name, query_output_dir, database_path, protein_file, hmm_results, threads, logger)
     return models_out_filtered
 
 def _resolve_hmm_files(database_path: Path) -> List[str]:
-    model_dir = database_path / "models"
+    model_dir = database_path / "hmm"
     hmm_files = [str(model_dir / model_name) for model_name in HMM_MODEL_FILES]
     existing_hmm_files = [hmm_file for hmm_file in hmm_files if Path(hmm_file).exists()]
     if existing_hmm_files:
@@ -373,7 +387,10 @@ def _run_hmm_search(
 ) -> None:
     if len(hmm_files) > 1:
         from src.core.hmm_search import generate_counts_from_output
-        from src.core.hmm_search_multi import run_pyhmmer_search_multi
+        from src.core.hmm_search_multi import (
+            dedup_domtbl_file,
+            run_pyhmmer_search_multi,
+        )
 
         run_pyhmmer_search_multi(
             hmm_files=hmm_files,
@@ -382,7 +399,11 @@ def _run_hmm_search(
             threads=threads,
             sensitive_mode=sensitive_mode,
         )
-        shutil.copy2(str(models_out), str(models_out_filtered))
+        # Collapse per-domain duplicates in models.out.filtered so it matches the
+        # single-HMM filter-path semantics (one row per (query, model) pair).
+        # Without this, any protein that aligned through multiple HMM domains
+        # would leak extra rows into downstream count/score/marker aggregators.
+        dedup_domtbl_file(str(models_out), str(models_out_filtered))
         generate_counts_from_output(str(models_out_filtered), str(models_counts))
         return
 
@@ -398,34 +419,12 @@ def _run_hmm_search(
         sensitive_mode=sensitive_mode,
     )
 
-def _run_blast_search(
-    query_name: str,
-    query_output_dir: Path,
-    database_path: Path,
-    protein_file: Path,
-    hmm_results: Any,
-    threads: int,
-    logger,
-) -> None:
-    logger.info(f"Running BLAST search: {query_name}")
-    blast_dir = query_output_dir / "blastp_out"
-    blast_dir.mkdir(exist_ok=True)
-    if not hmm_results:
-        return
-
-    from src.core.blast import run_blastp
-
-    for marker in hmm_results:
-        ref_faa = database_path / "database" / "alignment" / f"{marker}.ref.faa"
-        if not ref_faa.exists():
-            continue
-        blast_out = blast_dir / f"{query_name}.{marker}.blastpout"
-        run_blastp(
-            queryfaa=str(protein_file),
-            refdb=str(ref_faa),
-            blastpout=str(blast_out),
-            threads=threads,
-        )
+# Removed in v1.4.3: a former ``_run_blast_search`` helper ran a per-marker
+# BLAST pass that emitted ``<query>.<marker>.blastpout`` files. Those files
+# were never read — contamination scoring reads ``<marker>.m8`` files
+# produced by :class:`MarkerProcessor` (see ``src/core/marker_processing.py``)
+# which also feeds the tree-building pipeline. Removing the duplicate pass
+# halves the per-query BLAST cost.
 
 def _process_markers(
     query_name: str,
@@ -583,7 +582,7 @@ def _log_tree_files(tree_files: List[Path], logger) -> None:
 def _run_tree_analysis(
     query_name: str, query_output_dir: Path, database_path: Path, tree_dir: Path, logger
 ) -> Dict[str, Any]:
-    labels_file = database_path / "gvclassFeb26_labels.tsv"
+    labels_file = database_path / "labels.tsv"
     logger.info(f"Labels file: {labels_file}, exists: {labels_file.exists()}")
     stats_dir = query_output_dir / "stats"
     stats_dir.mkdir(exist_ok=True, parents=True)
@@ -616,11 +615,16 @@ def _generate_summary_data(
     tree_nn_results: Dict[str, Any],
     mode_fast: bool,
     completeness_mode: str,
+    sensitive_mode: bool,
     logger,
 ) -> Dict[str, Any]:
     logger.info(f"Generating full summary: {query_name}")
     try:
-        summarizer = FullSummarizer(database_path, completeness_mode=completeness_mode)
+        summarizer = FullSummarizer(
+            database_path,
+            completeness_mode=completeness_mode,
+            sensitive_mode=sensitive_mode,
+        )
         summary_data = summarizer.summarize_query_full(
             query_id=query_name,
             query_output_dir=query_output_dir,
@@ -649,6 +653,25 @@ def _create_output_dirs(query_output_dir: Path) -> None:
         (query_output_dir / dir_name).mkdir(exist_ok=True, parents=True)
 
 
+def _remove_stale_candidate_file(
+    query_output_dir: Path, query_name: str, logger
+) -> None:
+    """Delete any pre-existing candidate TSV from a prior run.
+
+    Reruns on a partial query directory (e.g. resume, or a prior non-sensitive
+    run followed by a sensitive run) would otherwise carry the old
+    ``*.contamination_candidates.tsv`` forward into the copy/archive stages
+    even when the current gate suppresses a fresh write.
+    """
+    stale = query_output_dir / "stats" / f"{query_name}.contamination_candidates.tsv"
+    if stale.exists():
+        try:
+            stale.unlink()
+            logger.info(f"Removed stale contamination candidates file: {stale}")
+        except OSError as exc:
+            logger.warning(f"Could not remove stale {stale}: {exc}")
+
+
 def _write_contamination_candidates_file(
     query_output_dir: Path,
     query_name: str,
@@ -656,9 +679,19 @@ def _write_contamination_candidates_file(
     logger,
 ) -> Optional[Path]:
     candidates = summary_data.get("_contamination_candidates", [])
-    if not candidates:
-        return None
-    if summary_data.get("contamination_type", "clean") in {"clean", "uncertain"}:
+    # ``uncertain_sensitive_mode`` is the marker emitted when the trained
+    # contamination model is bypassed under sensitive_mode; suppress
+    # candidate emission in that regime alongside the regular ``clean`` /
+    # ``uncertain`` cases. Any stale candidate file from a previous run must
+    # also be removed so the downstream copy/archive path does not carry it
+    # forward.
+    suppressed_type = summary_data.get("contamination_type", "clean") in {
+        "clean",
+        "uncertain",
+        "uncertain_sensitive_mode",
+    }
+    if not candidates or suppressed_type:
+        _remove_stale_candidate_file(query_output_dir, query_name, logger)
         return None
 
     stats_dir = query_output_dir / "stats"
@@ -746,6 +779,11 @@ def _post_process_query(
     logger.info(f"Post-processing results for query {query_name}")
     logger.debug(f"Query output directory: {query_output_dir}")
     logger.debug(f"Output base directory: {output_base}")
+    # Clear every resumable marker for this query before we start rewriting
+    # its outputs. If the rerun crashes after this point but before the new
+    # tar is published, resume must NOT see a legacy (summary, tar) pair
+    # from the previous run and wrongly skip the query.
+    _clear_prior_outputs(query_name, output_base, logger)
     post_process_start = time.time()
     try:
         _copy_query_summary_tab(query_name, query_output_dir, output_base, logger)
@@ -753,6 +791,9 @@ def _post_process_query(
         _log_tree_nn_file(query_name, query_output_dir, logger)
         _archive_query_output(query_name, query_output_dir, output_base, logger)
         _remove_reformatted_file(query_name, output_base, logger)
+        # Sentinel is the last write: resume trusts it only after the tar and
+        # summary have landed atomically on disk.
+        _write_success_sentinel(query_name, output_base, logger)
         shutil.rmtree(query_output_dir)
         logger.info(f"✓ Removed original directory: {query_output_dir}")
         elapsed = time.time() - post_process_start
@@ -808,14 +849,129 @@ def _log_tree_nn_file(query_name: str, query_output_dir: Path, logger) -> None:
 def _archive_query_output(
     query_name: str, query_output_dir: Path, output_base: Path, logger
 ) -> None:
+    """Write the per-query tarball atomically.
+
+    The archive lands at ``<query_name>.tar.gz`` only after: (a) the tarball
+    has been written to a sibling ``.tar.gz.part``, (b) the file handle has
+    been fsynced, (c) ``tarfile.is_tarfile`` confirms the archive is well
+    formed, (d) ``os.replace`` atomically swaps the final name into place,
+    and (e) the parent directory is fsynced. A crash or SIGKILL at any
+    point leaves either the previous final archive untouched or a
+    ``.tar.gz.part`` that resume correctly ignores — never a truncated
+    ``<query_name>.tar.gz`` that the SUCCESS-sentinel / legacy resume
+    fallback would wrongly accept.
+    """
     tar_file = output_base / f"{query_name}.tar.gz"
-    logger.debug(f"Creating archive: {tar_file}")
+    tar_tmp = output_base / f"{query_name}.tar.gz.part"
+    if tar_tmp.exists():
+        # Orphan from a prior crash; safe to discard before we open a fresh
+        # writer at the same path.
+        tar_tmp.unlink()
+    logger.debug(f"Creating archive: {tar_file} (via {tar_tmp})")
     file_count = sum(1 for file_path in query_output_dir.rglob("*") if file_path.is_file())
     logger.debug(f"Archiving {file_count} files from {query_output_dir}")
-    with tarfile.open(tar_file, "w:gz") as tar_handle:
+    with tarfile.open(tar_tmp, "w:gz") as tar_handle:
         tar_handle.add(query_output_dir, arcname=query_name)
+    # fsync the data file before any rename so the payload is durable.
+    with open(tar_tmp, "rb") as fh:
+        os.fsync(fh.fileno())
+    if not tarfile.is_tarfile(tar_tmp):
+        tar_tmp.unlink(missing_ok=True)
+        raise RuntimeError(
+            f"Archive verification failed for {tar_tmp}; refusing to publish {tar_file}"
+        )
+    os.replace(tar_tmp, tar_file)
+    # fsync the parent directory so the rename itself is durable on POSIX.
+    try:
+        dir_fd = os.open(str(tar_file.parent), os.O_RDONLY)
+    except OSError:
+        dir_fd = None
+    if dir_fd is not None:
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
     archive_size = tar_file.stat().st_size
     logger.info(f"✓ Created archive: {tar_file} ({archive_size:,} bytes, {file_count} files)")
+
+
+def _success_sentinel_path(query_name: str, output_base: Path) -> Path:
+    return output_base / f"{query_name}.SUCCESS"
+
+
+def _clear_success_sentinel(query_name: str, output_base: Path, logger) -> None:
+    sentinel = _success_sentinel_path(query_name, output_base)
+    if sentinel.exists():
+        try:
+            sentinel.unlink()
+            logger.debug(f"Cleared stale SUCCESS sentinel: {sentinel}")
+        except OSError as exc:
+            logger.warning(f"Could not remove stale sentinel {sentinel}: {exc}")
+
+
+def _clear_prior_outputs(query_name: str, output_base: Path, logger) -> None:
+    """Remove every per-query artefact the resume filter can see.
+
+    Called at the start of post-processing for a rerun. Drops the sentinel,
+    the summary TSV, the archive (and any leftover ``.tar.gz.part``), and
+    the contamination-candidates sidecar. If the rerun crashes mid-way the
+    query is left with only the ``query_output_dir`` working tree, which
+    resume correctly ignores.
+    """
+    _clear_success_sentinel(query_name, output_base, logger)
+    victims = [
+        output_base / f"{query_name}.summary.tab",
+        output_base / f"{query_name}.tar.gz",
+        output_base / f"{query_name}.tar.gz.part",
+        output_base / f"{query_name}.contamination_candidates.tsv",
+    ]
+    for victim in victims:
+        if victim.exists():
+            try:
+                victim.unlink()
+                logger.debug(f"Cleared stale artefact: {victim}")
+            except OSError as exc:
+                logger.warning(f"Could not remove stale {victim}: {exc}")
+
+
+def _write_success_sentinel(
+    query_name: str, output_base: Path, logger
+) -> Optional[Path]:
+    """Write a JSON SUCCESS sentinel once the summary + tarball are durable.
+
+    The sentinel is the v1.4.3 signal that a query fully completed and is
+    safe to skip under ``--resume``. It records the software version,
+    completion timestamp, and SHA-256 checksums of the two artefacts
+    resume previously gated on (``summary.tab`` + ``tar.gz``). Reruns that
+    regenerate those artefacts clear the old sentinel before any new write
+    via :func:`_clear_success_sentinel`.
+    """
+    summary_file = output_base / f"{query_name}.summary.tab"
+    tar_file = output_base / f"{query_name}.tar.gz"
+    missing = [p.name for p in (summary_file, tar_file) if not p.exists()]
+    if missing:
+        logger.warning(
+            f"Not writing SUCCESS sentinel for {query_name}: missing {missing}"
+        )
+        return None
+
+    sentinel = _success_sentinel_path(query_name, output_base)
+    payload = {
+        "sentinel_version": SUCCESS_SENTINEL_VERSION,
+        "query": query_name,
+        "software_version": _SOFTWARE_VERSION,
+        "completed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "tar_filename": tar_file.name,
+        "tar_sha256": sha256_file(tar_file),
+        "tar_bytes": tar_file.stat().st_size,
+        "summary_filename": summary_file.name,
+        "summary_sha256": sha256_file(summary_file),
+    }
+    tmp_sentinel = sentinel.with_suffix(".SUCCESS.part")
+    tmp_sentinel.write_text(json.dumps(payload, indent=2) + "\n")
+    os.replace(tmp_sentinel, sentinel)
+    logger.info(f"✓ Wrote SUCCESS sentinel: {sentinel}")
+    return sentinel
 
 def _remove_reformatted_file(query_name: str, output_base: Path, logger) -> None:
     reformatted_file = output_base / f"{query_name}_reformatted.fna"

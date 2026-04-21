@@ -5,7 +5,8 @@ A bioinformatics tool for assigning taxonomy to giant virus contigs
 or metagenome assembled genomes (GVMAGs).
 """
 
-__version__ = "1.4.2"
+from src.__version__ import __version__
+
 __author__ = "NeLLi Team"
 
 # Core functionality imports

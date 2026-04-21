@@ -34,7 +34,7 @@ class GeneticCodeOptimizer:
             threads: Total threads available (defaults to CPU count)
         """
         self.database_path = database_path
-        self.hmm_file = str(database_path / "models" / "combined.hmm")
+        self.hmm_file = str(database_path / "hmm" / "combined.hmm")
         self.threads = threads or multiprocessing.cpu_count()
 
     def run_gene_calling_for_code(
@@ -242,64 +242,88 @@ class GeneticCodeOptimizer:
             "GCperc": stats[2] if len(stats) > 2 else 0.0,
         }
 
+    # Lower rank = preferred. Standard codes (11, 1, 4) beat meta (0),
+    # which in turn beats the exotic codes (6, 15, 29, 106, 129). The
+    # previous tiebreaker used ``-abs(code - 11)`` which incorrectly ranked
+    # 15 ahead of 4 because their absolute distances happen to coincide.
+    _CODE_PREFERENCE_RANK = {
+        11: 0,
+        1: 1,
+        4: 2,
+        0: 3,
+        6: 4,
+        15: 5,
+        29: 6,
+        106: 7,
+        129: 8,
+    }
+
+    #: Minimum absolute improvement over meta required to switch to a
+    #: non-meta code. The previous 5% relative margin allowed noise-driven
+    #: switches to exotic codes on fragmented bins.
+    _COMPLETE_HITS_ABSOLUTE_MARGIN = 2
+    #: Minimum relative improvement over meta on ``avg_best_hit_score``
+    #: required to override meta when ``complete_hits`` tie. Raised from
+    #: 5% to 10% so a small noise fluctuation cannot flip the code call.
+    _SCORE_RELATIVE_MARGIN = 1.10
+
+    def _score_key(self, code: int, metrics: Dict) -> Tuple[int, float, float, int]:
+        """Ranking key: (complete_hits, avg_best_hit_score, coding_density,
+        inverted preference rank). Sorted descending, higher is better."""
+        rank = self._CODE_PREFERENCE_RANK.get(code, 99)
+        return (
+            metrics["complete_hits"],
+            round(metrics["avg_best_hit_score"], 2),
+            round(metrics["coding_density"], 4),
+            -rank,
+        )
+
     def select_best_code(
         self, code_results: Dict[int, Dict], genetic_codes: List[int]
     ) -> Tuple[int, Dict]:
         """
-        Select the best genetic code using the same logic as opgecall.py.
+        Select the best genetic code with a deterministic preference map.
+
+        Primary sort is by ``complete_hits``, then ``avg_best_hit_score``,
+        then ``coding_density``, with the ``_CODE_PREFERENCE_RANK`` map as
+        the final tiebreaker so standard codes (11, 1, 4) always beat
+        exotic codes (6, 15, 29, 106, 129) given otherwise equal metrics.
+
+        When meta (code 0) is available, the winning non-meta candidate
+        must also clear an absolute margin over meta: either at least
+        ``_COMPLETE_HITS_ABSOLUTE_MARGIN`` extra complete hits OR at least
+        ``_SCORE_RELATIVE_MARGIN`` higher ``avg_best_hit_score``. Without
+        one of those margins the selector falls back to meta, so
+        noise-driven differences on fragmented bins cannot flip the code
+        to 106 / 129.
 
         Returns:
             Tuple of (best_code, best_metrics)
         """
-        # Get meta coding density if available
-        meta_coding_density = 0.0
-        if 0 in code_results:
-            meta_coding_density = code_results[0]["coding_density"]
+        if not code_results:
+            raise ValueError("select_best_code called with no per-code metrics")
 
-        # Apply selection logic from opgecall.py
-        if meta_coding_density > 0 and 0 in code_results:
-            # Start with meta as baseline
-            best_code = 0
-            best_metrics = code_results[0]
+        ranked = sorted(
+            code_results.items(),
+            key=lambda item: self._score_key(item[0], item[1]),
+            reverse=True,
+        )
+        best_code, best_metrics = ranked[0]
 
-            # Compare each code against current best
-            for code in genetic_codes:
-                if code == 0 or code not in code_results:
-                    continue
-
-                metrics = code_results[code]
-
-                # Selection criteria (in order of priority):
-                # 1. More complete hits
-                # 2. Same complete hits but at least 5% higher average best hit score than meta
-                # 3. Same complete hits but at least 5% better coding density than meta
-                if (
-                    metrics["complete_hits"] > best_metrics["complete_hits"]
-                    or (
-                        metrics["complete_hits"] == best_metrics["complete_hits"]
-                        and metrics["avg_best_hit_score"]
-                        > code_results[0]["avg_best_hit_score"] * 1.05
-                    )
-                    or (
-                        metrics["complete_hits"] == best_metrics["complete_hits"]
-                        and metrics["coding_density"] > meta_coding_density * 1.05
-                    )
-                ):
-
-                    best_code = code
-                    best_metrics = metrics
-
-        else:
-            # No meta baseline - select by complete hits, then score, then coding density
-            best_code = max(
-                code_results.keys(),
-                key=lambda c: (
-                    code_results[c]["complete_hits"],
-                    code_results[c]["avg_best_hit_score"],
-                    code_results[c]["coding_density"],
-                ),
+        # If meta is present and the top-ranked candidate is a non-meta
+        # code, require an absolute margin over meta before overriding it.
+        if best_code != 0 and 0 in code_results:
+            meta = code_results[0]
+            passes_hits_margin = (
+                best_metrics["complete_hits"]
+                >= meta["complete_hits"] + self._COMPLETE_HITS_ABSOLUTE_MARGIN
             )
-            best_metrics = code_results[best_code]
+            passes_score_margin = best_metrics[
+                "avg_best_hit_score"
+            ] >= meta["avg_best_hit_score"] * self._SCORE_RELATIVE_MARGIN
+            if not (passes_hits_margin or passes_score_margin):
+                best_code = 0
+                best_metrics = meta
 
         return best_code, best_metrics
 

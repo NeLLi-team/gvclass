@@ -11,24 +11,39 @@ import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Any, Dict, Tuple
 
 import pandas as pd
 from joblib import load
 
 logger = logging.getLogger(__name__)
 
-CONFIG_FILE = "novelty_completeness_config.json"
-TIERS_FILE = "novelty_strategy2_tiers.tsv"
-BASELINES_FILE = "novelty_strategy2_baselines.tsv"
-MODEL_METADATA_FILE = "novelty_strategy3_model_metadata.tsv"
-MODEL_BUNDLE_FILE = "novelty_strategy3_models.joblib"
+CONFIG_FILE = "completeness/config.json"
+TIERS_FILE = "completeness/tiers.tsv"
+BASELINES_FILE = "completeness/baselines.tsv"
+MODEL_METADATA_FILE = "completeness/model_metadata.tsv"
+MODEL_BUNDLE_FILE = "completeness/model.joblib"
 
 OOD_STRICT_FLAGS = {
     "unassigned",
     "no_informative_markers",
     "zero_informative_hits",
+    "r2_below_gate",
 }
+
+#: R² thresholds for the Phase 3.3 gate on the novelty-aware regressor.
+#:
+#: * ``r2_holdout < R2_ADVISORY_FLOOR`` — the regressor is worse than a
+#:   trivial baseline; surface the strategy-2 tier score as the primary
+#:   estimate, emit the ML score as ``estimated_completeness_advisory``
+#:   only, and tag the record with OOD flag ``r2_below_gate``.
+#: * ``R2_ADVISORY_FLOOR <= r2_holdout < R2_HIGH_QUALITY`` — surface the ML
+#:   estimate but label quality as ``moderate``.
+#: * ``r2_holdout >= R2_HIGH_QUALITY`` — quality ``high``.
+#: * missing metadata — fall back to strategy-2 tiers with quality
+#:   ``advisory_only`` and an OOD flag.
+R2_ADVISORY_FLOOR = 0.5
+R2_HIGH_QUALITY = 0.7
 
 
 @dataclass(frozen=True)
@@ -351,6 +366,7 @@ class NoveltyAwareCompletenessScorer:
         )
 
         validation_mode = "fallback"
+        ml_prediction_raw: float | None = None
         prediction = float(strategy2_norm)
         model = self.models.get(order_tax)
         meta = self.model_metadata.get(order_tax, {})
@@ -373,7 +389,8 @@ class NoveltyAwareCompletenessScorer:
                 "group_is_family": 1.0 if group_def.level == "family" else 0.0,
             }
             X = pd.DataFrame([{name: features.get(name, 0.0) for name in self.feature_names}])
-            prediction = float(model.predict(X)[0])
+            ml_prediction_raw = float(model.predict(X)[0])
+            prediction = ml_prediction_raw
 
         bounded = max(0.0, min(100.0, prediction))
         final_score = self.apply_ood_cap(
@@ -385,22 +402,122 @@ class NoveltyAwareCompletenessScorer:
             baseline_n_refs=int(baseline_n_refs),
         )
         novelty_score = round(final_score, 2)
-        estimated_score = strategy1_score if selected_mode == "legacy" else novelty_score
-        estimated_strategy = "order_baseline_ratio_v1" if selected_mode == "legacy" else "novelty_aware_v1"
 
-        return {
+        # Phase 3.3: gate the ML estimate on ``r2_holdout``. Below the
+        # advisory floor we do NOT surface the ML prediction as the primary
+        # estimate — the regressor is statistically no better than
+        # strategy-2 tiers for this order. Surface the ML score as an
+        # advisory column instead so users who trust it can still read it.
+        r2_raw = meta.get("r2_holdout")
+        try:
+            if r2_raw in (None, ""):
+                r2_holdout = None
+            else:
+                r2_holdout = float(r2_raw)
+                # NaN (from "nan" / "NaN" literals in the TSV or a failed
+                # training run) must be treated as missing, not as a
+                # finite number that falls through to the high-quality
+                # branch (Codex audit).
+                import math as _math
+
+                if _math.isnan(r2_holdout):
+                    r2_holdout = None
+        except (TypeError, ValueError):
+            r2_holdout = None
+
+        if model is None:
+            # No ML regressor for this order at all.
+            primary_score = float(strategy2_norm)
+            primary_strategy = "strategy2_no_ml_profile"
+            quality = "advisory_only"
+            advisory_score = None
+            ood_augmented = str(support_metrics["ood_flag"])
+        elif r2_holdout is None:
+            # Model present but no metadata — trust the ML score but flag
+            # it as advisory-only since we cannot verify hold-out quality.
+            primary_score = novelty_score
+            primary_strategy = "novelty_aware_v1"
+            quality = "advisory_only"
+            advisory_score = (
+                round(float(ml_prediction_raw), 2)
+                if ml_prediction_raw is not None
+                else None
+            )
+            ood_augmented = str(support_metrics["ood_flag"])
+        elif r2_holdout < R2_ADVISORY_FLOOR:
+            # Below the hard gate — ML is worse than strategy-2 in holdout.
+            primary_score = float(strategy2_norm)
+            primary_strategy = "strategy2_r2_below_gate"
+            quality = "advisory_only"
+            advisory_score = (
+                round(float(ml_prediction_raw), 2)
+                if ml_prediction_raw is not None
+                else None
+            )
+            ood_augmented = self._augment_ood_flag(
+                support_metrics["ood_flag"], "r2_below_gate"
+            )
+        elif r2_holdout < R2_HIGH_QUALITY:
+            primary_score = novelty_score
+            primary_strategy = "novelty_aware_v1"
+            quality = "moderate"
+            advisory_score = (
+                round(float(ml_prediction_raw), 2)
+                if ml_prediction_raw is not None
+                else None
+            )
+            ood_augmented = str(support_metrics["ood_flag"])
+        else:
+            primary_score = novelty_score
+            primary_strategy = "novelty_aware_v1"
+            quality = "high"
+            advisory_score = (
+                round(float(ml_prediction_raw), 2)
+                if ml_prediction_raw is not None
+                else None
+            )
+            ood_augmented = str(support_metrics["ood_flag"])
+
+        estimated_score = (
+            strategy1_score if selected_mode == "legacy" else primary_score
+        )
+        estimated_strategy = (
+            "order_baseline_ratio_v1" if selected_mode == "legacy" else primary_strategy
+        )
+
+        result: Dict[str, Any] = {
             "order_completeness_v2": novelty_score,
             "order_completeness_v2_strategy": "novelty_aware_v1",
             "order_completeness_v2_strategy2_raw": round(float(tier_scores["strategy2_raw"]), 2),
             "order_completeness_v2_strategy2_normalized": round(float(strategy2_norm), 2),
             "order_completeness_v2_support_score": round(float(support_metrics["support_score"]), 2),
-            "order_completeness_v2_ood_flag": str(support_metrics["ood_flag"]),
+            "order_completeness_v2_ood_flag": ood_augmented,
             "order_completeness_v2_reference_group": f"{group_def.level}:{group_def.name}",
             "order_completeness_v2_validation_mode": validation_mode,
             "order_completeness_v2_informative_fraction": round(float(support_metrics["informative_fraction"]), 2),
             "estimated_completeness": round(float(estimated_score), 2),
             "estimated_completeness_strategy": estimated_strategy,
+            "estimated_completeness_quality": quality,
+            "estimated_completeness_r2_holdout": (
+                round(r2_holdout, 4) if r2_holdout is not None else ""
+            ),
+            "estimated_completeness_advisory": (
+                advisory_score if advisory_score is not None else ""
+            ),
         }
+        return result
+
+    @staticmethod
+    def _augment_ood_flag(current: str, additional: str) -> str:
+        """Merge ``additional`` into the existing ood_flag string without
+        losing the previous flag. Flags are comma-separated for downstream
+        consumers that parse them."""
+        current = str(current or "").strip()
+        if not current or current == "none":
+            return additional
+        if additional in current.split(","):
+            return current
+        return f"{current},{additional}"
 
 
 def create_novelty_completeness_scorer(database_path: Path) -> NoveltyAwareCompletenessScorer:

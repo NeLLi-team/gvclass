@@ -95,8 +95,25 @@ class InputValidator:
         return filename
 
     @classmethod
+    def _infer_fasta_type_from_content(cls, sequences) -> str:
+        """Return ``'fna'`` or ``'faa'`` based on the alphabet of the first
+        informative sequence. Used for extension-agnostic ``.fasta``/``.fas``
+        files so their contents actually go through DNA/protein alphabet
+        validation rather than bypassing ``_validate_sequence_record``."""
+        for record in sequences:
+            seq = str(record.seq).upper()
+            if not seq:
+                continue
+            is_dna_like = set(seq) <= cls.VALID_DNA_CHARS
+            return "fna" if is_dna_like else "faa"
+        return "fna"
+
+    @classmethod
     def validate_sequence_file(
-        cls, filepath: Union[str, Path], file_type: Optional[str] = None
+        cls,
+        filepath: Union[str, Path],
+        file_type: Optional[str] = None,
+        allow_short: bool = False,
     ) -> Path:
         """
         Validate sequence file format and content.
@@ -104,6 +121,11 @@ class InputValidator:
         Args:
             filepath: Path to sequence file
             file_type: Expected file type ('fna' or 'faa')
+            allow_short: When False (default) aggregate nucleotide files
+                shorter than ``MIN_SEQUENCE_LENGTH`` raise ``ValidationError``
+                instead of emitting a warning. ``--contigs`` mode passes
+                ``True`` so per-contig inputs are governed by
+                ``pipeline.contigs_min_length`` instead.
 
         Returns:
             Validated Path object
@@ -172,33 +194,57 @@ class InputValidator:
                 value=0,
             )
 
-        # Determine file type if not provided
+        # Determine file type if not provided. ``.fasta``/``.fas`` files
+        # previously fell through to an extension-based branch that skipped
+        # DNA/protein validation entirely (Codex-audit finding). Now we
+        # always resolve to a concrete ``fna``/``faa`` type by peeking at
+        # the first informative sequence.
         if file_type is None:
-            file_type = path.suffix.lower().replace(".", "")
-            if file_type == "fas" or file_type == "fasta":
-                # Need to guess based on content
-                file_type = None
+            suffix_type = path.suffix.lower().replace(".", "")
+            if suffix_type in ("fas", "fasta"):
+                file_type = cls._infer_fasta_type_from_content(sequences)
+            else:
+                file_type = suffix_type
 
         # Validate individual sequences
         for i, record in enumerate(sequences):
             cls._validate_sequence_record(
-                record, i + 1, file_type or path.suffix.lower().replace(".", "")
+                record, i + 1, file_type, allow_short=allow_short
             )
 
-        # Check total sequence length (only for nucleotide sequences)
-        if path.suffix.lower() == ".fna":
+        # Check total sequence length for nucleotide inputs. Hard-fail the
+        # run unless the caller opted into ``allow_short`` (for example
+        # because ``--contigs`` is supplying per-contig inputs whose
+        # effective floor is controlled by ``pipeline.contigs_min_length``).
+        if file_type == "fna":
             total_length = sum(len(seq.seq) for seq in sequences)
             if total_length < cls.MIN_SEQUENCE_LENGTH:
-                error_handler.log_warning(
-                    f"Total sequence length ({total_length} bp) is below recommended minimum ({cls.MIN_SEQUENCE_LENGTH} bp)",
-                    context={"file": str(filepath), "total_length": total_length},
+                message = (
+                    f"Total sequence length ({total_length} bp) is below the "
+                    f"minimum ({cls.MIN_SEQUENCE_LENGTH} bp) for "
+                    f"{filepath}. Pass --allow-short to override this gate."
                 )
+                if allow_short:
+                    error_handler.log_warning(
+                        message,
+                        context={"file": str(filepath), "total_length": total_length},
+                    )
+                else:
+                    raise ValidationError(
+                        message,
+                        field="sequence_length",
+                        value=total_length,
+                    )
 
         return path
 
     @classmethod
     def _validate_sequence_record(
-        cls, record: SeqRecord, seq_num: int, file_type: Optional[str] = None
+        cls,
+        record: SeqRecord,
+        seq_num: int,
+        file_type: Optional[str] = None,
+        allow_short: bool = False,
     ) -> None:
         """
         Validate individual sequence record.
@@ -236,7 +282,10 @@ class InputValidator:
                 value=seq_length,
             )
 
-        # Only check minimum length for nucleotide sequences
+        # Only check minimum length for nucleotide sequences. Per-record
+        # length is still a soft warning (a single short contig in a
+        # multi-contig FNA is normal); the aggregate hard-fail lives in
+        # ``validate_sequence_file`` where it can also honour allow_short.
         if file_type == "fna":
             if seq_length < cls.MIN_SEQUENCE_LENGTH:
                 error_handler.log_warning(
@@ -251,6 +300,7 @@ class InputValidator:
                     f"Protein sequence {seq_num} ({record.id}) is shorter than recommended minimum ({seq_length} aa < {min_protein_length} aa)",
                     context={"sequence_id": record.id, "length": seq_length},
                 )
+        _ = allow_short
 
         # Validate sequence content based on type
         seq_str = str(record.seq).upper()
@@ -274,6 +324,10 @@ class InputValidator:
                     field="sequence_content",
                     value=sorted(invalid_chars),
                 )
+        # ``.fasta``/``.fas`` files resolved to a concrete file_type above;
+        # any remaining unknown type here means the caller invoked us with
+        # an unrecognized extension, which earlier validation already
+        # rejected. Guard against future regressions.
 
     @classmethod
     def validate_directory(
@@ -591,18 +645,30 @@ class InputValidator:
         return method
 
     @classmethod
-    def validate_query_directory(cls, query_dir: Union[str, Path]) -> Path:
+    def validate_query_directory(
+        cls,
+        query_dir: Union[str, Path],
+        allow_short: bool = False,
+    ) -> Path:
         """
         Validate query directory and its contents.
 
         Args:
             query_dir: Path to query directory
+            allow_short: Forwarded to :meth:`validate_sequence_file` so
+                ``--contigs`` and ``--allow-short`` runs can opt out of the
+                aggregate 20 kb minimum.
 
         Returns:
             Validated Path object
 
         Raises:
-            ValidationError: If directory or contents are invalid
+            ValidationError: If directory or contents are invalid. The
+                previous implementation swallowed per-file
+                ``ValidationError`` into ``log_warning`` and silently
+                proceeded, which allowed malformed FASTA to reach the
+                downstream pipeline. The Codex audit required this to be
+                fail-closed.
         """
         dir_path = cls.validate_directory(query_dir, must_exist=True)
 
@@ -618,15 +684,10 @@ class InputValidator:
                 value=str(query_dir),
             )
 
-        # Validate each file
-        for file_path in valid_files:
-            try:
-                cls.validate_sequence_file(file_path)
-            except ValidationError as e:
-                error_handler.log_warning(
-                    f"Invalid sequence file found: {file_path}",
-                    context={"file": str(file_path), "error": str(e)},
-                )
+        # Validate each file — fail-closed on the first invalid file so
+        # bad inputs do not reach the pipeline silently.
+        for file_path in sorted(valid_files):
+            cls.validate_sequence_file(file_path, allow_short=allow_short)
 
         return dir_path
 

@@ -15,7 +15,7 @@ def main():
 
     # Read combined_old.hmm
     print("\n1. Reading combined_old.hmm...")
-    with pyhmmer.plan7.HMMFile("resources/models/combined_old.hmm") as f:
+    with pyhmmer.plan7.HMMFile("resources/hmm/combined_old.hmm") as f:
         models_old = list(f)
     print(f"   ✅ Read {len(models_old)} models")
     all_models.extend(models_old)
@@ -30,7 +30,7 @@ def main():
     print(f"\n3. Total models to write: {len(all_models)}")
 
     # Write combined file
-    output_file = "resources/models/combined.hmm"
+    output_file = "resources/hmm/combined.hmm"
     print(f"\n4. Writing to {output_file}...")
 
     with open(output_file, "wb") as f:

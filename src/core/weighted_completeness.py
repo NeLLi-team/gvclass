@@ -401,7 +401,7 @@ def create_weighted_calculator(database_path: Path) -> WeightedCompletenessCalcu
     Returns:
         Configured WeightedCompletenessCalculator instance
     """
-    marker_stats_path = database_path / "marker_stats.tsv"
+    marker_stats_path = database_path / "markers" / "stats.tsv"
 
     return WeightedCompletenessCalculator(
         marker_stats_path=marker_stats_path,

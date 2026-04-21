@@ -16,10 +16,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+from src.__version__ import __version__ as _GVCLASS_VERSION
 from src.bin.cli_display import print_banner, print_configuration
 from src.bin.progress_monitor import ResourceMonitor
 
-SOFTWARE_VERSION = "v1.4.2"
+SOFTWARE_VERSION = f"v{_GVCLASS_VERSION}"
 PLAIN_OUTPUT_ENV = "GVCLASS_PLAIN_OUTPUT"
 DATABASE_PATH_ENV = "GVCLASS_DB"
 TWO_DECIMAL_SUMMARY_COLUMNS = {
@@ -35,6 +36,7 @@ TWO_DECIMAL_SUMMARY_COLUMNS = {
     "order_completeness_v2_support_score",
     "order_completeness_v2_informative_fraction",
     "estimated_completeness",
+    "estimated_completeness_advisory",
     "contamination_score_v1",
     "contamination_cellular_signal_v1",
     "contamination_phage_signal_v1",
@@ -125,12 +127,20 @@ class PipelineContext:
     workers: WorkerPlan
 
 
+#: FASTA extensions (nucleotide + protein) that GVClass accepts as query
+#: inputs. ``.fasta`` / ``.fas`` are routed through content-alphabet
+#: inference in :class:`InputValidator` so they end up on one of the
+#: canonical branches at discovery time.
+_QUERY_FILE_EXTENSIONS = ("*.fna", "*.faa", "*.fasta", "*.fas")
+
+
 def count_query_files(directory: Path) -> int:
     if not directory.exists():
         return 0
-    fna_files = list(directory.glob("*.fna"))
-    faa_files = list(directory.glob("*.faa"))
-    return len(fna_files) + len(faa_files)
+    total = 0
+    for pattern in _QUERY_FILE_EXTENSIONS:
+        total += len(list(directory.glob(pattern)))
+    return total
 
 
 def _add_core_arguments(parser: argparse.ArgumentParser) -> None:
@@ -201,6 +211,15 @@ def _add_mode_arguments(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="Resume from previous run, skipping completed queries",
     )
+    parser.add_argument(
+        "--allow-short",
+        action="store_true",
+        help=(
+            "Accept input FNA files shorter than the 20 kb minimum. "
+            "Use for per-contig runs (often paired with --contigs) or for "
+            "exploratory runs on short inputs."
+        ),
+    )
 
 
 def _add_cluster_arguments(parser: argparse.ArgumentParser) -> None:
@@ -247,10 +266,10 @@ def load_config(config_file: str, repo_dir: Path, output: CliOutput):
     default_config = {
         "database": {
             "path": str(repo_dir / "resources"),
-            "download_url": "https://zenodo.org/records/18926264/files/resources_v1_4_0.tar.gz?download=1",
-            "download_version": "v1.4.0",
-            "download_sha256": "95e2d75b5229a33f1910e16849fc067f3a2f55db5d12fbc25fb593aa61d9f3da",
-            "expected_size": 1738,
+            "download_url": "https://zenodo.org/records/19674504/files/resources_v1_5_0.tar.gz?download=1",
+            "download_version": "v1.5.0",
+            "download_sha256": "5357d96d99aa1eaf4b396ef701ed4c3b22d9015f79b7ae6c6be354c897704c80",
+            "expected_size": 1750,
         },
         "pipeline": {
             "tree_method": "fasttree",
@@ -346,7 +365,12 @@ def resolve_sensitive_mode(args, config) -> bool:
 def resolve_completeness_mode(args, config) -> str:
     if args.completeness_mode:
         return args.completeness_mode
-    return config["pipeline"].get("completeness_mode", "legacy")
+    # Align the missing-key fallback with the documented default_config
+    # ("novelty-aware" on line ~258). The previous "legacy" fallback meant
+    # users with a config file that happened to omit completeness_mode would
+    # silently get legacy behavior while users with no config file got
+    # novelty-aware — two "defaults" that quietly disagreed.
+    return config["pipeline"].get("completeness_mode", "novelty-aware")
 
 
 def resolve_contigs_min_length(config) -> int:
@@ -569,14 +593,27 @@ def check_and_setup_database(db_path: Path, config, output: CliOutput) -> bool:
 
 
 def count_resume_skips(output_dir: Path) -> int:
-    summary_files = set(
-        path.name.replace(".summary.tab", "")
+    """Count queries that resume will skip.
+
+    The v1.4.3 SUCCESS sentinel is the primary marker; pre-1.4.3 runs
+    still count via the legacy summary+tar intersection so the CLI's pre-run
+    preview matches the actual resume behavior in
+    :func:`src.pipeline.parallel_runner._query_is_resume_complete`.
+    """
+    sentinel_names = {
+        path.name.removesuffix(".SUCCESS")
+        for path in output_dir.glob("*.SUCCESS")
+    }
+    summary_names = {
+        path.name.removesuffix(".summary.tab")
         for path in output_dir.glob("*.summary.tab")
-    )
-    tar_files = set(
-        path.name.replace(".tar.gz", "") for path in output_dir.glob("*.tar.gz")
-    )
-    return len(summary_files & tar_files)
+    }
+    tar_names = {
+        path.name.removesuffix(".tar.gz")
+        for path in output_dir.glob("*.tar.gz")
+    }
+    legacy_names = (summary_names & tar_names) - sentinel_names
+    return len(sentinel_names) + len(legacy_names)
 
 
 def calculate_worker_plan(args, n_queries: int, threads: int) -> WorkerPlan:
@@ -665,8 +702,8 @@ def _base_prefect_command(
     python_exe: str, pixi_cmd: Optional[str], use_pixi_run: bool
 ) -> list[str]:
     if use_pixi_run and pixi_cmd:
-        return [pixi_cmd, "run", "python", "-m", "src.bin.gvclass_prefect"]
-    return [python_exe, "-m", "src.bin.gvclass_prefect"]
+        return [pixi_cmd, "run", "python", "-m", "src.bin.gvclass_runner"]
+    return [python_exe, "-m", "src.bin.gvclass_runner"]
 
 
 def _append_optional_pipeline_flags(
@@ -690,6 +727,8 @@ def _append_optional_pipeline_flags(
         cmd.append("--verbose")
     if args.resume:
         cmd.append("--resume")
+    if getattr(args, "allow_short", False):
+        cmd.append("--allow-short")
 
 
 def build_pipeline_command(
@@ -729,7 +768,16 @@ def build_pipeline_command(
     return cmd
 
 
-def build_runtime_env(repo_dir: Path):
+def build_runtime_env(repo_dir: Path, context: Optional[PipelineContext] = None):
+    """Build the environment for the Prefect subprocess.
+
+    When ``context`` is provided, the per-marker thread budget is clamped at
+    the process level by setting ``OMP_NUM_THREADS`` / ``OPENBLAS_NUM_THREADS``
+    / ``MKL_NUM_THREADS`` / ``NUMEXPR_NUM_THREADS``. Without this clamp each
+    inner library (``pyhmmer``, ``pyswrd``, ``pyfamsa``, NumPy/BLAS) would
+    independently spawn up to ``threads_per_worker`` threads, leading to
+    heavy oversubscription on 64+ core hosts.
+    """
     env = os.environ.copy()
     existing_pythonpath = env.get("PYTHONPATH", "")
     repo_str = str(repo_dir)
@@ -739,6 +787,16 @@ def build_runtime_env(repo_dir: Path):
     else:
         env["PYTHONPATH"] = repo_str
     env["PYTHONWARNINGS"] = "ignore"
+
+    if context is not None:
+        # Half of ``threads_per_worker`` mirrors the per-marker thread cap
+        # applied inside the engine (see _calculate_marker_threading).
+        per_marker_threads = str(max(1, context.workers.threads_per_worker // 2))
+        env.setdefault("OMP_NUM_THREADS", per_marker_threads)
+        env.setdefault("OPENBLAS_NUM_THREADS", per_marker_threads)
+        env.setdefault("MKL_NUM_THREADS", per_marker_threads)
+        env.setdefault("NUMEXPR_NUM_THREADS", per_marker_threads)
+
     return env
 
 
@@ -1007,7 +1065,7 @@ def build_runtime_command(
         pixi_cmd=pixi_cmd,
         use_pixi_run=use_pixi_run,
     )
-    return cmd, build_runtime_env(repo_dir)
+    return cmd, build_runtime_env(repo_dir, context=context)
 
 
 def execute_pipeline_command(
