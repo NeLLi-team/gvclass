@@ -76,7 +76,7 @@ def test_example_summary_matches_golden_fixture(tmp_path: Path) -> None:
         f"Missing fixture at {FIXTURE_PATH}. Regenerate with:\n"
         "  pixi run gvclass example -o /tmp/gv -t 8 --mode-fast"
     )
-    if not (DB_PATH / "models" / "combined.hmm").exists():
+    if not (DB_PATH / "hmm" / "combined.hmm").exists():
         pytest.skip(
             f"GVClass database not installed at {DB_PATH}; "
             "set it up with `pixi run setup-db` before running this test."

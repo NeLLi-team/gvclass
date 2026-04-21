@@ -16,9 +16,10 @@ update
 resources/
 CLAUDE.md
 AGENTS.md
-docs/plans/
-docs/handoffs/
+docs/
 tasks/
+release_notes/
+scripts/rotate_contamination_model.py
 .pixi*
 .ruff*
 .claude*
@@ -57,3 +58,4 @@ src/bin/benchmark_v1_5_0.py
 tests/test_real_contig_contamination_benchmark.py
 tests/test_benchmark_v1_5_0_smoke.py
 benchmarking/contamination/v1_5_0/
+.codex

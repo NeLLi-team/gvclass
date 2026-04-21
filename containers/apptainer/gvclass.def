@@ -30,14 +30,13 @@ From: ghcr.io/prefix-dev/pixi:latest
         README.md \
         config \
         containers \
-        docs \
         example \
         gvclass \
         gvclass-a \
         images \
         pixi.lock \
         pixi.toml \
-        release_notes \
+        pyproject.toml \
         src
     do
         [ -e "$item" ] || continue
@@ -50,7 +49,7 @@ From: ghcr.io/prefix-dev/pixi:latest
     pixi install
     
     # Download the database if it doesn't exist
-    if [ ! -d "/opt/gvclass/resources/database" ] || [ ! -f "/opt/gvclass/resources/models/combined.hmm" ]; then
+    if [ ! -d "/opt/gvclass/resources/database" ] || [ ! -f "/opt/gvclass/resources/hmm/combined.hmm" ]; then
         echo "Downloading GVClass database..."
         pixi run python -c 'from src.utils.database_manager import DatabaseManager; DatabaseManager.setup_database("/opt/gvclass/resources")' || {
             echo "Failed to download database during build"
@@ -60,8 +59,10 @@ From: ghcr.io/prefix-dev/pixi:latest
 
     # Fix permissions on database files to make them readable
     chmod -R 755 /opt/gvclass/resources/database/ 2>/dev/null || true
-    chmod 644 /opt/gvclass/resources/*.tsv 2>/dev/null || true
-    chmod 644 /opt/gvclass/resources/*.tab 2>/dev/null || true
+    chmod 644 /opt/gvclass/resources/labels.tsv 2>/dev/null || true
+    chmod 644 /opt/gvclass/resources/markers/*.tsv /opt/gvclass/resources/markers/*.tab 2>/dev/null || true
+    chmod 644 /opt/gvclass/resources/completeness/*.tsv /opt/gvclass/resources/completeness/*.json 2>/dev/null || true
+    chmod 644 /opt/gvclass/resources/contamination/*.joblib /opt/gvclass/resources/contamination/*.yaml 2>/dev/null || true
     
     # Clean up pixi cache and staging directory
     pixi clean cache -y || true
@@ -83,11 +84,11 @@ From: ghcr.io/prefix-dev/pixi:latest
 
 %labels
     Author fschulz
-    Version 1.4.3
+    Version 1.5.0
     Description GVClass - Giant Virus Classification Pipeline with Pixi
 
 %help
-    GVClass Pipeline v1.4.3
+    GVClass Pipeline v1.5.0
     
     IMPORTANT: Input data must be bind-mounted!
     

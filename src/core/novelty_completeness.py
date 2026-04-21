@@ -18,11 +18,11 @@ from joblib import load
 
 logger = logging.getLogger(__name__)
 
-CONFIG_FILE = "novelty_completeness_config.json"
-TIERS_FILE = "novelty_strategy2_tiers.tsv"
-BASELINES_FILE = "novelty_strategy2_baselines.tsv"
-MODEL_METADATA_FILE = "novelty_strategy3_model_metadata.tsv"
-MODEL_BUNDLE_FILE = "novelty_strategy3_models.joblib"
+CONFIG_FILE = "completeness/config.json"
+TIERS_FILE = "completeness/tiers.tsv"
+BASELINES_FILE = "completeness/baselines.tsv"
+MODEL_METADATA_FILE = "completeness/model_metadata.tsv"
+MODEL_BUNDLE_FILE = "completeness/model.joblib"
 
 OOD_STRICT_FLAGS = {
     "unassigned",
