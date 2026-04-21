@@ -10,6 +10,12 @@ Covers:
 
 from __future__ import annotations
 
+import pytest
+
+from tests.conftest import skip_if_no_runtime_resources
+
+pytestmark = skip_if_no_runtime_resources()
+
 from collections import Counter, defaultdict
 from pathlib import Path
 from types import SimpleNamespace

@@ -249,6 +249,10 @@ class TestWeightedCompletenessCalculator:
 class TestFullSummarizerIntegration:
     """Test integration of weighted completeness with FullSummarizer."""
 
+    from tests.conftest import skip_if_no_runtime_resources
+
+    pytestmark = skip_if_no_runtime_resources()
+
     @pytest.fixture
     def temp_database_dir(self):
         """Create temporary database directory with required files."""

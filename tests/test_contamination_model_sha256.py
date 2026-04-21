@@ -14,6 +14,10 @@ from unittest.mock import patch
 
 import pytest
 
+from tests.conftest import skip_if_no_runtime_resources
+
+pytestmark = skip_if_no_runtime_resources()
+
 RESOURCES_DIR = Path(__file__).resolve().parents[1] / "resources"
 
 
@@ -95,8 +99,12 @@ def test_sensitive_mode_scorer_still_loads_model(tmp_path: Path) -> None:
 
 
 def test_rotate_contamination_model_script_prints_current_digest() -> None:
-    """The rotation helper must print the on-disk digest so maintainers can
-    update the code constant after retraining."""
+    """The rotation helper (when present) must print the on-disk digest so
+    maintainers can update the code constant after retraining.
+
+    The script is gitignored (maintainer-only tool), so on fresh checkouts the
+    file may be absent - skip cleanly in that case.
+    """
     import runpy
     import sys
     from io import StringIO
@@ -106,6 +114,12 @@ def test_rotate_contamination_model_script_prints_current_digest() -> None:
     script_path = (
         Path(__file__).resolve().parents[1] / "scripts" / "rotate_contamination_model.py"
     )
+    if not script_path.exists():
+        pytest.skip(
+            f"Maintainer-only rotation helper absent at {script_path}; "
+            "this script is gitignored so fresh checkouts will not have it."
+        )
+
     original_stdout, original_argv = sys.stdout, sys.argv
     sys.stdout = captured = StringIO()
     sys.argv = ["rotate_contamination_model.py", str(_bundled_model_path())]

@@ -11,6 +11,9 @@ import pytest
 from src.bin.gvclass_cli import CliOutput, combine_summary_files
 from src.core.summarize_full import FullSummarizer
 from src.pipeline.summary_writer import FINAL_SUMMARY_COLUMNS
+from tests.conftest import skip_if_no_runtime_resources
+
+pytestmark = skip_if_no_runtime_resources()
 
 
 def _write_minimal_database(db_path: Path) -> None:
