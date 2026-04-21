@@ -14,16 +14,22 @@ from src.pipeline.summary_writer import FINAL_SUMMARY_COLUMNS
 
 
 def _write_minimal_database(db_path: Path) -> None:
-    (db_path / "gvclassFeb26_labels.tsv").write_text("")
-    (db_path / "order_completeness.tab").write_text(
+    from tests.conftest import stage_db_resources
+
+    stage_db_resources(db_path, markers=False)
+    (db_path / "labels.tsv").write_text("")
+    (db_path / "markers").mkdir(exist_ok=True)
+    (db_path / "markers" / "order_completeness.tab").write_text(
         "Order\tOrthogroups\tAverage_Percent\tStd_Percent\n"
+    )
+    (db_path / "markers" / "stats.tsv").write_text(
+        "marker_name\torder_name\tpercent_genomes_with_marker\n"
     )
 
 
 @pytest.fixture
 def temp_database_dir(tmp_path: Path) -> Path:
     db_path = tmp_path / "db"
-    db_path.mkdir()
     _write_minimal_database(db_path)
     return db_path
 

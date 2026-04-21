@@ -1,42 +1,47 @@
-"""Regression tests for the Phase 1.4 SHA-256 gate on the bundled
-contamination model.
+"""Regression tests for the Phase 1.4 SHA-256 gate on the contamination model.
+
+v1.5.0 moved the bundled model out of ``src/bundled_models/`` into the runtime
+resources bundle at ``resources/contamination/model.joblib``. The scorer now
+resolves the path via ``database_path / CONTAMINATION_MODEL_FILE`` instead of
+``Path(__file__).resolve().parents[1] / "bundled_models"`` so that model
+rotation is a resources-tarball concern, not a Python-package concern.
 """
 
 from __future__ import annotations
 
-import importlib
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
+RESOURCES_DIR = Path(__file__).resolve().parents[1] / "resources"
+
 
 def _bundled_model_path() -> Path:
-    import src.core.contamination_scoring as mod
+    from src.core.contamination_scoring import CONTAMINATION_MODEL_FILE
 
-    return Path(mod.__file__).resolve().parents[1] / "bundled_models" / mod.CONTAMINATION_MODEL_FILE
+    return RESOURCES_DIR / CONTAMINATION_MODEL_FILE
 
 
 def test_bundled_model_sha256_matches_repo_tracked_constant() -> None:
-    """The constant must always match the bundled model that ships with the
-    source tree; drift between the two means the pipeline refuses to load the
-    model at runtime."""
+    """The code-level constant must match the on-disk digest in the resources
+    tree; drift means the pipeline refuses to load the model at runtime."""
     from src.core.contamination_scoring import CONTAMINATION_MODEL_SHA256
     from src.utils.common import sha256_file
 
     model_path = _bundled_model_path()
-    assert model_path.exists(), "Bundled contamination model is missing"
+    assert model_path.exists(), f"Contamination model missing at {model_path}"
     assert sha256_file(model_path) == CONTAMINATION_MODEL_SHA256
 
 
 def test_bundled_model_card_advertises_matching_sha256() -> None:
-    """The model card YAML must advertise the same digest as the code constant."""
+    """The model card YAML (beside the .joblib) must advertise the same digest."""
     import yaml
 
     from src.core.contamination_scoring import CONTAMINATION_MODEL_SHA256
 
     card_path = _bundled_model_path().with_suffix(".yaml")
-    assert card_path.exists(), "Model card contamination_model.yaml is missing"
+    assert card_path.exists(), f"Model card missing at {card_path}"
     card = yaml.safe_load(card_path.read_text())
     assert card["sha256"] == CONTAMINATION_MODEL_SHA256
 
@@ -44,80 +49,54 @@ def test_bundled_model_card_advertises_matching_sha256() -> None:
 def test_load_ml_model_raises_on_sha256_mismatch_and_never_reaches_joblib(
     tmp_path: Path,
 ) -> None:
-    """Any tampering with the bundle must fail-closed before ``joblib.load``.
+    """Any tampering with the bundle must fail-closed before ``joblib.load``."""
+    import shutil
 
-    Also asserts that ``joblib.load`` is never called when the digest check
-    fails — closes a TOCTOU regression where a pre-hash/post-load swap could
-    still reach the pickle deserializer.
-    """
-    import src.core.contamination_scoring as scoring
+    from src.core.contamination_scoring import (
+        CONTAMINATION_MODEL_FILE,
+        ContaminationScorer,
+    )
 
-    with patch(
-        "src.core.contamination_scoring.CONTAMINATION_MODEL_SHA256",
-        "deadbeef" * 8,
-    ), patch("joblib.load") as joblib_load:
+    # Point the scorer at a tmp database with a tampered model copy.
+    fake_db = tmp_path / "resources"
+    (fake_db / "contamination").mkdir(parents=True)
+    shutil.copyfile(
+        _bundled_model_path(), fake_db / CONTAMINATION_MODEL_FILE
+    )
+    # Overwrite the last byte to change the digest without touching the path.
+    target = fake_db / CONTAMINATION_MODEL_FILE
+    target.write_bytes(target.read_bytes() + b"X")
+
+    with patch("joblib.load") as joblib_load:
         with pytest.raises(RuntimeError, match="SHA-256 mismatch"):
-            scoring.ContaminationScorer(tmp_path)
-    # Critical invariant: the untrusted bytes must never reach joblib.load.
+            ContaminationScorer(fake_db)
     joblib_load.assert_not_called()
 
 
-def _redirect_bundled_model_to(tmp_dir: Path) -> Path:
-    """Copy the bundled contamination model into a sibling ``bundled_models``
-    directory under ``tmp_dir`` and return the faux
-    ``contamination_scoring.py`` file whose ``parents[1]`` points at
-    ``tmp_dir``.
-
-    The scorer resolves its bundled-model path via
-    ``Path(__file__).resolve().parents[1] / "bundled_models" / CONTAMINATION_MODEL_FILE``.
-    Pointing ``__file__`` at a file two directories deep lets each test
-    work on its own isolated tree without renaming the shared repo artefact
-    (which would race with concurrent pytest workers).
-    """
-    core_dir = tmp_dir / "src" / "core"
-    bundled_dir = tmp_dir / "src" / "bundled_models"
-    core_dir.mkdir(parents=True)
-    bundled_dir.mkdir(parents=True)
-    fake_scoring_module = core_dir / "contamination_scoring.py"
-    fake_scoring_module.write_text("# test redirect target\n")
-    return fake_scoring_module
-
-
 def test_load_ml_model_raises_when_bundled_file_missing(tmp_path: Path) -> None:
-    """If the bundled model is physically missing, construction must fail
-    loudly rather than silently degrading to ``ml_available=False``.
+    """If the model is physically missing under resources/contamination/, the
+    scorer must fail loudly rather than silently degrading."""
+    from src.core.contamination_scoring import ContaminationScorer
 
-    Uses an isolated ``tmp_path`` tree with no bundled model present so the
-    test never touches the shared repo artefact.
-    """
-    import src.core.contamination_scoring as scoring
-
-    fake_module = _redirect_bundled_model_to(tmp_path)
-    # Intentionally do NOT drop a joblib into bundled_dir.
-    with patch.object(scoring, "__file__", str(fake_module)):
-        with pytest.raises(RuntimeError, match="Contamination model not found"):
-            scoring.ContaminationScorer(tmp_path)
+    # tmp_path has no contamination/model.joblib → must raise.
+    with pytest.raises(RuntimeError, match="Contamination model not found"):
+        ContaminationScorer(tmp_path)
 
 
 def test_sensitive_mode_scorer_still_loads_model(tmp_path: Path) -> None:
-    """As of v1.4.3 the bundled contamination model is trained on
-    sensitive-mode features (see the model card YAML), so
-    ``sensitive_mode=True`` must NOT skip the load. Construction should
-    succeed with ``ml_available=True`` exactly as in the non-sensitive
-    path.
-    """
+    """Sensitive mode must NOT skip the load. Construction against the real
+    resources tree should succeed with ``ml_available=True``."""
     from src.core.contamination_scoring import ContaminationScorer
 
-    scorer = ContaminationScorer(tmp_path, sensitive_mode=True)
-
+    scorer = ContaminationScorer(RESOURCES_DIR, sensitive_mode=True)
     assert scorer.sensitive_mode is True
     assert scorer.ml_available is True
     assert scorer.ml_model is not None
 
 
 def test_rotate_contamination_model_script_prints_current_digest() -> None:
-    """The rotation helper must print the on-disk digest of the bundled file
-    so maintainers can update the code constant after retraining."""
+    """The rotation helper must print the on-disk digest so maintainers can
+    update the code constant after retraining."""
     import runpy
     import sys
     from io import StringIO
@@ -127,11 +106,9 @@ def test_rotate_contamination_model_script_prints_current_digest() -> None:
     script_path = (
         Path(__file__).resolve().parents[1] / "scripts" / "rotate_contamination_model.py"
     )
-    # Run the module-as-main in-process to inspect stdout without spawning
-    # a subprocess (keeps the test fast and deterministic).
     original_stdout, original_argv = sys.stdout, sys.argv
     sys.stdout = captured = StringIO()
-    sys.argv = ["rotate_contamination_model.py"]
+    sys.argv = ["rotate_contamination_model.py", str(_bundled_model_path())]
     try:
         with pytest.raises(SystemExit) as exc_info:
             runpy.run_path(str(script_path), run_name="__main__")
@@ -140,5 +117,4 @@ def test_rotate_contamination_model_script_prints_current_digest() -> None:
         sys.argv = original_argv
 
     assert exc_info.value.code == 0
-    out = captured.getvalue()
-    assert CONTAMINATION_MODEL_SHA256 in out
+    assert CONTAMINATION_MODEL_SHA256 in captured.getvalue()

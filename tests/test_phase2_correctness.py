@@ -24,12 +24,17 @@ from typing import Dict
 def _make_summarizer(tmp_path: Path):
     """Construct a FullSummarizer with a minimal on-disk database."""
     from src.core.summarize_full import FullSummarizer
+    from tests.conftest import stage_db_resources
 
     db = tmp_path / "db"
-    db.mkdir()
-    (db / "gvclassFeb26_labels.tsv").write_text("")
-    (db / "order_completeness.tab").write_text(
+    stage_db_resources(db, markers=False)
+    (db / "labels.tsv").write_text("")
+    (db / "markers").mkdir(exist_ok=True)
+    (db / "markers" / "order_completeness.tab").write_text(
         "Order\tOrthogroups\tAverage_Percent\tStd_Percent\n"
+    )
+    (db / "markers" / "stats.tsv").write_text(
+        "marker_name\torder_name\tpercent_genomes_with_marker\n"
     )
     return FullSummarizer(db)
 
