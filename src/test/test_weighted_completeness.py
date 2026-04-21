@@ -249,13 +249,21 @@ class TestWeightedCompletenessCalculator:
 class TestFullSummarizerIntegration:
     """Test integration of weighted completeness with FullSummarizer."""
 
+    from tests.conftest import skip_if_no_runtime_resources
+
+    pytestmark = skip_if_no_runtime_resources()
+
     @pytest.fixture
     def temp_database_dir(self):
         """Create temporary database directory with required files."""
+        from tests.conftest import stage_db_resources
+
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir)
+            stage_db_resources(db_path, markers=False)
 
-            # Create mock marker stats file
+            # Create v1.5.0 nested layout for marker + order files.
+            (db_path / "markers").mkdir()
             marker_stats = pd.DataFrame(
                 {
                     "marker_name": ["OG21", "OG22", "OG23"],
@@ -263,7 +271,7 @@ class TestFullSummarizerIntegration:
                     "percent_genomes_with_marker": [50.0, 75.0, 25.0],
                 }
             )
-            marker_stats.to_csv(db_path / "marker_stats.tsv", sep="\t", index=False)
+            marker_stats.to_csv(db_path / "markers" / "stats.tsv", sep="\t", index=False)
 
             # Create mock order completeness file
             order_comp = pd.DataFrame(
@@ -274,11 +282,11 @@ class TestFullSummarizerIntegration:
                     "Std_Percent": [5.0],
                 }
             )
-            order_comp.to_csv(db_path / "order_completeness.tab", sep="\t", index=False)
+            order_comp.to_csv(db_path / "markers" / "order_completeness.tab", sep="\t", index=False)
 
             # Create mock labels file
             labels_content = "genome1\tNCLDV|Class|TestOrder|Family|Genus|Species\n"
-            (db_path / "gvclassFeb26_labels.tsv").write_text(labels_content)
+            (db_path / "labels.tsv").write_text(labels_content)
 
             yield db_path
 
@@ -403,7 +411,8 @@ def test_factory_function():
     with tempfile.TemporaryDirectory() as temp_dir:
         db_path = Path(temp_dir)
 
-        # Create minimal marker stats file
+        # Create minimal marker stats file (v1.5.0 nested layout).
+        (db_path / "markers").mkdir()
         marker_stats = pd.DataFrame(
             {
                 "marker_name": ["test_marker"],
@@ -411,7 +420,7 @@ def test_factory_function():
                 "percent_genomes_with_marker": [50.0],
             }
         )
-        marker_stats.to_csv(db_path / "marker_stats.tsv", sep="\t", index=False)
+        marker_stats.to_csv(db_path / "markers" / "stats.tsv", sep="\t", index=False)
 
         calculator = create_weighted_calculator(db_path)
 

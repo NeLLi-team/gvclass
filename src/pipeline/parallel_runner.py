@@ -13,19 +13,28 @@ from src.utils.database_manager import DatabaseManager
 
 
 def validate_and_setup_task(
-    query_dir: str, output_dir: str, database_path: Optional[str] = None
+    query_dir: str,
+    output_dir: str,
+    database_path: Optional[str] = None,
+    allow_short: bool = False,
 ) -> Dict[str, Any]:
     """Validate inputs and setup directories."""
-    logger = logging.getLogger("gvclass_prefect")
+    logger = logging.getLogger("gvclass_runner")
     logger.info(f"Validating inputs - Query: {query_dir}, Output: {output_dir}")
-    query_path = InputValidator.validate_query_directory(query_dir)
+    query_path = InputValidator.validate_query_directory(
+        query_dir, allow_short=allow_short
+    )
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
     db_path = DatabaseManager.setup_database(database_path)
     logger.info(f"Using database at: {db_path}")
 
+    # InputValidator already accepts .fna / .faa / .fasta / .fas via
+    # alphabet inference, so enumerate the same set here — otherwise a
+    # directory of .fasta inputs would validate but yield zero queries
+    # (Codex-audit finding).
     query_files = []
-    for ext in [".fna", ".faa"]:
+    for ext in (".fna", ".faa", ".fasta", ".fas"):
         query_files.extend(query_path.glob(f"*{ext}"))
 
     logger.info(f"Found {len(query_files)} query files")
@@ -67,7 +76,7 @@ def process_query_task(
 
 def create_final_summary_task(results: List[Dict[str, Any]], output_dir: Path) -> Path:
     """Create the final summary file combining all results."""
-    logger = logging.getLogger("gvclass_prefect")
+    logger = logging.getLogger("gvclass_runner")
     logger.info(f"Creating final summary for {len(results)} queries")
     summary_tsv = write_final_summary_files(results, output_dir)
     summary_csv = output_dir / "gvclass_summary.csv"
@@ -117,6 +126,44 @@ def calculate_optimal_workers(
     return max(1, n_workers), max(min_threads_per_worker, threads_per_worker)
 
 
+def _query_is_resume_complete(output_path: Path, query_name: str, logger) -> bool:
+    """Return True when ``query_name`` is safe to skip under ``--resume``.
+
+    Preferred gate: a ``<query_name>.SUCCESS`` JSON sentinel (v1.4.3+).
+    Legacy fallback: the pre-1.4.3 ``<query_name>.summary.tab`` +
+    ``<query_name>.tar.gz`` combination, additionally validated with
+    ``tarfile.is_tarfile`` so a truncated archive from a crashed run is
+    not accepted. A single INFO log records the fallback so operators can
+    migrate runs by re-running without ``--resume``.
+    """
+    import tarfile
+
+    sentinel = output_path / f"{query_name}.SUCCESS"
+    if sentinel.exists():
+        return True
+
+    summary_file = output_path / f"{query_name}.summary.tab"
+    tar_file = output_path / f"{query_name}.tar.gz"
+    if not (summary_file.exists() and tar_file.exists()):
+        return False
+    try:
+        if not tarfile.is_tarfile(tar_file):
+            logger.warning(
+                f"Legacy resume fallback: tar file is malformed, re-processing {query_name}"
+            )
+            return False
+    except (OSError, tarfile.TarError) as exc:
+        logger.warning(
+            f"Legacy resume fallback: cannot verify {tar_file} ({exc}); re-processing {query_name}"
+        )
+        return False
+    logger.info(
+        f"Legacy resume fallback: accepting pre-v1.4.3 outputs for {query_name} "
+        "(no SUCCESS sentinel). Re-run without --resume to upgrade."
+    )
+    return True
+
+
 def _apply_resume_filter(config: Dict[str, Any], resume: bool, logger) -> None:
     if not resume:
         return
@@ -126,9 +173,7 @@ def _apply_resume_filter(config: Dict[str, Any], resume: bool, logger) -> None:
     skipped_count = 0
     for query_file in list(config["query_files"]):
         query_name = query_file.stem
-        summary_file = output_path / f"{query_name}.summary.tab"
-        tar_file = output_path / f"{query_name}.tar.gz"
-        if summary_file.exists() and tar_file.exists():
+        if _query_is_resume_complete(output_path, query_name, logger):
             logger.info(f"Skipping completed query: {query_name}")
             skipped_count += 1
         else:
@@ -260,15 +305,34 @@ def gvclass_flow(
     cluster_type: str = "local",
     cluster_config: Optional[Dict[str, Any]] = None,
     resume: bool = False,
+    allow_short: bool = False,
 ):
     """Main GVClass pipeline."""
-    logger = logging.getLogger("gvclass_prefect")
+    logger = logging.getLogger("gvclass_runner")
     logger.info("Validating inputs and setting up directories")
-    config = validate_and_setup_task(query_dir, output_dir, database_path)
+    config = validate_and_setup_task(
+        query_dir, output_dir, database_path, allow_short=allow_short
+    )
     _apply_resume_filter(config, resume, logger)
 
     n_queries = len(config["query_files"])
     logger.info(f"Found {n_queries} queries to process")
+
+    # When --resume is set and every query already has a SUCCESS sentinel (or a
+    # valid legacy summary+tar pair), we have nothing to process. Creating a
+    # ThreadPoolExecutor with max_workers=0 would raise ValueError, so short-
+    # circuit and emit the summary from whatever is already on disk.
+    if n_queries == 0:
+        logger.info(
+            "No queries remaining after resume filter; skipping parallel processing."
+        )
+        summary_file = create_final_summary_task([], config["output_path"])
+        logger.info(f"Pipeline completed! Results in: {config['output_path']}")
+        logger.info(f"Summary written to: {summary_file}")
+        _ = cluster_type
+        _ = cluster_config
+        return summary_file
+
     n_workers, threads_per_worker = _resolve_worker_distribution(
         n_queries, total_threads, max_workers, threads_per_worker
     )
@@ -304,47 +368,12 @@ def gvclass_flow(
     return summary_file
 
 
-# Deployment configurations for different environments
-def create_local_deployment():
-    """Create deployment for local execution."""
-    from prefect.deployments import Deployment
-
-    deployment = Deployment.build_from_flow(
-        flow=gvclass_flow,
-        name="gvclass-local",
-        parameters={
-            "cluster_type": "local",
-            "total_threads": 16,
-            "mode_fast": True,
-            "sensitive_mode": True,
-        },
-        tags=["gvclass", "local"],
-        description="GVClass pipeline for local execution",
-    )
-
-    return deployment
-
-
-
-def create_slurm_deployment():
-    """Create deployment for SLURM cluster execution."""
-    from prefect.deployments import Deployment
-
-    deployment = Deployment.build_from_flow(
-        flow=gvclass_flow,
-        name="gvclass-slurm",
-        parameters={
-            "cluster_type": "slurm",
-            "total_threads": 128,
-            "sensitive_mode": True,
-            "cluster_config": {
-                "queue": "normal",
-                "project": "gvclass",
-                "walltime": "08:00:00",
-            },
-        },
-        tags=["gvclass", "hpc", "slurm"],
-        description="GVClass pipeline for SLURM cluster execution",
-    )
-
-    return deployment
+# NOTE (v1.4.3 cleanup): the former create_local_deployment /
+# create_slurm_deployment helpers were removed. They imported
+# `prefect.deployments.Deployment`, were never wired to the CLI, and
+# were the only source of a live Prefect dependency in this module.
+# Renaming this file to `parallel_runner.py` (and the sibling CLI
+# wrapper to `gvclass_runner`) is deferred to v1.5.0 because the CLI
+# currently spawns `python -m src.bin.gvclass_runner` as a subprocess.
+# If/when we truly adopt Prefect (@flow / @task / retry / persistence)
+# file a follow-up issue.

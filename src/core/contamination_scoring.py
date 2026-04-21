@@ -30,7 +30,48 @@ GIANT_VIRUS_PREFIXES = {"NCLDV", "MIRUS", "MRYA"}
 CELLULAR_MODELS = set(BUSCO_MODELS + UNI56_MODELS)
 PHAGE_MODELS_SET = set(PHAGE_MODELS)
 
-CONTAMINATION_MODEL_FILE = "contamination_model.joblib"
+CONTAMINATION_MODEL_FILE = "contamination/model.joblib"
+
+# --- Per-contig taxonomic-purity classifier thresholds -----------------------
+#
+# See docs/plans/active/v1_4_3_contig_purity_contamination.md for the
+# justification of each value.
+#: Minimum number of cellular-leaning proteins on a single contig required
+#: before the per-contig classifier will entertain a `cellular_coherent`
+#: label. Below this, the contig is `ambiguous` regardless of purity.
+MIN_CELLULAR_MARKERS = 3
+#: Minimum fraction of cellular proteins on a contig that must agree on
+#: the same top-vote `(domain, order)` tuple for the contig to classify
+#: as `cellular_coherent`.
+PURITY_THRESHOLD = 0.6
+#: Minimum median BLAST identity across the contig's cellular hits.
+#: Genuine host-contig contamination sits at >= 70% identity to a single
+#: same-order donor; HGT-acquired viral genes drift below this floor.
+MIN_CELLULAR_IDENTITY = 70.0
+#: Below this count of marker-bearing proteins in a bin, the per-contig
+#: classifier is considered insufficient data; features emit at neutral
+#: values and the legacy `cellular_marker_count >= 2` rule governs the
+#: cellular trigger.
+MIN_MARKER_PROTEINS_FOR_FRACTION = 5
+#: Weak-attribution detection threshold. When the fraction of unique
+#: resolved contig ids over marker-bearing proteins meets or exceeds
+#: this value, every protein mapped to its own pseudo-contig and the
+#: per-contig classifier is suppressed.
+WEAK_ATTRIBUTION_UNIQUE_CONTIG_FRACTION = 0.8
+#: Expected SHA-256 digest of ``resources/contamination/model.joblib``.
+#:
+#: Keeping this as a Python constant rather than a committed sidecar file is
+#: intentional: the bundled model is loaded through ``joblib.load`` which is a
+#: pickle-based deserializer, so a malicious swap of the ``.joblib`` file is
+#: arbitrary code execution at runtime. A sidecar ``.sha256`` would be a
+#: single-file swap for the attacker; a code-level constant forces a ``.py``
+#: change that lands through code review.
+#:
+#: Rotate with ``scripts/rotate_contamination_model.py`` whenever the model is
+#: retrained.
+CONTAMINATION_MODEL_SHA256 = (
+    "4f56b567b0a057fdaabe66d45a71574814bda6bebf2bff7e29a76e37d7255ca9"
+)
 CONTAMINATION_MODEL_FEATURES = [
     "contamination_score_v1",
     "contamination_cellular_signal_v1",
@@ -48,6 +89,12 @@ CONTAMINATION_MODEL_FEATURES = [
     "suspicious_bp_fraction_v2",
     "suspicious_contig_count_v2",
     "estimated_completeness",
+    # Per-contig taxonomic-purity features (v1.4.3 Phase 2).
+    "cellular_coherent_contig_count",
+    "cellular_coherent_protein_fraction",
+    "cellular_lineage_purity_median",
+    "cellular_hit_identity_median",
+    "viral_bearing_contig_count",
 ]
 
 
@@ -65,9 +112,19 @@ class BlastHit:
 class ContaminationScorer:
     """Runtime rule-based contamination scorer with reusable feature extractors."""
 
-    def __init__(self, database_path: Path):
+    def __init__(self, database_path: Path, sensitive_mode: bool = False):
+        """Initialize the contamination scorer.
+
+        The bundled model is trained on sensitive-mode features (see the
+        model card YAML) so it can be applied under both sensitive and
+        non-sensitive runs. The ``sensitive_mode`` argument is retained
+        for forward compatibility and to let callers distinguish the two
+        regimes in logs / diagnostics, but the SHA-256-gated model load
+        happens unconditionally.
+        """
         self.database_path = database_path
-        self.labels_file = database_path / "gvclassFeb26_labels.tsv"
+        self.sensitive_mode = sensitive_mode
+        self.labels_file = database_path / "labels.tsv"
         self.labels = self._load_labels()
         self.ml_model = None
         self.ml_model_name = "hist_gbm"
@@ -103,29 +160,60 @@ class ContaminationScorer:
         return labels
 
     def _load_ml_model(self) -> None:
-        bundled_model_path = (
-            Path(__file__).resolve().parents[1] / "bundled_models" / CONTAMINATION_MODEL_FILE
-        )
-        candidate_paths = [bundled_model_path, self.database_path / CONTAMINATION_MODEL_FILE]
-        for model_path in candidate_paths:
-            if not model_path.exists():
-                continue
-            try:
-                import joblib
+        """Load the contamination model after a SHA-256 gate.
 
-                bundle = joblib.load(model_path)
-                self.ml_model = bundle["model"]
-                self.ml_model_name = str(bundle.get("model_name", "hist_gbm"))
-                self.ml_threshold = bundle.get("threshold", 0.0)
-                self.ml_available = True
-                logger.info("Loaded ML contamination model from %s", model_path)
-                return
-            except Exception as exc:
-                logger.warning(
-                    "Failed to load ML contamination model from %s: %s",
-                    model_path,
-                    exc,
-                )
+        The model ships as part of the runtime resources bundle at
+        ``resources/contamination/model.joblib``. It is read into memory once;
+        the SHA-256 of those same bytes is compared against
+        :data:`CONTAMINATION_MODEL_SHA256` and the verified bytes are handed
+        directly to ``joblib.load`` via ``BytesIO``. This closes the TOCTOU
+        window where an attacker could swap the file between a path-based
+        hash check and a path-based deserialize. Missing-file and load
+        failures also raise now, replacing the previous silent
+        ``logger.warning + continue`` fallback so a broken install cannot
+        stealth-degrade to a zero-contamination default.
+        """
+        import hashlib
+        import io
+
+        bundled_model_path = self.database_path / CONTAMINATION_MODEL_FILE
+
+        if not bundled_model_path.exists():
+            raise RuntimeError(
+                f"Contamination model not found at {bundled_model_path}. "
+                "The contamination model ships with the resources bundle "
+                "under resources/contamination/model.joblib; re-download "
+                "the resources archive or run `pixi run setup-db` to "
+                "restore it."
+            )
+
+        # Read once, verify the in-memory bytes, then deserialize the same
+        # bytes. Nothing on disk gets re-read between hash check and load.
+        model_bytes = bundled_model_path.read_bytes()
+        digest = hashlib.sha256(model_bytes).hexdigest()
+        if digest != CONTAMINATION_MODEL_SHA256:
+            raise RuntimeError(
+                "Contamination model SHA-256 mismatch at "
+                f"{bundled_model_path}: expected {CONTAMINATION_MODEL_SHA256}, "
+                f"got {digest}. Refusing to load an untrusted pickle. "
+                "If the model was intentionally retrained, rotate the constant "
+                "via scripts/rotate_contamination_model.py."
+            )
+
+        try:
+            import joblib
+
+            bundle = joblib.load(io.BytesIO(model_bytes))
+        except Exception as exc:
+            raise RuntimeError(
+                f"Failed to load contamination model from {bundled_model_path}: {exc}"
+            ) from exc
+
+        self.ml_model = bundle["model"]
+        self.ml_model_name = str(bundle.get("model_name", "hist_gbm"))
+        self.ml_threshold = bundle.get("threshold", 0.0)
+        self.ml_available = True
+        logger.info("Loaded ML contamination model from %s", bundled_model_path)
 
     def predict_contamination(
         self, result: Dict[str, Any], contig_features: Dict[str, Any]
@@ -416,6 +504,236 @@ class ContaminationScorer:
             "estimated_contamination_strategy": "rule_based_v1",
         }
 
+    # ------------------------------------------------------------------
+    # Per-contig taxonomic-purity classifier (v1.4.3 Phase 2)
+    # ------------------------------------------------------------------
+
+    def _detect_contig_attribution_mode(
+        self,
+        query_file_kind: str,
+        protein_to_contig: Dict[str, str],
+    ) -> str:
+        """Return ``fna_gene_calling`` / ``faa_contig_encoded`` /
+        ``faa_weak_per_protein`` depending on whether contig attribution
+        is reliable for this run.
+
+        ``query_file_kind`` is ``"fna"`` when the pipeline did gene calling,
+        else ``"faa"``. In the ``.fna`` case contig attribution is trusted
+        unconditionally because pyrodigal generates canonical IDs. In the
+        ``.faa`` case we count distinct resolved contigs; a dominant
+        one-protein-per-pseudo-contig pattern flags the weak regime.
+        """
+        if query_file_kind == "fna":
+            return "fna_gene_calling"
+        n_proteins = len(protein_to_contig)
+        if n_proteins == 0:
+            return "faa_weak_per_protein"
+        n_distinct = len(set(protein_to_contig.values()))
+        if (
+            n_proteins >= MIN_MARKER_PROTEINS_FOR_FRACTION
+            and (n_distinct / n_proteins)
+            >= WEAK_ATTRIBUTION_UNIQUE_CONTIG_FRACTION
+        ):
+            return "faa_weak_per_protein"
+        return "faa_contig_encoded"
+
+    def _per_protein_dominant_lineage(
+        self,
+        protein_id: str,
+        tree_nn_results: Dict[str, Dict[str, Dict[str, float]]],
+    ) -> Dict[str, str] | None:
+        """Aggregate a protein's single-NN tree placements across every
+        marker it hit and return the top-vote ``(domain, order, genus)``
+        triplet. Tie-broken lexicographically on the triplet so
+        behaviour is deterministic across runs.
+        """
+        votes: Counter = Counter()
+        for marker_results in tree_nn_results.values():
+            neighbors = marker_results.get(protein_id)
+            if not neighbors:
+                continue
+            for neighbor in neighbors:
+                genome_id = self._parse_subject_genome_id(neighbor)
+                tax = self.labels.get(genome_id)
+                if not tax:
+                    continue
+                key = (
+                    tax.get("domain", "NA"),
+                    tax.get("order", ""),
+                    tax.get("genus", ""),
+                )
+                votes[key] += 1
+        if not votes:
+            return None
+        # Stable tiebreak: max count, then lexicographically smallest key.
+        (domain, order, genus), _ = min(
+            votes.items(),
+            key=lambda kv: (-kv[1], kv[0]),
+        )
+        return {"domain": domain, "order": order, "genus": genus}
+
+    def _classify_contig_purity(
+        self,
+        contig_id: str,
+        contig_proteins: List[str],
+        tree_nn_results: Dict[str, Dict[str, Dict[str, float]]],
+        best_hits: Dict[str, BlastHit],
+    ) -> Dict[str, Any]:
+        """Classify a single contig as ``viral_bearing`` /
+        ``cellular_coherent`` / ``ambiguous`` per the v1.4.3 Phase 2
+        plan. See docs/plans/active/v1_4_3_contig_purity_contamination.md.
+        """
+        viral_proteins: List[str] = []
+        cellular_proteins: List[str] = []
+        cellular_order_keys: List[Tuple[str, str]] = []
+        cellular_identities: List[float] = []
+
+        for protein_id in contig_proteins:
+            lineage = self._per_protein_dominant_lineage(
+                protein_id, tree_nn_results
+            )
+            if lineage is None:
+                continue
+            domain = lineage["domain"]
+            if domain in GIANT_VIRUS_PREFIXES or domain in PHAGE_PREFIXES:
+                viral_proteins.append(protein_id)
+            elif domain in CELLULAR_PREFIXES:
+                cellular_proteins.append(protein_id)
+                cellular_order_keys.append(
+                    (domain, lineage.get("order", ""))
+                )
+                hit = best_hits.get(protein_id)
+                if hit is not None and hit.subject_domain in CELLULAR_PREFIXES:
+                    cellular_identities.append(hit.identity)
+
+        n_viral = len(viral_proteins)
+        n_cellular = len(cellular_proteins)
+
+        if n_viral >= 1:
+            classification = "viral_bearing"
+            lineage_purity = 0.0
+        elif n_cellular >= MIN_CELLULAR_MARKERS:
+            # Purity = fraction of cellular proteins sharing the top-vote
+            # (domain, order). Identity floor gates the whole contig.
+            order_counter: Counter = Counter(cellular_order_keys)
+            top_count = order_counter.most_common(1)[0][1]
+            lineage_purity = top_count / n_cellular
+            median_identity = (
+                float(np.median(cellular_identities))
+                if cellular_identities
+                else 0.0
+            )
+            if (
+                lineage_purity >= PURITY_THRESHOLD
+                and median_identity >= MIN_CELLULAR_IDENTITY
+            ):
+                classification = "cellular_coherent"
+            else:
+                classification = "ambiguous"
+        else:
+            classification = "ambiguous"
+            lineage_purity = 0.0
+
+        return {
+            "contig_id": contig_id,
+            "classification": classification,
+            "n_viral_proteins": n_viral,
+            "n_cellular_proteins": n_cellular,
+            "cellular_lineage_purity": lineage_purity,
+            "cellular_hit_median_identity": (
+                float(np.median(cellular_identities))
+                if cellular_identities
+                else 0.0
+            ),
+        }
+
+    def compute_contig_purity_features(
+        self,
+        protein_to_contig: Dict[str, str],
+        contig_lengths: Dict[str, int],
+        tree_nn_results: Dict[str, Dict[str, Dict[str, float]]],
+        best_hits: Dict[str, BlastHit],
+        attribution_mode: str,
+    ) -> Dict[str, Any]:
+        """Aggregate per-contig classifications into the six features the
+        v1.4.3 contamination model consumes. Emits neutral values under
+        the low-data or weak-attribution fallback regimes.
+        """
+        neutral = {
+            "cellular_coherent_contig_count": 0,
+            "cellular_coherent_protein_fraction": 0.0,
+            "cellular_coherent_bp_fraction": 0.0,
+            "cellular_lineage_purity_median": 0.0,
+            "cellular_hit_identity_median": 0.0,
+            "viral_bearing_contig_count": 0,
+            "per_contig_classifier_active": False,
+        }
+
+        n_marker_proteins = len(protein_to_contig)
+        if (
+            attribution_mode == "faa_weak_per_protein"
+            or n_marker_proteins < MIN_MARKER_PROTEINS_FOR_FRACTION
+        ):
+            return neutral
+
+        # Group marker-bearing proteins by their attributed contig.
+        contig_to_proteins: Dict[str, List[str]] = defaultdict(list)
+        for protein_id, contig_id in protein_to_contig.items():
+            contig_to_proteins[contig_id].append(protein_id)
+
+        cellular_coherent: List[Dict[str, Any]] = []
+        viral_bearing_count = 0
+
+        for contig_id, proteins in contig_to_proteins.items():
+            result = self._classify_contig_purity(
+                contig_id, proteins, tree_nn_results, best_hits
+            )
+            if result["classification"] == "viral_bearing":
+                viral_bearing_count += 1
+            elif result["classification"] == "cellular_coherent":
+                cellular_coherent.append(result)
+
+        cellular_protein_ids = {
+            protein
+            for record in cellular_coherent
+            for protein in contig_to_proteins.get(record["contig_id"], [])
+        }
+        cellular_coherent_protein_count = len(cellular_protein_ids)
+        total_marker_proteins = n_marker_proteins
+        protein_fraction = (
+            (cellular_coherent_protein_count / total_marker_proteins) * 100.0
+            if total_marker_proteins
+            else 0.0
+        )
+
+        total_bp = sum(contig_lengths.values()) or 1
+        cellular_bp = sum(
+            contig_lengths.get(record["contig_id"], 0)
+            for record in cellular_coherent
+        )
+        bp_fraction = (cellular_bp / total_bp) * 100.0
+
+        purities = [record["cellular_lineage_purity"] for record in cellular_coherent]
+        identities = [
+            record["cellular_hit_median_identity"]
+            for record in cellular_coherent
+            if record["cellular_hit_median_identity"] > 0
+        ]
+
+        return {
+            "cellular_coherent_contig_count": len(cellular_coherent),
+            "cellular_coherent_protein_fraction": round(protein_fraction, 2),
+            "cellular_coherent_bp_fraction": round(bp_fraction, 2),
+            "cellular_lineage_purity_median": (
+                round(float(np.median(purities)), 4) if purities else 0.0
+            ),
+            "cellular_hit_identity_median": (
+                round(float(np.median(identities)), 2) if identities else 0.0
+            ),
+            "viral_bearing_contig_count": viral_bearing_count,
+            "per_contig_classifier_active": True,
+        }
+
     def collect_contig_features(
         self,
         query_fna: Path,
@@ -423,9 +741,11 @@ class ContaminationScorer:
         blast_dir: Path,
         primary_order: str,
         primary_family: str,
+        tree_nn_results: Dict[str, Dict[str, Dict[str, float]]] | None = None,
     ) -> Dict[str, Any]:
+        query_file_kind = "fna" if query_fna and query_fna.exists() and query_fna.is_file() else "faa"
         contig_lengths: Dict[str, int] = {}
-        if query_fna and query_fna.exists() and query_fna.is_file():
+        if query_file_kind == "fna":
             for record in SeqIO.parse(str(query_fna), "fasta"):
                 contig_lengths[record.id] = len(record.seq)
 
@@ -487,9 +807,57 @@ class ContaminationScorer:
             if contig_id:
                 contig_query_hits[contig_id].append(hit)
 
+        # Resolve the attribution mode once, from the subset of proteins
+        # that actually got marker hits (the same subset that drives the
+        # per-contig classifier). This ensures the reported
+        # contig_attribution_mode / INFO log never disagrees with the
+        # branch that actually fires (Codex audit).
+        marker_bearing_proteins = {
+            protein_id: protein_to_contig[protein_id]
+            for protein_id in best_hits
+            if protein_id in protein_to_contig
+        }
+        attribution_mode = self._detect_contig_attribution_mode(
+            query_file_kind, marker_bearing_proteins
+        )
+        if attribution_mode == "faa_weak_per_protein":
+            logger.info(
+                "Weak contig attribution (faa_weak_per_protein): every "
+                "marker-bearing protein mapped to its own pseudo-contig. "
+                "Per-contig purity classifier is suppressed; legacy "
+                "cellular_marker_count rule governs the cellular trigger."
+            )
+
+        # Per-contig purity features (v1.4.3 Phase 2). The classifier
+        # consumes the same marker_bearing_proteins set and attribution
+        # mode that we just computed, so the feature values and the
+        # user-facing mode always agree.
+        purity_features = self.compute_contig_purity_features(
+            protein_to_contig=marker_bearing_proteins,
+            contig_lengths=contig_lengths,
+            tree_nn_results=tree_nn_results or {},
+            best_hits=best_hits,
+            attribution_mode=attribution_mode,
+        )
+        coherent_contig_ids: set[str] = set()
+        if purity_features.get("per_contig_classifier_active"):
+            # Re-run the classifier per contig so we can fill the
+            # suspicious_contigs list with cellular_coherent_lineage
+            # entries (replacing the legacy cellular_markers /
+            # cellular_hits triggers per the plan).
+            contig_to_proteins: Dict[str, List[str]] = defaultdict(list)
+            for protein_id, contig_id in marker_bearing_proteins.items():
+                contig_to_proteins[contig_id].append(protein_id)
+            for contig_id, proteins in contig_to_proteins.items():
+                classification = self._classify_contig_purity(
+                    contig_id, proteins, tree_nn_results or {}, best_hits
+                )
+                if classification["classification"] == "cellular_coherent":
+                    coherent_contig_ids.add(contig_id)
+
         total_bp = sum(contig_lengths.values()) or 1
         suspicious_bp = 0
-        suspicious_contigs = []
+        suspicious_contigs: List[Dict[str, Any]] = []
         for contig_id, length in contig_lengths.items():
             hits = contig_query_hits.get(contig_id, [])
             strong = [hit for hit in hits if hit.identity >= 60.0 and hit.score >= 80.0]
@@ -508,21 +876,47 @@ class ContaminationScorer:
 
             suspicious = False
             reason = ""
-            if cellular_marker_count >= 2:
+            # v1.4.3 Phase 2: the new per-contig taxonomic-purity
+            # classifier owns the cellular trigger when it has enough
+            # data. Under the low-data or weak-attribution fallback
+            # regime (classifier inactive), the legacy cellular rules
+            # still govern, per the unified two-regime fallback contract
+            # documented in docs/plans/active/v1_4_3_contig_purity_contamination.md.
+            if contig_id in coherent_contig_ids:
                 suspicious = True
-                reason = "cellular_markers"
-            elif len(cellular_hits) >= 3 and nonviral_fraction >= 0.5 and viral_marker_count <= 1:
-                suspicious = True
-                reason = "cellular_hits"
-            elif phage_marker_count >= 2 and viral_marker_count <= 1:
-                suspicious = True
-                reason = "phage_markers"
-            elif len(phage_hits) >= 3 and nonviral_fraction >= 0.5 and viral_marker_count <= 1:
-                suspicious = True
-                reason = "phage_hits"
-            elif len(foreign_viral) >= 2 and foreign_viral_fraction >= 0.6 and viral_marker_count >= 2:
-                suspicious = True
-                reason = "viral_mixture"
+                reason = "cellular_coherent_lineage"
+            elif not purity_features.get("per_contig_classifier_active"):
+                if cellular_marker_count >= 2:
+                    suspicious = True
+                    reason = "cellular_markers"
+                elif (
+                    len(cellular_hits) >= 3
+                    and nonviral_fraction >= 0.5
+                    and viral_marker_count <= 1
+                ):
+                    suspicious = True
+                    reason = "cellular_hits"
+
+            if not suspicious:
+                # Phage and viral-mixture triggers are independent of the
+                # cellular path and stay on their legacy rules.
+                if phage_marker_count >= 2 and viral_marker_count <= 1:
+                    suspicious = True
+                    reason = "phage_markers"
+                elif (
+                    len(phage_hits) >= 3
+                    and nonviral_fraction >= 0.5
+                    and viral_marker_count <= 1
+                ):
+                    suspicious = True
+                    reason = "phage_hits"
+                elif (
+                    len(foreign_viral) >= 2
+                    and foreign_viral_fraction >= 0.6
+                    and viral_marker_count >= 2
+                ):
+                    suspicious = True
+                    reason = "viral_mixture"
 
             if suspicious:
                 suspicious_bp += length
@@ -540,13 +934,18 @@ class ContaminationScorer:
                 )
 
         suspicious_bp_fraction = (suspicious_bp / total_bp) * 100.0
+
         return {
             "contig_count": len(contig_lengths),
             "suspicious_contig_count": len(suspicious_contigs),
             "suspicious_bp_fraction": round(suspicious_bp_fraction, 2),
             "suspicious_contigs": suspicious_contigs,
+            "contig_attribution_mode": attribution_mode,
+            **purity_features,
         }
 
 
-def create_contamination_scorer(database_path: Path) -> ContaminationScorer:
-    return ContaminationScorer(database_path)
+def create_contamination_scorer(
+    database_path: Path, sensitive_mode: bool = False
+) -> ContaminationScorer:
+    return ContaminationScorer(database_path, sensitive_mode=sensitive_mode)

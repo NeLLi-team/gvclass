@@ -6,7 +6,7 @@ This module implements the functionality of the extract_qhits rule from the Snak
 
 from pathlib import Path
 from collections import defaultdict
-from typing import Dict, Iterable, Set, List, Tuple
+from typing import Any, Dict, Iterable, Set, List, Tuple
 from Bio import SeqIO
 
 from src.utils import setup_logging
@@ -62,11 +62,21 @@ def extract_marker_sequences(
     """
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Load all sequences into memory for efficient lookup
+    # Load all sequences into memory for efficient lookup.
+    #
+    # HMM target names (``fields[0]`` in parse_hmm_output) are Biopython's
+    # ``record.id`` — the first whitespace-delimited token of the header.
+    # The previous index was keyed by ``record.description`` (the full
+    # header), which silently missed every lookup when headers carried
+    # annotation after the ID (e.g. "prot_1 # start # end ..." from
+    # pyrodigal). Index by both so either form resolves, preferring
+    # ``record.id`` for the canonical match.
     logger.info(f"Loading sequences from {query_faa}")
-    sequences = {}
+    sequences_by_id: Dict[str, Any] = {}
+    sequences_by_description: Dict[str, Any] = {}
     for record in SeqIO.parse(str(query_faa), "fasta"):
-        sequences[record.description] = record
+        sequences_by_id[record.id] = record
+        sequences_by_description[record.description] = record
 
     # Extract sequences for each marker
     marker_files = {}
@@ -77,8 +87,9 @@ def extract_marker_sequences(
         # Extract sequences that hit this marker
         marker_sequences = []
         for hit_id in hit_ids:
-            if hit_id in sequences:
-                marker_sequences.append(sequences[hit_id])
+            record = sequences_by_id.get(hit_id) or sequences_by_description.get(hit_id)
+            if record is not None:
+                marker_sequences.append(record)
             else:
                 logger.warning(f"Sequence {hit_id} not found for marker {marker}")
 

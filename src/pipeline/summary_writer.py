@@ -1,14 +1,16 @@
 """Summary file writers for query and pipeline outputs."""
 
+import csv
+import math
+import traceback
 from pathlib import Path
 from typing import Any, Dict, List
-import csv
-import traceback
 
 
 LEGACY_SUMMARY_HEADERS: List[str] = [
     "query",
     "taxonomy_majority",
+    "taxonomy_confidence",
     "species",
     "genus",
     "family",
@@ -79,6 +81,7 @@ LEGACY_SUMMARY_HEADERS: List[str] = [
 LEGACY_SUMMARY_KEY_MAPPING: Dict[str, str] = {
     "query": "query",
     "taxonomy_majority": "taxonomy_majority",
+    "taxonomy_confidence": "taxonomy_confidence",
     "species": "species",
     "genus": "genus",
     "family": "family",
@@ -150,6 +153,7 @@ FINAL_SUMMARY_COLUMNS: List[str] = [
     "query",
     "taxonomy_majority",
     "taxonomy_strict",
+    "taxonomy_confidence",
     "species",
     "genus",
     "family",
@@ -160,8 +164,19 @@ FINAL_SUMMARY_COLUMNS: List[str] = [
     "avgdist",
     "order_dup",
     "estimated_completeness",
+    "estimated_completeness_quality",
+    "estimated_completeness_advisory",
+    "estimated_completeness_r2_holdout",
     "estimated_contamination",
     "contamination_type",
+    # Per-contig taxonomic-purity features (v1.4.3 Phase 2).
+    "cellular_coherent_contig_count",
+    "cellular_coherent_protein_fraction",
+    "cellular_coherent_bp_fraction",
+    "cellular_lineage_purity_median",
+    "cellular_hit_identity_median",
+    "viral_bearing_contig_count",
+    "contig_attribution_mode",
     "gvog4_unique",
     "gvog8_unique",
     "gvog8_total",
@@ -195,9 +210,15 @@ TWO_DECIMAL_COLUMNS = {
     "mirus_df",
     "cellular_dup",
     "estimated_completeness",
+    "estimated_completeness_advisory",
     "estimated_contamination",
     "GCperc",
     "CODINGperc",
+    # Per-contig taxonomic-purity features (v1.4.3 Phase 2).
+    "cellular_coherent_protein_fraction",
+    "cellular_coherent_bp_fraction",
+    "cellular_lineage_purity_median",
+    "cellular_hit_identity_median",
 }
 
 LEGACY_TWO_DECIMAL_COLUMNS = {
@@ -265,6 +286,11 @@ def _get_legacy_summary_value(summary_data: Dict[str, Any], header: str) -> str:
 
 def _format_legacy_summary_value(header: str, value: Any) -> str:
     if isinstance(value, float):
+        if math.isnan(value):
+            # Preserve NaN verbatim so downstream readers can distinguish
+            # "skipped / not computed" (e.g. sensitive-mode contamination
+            # gate) from a genuine 0.0 score.
+            return "NaN"
         if header in LEGACY_TWO_DECIMAL_COLUMNS:
             return f"{value:.2f}"
         return f"{value:.0f}"
@@ -302,6 +328,10 @@ def _build_final_summary_row(result: Dict[str, Any]) -> List[str]:
 def _format_final_summary_value(column: str, value: Any) -> str:
     if not isinstance(value, float):
         return str(value)
+    if math.isnan(value):
+        # See _format_legacy_summary_value: preserve NaN rather than collapse
+        # to 0.00, so the sensitive-mode contamination skip is visible.
+        return "NaN"
     if column in TWO_DECIMAL_COLUMNS:
         return f"{value:.2f}"
     return f"{value:.0f}"

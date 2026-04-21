@@ -1,0 +1,126 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "v*"]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-and-test:
+    name: Lint, type-check, and unit tests
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Pixi
+        uses: prefix-dev/setup-pixi@v0.8.0
+        with:
+          pixi-version: v0.39.0
+          cache: true
+
+      - name: Lint (flake8)
+        run: pixi run lint
+        continue-on-error: true
+
+      - name: Type-check (mypy)
+        run: pixi run type-check
+        continue-on-error: true
+
+      - name: Unit tests (pytest)
+        run: pixi run test
+
+  golden-file:
+    name: Golden-file regression on example/
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    needs: lint-and-test
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Pixi
+        uses: prefix-dev/setup-pixi@v0.8.0
+        with:
+          pixi-version: v0.39.0
+          cache: true
+
+      - name: Read expected DB download SHA256
+        id: dbhash
+        run: |
+          python - <<'PY' >> $GITHUB_OUTPUT
+          import re, pathlib
+          txt = pathlib.Path("src/bin/gvclass_cli.py").read_text()
+          m = re.search(r'"download_sha256":\s*"([0-9a-f]+)"', txt)
+          print(f"sha256={m.group(1) if m else 'unknown'}")
+          PY
+
+      - name: Cache GVClass resources tarball and extracted DB
+        uses: actions/cache@v4
+        with:
+          path: |
+            resources
+          key: gvclass-db-${{ steps.dbhash.outputs.sha256 }}
+
+      - name: Install pixi environment and download DB if not cached
+        run: |
+          pixi install
+          if [ ! -f resources/hmm/combined.hmm ]; then
+            pixi run setup-db
+          fi
+
+      - name: Run golden-fixture regression test
+        env:
+          GVCLASS_RUN_GOLDEN: "1"
+        run: |
+          # tests/test_golden_example_summary.py runs `pixi run gvclass example`
+          # with --mode-fast --plain-output, then projects the STABLE_COLUMNS
+          # subset and diffs against tests/fixtures/expected_example_summary.tsv.
+          # Keeps the test harness and the CI gate on exactly the same code
+          # path.
+          pixi run pytest tests/test_golden_example_summary.py -v
+
+  container-build:
+    name: Build Apptainer SIF and smoke-test
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Apptainer
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y software-properties-common
+          sudo add-apt-repository -y ppa:apptainer/ppa
+          sudo apt-get update
+          sudo apt-get install -y apptainer
+
+      - name: Build SIF
+        run: apptainer build gvclass.sif containers/apptainer/gvclass.def
+
+      - name: Smoke-test SIF
+        run: apptainer exec gvclass.sif /opt/gvclass/gvclass --version
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: spdx-json
+          output-file: gvclass.sbom.json
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: gvclass-container-${{ github.ref_name }}
+          path: |
+            gvclass.sif
+            gvclass.sbom.json
