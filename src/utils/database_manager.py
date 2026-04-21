@@ -9,8 +9,9 @@ import logging
 import os
 import re
 import shutil
-import subprocess
+import sys
 import tarfile
+import time
 from pathlib import Path, PurePosixPath
 from typing import Optional
 from urllib.error import HTTPError, URLError
@@ -18,6 +19,103 @@ from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 logger = logging.getLogger(__name__)
+
+_TRANSFER_CHUNK_SIZE = 1 << 20
+
+
+class _ProgressReporter:
+    """Render lightweight progress updates to stderr."""
+
+    BAR_WIDTH = 24
+    MIN_TTY_UPDATE_SECONDS = 0.2
+    MIN_PERCENT_STEP = 5.0
+    MIN_BYTE_STEP = 64 * 1024 * 1024
+
+    def __init__(
+        self,
+        label: str,
+        total_bytes: Optional[int] = None,
+        stream=None,
+    ) -> None:
+        self.label = label
+        self.total_bytes = total_bytes if total_bytes and total_bytes > 0 else None
+        self.stream = stream if stream is not None else sys.stderr
+        self.current_bytes = 0
+        self._last_percent = -1.0
+        self._last_bytes = -1
+        self._last_update = 0.0
+        self._is_tty = bool(getattr(self.stream, "isatty", lambda: False)())
+
+    def start(self) -> None:
+        self._emit(force=True)
+
+    def advance(self, size: int) -> None:
+        self.current_bytes += max(size, 0)
+        self._emit()
+
+    def finish(self) -> None:
+        if self.total_bytes is not None:
+            self.current_bytes = max(self.current_bytes, self.total_bytes)
+        self._emit(force=True)
+        if self._is_tty:
+            self.stream.write("\n")
+            self.stream.flush()
+
+    def _emit(self, force: bool = False) -> None:
+        if not force and not self._should_emit():
+            return
+
+        message = self._format_message()
+        if self._is_tty:
+            self.stream.write(f"\r{message:<80}")
+        else:
+            self.stream.write(f"{message}\n")
+        self.stream.flush()
+
+        self._last_update = time.monotonic()
+        self._last_bytes = self.current_bytes
+        self._last_percent = self._percent_complete()
+
+    def _should_emit(self) -> bool:
+        if self._is_tty:
+            return time.monotonic() - self._last_update >= self.MIN_TTY_UPDATE_SECONDS
+
+        if self.total_bytes is not None:
+            return (
+                self._percent_complete() - self._last_percent >= self.MIN_PERCENT_STEP
+            )
+
+        return (self.current_bytes - self._last_bytes) >= self.MIN_BYTE_STEP
+
+    def _percent_complete(self) -> float:
+        if self.total_bytes is None:
+            return 0.0
+        return min(100.0, (self.current_bytes / self.total_bytes) * 100.0)
+
+    def _format_message(self) -> str:
+        if self.total_bytes is None:
+            return f"{self.label}: {self._format_bytes(self.current_bytes)}"
+
+        percent = self._percent_complete()
+        transferred = self._format_bytes(self.current_bytes)
+        total = self._format_bytes(self.total_bytes)
+        if self._is_tty:
+            filled = int((percent / 100.0) * self.BAR_WIDTH)
+            bar = "#" * filled + "-" * (self.BAR_WIDTH - filled)
+            return f"{self.label}: [{bar}] {percent:5.1f}% " f"({transferred}/{total})"
+        return f"{self.label}: {percent:5.1f}% ({transferred}/{total})"
+
+    @staticmethod
+    def _format_bytes(size: int) -> str:
+        units = ("B", "KiB", "MiB", "GiB", "TiB")
+        value = float(size)
+        unit_index = 0
+        while value >= 1024.0 and unit_index < len(units) - 1:
+            value /= 1024.0
+            unit_index += 1
+        if unit_index == 0:
+            return f"{int(value)} {units[unit_index]}"
+        return f"{value:.1f} {units[unit_index]}"
 
 
 class DatabaseManager:
@@ -281,9 +379,7 @@ class DatabaseManager:
         # before we start, so the swap logic sees a predictable state.
         staging_path = db_path.parent / f"{db_path.name}.new"
         if staging_path.exists():
-            logger.warning(
-                f"Removing stale database staging directory: {staging_path}"
-            )
+            logger.warning(f"Removing stale database staging directory: {staging_path}")
             shutil.rmtree(staging_path, ignore_errors=True)
 
         errors = []
@@ -546,52 +642,37 @@ class DatabaseManager:
 
     @classmethod
     def _download_archive(cls, url: str, archive_path: Path) -> None:
-        """Download database archive with wget/curl fallback."""
-        commands = [
-            ("wget", ["wget", "-O", str(archive_path), url]),
-            ("curl", ["curl", "-L", "-o", str(archive_path), url]),
-        ]
-        errors = []
-
-        for idx, (tool, command) in enumerate(commands):
-            if idx > 0:
-                logger.warning(f"{commands[idx - 1][0]} failed, trying {tool}...")
-            result = cls._run_download_command(command, tool)
-            if (
-                result.returncode == 0
-                and archive_path.exists()
-                and archive_path.stat().st_size > 0
-            ):
-                return
-
-            archive_path.unlink(missing_ok=True)
-            error_text = cls._format_command_error(result)
-            if result.returncode == 0:
-                errors.append(f"{tool} produced an empty archive")
-            else:
-                errors.append(f"{tool} failed ({error_text})")
-
-        raise RuntimeError("download failed (" + "; ".join(errors) + ")")
-
-    @staticmethod
-    def _run_download_command(
-        command: list, tool_name: str
-    ) -> subprocess.CompletedProcess:
-        """Run a download command and normalize missing-binary errors."""
+        """Download database archive with streamed progress reporting."""
+        request = Request(url, headers={"User-Agent": "gvclass-database-manager"})
         try:
-            return subprocess.run(command, capture_output=True, text=True)
-        except FileNotFoundError:
-            return subprocess.CompletedProcess(
-                args=command,
-                returncode=127,
-                stdout="",
-                stderr=f"{tool_name} not found",
-            )
+            with urlopen(request) as response, open(archive_path, "wb") as out_f:
+                progress = _ProgressReporter(
+                    "Downloading database archive",
+                    total_bytes=cls._response_content_length(response),
+                )
+                progress.start()
+                for chunk in iter(lambda: response.read(_TRANSFER_CHUNK_SIZE), b""):
+                    out_f.write(chunk)
+                    progress.advance(len(chunk))
+                progress.finish()
+        except (HTTPError, URLError, OSError, TimeoutError) as exc:
+            archive_path.unlink(missing_ok=True)
+            raise RuntimeError(f"download failed ({exc})") from exc
+
+        if not archive_path.exists() or archive_path.stat().st_size == 0:
+            archive_path.unlink(missing_ok=True)
+            raise RuntimeError("download failed (empty archive)")
 
     @staticmethod
-    def _format_command_error(result: subprocess.CompletedProcess) -> str:
-        """Extract a readable subprocess error string."""
-        return result.stderr.strip() or result.stdout.strip() or "unknown error"
+    def _response_content_length(response) -> Optional[int]:
+        """Extract an integer content length from a urllib response."""
+        content_length = response.headers.get("Content-Length")
+        if not content_length:
+            return None
+        try:
+            return int(content_length)
+        except ValueError:
+            return None
 
     @classmethod
     def _verify_archive_checksum(cls, source: dict, archive_path: Path) -> None:
@@ -604,7 +685,9 @@ class DatabaseManager:
             )
             return
 
-        observed_sha256 = cls._compute_sha256(archive_path)
+        observed_sha256 = cls._compute_sha256(
+            archive_path, progress_label="Verifying archive checksum"
+        )
         if observed_sha256.lower() != expected_sha256.lower():
             raise RuntimeError(
                 "checksum mismatch "
@@ -613,12 +696,23 @@ class DatabaseManager:
         logger.info(f"SHA256 verified for source {source['version']}")
 
     @staticmethod
-    def _compute_sha256(file_path: Path) -> str:
+    def _compute_sha256(file_path: Path, progress_label: Optional[str] = None) -> str:
         """Compute SHA256 checksum for a file."""
         digest = hashlib.sha256()
+        progress = None
+        if progress_label:
+            progress = _ProgressReporter(
+                progress_label,
+                total_bytes=file_path.stat().st_size,
+            )
+            progress.start()
         with open(file_path, "rb") as f:
-            for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            for chunk in iter(lambda: f.read(_TRANSFER_CHUNK_SIZE), b""):
                 digest.update(chunk)
+                if progress is not None:
+                    progress.advance(len(chunk))
+        if progress is not None:
+            progress.finish()
         return digest.hexdigest()
 
     @classmethod
@@ -637,6 +731,9 @@ class DatabaseManager:
     ) -> None:
         """Extract a tar archive to db_path while preventing path traversal."""
         base_path = db_path.resolve()
+        prepared_members = []
+        total_bytes = 0
+
         for member in tar.getmembers():
             relative_path = cls._normalize_member_path(member.name, strip_components)
             if relative_path is None:
@@ -647,6 +744,17 @@ class DatabaseManager:
             target_path = cls._resolve_safe_target(
                 base_path, relative_path, member.name
             )
+            prepared_members.append((member, target_path))
+            if member.isfile():
+                total_bytes += member.size
+
+        progress = _ProgressReporter(
+            "Extracting database archive",
+            total_bytes=total_bytes,
+        )
+        progress.start()
+
+        for member, target_path in prepared_members:
             if member.isdir():
                 target_path.mkdir(parents=True, exist_ok=True)
                 continue
@@ -658,7 +766,11 @@ class DatabaseManager:
             if extracted is None:
                 raise RuntimeError(f"failed to read archive member: {member.name}")
             with extracted, open(target_path, "wb") as out_f:
-                shutil.copyfileobj(extracted, out_f)
+                for chunk in iter(lambda: extracted.read(_TRANSFER_CHUNK_SIZE), b""):
+                    out_f.write(chunk)
+                    progress.advance(len(chunk))
+
+        progress.finish()
 
     @staticmethod
     def _normalize_member_path(
