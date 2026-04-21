@@ -1,5 +1,8 @@
+import io
+import tarfile
 from pathlib import Path
 
+from src.utils import database_manager as database_manager_module
 from src.utils.database_manager import DatabaseManager
 
 
@@ -98,3 +101,79 @@ def test_get_latest_database_source_follows_zenodo_latest_record(monkeypatch):
         "record_id": "18926264",
         "conceptrecid": "18662445",
     }
+
+
+def test_download_archive_streams_progress_to_stderr(tmp_path, monkeypatch):
+    archive_path = tmp_path / "resources.tar.gz"
+    payload = b"abcdefghijklmnopqrstuvwxyz" * 1024
+
+    class FakeResponse:
+        def __init__(self, data: bytes):
+            self._data = data
+            self._offset = 0
+            self.headers = {"Content-Length": str(len(data))}
+
+        def read(self, size: int = -1) -> bytes:
+            if self._offset >= len(self._data):
+                return b""
+            if size < 0:
+                size = len(self._data) - self._offset
+            start = self._offset
+            end = min(len(self._data), start + size)
+            self._offset = end
+            return self._data[start:end]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class CaptureStream(io.StringIO):
+        def isatty(self) -> bool:
+            return False
+
+    stderr = CaptureStream()
+    monkeypatch.setattr(
+        database_manager_module,
+        "urlopen",
+        lambda request, timeout=None: FakeResponse(payload),
+    )
+    monkeypatch.setattr(database_manager_module.sys, "stderr", stderr)
+
+    DatabaseManager._download_archive(
+        "https://example.test/resources.tar.gz", archive_path
+    )
+
+    assert archive_path.read_bytes() == payload
+    output = stderr.getvalue()
+    assert "Downloading database archive" in output
+    assert "100.0%" in output
+
+
+def test_extract_archive_reports_progress(tmp_path, monkeypatch):
+    archive_path = tmp_path / "resources.tar.gz"
+    db_path = tmp_path / "resources"
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    (source_dir / "labels.tsv").write_text("label\n")
+    (source_dir / "nested").mkdir()
+    (source_dir / "nested" / "stats.tsv").write_text("stats\n")
+
+    with tarfile.open(archive_path, "w:gz") as tar:
+        tar.add(source_dir, arcname="bundle")
+
+    class CaptureStream(io.StringIO):
+        def isatty(self) -> bool:
+            return False
+
+    stderr = CaptureStream()
+    monkeypatch.setattr(database_manager_module.sys, "stderr", stderr)
+
+    DatabaseManager._extract_archive(archive_path, db_path)
+
+    assert (db_path / "labels.tsv").read_text() == "label\n"
+    assert (db_path / "nested" / "stats.tsv").read_text() == "stats\n"
+    output = stderr.getvalue()
+    assert "Extracting database archive" in output
+    assert "100.0%" in output
