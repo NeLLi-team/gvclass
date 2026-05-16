@@ -124,7 +124,9 @@ Results are saved to `<input_name>_results/` containing:
 
 ### Output Columns Explained
 
-For developer-facing formulas, training provenance, and the exact role of each completeness/contamination field, see [docs/quality_metrics.md](docs/quality_metrics.md).
+The runtime implementation for completeness and contamination metrics lives in
+`src/core/summarize_full.py`, `src/core/weighted_completeness.py`,
+`src/core/novelty_completeness.py`, and `src/core/contamination_scoring.py`.
 
 | Column | Description |
 |--------|-------------|
@@ -135,8 +137,8 @@ For developer-facing formulas, training provenance, and the exact role of each c
 | avgdist | Average tree distance to references |
 | order_dup | Average copy number of expected order-level markers; elevated values suggest duplicated, chimeric, or mixed bins |
 | estimated_completeness | Estimated percentage of the expected genome recovered for the assigned lineage. Determined by the novelty-aware completeness model by default |
-| estimated_contamination | Estimated percentage of the assembly likely to represent contaminant or mixed-origin sequence. Determined by the trained `extra_trees_v1` contamination model (retrained in v1.5.0 under `sensitive_mode=true` features). See [docs/quality_metrics.md](docs/quality_metrics.md#production-contamination-estimate) for methodology. |
-| contamination_type | High-level contamination interpretation (`clean`, `cellular`, `mixed_viral`, `phage`, `duplication`, or `uncertain`) when `estimated_contamination >= 10`. v1.5.0 adds a per-contig taxonomic-purity classifier (see `cellular_coherent_contig_count` column); bins with a novel-virus signature (no coherent cellular contigs + ≥3 viral-bearing contigs + `viral_mixture` rule-based source) are downgraded from `mixed_viral` to `uncertain` so curators can triage. See [docs/quality_metrics.md](docs/quality_metrics.md#per-contig-taxonomic-purity-classifier-v143-phase-2) for the methodology. |
+| estimated_contamination | Estimated percentage of the assembly likely to represent contaminant or mixed-origin sequence. Determined by the trained `extra_trees_v1` contamination model in `resources/contamination/model.joblib` (retrained in v1.5.0 under `sensitive_mode=true` features). |
+| contamination_type | High-level contamination interpretation (`clean`, `cellular`, `mixed_viral`, `phage`, `duplication`, or `uncertain`) when `estimated_contamination >= 10`. v1.5.0 adds a per-contig taxonomic-purity classifier (see `cellular_coherent_contig_count` column); bins with a novel-virus signature (no coherent cellular contigs + ≥3 viral-bearing contigs + `viral_mixture` rule-based source) are downgraded from `mixed_viral` to `uncertain` so curators can triage. |
 | gvog4_unique | Count of unique GVOG4 markers found |
 | gvog8_unique/total/dup | GVOG8 marker counts and duplication |
 | ncldv_mcp_total | NCLDV-specific MCP marker count |
@@ -165,8 +167,9 @@ Create `gvclass_config.yaml` to set defaults:
 database:
   path: resources                    # Relative path: <gvclass_repo>/resources
   # path: /media/shared-expansion/dbs/gvclass_resources  # Absolute path on shared storage
-  download_url: https://zenodo.org/records/18926264/files/resources_v1_4_0.tar.gz?download=1
-  download_version: v1.4.0
+  download_url: https://zenodo.org/records/19674504/files/resources_v1_5_0.tar.gz?download=1
+  download_version: v1.5.0
+  download_sha256: 5357d96d99aa1eaf4b396ef701ed4c3b22d9015f79b7ae6c6be354c897704c80
 
 pipeline:
   tree_method: fasttree             # or 'iqtree' for more accuracy
@@ -183,12 +186,13 @@ filtering behavior for a specific run.
 
 ### Contamination model
 
-As of `v1.5.0`, the bundled contamination model
-(`src/bundled_models/contamination_model.joblib`, `ExtraTreesRegressor`) is
-retrained on features generated with `sensitive_mode=true` (the shipped
-default since `v1.4.1`). Training and inference now see the same feature
-distribution, so the contamination estimate is applied under either
-sensitive or non-sensitive runs without a protective short-circuit.
+As of `v1.5.0`, the contamination model
+(`resources/contamination/model.joblib`, `ExtraTreesRegressor`) ships in the
+runtime resources bundle and is retrained on features generated with
+`sensitive_mode=true` (the shipped default since `v1.4.1`). Training and
+inference now see the same feature distribution, so the contamination estimate
+is applied under either sensitive or non-sensitive runs without a protective
+short-circuit.
 
 Held-out performance on the real-contig benchmark: MAE 3.92% across the
 test set; mean predicted contamination on clean bins 0.14%.
@@ -201,9 +205,7 @@ to conserved translation-machinery HMMs (BUSCO eukaryotic set + UNI56
 prokaryotic set) that giant viruses obligately lack. The `mixed_viral`
 category reflects multi-viral-order mixing on the same bin (e.g. both
 Pimascovirales and Imitervirales proteins present), not host HGT
-content. See
-[docs/quality_metrics.md](docs/quality_metrics.md#interpreting-contamination_type)
-for the full rule set.
+content.
 
 Database path precedence:
 - `--database` CLI flag
@@ -259,13 +261,13 @@ database version, checks Zenodo for the latest published version, and offers to 
   `pyproject.toml` with `gvclass` console script, committed `pixi.lock`,
   CI workflow with lint / type-check / pytest plus PR-only golden-file
   regression.
-- **Software Version Bump**: software release is now `v1.5.0` while the
-  runtime resource bundle remains `v1.4.0`.
+- **Software Version Bump**: software release and runtime resource bundle are
+  now `v1.5.0`.
 
 ## What's New in v1.4.2
 
 - **Contamination Model Recalibrated**: The bundled contamination regressor now uses the updated `extra_trees` model tuned on the new real-contig benchmark subset, which sharply reduces false contamination on clean long viral references.
-- **Contamination Model Bundled In Source**: `estimated_contamination` now resolves its trained model from `src/bundled_models/contamination_model.joblib` before checking runtime resources, so contamination-model updates no longer require a refreshed `resources/` archive.
+- **Contamination Model Path Hardened**: `estimated_contamination` resolves the trained model through the runtime resources bundle and verifies it before loading.
 - **Local Benchmark Workspace Kept Out Of Git**: Benchmark docs and local benchmark/codexloop artifacts are now kept out of GitHub while remaining usable in local checkouts.
 - **Software Version Bump**: The software release is now `v1.4.2` while the runtime completeness resource bundle remains `v1.4.0`.
 
@@ -310,7 +312,7 @@ The wrapper is simpler and handles bind mounts automatically.
 
 ### Contamination Model Requirement
 
-Primary contamination estimates are produced by a trained model bundle in `src/bundled_models/contamination_model.joblib`.
+Primary contamination estimates are produced by a trained model bundle in `resources/contamination/model.joblib`.
 The rule-based score remains in the output as a diagnostic/model feature, but it is no longer the production estimate surfaced as `estimated_contamination`.
 If the trained bundle is missing, GVClass should be treated as not fully configured for contamination estimation.
 

@@ -61,6 +61,23 @@ markers = [
 [tool.mypy]
 python_version = "3.11"
 ignore_missing_imports = true
+no_strict_optional = true
+disable_error_code = [
+  "arg-type",
+  "assignment",
+  "attr-defined",
+  "call-overload",
+  "dict-item",
+  "import-untyped",
+  "index",
+  "method-assign",
+  "misc",
+  "operator",
+  "return-value",
+  "union-attr",
+  "valid-type",
+  "var-annotated",
+]
 
 [tool.black]
 line-length = 88

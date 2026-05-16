@@ -1,3 +1,0 @@
-[submodule "workflow/scripts/pyrodigal"]
-	path = workflow/scripts/pyrodigal
-	url = https://github.com/tomasbruna/pyrodigal.git
