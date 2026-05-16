@@ -5,7 +5,6 @@ Install GVClass CLI entrypoints into ~/bin.
 
 from pathlib import Path
 import shutil
-import sys
 
 
 def main() -> int:

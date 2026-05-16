@@ -214,7 +214,7 @@ def main():
     print("\nSummary:")
     print(f"  - NCLDV candidates found: {len(ncldv_candidates)}")
     print(f"  - FAA files copied: {copied}")
-    print(f"  - Summary written to: {output_summary}")
+    print(f"  - Summary written to: {output_summary_tsv} and {output_summary_csv}")
     print(f"  - Moved {len(gz_files)} .tar.gz files to {gvclass_dir}")
     print(f"  - Removed {len(summary_tab_files)} .summary.tab files")
 

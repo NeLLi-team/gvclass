@@ -10,10 +10,9 @@ import shutil
 import subprocess
 import tarfile
 import tempfile
-from collections import Counter
 from pathlib import Path
 from statistics import mean
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List
 
 import pandas as pd
 from Bio import SeqIO

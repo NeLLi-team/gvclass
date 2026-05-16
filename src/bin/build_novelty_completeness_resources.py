@@ -15,7 +15,7 @@ from collections import Counter, defaultdict
 from dataclasses import asdict
 from pathlib import Path
 from statistics import mean, median
-from typing import Dict, Iterable, List, Tuple
+from typing import Dict, List, Tuple
 
 import pandas as pd
 from joblib import dump
