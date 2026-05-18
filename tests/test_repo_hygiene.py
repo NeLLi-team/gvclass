@@ -59,6 +59,12 @@ def test_readme_uses_runtime_resource_model_path() -> None:
 def test_release_version_matches_user_facing_wrappers() -> None:
     version = _software_version()
     pixi = tomllib.loads((REPO_ROOT / "pixi.toml").read_text())
+    expected_image_ref = re.compile(
+        rf"(?:gvclass/)?gvclass:{re.escape(version)}"
+    )
+    stale_image_ref = re.compile(
+        rf"(?:gvclass/)?gvclass:(?!{re.escape(version)}\b)\d+\.\d+\.\d+"
+    )
 
     assert pixi["workspace"]["version"] == version
     for path in [
@@ -69,8 +75,8 @@ def test_release_version_matches_user_facing_wrappers() -> None:
         "src/bin/gvclass_shifter.sh",
     ]:
         text = (REPO_ROOT / path).read_text()
-        assert f"gvclass:{version}" in text
-        assert "gvclass:1.4.3" not in text
+        assert expected_image_ref.search(text), path
+        assert not stale_image_ref.search(text), path
 
 
 def test_gitmodules_does_not_reference_missing_submodules() -> None:
