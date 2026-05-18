@@ -24,7 +24,10 @@ from src.core.marker_processing import MarkerProcessor
 from src.core.reformat import calculate_stats, reformat_sequences
 from src.core.summarize_full import FullSummarizer
 from src.core.tree_analysis import TreeAnalyzer
-from src.pipeline.summary_writer import write_individual_summary_file
+from src.pipeline.summary_writer import (
+    write_individual_final_summary_file,
+    write_individual_summary_file,
+)
 from src.utils.common import sha256_file
 from src.utils.error_handling import ProcessingError
 
@@ -101,6 +104,9 @@ def process_single_query(
     _write_contamination_candidates_file(query_output_dir, query_name, summary_data, logger)
     logger.info(f"Writing summary file to {query_output_dir / f'{query_name}.summary.tab'}")
     write_individual_summary_file(query_output_dir, query_name, summary_data, logger)
+    write_individual_final_summary_file(
+        query_output_dir, query_name, summary_data, logger
+    )
     _post_process_query(query_name, query_output_dir, output_base, logger)
     return _build_query_result(query_name, summary_data, prepared_input.best_code, output_base)
 
@@ -787,6 +793,7 @@ def _post_process_query(
     post_process_start = time.time()
     try:
         _copy_query_summary_tab(query_name, query_output_dir, output_base, logger)
+        _copy_query_final_summary_tab(query_name, query_output_dir, output_base, logger)
         _copy_query_contamination_candidates(query_name, query_output_dir, output_base, logger)
         _log_tree_nn_file(query_name, query_output_dir, logger)
         _archive_query_output(query_name, query_output_dir, output_base, logger)
@@ -828,6 +835,18 @@ def _copy_query_summary_tab(
     logger.warning(
         f"Summary tab file not found in {summary_tab_file} or {summary_tab_file_stats}"
     )
+
+
+def _copy_query_final_summary_tab(
+    query_name: str, query_output_dir: Path, output_base: Path, logger
+) -> None:
+    summary_file = query_output_dir / f"{query_name}.final_summary.tsv"
+    if not summary_file.exists():
+        logger.debug(f"Final-schema summary file not found: {summary_file}")
+        return
+    destination = output_base / f"{query_name}.final_summary.tsv"
+    shutil.copy2(summary_file, destination)
+    logger.info(f"Copied final-schema summary to {destination}")
 
 
 def _copy_query_contamination_candidates(
@@ -921,6 +940,7 @@ def _clear_prior_outputs(query_name: str, output_base: Path, logger) -> None:
     _clear_success_sentinel(query_name, output_base, logger)
     victims = [
         output_base / f"{query_name}.summary.tab",
+        output_base / f"{query_name}.final_summary.tsv",
         output_base / f"{query_name}.tar.gz",
         output_base / f"{query_name}.tar.gz.part",
         output_base / f"{query_name}.contamination_candidates.tsv",

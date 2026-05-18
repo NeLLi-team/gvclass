@@ -4,7 +4,7 @@ import csv
 import math
 import traceback
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, Iterable, List, Optional
 
 
 LEGACY_SUMMARY_HEADERS: List[str] = [
@@ -270,6 +270,29 @@ def write_individual_summary_file(
     return summary_file
 
 
+def write_individual_final_summary_file(
+    query_output_dir: Path, query_name: str, summary_data: Dict[str, Any], logger
+) -> Path:
+    """Write a per-query final-schema summary row for resume reconstruction."""
+    summary_file = query_output_dir / f"{query_name}.final_summary.tsv"
+    try:
+        row_data = _build_final_summary_row(
+            {
+                "query": query_name,
+                "status": "complete",
+                "summary_data": summary_data,
+            }
+        )
+        with open(summary_file, "w", newline="") as handle:
+            handle.write("\t".join(FINAL_SUMMARY_COLUMNS) + "\n")
+            handle.write("\t".join(row_data) + "\n")
+        logger.info(f"Final-schema summary file written successfully: {summary_file}")
+    except Exception as exc:
+        logger.error(f"Failed to write final-schema summary file for {query_name}: {exc}")
+        logger.error(traceback.format_exc())
+    return summary_file
+
+
 def _build_legacy_summary_row(summary_data: Dict[str, Any]) -> List[str]:
     row_data: List[str] = []
     for header in LEGACY_SUMMARY_HEADERS:
@@ -312,6 +335,52 @@ def write_final_summary_files(results: List[Dict[str, Any]], output_dir: Path) -
             tsv_file.write("\t".join(row) + "\n")
             csv_writer.writerow(row)
     return summary_tsv
+
+
+def read_individual_summary_results(
+    output_dir: Path, query_names: Optional[Iterable[str]] = None
+) -> List[Dict[str, Any]]:
+    """Read existing per-query summary files into final-summary result records."""
+    wanted_names = (
+        set(query_names)
+        if query_names is not None
+        else {
+            path.name.removesuffix(".summary.tab")
+            for path in output_dir.glob("*.summary.tab")
+        }
+    )
+    results: List[Dict[str, Any]] = []
+    for query_name in sorted(wanted_names):
+        summary_file = _find_best_individual_summary_file(output_dir, query_name)
+        if summary_file is None:
+            continue
+        result = _read_individual_summary_result(summary_file, query_name)
+        if result is not None:
+            results.append(result)
+    return results
+
+
+def _find_best_individual_summary_file(output_dir: Path, query_name: str) -> Optional[Path]:
+    final_summary = output_dir / f"{query_name}.final_summary.tsv"
+    if final_summary.exists():
+        return final_summary
+    legacy_summary = output_dir / f"{query_name}.summary.tab"
+    if legacy_summary.exists():
+        return legacy_summary
+    return None
+
+
+def _read_individual_summary_result(
+    summary_file: Path, query_name: str
+) -> Optional[Dict[str, Any]]:
+    with open(summary_file, "r", newline="") as handle:
+        reader = csv.DictReader(handle, delimiter="\t")
+        row = next(reader, None)
+    if row is None:
+        return None
+    summary_data = {key: value for key, value in row.items() if key is not None}
+    summary_data["query"] = query_name
+    return {"query": query_name, "status": "complete", "summary_data": summary_data}
 
 
 def _build_final_summary_row(result: Dict[str, Any]) -> List[str]:

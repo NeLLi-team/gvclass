@@ -7,7 +7,10 @@ import traceback
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 
 from src.pipeline.query_processor import run_query_processing
-from src.pipeline.summary_writer import write_final_summary_files
+from src.pipeline.summary_writer import (
+    read_individual_summary_results,
+    write_final_summary_files,
+)
 from src.utils import InputValidator
 from src.utils.database_manager import DatabaseManager
 
@@ -165,6 +168,7 @@ def _query_is_resume_complete(output_path: Path, query_name: str, logger) -> boo
 
 
 def _apply_resume_filter(config: Dict[str, Any], resume: bool, logger) -> None:
+    config["resume_skipped_query_names"] = []
     if not resume:
         return
 
@@ -175,6 +179,7 @@ def _apply_resume_filter(config: Dict[str, Any], resume: bool, logger) -> None:
         query_name = query_file.stem
         if _query_is_resume_complete(output_path, query_name, logger):
             logger.info(f"Skipping completed query: {query_name}")
+            config["resume_skipped_query_names"].append(query_name)
             skipped_count += 1
         else:
             filtered_queries.append(query_file)
@@ -290,6 +295,29 @@ def _count_completed(results: List[Dict[str, Any]]) -> int:
     return len([result for result in results if result["status"] == "complete"])
 
 
+def _combine_with_resume_skipped_results(
+    config: Dict[str, Any], results: List[Dict[str, Any]], logger
+) -> List[Dict[str, Any]]:
+    skipped_names = config.get("resume_skipped_query_names", [])
+    if not skipped_names:
+        return results
+
+    skipped_results = read_individual_summary_results(
+        config["output_path"], skipped_names
+    )
+    combined_results = {result["query"]: result for result in skipped_results}
+    combined_results.update({result["query"]: result for result in results})
+
+    missing_names = sorted(set(skipped_names) - set(combined_results))
+    if missing_names:
+        logger.warning(
+            "Resume mode: skipped queries missing readable summary files: %s",
+            ", ".join(missing_names),
+        )
+
+    return list(combined_results.values())
+
+
 def gvclass_flow(
     query_dir: str,
     output_dir: str,
@@ -326,7 +354,8 @@ def gvclass_flow(
         logger.info(
             "No queries remaining after resume filter; skipping parallel processing."
         )
-        summary_file = create_final_summary_task([], config["output_path"])
+        all_results = _combine_with_resume_skipped_results(config, [], logger)
+        summary_file = create_final_summary_task(all_results, config["output_path"])
         logger.info(f"Pipeline completed! Results in: {config['output_path']}")
         logger.info(f"Summary written to: {summary_file}")
         _ = cluster_type
@@ -358,7 +387,8 @@ def gvclass_flow(
     )
 
     logger.info("Creating final summary...")
-    summary_file = create_final_summary_task(results, config["output_path"])
+    all_results = _combine_with_resume_skipped_results(config, results, logger)
+    summary_file = create_final_summary_task(all_results, config["output_path"])
     logger.info(f"Pipeline completed! Results in: {config['output_path']}")
     logger.info(f"Summary written to: {summary_file}")
     logger.info(f"Successfully processed {completed_count}/{len(results)} queries")

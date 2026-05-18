@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-v1.5.0-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/version-v1.5.1-blue.svg" alt="Version">
   <img src="https://img.shields.io/badge/license-BSD--3--Clause-green.svg" alt="License">
   <img src="https://img.shields.io/badge/python-3.11-blue.svg" alt="Python">
   <img src="https://img.shields.io/badge/pixi-enabled-orange.svg" alt="Pixi">
@@ -225,6 +225,21 @@ When the configured database source is a Zenodo record, GVClass now prints the i
 database version, checks Zenodo for the latest published version, and offers to update with
 `yes` as the default response in interactive sessions.
 
+## What's New in v1.5.1
+
+- **Resume summary reconstruction fixed**: `--resume` now rebuilds
+  `gvclass_summary.tsv` and `gvclass_summary.csv` from both newly processed
+  queries and previously completed queries skipped by resume mode, instead of
+  reporting only the post-restart subset.
+- **Per-query final-summary sidecars**: completed queries now write
+  `<query>.final_summary.tsv` alongside the legacy `<query>.summary.tab`, so
+  future resumed runs can preserve the full final-summary schema.
+- **Input-mode coverage**: resume summary reconstruction is covered for
+  individual `.faa` inputs, direct `.fna` inputs, all-skipped resumed runs, and
+  `--contigs` split-contig runs.
+- **Runtime resources unchanged**: the software release is now `v1.5.1`; the
+  compatible runtime database/resource bundle remains `v1.5.0`.
+
 ## What's New in v1.5.0
 
 - **Contamination model retrained on simulated MAGs**: replaces the bundled
@@ -301,11 +316,11 @@ The `gvclass-a` wrapper handles container execution automatically. For manual co
 ```bash
 # Pull the image manually (works without auth token for public images)
 apptainer pull --library https://library.sylabs.io \
-  gvclass_1.5.0.sif library://nelligroup-jgi/gvclass/gvclass:1.5.0
+  gvclass_1.5.1.sif library://nelligroup-jgi/gvclass/gvclass:1.5.1
 
 # Run with manual bind mounts
 apptainer run -B /path/to/data:/input -B /path/to/results:/output \
-  gvclass_1.5.0.sif /input -o /output -t 32
+  gvclass_1.5.1.sif /input -o /output -t 32
 ```
 
 The wrapper is simpler and handles bind mounts automatically.
@@ -328,7 +343,7 @@ apptainer build gvclass.sif containers/apptainer/gvclass.def
 apptainer remote login
 
 # Push the image to the library
-apptainer push gvclass.sif library://nelligroup-jgi/gvclass/gvclass:1.5.0
+apptainer push gvclass.sif library://nelligroup-jgi/gvclass/gvclass:1.5.1
 ```
 
 ### Full CLI Reference (gvclass)
@@ -614,4 +629,4 @@ The GVClass runtime resources include genomes/models derived from the following 
 BSD 3-Clause License - see LICENSE file for details
 
 ---
-<sub>Version 1.5.0 - April 2026</sub>
+<sub>Version 1.5.1 - May 2026</sub>
