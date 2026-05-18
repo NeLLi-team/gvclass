@@ -12,6 +12,7 @@ Covers Phase 1.3 of the remediation plan:
 
 from __future__ import annotations
 
+import csv
 import json
 import logging
 import tarfile
@@ -219,6 +220,238 @@ def test_count_resume_skips_counts_sentinel_and_legacy(tmp_path: Path) -> None:
     (output_path / "qc.summary.tab").write_text("")
 
     assert count_resume_skips(output_path) == 2
+
+
+def _write_resume_summary(output_path: Path, query_name: str, taxonomy: str) -> None:
+    with open(output_path / f"{query_name}.summary.tab", "w", newline="") as handle:
+        writer = csv.writer(handle, delimiter="\t")
+        writer.writerow(["query", "taxonomy_majority", "estimated_completeness"])
+        writer.writerow([query_name, taxonomy, "88.50"])
+
+
+def _write_resume_final_summary(
+    output_path: Path, query_name: str, taxonomy: str, taxonomy_strict: str
+) -> None:
+    with open(output_path / f"{query_name}.final_summary.tsv", "w", newline="") as handle:
+        writer = csv.writer(handle, delimiter="\t")
+        writer.writerow(["query", "taxonomy_majority", "taxonomy_strict"])
+        writer.writerow([query_name, taxonomy, taxonomy_strict])
+
+
+def _seed_resume_complete_query(
+    output_path: Path,
+    query_name: str,
+    taxonomy: str,
+    taxonomy_strict: str | None = None,
+) -> None:
+    _write_resume_summary(output_path, query_name, taxonomy)
+    if taxonomy_strict is not None:
+        _write_resume_final_summary(output_path, query_name, taxonomy, taxonomy_strict)
+    (output_path / f"{query_name}.SUCCESS").write_text("{}")
+
+
+def _fake_resume_validate(query_dir: Path, output_path: Path):
+    def validate_and_setup_task(*args, **kwargs):
+        query_files = sorted(
+            [
+                *query_dir.glob("*.faa"),
+                *query_dir.glob("*.fna"),
+            ]
+        )
+        return {
+            "query_path": query_dir,
+            "output_path": output_path,
+            "database_path": output_path / "db",
+            "query_files": query_files,
+        }
+
+    return validate_and_setup_task
+
+
+def _fake_query_processor(query_file: Path, output_base: Path, *args, **kwargs):
+    query_name = query_file.stem
+    return {
+        "query": query_name,
+        "status": "complete",
+        "summary_data": {
+            "query": query_name,
+            "taxonomy_majority": f"processed_{query_name}",
+            "estimated_completeness": 91.25,
+        },
+        "genetic_code": "N/A",
+        "output_dir": str(output_base),
+    }
+
+
+def test_gvclass_flow_resume_summary_includes_skipped_queries(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from src.pipeline import parallel_runner
+
+    query_dir = tmp_path / "queries"
+    output_path = tmp_path / "out"
+    query_dir.mkdir()
+    output_path.mkdir()
+    for query_name in ("q1", "q2", "q3", "q4"):
+        (query_dir / f"{query_name}.faa").write_text(">p\nM\n")
+    _seed_resume_complete_query(output_path, "q1", "skipped_q1", "strict_q1")
+    _seed_resume_complete_query(output_path, "q2", "skipped_q2")
+
+    monkeypatch.setattr(
+        parallel_runner,
+        "validate_and_setup_task",
+        _fake_resume_validate(query_dir, output_path),
+    )
+    monkeypatch.setattr(parallel_runner, "process_query_task", _fake_query_processor)
+
+    summary_file = parallel_runner.gvclass_flow(
+        str(query_dir),
+        str(output_path),
+        total_threads=2,
+        max_workers=1,
+        threads_per_worker=1,
+        resume=True,
+    )
+
+    with open(summary_file, newline="") as handle:
+        rows = list(csv.DictReader(handle, delimiter="\t"))
+
+    assert [row["query"] for row in rows] == ["q1", "q2", "q3", "q4"]
+    assert rows[0]["taxonomy_majority"] == "skipped_q1"
+    assert rows[0]["taxonomy_strict"] == "strict_q1"
+    assert rows[1]["taxonomy_majority"] == "skipped_q2"
+    assert rows[1]["taxonomy_strict"] == ""
+    assert rows[2]["taxonomy_majority"] == "processed_q3"
+    assert rows[3]["taxonomy_majority"] == "processed_q4"
+
+
+def test_gvclass_flow_resume_all_skipped_rebuilds_summary(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from src.pipeline import parallel_runner
+
+    query_dir = tmp_path / "queries"
+    output_path = tmp_path / "out"
+    query_dir.mkdir()
+    output_path.mkdir()
+    for query_name in ("q1", "q2"):
+        (query_dir / f"{query_name}.faa").write_text(">p\nM\n")
+        _seed_resume_complete_query(output_path, query_name, f"skipped_{query_name}")
+
+    monkeypatch.setattr(
+        parallel_runner,
+        "validate_and_setup_task",
+        _fake_resume_validate(query_dir, output_path),
+    )
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("resume should not process all-skipped queries")
+
+    monkeypatch.setattr(parallel_runner, "process_query_task", fail_if_called)
+
+    summary_file = parallel_runner.gvclass_flow(
+        str(query_dir),
+        str(output_path),
+        total_threads=2,
+        max_workers=1,
+        threads_per_worker=1,
+        resume=True,
+    )
+
+    with open(summary_file, newline="") as handle:
+        rows = list(csv.DictReader(handle, delimiter="\t"))
+
+    assert [row["query"] for row in rows] == ["q1", "q2"]
+    assert [row["taxonomy_majority"] for row in rows] == ["skipped_q1", "skipped_q2"]
+
+
+def test_gvclass_flow_resume_summary_includes_skipped_fna_queries(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from src.pipeline import parallel_runner
+
+    query_dir = tmp_path / "queries"
+    output_path = tmp_path / "out"
+    query_dir.mkdir()
+    output_path.mkdir()
+    for query_name in ("fna_q1", "fna_q2"):
+        (query_dir / f"{query_name}.fna").write_text(">contig\nATGAAATAG\n")
+    _seed_resume_complete_query(output_path, "fna_q1", "skipped_fna_q1", "strict_fna_q1")
+
+    monkeypatch.setattr(
+        parallel_runner,
+        "validate_and_setup_task",
+        _fake_resume_validate(query_dir, output_path),
+    )
+    monkeypatch.setattr(parallel_runner, "process_query_task", _fake_query_processor)
+
+    summary_file = parallel_runner.gvclass_flow(
+        str(query_dir),
+        str(output_path),
+        total_threads=2,
+        max_workers=1,
+        threads_per_worker=1,
+        resume=True,
+    )
+
+    with open(summary_file, newline="") as handle:
+        rows = list(csv.DictReader(handle, delimiter="\t"))
+
+    assert [row["query"] for row in rows] == ["fna_q1", "fna_q2"]
+    assert rows[0]["taxonomy_majority"] == "skipped_fna_q1"
+    assert rows[0]["taxonomy_strict"] == "strict_fna_q1"
+    assert rows[1]["taxonomy_majority"] == "processed_fna_q2"
+
+
+def test_gvclass_flow_resume_summary_includes_skipped_split_contigs(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from src.pipeline import parallel_runner
+    from src.utils.contig_splitter import split_contigs
+
+    output_path = tmp_path / "out"
+    output_path.mkdir()
+    source_fna = tmp_path / "source.fna"
+    source_fna.write_text(
+        ">contig/one\nATGAAATAG\n"
+        ">contig:two\nATGAAATAG\n"
+    )
+    split_dir, split_count = split_contigs(
+        source_fna,
+        output_dir=tmp_path / "split",
+        min_length=0,
+        prefix=source_fna.stem,
+    )
+    assert split_count == 2
+    query_names = sorted(path.stem for path in split_dir.glob("*.fna"))
+    assert query_names == ["source__contig_one", "source__contig_two"]
+    _seed_resume_complete_query(
+        output_path, query_names[0], "skipped_contig_one", "strict_contig_one"
+    )
+
+    monkeypatch.setattr(
+        parallel_runner,
+        "validate_and_setup_task",
+        _fake_resume_validate(split_dir, output_path),
+    )
+    monkeypatch.setattr(parallel_runner, "process_query_task", _fake_query_processor)
+
+    summary_file = parallel_runner.gvclass_flow(
+        str(split_dir),
+        str(output_path),
+        total_threads=2,
+        max_workers=1,
+        threads_per_worker=1,
+        resume=True,
+    )
+
+    with open(summary_file, newline="") as handle:
+        rows = list(csv.DictReader(handle, delimiter="\t"))
+
+    assert [row["query"] for row in rows] == query_names
+    assert rows[0]["taxonomy_majority"] == "skipped_contig_one"
+    assert rows[0]["taxonomy_strict"] == "strict_contig_one"
+    assert rows[1]["taxonomy_majority"] == "processed_source__contig_two"
 
 
 # ---------------------------------------------------------------------------
