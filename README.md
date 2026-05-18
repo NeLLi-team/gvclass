@@ -225,87 +225,12 @@ When the configured database source is a Zenodo record, GVClass now prints the i
 database version, checks Zenodo for the latest published version, and offers to update with
 `yes` as the default response in interactive sessions.
 
-## What's New in v1.5.1
+## Releases
 
-- **Resume summary reconstruction fixed**: `--resume` now rebuilds
-  `gvclass_summary.tsv` and `gvclass_summary.csv` from both newly processed
-  queries and previously completed queries skipped by resume mode, instead of
-  reporting only the post-restart subset.
-- **Per-query final-summary sidecars**: completed queries now write
-  `<query>.final_summary.tsv` alongside the legacy `<query>.summary.tab`, so
-  future resumed runs can preserve the full final-summary schema.
-- **Input-mode coverage**: resume summary reconstruction is covered for
-  individual `.faa` inputs, direct `.fna` inputs, all-skipped resumed runs, and
-  `--contigs` split-contig runs.
-- **Runtime resources unchanged**: the software release is now `v1.5.1`; the
-  compatible runtime database/resource bundle remains `v1.5.0`.
-
-## What's New in v1.5.0
-
-- **Contamination model retrained on simulated MAGs**: replaces the bundled
-  ExtraTrees contamination regressor with one trained on a dataset that
-  simulates giant-virus MAGs — isolate genomes fragmented into MAG-like
-  contigs with added bacterial, eukaryotic, and mixed-kingdom contamination,
-  alongside clean intact genomes. Eliminates the novel-virus false-positive
-  class observed on prior releases (mean predicted contamination on clean
-  shredded NCLDV drops from ~29% to ~4%) while preserving calibration on
-  intact curated inputs. Contaminated-bin MAE improves 3-5× across
-  scenarios; Pearson r on contaminated bins reaches 0.97.
-- **Per-contig taxonomic-purity classifier**: novel viruses with scattered
-  cellular markers from HGT no longer downgrade to `mixed_viral`. Bins with
-  no cellular-coherent contigs but ≥3 viral-bearing contigs downgrade to
-  `uncertain` so curators can triage. New per-contig output columns:
-  `cellular_coherent_contig_count`, `cellular_coherent_protein_fraction`,
-  `cellular_coherent_bp_fraction`, `cellular_lineage_purity_median`,
-  `cellular_hit_identity_median`, `viral_bearing_contig_count`,
-  `contig_attribution_mode`.
-- **Correctness fixes**: multi-HMM dedup on `models.out.filtered`;
-  contamination model now calibrated for sensitive-mode features;
-  resume uses atomic tar writes and a JSON SUCCESS sentinel;
-  TOCTOU-safe joblib load with SHA-256 gate; per-marker taxonomy majority
-  with deterministic tie-break and `taxonomy_confidence` column;
-  transactional contig splitter; hard-fail short-input validation with
-  opt-in `--allow-short`; R² gating on novelty-aware completeness.
-- **BLAST consolidation**: redundant per-query BLAST pass removed;
-  `<marker>.m8` is the single source of truth. Halves per-query BLAST cost.
-- **Module renames** (breaking for internal consumers):
-  `prefect_flow.py` → `parallel_runner.py`,
-  `gvclass_prefect.py` → `gvclass_runner.py`. Prefect was never used at
-  runtime; the rename removes the misleading dependency implication.
-- **Infrastructure**: `src/__version__.py` as single source of truth,
-  `pyproject.toml` with `gvclass` console script, committed `pixi.lock`,
-  CI workflow with lint / type-check / pytest plus PR-only golden-file
-  regression.
-- **Software Version Bump**: software release and runtime resource bundle are
-  now `v1.5.0`.
-
-## What's New in v1.4.2
-
-- **Contamination Model Recalibrated**: The bundled contamination regressor now uses the updated `extra_trees` model tuned on the new real-contig benchmark subset, which sharply reduces false contamination on clean long viral references.
-- **Contamination Model Path Hardened**: `estimated_contamination` resolves the trained model through the runtime resources bundle and verifies it before loading.
-- **Local Benchmark Workspace Kept Out Of Git**: Benchmark docs and local benchmark/codexloop artifacts are now kept out of GitHub while remaining usable in local checkouts.
-- **Software Version Bump**: The software release is now `v1.4.2` while the runtime completeness resource bundle remains `v1.4.0`.
-
-## What's New in v1.4.1
-
-- **Sensitive HMM Filtering Default**: GVClass now enables the `1e-5` pyhmmer
-  sensitivity mode by default in the shipped configuration and deployment
-  templates.
-- **Duplicate Marker Counts Fixed**: Repeated hits from the same protein to the
-  same marker model are now collapsed before writing filtered HMM outputs and
-  marker count tables.
-- **Summary Metrics Corrected**: Downstream marker summaries now inherit the
-  corrected per-protein-per-model counts, preventing inflated GVOG and related
-  totals in sensitive-mode runs.
-- **Software Version Bump**: The software release is now `v1.4.1` while the
-  runtime resource bundle remains `v1.4.0`.
-
-## What's New in v1.4.0
-
-- **Trained Contamination Model Default**: `estimated_contamination` now comes from the shipped trained contamination bundle instead of the rule-based score.
-- **Resource Validation Tightened**: Production resources are expected to contain the novelty-aware completeness resources.
-- **Setup-Driven Runtime Resources**: `resources/` is now treated as local runtime state populated by `pixi run setup-db` or first-run download, not as committed repository content.
-- **Full Summary Preservation**: The CLI preserves the richer final summary schema instead of collapsing back to the older per-query header set.
+Release notes are maintained on the
+[GitHub Releases page](https://github.com/NeLLi-team/gvclass/releases).
+The latest software release is `v1.5.1`; the compatible database/runtime
+resource bundle remains `v1.5.0`.
 
 ## Advanced Usage
 
