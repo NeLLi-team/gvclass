@@ -63,7 +63,11 @@ def _decode_accession(value: Any) -> Any:
 
 def _load_query_sequences(query_file: str) -> List[Any]:
     error_handler.log_info(f"Loading query sequences from {query_file}")
-    with pyhmmer.easel.SequenceFile(query_file, digital=True) as f:
+    with pyhmmer.easel.SequenceFile(
+        query_file,
+        digital=True,
+        alphabet=pyhmmer.easel.Alphabet.amino(),
+    ) as f:
         sequences = list(f)
     error_handler.log_info(f"Loaded {len(sequences)} sequences")
     return sequences

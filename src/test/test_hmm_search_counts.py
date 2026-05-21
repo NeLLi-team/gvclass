@@ -7,11 +7,13 @@ if str(REPO_ROOT) not in sys.path:
 
 from src.core.hmm_search import (
     _collect_filtered_search_results,
+    _load_query_sequences as _load_single_hmm_query_sequences,
     generate_counts_from_output,
     process_hmmout,
 )
 from src.core.hmm_search_multi import (
     _dedup_hits,
+    _load_query_sequences as _load_multi_hmm_query_sequences,
     dedup_domtbl_file,
 )
 
@@ -27,6 +29,33 @@ def _domtbl_line(
         f"{protein_id}\t-\t{target_length}\t{model_name}\t-\t300\t1e-20\t{seq_score}\t0.0\t"
         f"1\t1\t1e-20\t1e-20\t{dom_score}\t0.0\t1\t100\t1\t100\t1\t100\t0.90\n"
     )
+
+
+def _write_ambiguous_protein_query(path: Path) -> None:
+    path.write_text(
+        ">low_complexity_protein\n"
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n"
+    )
+
+
+def test_single_hmm_loader_forces_amino_alphabet_for_faa(tmp_path: Path) -> None:
+    query_file = tmp_path / "low_complexity.faa"
+    _write_ambiguous_protein_query(query_file)
+
+    sequences = _load_single_hmm_query_sequences(str(query_file))
+
+    assert len(sequences) == 1
+    assert str(sequences[0].alphabet) == "AA()"
+
+
+def test_multi_hmm_loader_forces_amino_alphabet_for_faa(tmp_path: Path) -> None:
+    query_file = tmp_path / "low_complexity.faa"
+    _write_ambiguous_protein_query(query_file)
+
+    sequences = _load_multi_hmm_query_sequences(str(query_file))
+
+    assert len(sequences) == 1
+    assert str(sequences[0].alphabet) == "AA()"
 
 
 def test_generate_counts_from_output_deduplicates_same_protein_and_model(

@@ -290,7 +290,11 @@ def _load_hmm_profiles(hmm_file: str) -> List[Any]:
 
 
 def _load_query_sequences(query_file: str) -> List[Any]:
-    with pyhmmer.easel.SequenceFile(query_file, digital=True) as seq_handle:
+    with pyhmmer.easel.SequenceFile(
+        query_file,
+        digital=True,
+        alphabet=pyhmmer.easel.Alphabet.amino(),
+    ) as seq_handle:
         return list(seq_handle)
 
 

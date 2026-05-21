@@ -202,6 +202,8 @@ FINAL_SUMMARY_COLUMNS: List[str] = [
     "ttable",
 ]
 
+FAILED_QUERY_COLUMNS: List[str] = ["query", "status", "error"]
+
 TWO_DECIMAL_COLUMNS = {
     "avgdist",
     "order_dup",
@@ -324,17 +326,68 @@ def write_final_summary_files(results: List[Dict[str, Any]], output_dir: Path) -
     """Write the final TSV and CSV summary tables."""
     summary_tsv = output_dir / "gvclass_summary.tsv"
     summary_csv = output_dir / "gvclass_summary.csv"
+    summary_results, failed_results = _partition_summary_results(results)
+    _write_failed_query_report(failed_results, output_dir)
     with open(summary_tsv, "w") as tsv_file, open(
         summary_csv, "w", newline=""
     ) as csv_file:
         csv_writer = csv.writer(csv_file)
         tsv_file.write("\t".join(FINAL_SUMMARY_COLUMNS) + "\n")
         csv_writer.writerow(FINAL_SUMMARY_COLUMNS)
-        for result in sorted(results, key=lambda item: item["query"]):
+        for result in sorted(summary_results, key=lambda item: item["query"]):
             row = _build_final_summary_row(result)
             tsv_file.write("\t".join(row) + "\n")
             csv_writer.writerow(row)
     return summary_tsv
+
+
+def _partition_summary_results(
+    results: List[Dict[str, Any]]
+) -> tuple[List[Dict[str, Any]], List[Dict[str, str]]]:
+    summary_results = []
+    failed_results = []
+    for result in results:
+        if result.get("status") == "complete" and "summary_data" in result:
+            summary_results.append(result)
+            continue
+        failed_results.append(_build_failed_query_row(result))
+    return summary_results, failed_results
+
+
+def _build_failed_query_row(result: Dict[str, Any]) -> Dict[str, str]:
+    status = result.get("status") or "missing_summary"
+    error = result.get("error") or ""
+    if status == "complete" and "summary_data" not in result:
+        error = "complete result missing summary_data"
+    return {
+        "query": str(result.get("query", "")),
+        "status": str(status),
+        "error": str(error),
+    }
+
+
+def _write_failed_query_report(
+    failed_results: List[Dict[str, str]], output_dir: Path
+) -> None:
+    failed_tsv = output_dir / "gvclass_failed_queries.tsv"
+    failed_csv = output_dir / "gvclass_failed_queries.csv"
+    if not failed_results:
+        failed_tsv.unlink(missing_ok=True)
+        failed_csv.unlink(missing_ok=True)
+        return
+
+    with open(failed_tsv, "w", newline="") as tsv_handle, open(
+        failed_csv, "w", newline=""
+    ) as csv_handle:
+        tsv_writer = csv.DictWriter(
+            tsv_handle, fieldnames=FAILED_QUERY_COLUMNS, delimiter="\t"
+        )
+        csv_writer = csv.DictWriter(csv_handle, fieldnames=FAILED_QUERY_COLUMNS)
+        tsv_writer.writeheader()
+        csv_writer.writeheader()
+        for row in sorted(failed_results, key=lambda item: item["query"]):
+            tsv_writer.writerow(row)
+            csv_writer.writerow(row)
 
 
 def read_individual_summary_results(
