@@ -753,12 +753,15 @@ class FullSummarizer:
         majority_parts = []
         strict_parts = []
         confidence_flags: List[str] = []
+        saw_taxonomy_evidence = False
 
         for level in reversed(self.TAX_LEVELS):
             flat_counter = tax_counters[level]
             per_marker_level = per_marker_counters.get(level, {})
             threshold = self._min_markers_for_level(level, mode_fast)
             winning, supporting, total = self._per_marker_majority(per_marker_level)
+            if flat_counter or total > 0:
+                saw_taxonomy_evidence = True
 
             if winning is not None and supporting >= threshold:
                 majority = self._format_tax_label(level, winning)
@@ -784,6 +787,9 @@ class FullSummarizer:
             majority_parts.append(majority)
             strict_parts.append(strict)
 
+        if not saw_taxonomy_evidence:
+            confidence_flags.append("no_support")
+
         majority_str = ";".join(reversed(majority_parts))
         strict_str = ";".join(reversed(strict_parts))
         confidence = self._aggregate_confidence_flags(confidence_flags)
@@ -806,7 +812,7 @@ class FullSummarizer:
             return "high"
         # Preserve a stable priority so the string always reports the
         # strongest caveat first.
-        priority = {"low_support": 0, "reduced_fastmode": 1}
+        priority = {"no_support": 0, "low_support": 1, "reduced_fastmode": 2}
         unique = sorted(set(flags), key=lambda flag: priority.get(flag, 99))
         return ",".join(unique)
 

@@ -10,8 +10,6 @@ Covers:
 
 from __future__ import annotations
 
-import pytest
-
 from tests.conftest import skip_if_no_runtime_resources
 
 pytestmark = skip_if_no_runtime_resources()
@@ -92,6 +90,26 @@ def test_build_consensus_taxonomies_emits_low_support_when_below_threshold(
     order_segment = [piece for piece in majority.split(";") if piece.startswith("o_")]
     assert order_segment == ["o_"]
     assert "low_support" in confidence
+
+
+def test_build_consensus_taxonomies_marks_no_support_when_no_taxonomy_evidence(
+    tmp_path: Path,
+) -> None:
+    summarizer = _make_summarizer(tmp_path)
+
+    flat_counters: Dict[str, Counter] = {
+        level: Counter() for level in summarizer.TAX_LEVELS
+    }
+    per_marker: Dict[str, Dict[str, Counter]] = {
+        level: defaultdict(Counter) for level in summarizer.TAX_LEVELS
+    }
+
+    majority, _, confidence = summarizer._build_consensus_taxonomies(
+        flat_counters, per_marker, mode_fast=True
+    )
+
+    assert majority == "d_;p_;c_;o_;f_;g_;s_"
+    assert confidence == "no_support"
 
 
 def test_build_consensus_taxonomies_fast_mode_relaxes_order_threshold(
