@@ -6,7 +6,7 @@ From: ghcr.io/prefix-dev/pixi:latest
     . /opt/gvclass_staging
 
 %environment
-    export PATH=/opt/gvclass/.pixi/envs/default/bin:$PATH
+    export PATH=/opt/gvclass:/opt/gvclass/.pixi/envs/default/bin:$PATH
     export PYTHONPATH=/opt/gvclass:$PYTHONPATH
 
 %post

@@ -29,7 +29,7 @@ RUN pixi clean cache -y || true && \
     find /opt/gvclass -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 
 # Set environment variables
-ENV PATH="/opt/gvclass/.pixi/envs/default/bin:${PATH}"
+ENV PATH="/opt/gvclass:/opt/gvclass/.pixi/envs/default/bin:${PATH}"
 ENV PYTHONPATH="/opt/gvclass:${PYTHONPATH}"
 
 # Create mount points for input/output with proper permissions
