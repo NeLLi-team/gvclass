@@ -1,7 +1,7 @@
 # Use the official Pixi base image (includes Pixi pre-installed)
 FROM ghcr.io/prefix-dev/pixi:latest
 
-ARG GVCLASS_VERSION=1.5.1
+ARG GVCLASS_VERSION=1.5.2
 
 # Install build dependencies needed for pyrodigal compilation
 USER root
@@ -28,8 +28,13 @@ RUN pixi clean cache -y || true && \
     rm -rf /opt/gvclass/__pycache__ 2>/dev/null || true && \
     find /opt/gvclass -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 
+# Publish a stable executable and keep the app readable/executable for non-root users.
+RUN chmod -R a+rX /opt/gvclass && \
+    chmod a+rx /opt/gvclass/gvclass /opt/gvclass/gvclass-a && \
+    ln -sf /opt/gvclass/gvclass /usr/local/bin/gvclass
+
 # Set environment variables
-ENV PATH="/opt/gvclass/.pixi/envs/default/bin:${PATH}"
+ENV PATH="/usr/local/bin:/opt/gvclass/.pixi/envs/default/bin:${PATH}"
 ENV PYTHONPATH="/opt/gvclass:${PYTHONPATH}"
 
 # Create mount points for input/output with proper permissions

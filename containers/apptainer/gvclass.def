@@ -6,7 +6,7 @@ From: ghcr.io/prefix-dev/pixi:latest
     . /opt/gvclass_staging
 
 %environment
-    export PATH=/opt/gvclass/.pixi/envs/default/bin:$PATH
+    export PATH=/usr/local/bin:/opt/gvclass/.pixi/envs/default/bin:$PATH
     export PYTHONPATH=/opt/gvclass:$PYTHONPATH
 
 %post
@@ -69,6 +69,12 @@ From: ghcr.io/prefix-dev/pixi:latest
     rm -rf /opt/gvclass/.pixi/cache 2>/dev/null || true
     rm -rf /opt/gvclass/__pycache__ 2>/dev/null || true
     find /opt/gvclass -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+
+    # Make the application tree usable by non-root Apptainer/Singularity users.
+    chmod -R a+rX /opt/gvclass
+    chmod a+rx /opt/gvclass/gvclass /opt/gvclass/gvclass-a
+    ln -sf /opt/gvclass/gvclass /usr/local/bin/gvclass
+
     rm -rf /opt/gvclass_staging
 
 %runscript
@@ -84,11 +90,11 @@ From: ghcr.io/prefix-dev/pixi:latest
 
 %labels
     Author fschulz
-    Version 1.5.1
+    Version 1.5.2
     Description GVClass - Giant Virus Classification Pipeline with Pixi
 
 %help
-    GVClass Pipeline v1.5.1
+    GVClass Pipeline v1.5.2
     
     IMPORTANT: Input data must be bind-mounted!
     
