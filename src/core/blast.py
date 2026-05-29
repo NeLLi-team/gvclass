@@ -119,6 +119,11 @@ def run_blastp(
                 targets,
                 scorer_name="BLOSUM62",
                 score_threshold=0,  # We'll filter by e-value later
+                # pyswrd defaults max_alignments to 10, which silently caps the
+                # per-query hits below the documented top_per_query (100) before
+                # our own slice. Pass it explicitly so the cap is the intended
+                # value, not the library default.
+                max_alignments=top_per_query,
                 threads=threads,
             ):
                 search_completed = True
@@ -422,7 +427,7 @@ def reduce_ref(
         top_per_query (int): Maximum number of hits to keep per query (default: 100).
     """
     run_blastp(queryfaa, refdb, blastpout, top_per_query=top_per_query)
-    besthits = parse_blastp(blastpout)
+    besthits = parse_blastp(blastpout, max_hits_per_query=top_per_query)
 
     seenids: List[str] = []
     outseqs: List[SeqIO.SeqRecord] = []

@@ -7,6 +7,8 @@ resources.
 
 from __future__ import annotations
 
+import hashlib
+import io
 import json
 import logging
 from dataclasses import dataclass
@@ -23,6 +25,20 @@ TIERS_FILE = "completeness/tiers.tsv"
 BASELINES_FILE = "completeness/baselines.tsv"
 MODEL_METADATA_FILE = "completeness/model_metadata.tsv"
 MODEL_BUNDLE_FILE = "completeness/model.joblib"
+
+#: Expected SHA-256 digest of ``resources/completeness/model.joblib``.
+#:
+#: ``model.joblib`` is loaded via ``joblib.load`` (a pickle-based deserializer),
+#: so an attacker who can swap the file gets arbitrary code execution at load
+#: time. Mirroring the contamination model, the bytes are read once, verified
+#: against this code-level constant, and only then deserialized from memory. A
+#: digest mismatch RAISES (refuse to load an untrusted pickle); a genuinely
+#: missing model soft-degrades to ``available=False`` because the novelty model
+#: is optional (installs/tests may ship without it), unlike the mandatory
+#: contamination model. Rotate this constant whenever the model is retrained.
+COMPLETENESS_MODEL_SHA256 = (
+    "606b8df913d5f30aa2143aaedb770a03265600689ecb1f0aa33e5a878cad641a"
+)
 
 OOD_STRICT_FLAGS = {
     "unassigned",
@@ -114,6 +130,21 @@ class NoveltyAwareCompletenessScorer:
             )
             return
 
+        # SHA-256 gate the pickle BEFORE the broad try/except below, so a
+        # digest mismatch propagates (refusing an untrusted pickle) instead of
+        # being silently swallowed into available=False. Read once and verify
+        # the in-memory bytes; the same bytes are deserialized via BytesIO.
+        model_bytes = self.model_bundle_path.read_bytes()
+        digest = hashlib.sha256(model_bytes).hexdigest()
+        if digest != COMPLETENESS_MODEL_SHA256:
+            raise RuntimeError(
+                "Completeness model SHA-256 mismatch at "
+                f"{self.model_bundle_path}: expected {COMPLETENESS_MODEL_SHA256}, "
+                f"got {digest}. Refusing to load an untrusted pickle. If the "
+                "model was intentionally retrained, rotate the "
+                "COMPLETENESS_MODEL_SHA256 constant."
+            )
+
         try:
             config_data = json.loads(self.config_path.read_text())
             self.config = Strategy2Config(**config_data["strategy2_config"])
@@ -154,7 +185,7 @@ class NoveltyAwareCompletenessScorer:
                 str(row["order_name"]): row.to_dict() for _, row in model_meta_df.iterrows()
             }
 
-            bundle = load(self.model_bundle_path)
+            bundle = load(io.BytesIO(model_bytes))
             self.models = bundle["models"]
             self.feature_names = list(bundle["feature_names"])
             self.available = True
@@ -305,6 +336,28 @@ class NoveltyAwareCompletenessScorer:
             return max(conservative_floor, min(prediction, adjusted))
         return prediction
 
+    def _degraded_metrics(
+        self,
+        strategy1_score: float,
+        selected_mode: str,
+        order_tax: str,
+        family_tax: str,
+        fallback_strategy: str,
+    ) -> Dict[str, object]:
+        """Fallback metrics when no novelty model / tier set is available.
+
+        In every mode we surface the valid strategy-1 normalized completeness
+        rather than a hard 0.0: an order that simply lacks a tier set or whose
+        scorer is unavailable is not 0% complete (M13). Legacy mode keeps its
+        historical strategy label; non-legacy records the fallback reason.
+        """
+        metrics = self.default_metrics(order_tax, family_tax)
+        metrics["estimated_completeness"] = strategy1_score
+        metrics["estimated_completeness_strategy"] = (
+            "order_baseline_ratio_v1" if selected_mode == "legacy" else fallback_strategy
+        )
+        return metrics
+
     def default_metrics(self, order_tax: str = "", family_tax: str = "") -> Dict[str, object]:
         return {
             "order_completeness_v2": 0.0,
@@ -330,25 +383,23 @@ class NoveltyAwareCompletenessScorer:
         selected_mode: str = "legacy",
     ) -> Dict[str, object]:
         if not self.available or not order_tax:
-            metrics = self.default_metrics(order_tax, family_tax)
-            metrics["estimated_completeness"] = (
-                strategy1_score if selected_mode == "legacy" else metrics["order_completeness_v2"]
+            return self._degraded_metrics(
+                strategy1_score,
+                selected_mode,
+                order_tax,
+                family_tax,
+                "order_baseline_ratio_v1_unavailable",
             )
-            metrics["estimated_completeness_strategy"] = (
-                "order_baseline_ratio_v1" if selected_mode == "legacy" else metrics["order_completeness_v2_strategy"]
-            )
-            return metrics
 
         group_def, tier_set = self.select_group(order_tax, family_tax)
         if group_def is None:
-            metrics = self.default_metrics(order_tax, family_tax)
-            metrics["estimated_completeness"] = (
-                strategy1_score if selected_mode == "legacy" else metrics["order_completeness_v2"]
+            return self._degraded_metrics(
+                strategy1_score,
+                selected_mode,
+                order_tax,
+                family_tax,
+                "order_baseline_ratio_v1_no_tier_set",
             )
-            metrics["estimated_completeness_strategy"] = (
-                "order_baseline_ratio_v1" if selected_mode == "legacy" else metrics["order_completeness_v2_strategy"]
-            )
-            return metrics
 
         tier_scores = self.score_tier_set(marker_counts, tier_set)
         strategy2_norm, baseline_mean, baseline_n_refs = self.normalize_strategy2_score(
@@ -403,12 +454,14 @@ class NoveltyAwareCompletenessScorer:
         )
         novelty_score = round(final_score, 2)
 
-        # Phase 3.3: gate the ML estimate on ``r2_holdout``. Below the
-        # advisory floor we do NOT surface the ML prediction as the primary
-        # estimate — the regressor is statistically no better than
-        # strategy-2 tiers for this order. Surface the ML score as an
-        # advisory column instead so users who trust it can still read it.
-        r2_raw = meta.get("r2_holdout")
+        # Phase 3.3: gate the ML estimate on the model's hold-out R². The
+        # shipped model_metadata.tsv stores this under the ``test_r2`` column
+        # (the output column is still named estimated_completeness_r2_holdout).
+        # Below the advisory floor we do NOT surface the ML prediction as the
+        # primary estimate — the regressor is statistically no better than
+        # strategy-2 tiers for this order. Surface the ML score as an advisory
+        # column instead so users who trust it can still read it.
+        r2_raw = meta.get("test_r2")
         try:
             if r2_raw in (None, ""):
                 r2_holdout = None

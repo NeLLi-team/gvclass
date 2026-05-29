@@ -547,6 +547,49 @@ def test_clear_prior_outputs_removes_legacy_artefacts(tmp_path: Path) -> None:
     assert _query_is_resume_complete(output_base, "q1", Mock()) is False
 
 
+def test_combine_resume_skipped_emits_placeholder_for_missing_summary(
+    tmp_path: Path,
+) -> None:
+    """M3: a skipped query whose loose summary is missing/empty must surface as
+    a failed row, not silently vanish from the combined results."""
+    from src.pipeline.parallel_runner import _combine_with_resume_skipped_results
+
+    output_path = tmp_path / "out"
+    output_path.mkdir()
+    _write_resume_summary(output_path, "q_ok", "tax_ok")
+    # Empty file -> read_individual_summary_results yields no row for it.
+    (output_path / "q_empty.summary.tab").write_text("")
+
+    config = {
+        "resume_skipped_query_names": ["q_ok", "q_missing", "q_empty"],
+        "output_path": output_path,
+    }
+    combined = _combine_with_resume_skipped_results(config, [], Mock())
+    by_query = {row["query"]: row for row in combined}
+
+    assert set(by_query) == {"q_ok", "q_missing", "q_empty"}
+    assert by_query["q_ok"]["status"] == "complete"
+    assert by_query["q_missing"]["status"] == "missing_summary"
+    assert "summary_data" not in by_query["q_missing"]
+    assert by_query["q_empty"]["status"] == "missing_summary"
+
+
+def test_combine_resume_skipped_all_readable_unchanged(tmp_path: Path) -> None:
+    from src.pipeline.parallel_runner import _combine_with_resume_skipped_results
+
+    output_path = tmp_path / "out"
+    output_path.mkdir()
+    _write_resume_summary(output_path, "q_ok", "tax_ok")
+
+    config = {
+        "resume_skipped_query_names": ["q_ok"],
+        "output_path": output_path,
+    }
+    combined = _combine_with_resume_skipped_results(config, [], Mock())
+    assert [row["query"] for row in combined] == ["q_ok"]
+    assert combined[0]["status"] == "complete"
+
+
 def test_resume_all_skipped_does_not_crash_on_zero_workers(tmp_path: Path) -> None:
     """Regression: if every query has a SUCCESS sentinel, the flow must not
     instantiate ThreadPoolExecutor(max_workers=0)."""

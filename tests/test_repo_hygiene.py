@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import shlex
 import subprocess
 import tomllib
 from pathlib import Path
@@ -103,6 +104,31 @@ def test_ci_enforces_static_analysis_and_hygiene() -> None:
     assert "schedule:" in maintenance
     assert "workflow_dispatch:" in maintenance
     assert "Stale branch report" in maintenance
+
+
+def test_no_pixi_run_gvclass_in_container_assets() -> None:
+    """H5: the image ENTRYPOINT already runs `./gvclass`; a `pixi run gvclass`
+    prefix in compose/scripts would be forwarded as bogus argv."""
+    for rel in [
+        "containers/docker/docker-compose.yml",
+        "containers/docker/build_containers.sh",
+        "containers/docker/Dockerfile",
+    ]:
+        text = (REPO_ROOT / rel).read_text()
+        assert "pixi run gvclass" not in text, rel
+
+
+def test_compose_command_is_valid_gvclass_argv() -> None:
+    """H5: the effective container command must start with the input path
+    (`/data`), i.e. valid `./gvclass` argv, not a launcher prefix."""
+    compose = yaml.safe_load(
+        (REPO_ROOT / "containers" / "docker" / "docker-compose.yml").read_text()
+    )
+    command = compose["services"]["gvclass"]["command"]
+    tokens = command if isinstance(command, list) else shlex.split(command)
+    assert tokens, "compose command is empty"
+    assert tokens[0] == "/data", tokens
+    assert "pixi" not in tokens, tokens
 
 
 def test_private_and_runtime_workspaces_stay_ignored() -> None:

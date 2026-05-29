@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-v1.5.2-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/version-v1.6.0-blue.svg" alt="Version">
   <img src="https://img.shields.io/badge/license-BSD--3--Clause-green.svg" alt="License">
   <img src="https://img.shields.io/badge/python-3.11-blue.svg" alt="Python">
   <img src="https://img.shields.io/badge/pixi-enabled-orange.svg" alt="Pixi">
@@ -229,7 +229,7 @@ database version, checks Zenodo for the latest published version, and offers to 
 
 Release notes are maintained on the
 [GitHub Releases page](https://github.com/NeLLi-team/gvclass/releases).
-The latest software release is `v1.5.2`; the compatible database/runtime
+The latest software release is `v1.6.0`; the compatible database/runtime
 resource bundle remains `v1.5.0`. This release fixes container command lookup
 and runtime permissions so Snakemake can call `gvclass` directly inside the
 Apptainer/Singularity image.
@@ -243,11 +243,11 @@ The `gvclass-a` wrapper handles container execution automatically. For manual co
 ```bash
 # Pull the image manually (works without auth token for public images)
 apptainer pull --library https://library.sylabs.io \
-  gvclass_1.5.2.sif library://nelligroup-jgi/gvclass/gvclass:1.5.2
+  gvclass_1.6.0.sif library://nelligroup-jgi/gvclass/gvclass:1.6.0
 
 # Run with manual bind mounts
 apptainer run -B /path/to/data:/input -B /path/to/results:/output \
-  gvclass_1.5.2.sif /input -o /output -t 32
+  gvclass_1.6.0.sif /input -o /output -t 32
 ```
 
 The wrapper is simpler and handles bind mounts automatically.
@@ -270,7 +270,7 @@ apptainer build gvclass.sif containers/apptainer/gvclass.def
 apptainer remote login
 
 # Push the image to the library
-apptainer push gvclass.sif library://nelligroup-jgi/gvclass/gvclass:1.5.2
+apptainer push gvclass.sif library://nelligroup-jgi/gvclass/gvclass:1.6.0
 ```
 
 ### Full CLI Reference (gvclass)
@@ -556,4 +556,4 @@ The GVClass runtime resources include genomes/models derived from the following 
 BSD 3-Clause License - see LICENSE file for details
 
 ---
-<sub>Version 1.5.2 - May 2026</sub>
+<sub>Version 1.6.0 - May 2026</sub>

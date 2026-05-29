@@ -782,8 +782,14 @@ class FullSummarizer:
                 if total > 0:
                     confidence_flags.append("low_support")
 
-            # Strict keeps the flat-counter 100% rule.
+            # Strict keeps the flat-counter 100% rule, but must never be more
+            # specific than majority: if the per-marker majority withheld this
+            # level (insufficient distinct-marker support), strict is withheld
+            # too, so the "conservative" column is always at least as
+            # conservative as the majority column.
             _, strict = self.get_tax_consensus(flat_counter, level)
+            if majority == f"{level[0]}_":
+                strict = f"{level[0]}_"
             majority_parts.append(majority)
             strict_parts.append(strict)
 

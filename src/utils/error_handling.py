@@ -182,6 +182,13 @@ class ErrorHandler:
             msg += f" | Context: {context}"
         self.logger.debug(msg)
 
+    def log_error(self, message: str, context: Optional[Dict[str, Any]] = None) -> None:
+        """Log error message."""
+        msg = message
+        if context:
+            msg += f" | Context: {context}"
+        self.logger.error(msg)
+
 
 # Global error handler instance
 error_handler = ErrorHandler()

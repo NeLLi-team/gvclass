@@ -7,6 +7,7 @@ Method 2 helpers expose contig-aware features for offline prototyping.
 from __future__ import annotations
 
 import logging
+import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -242,11 +243,26 @@ class ContaminationScorer:
         parts = value.split("__")
         return parts[1] if len(parts) > 1 else value
 
-    @staticmethod
-    def _parse_subject_genome_id(subject_id: str) -> str:
+    def _parse_subject_genome_id(self, subject_id: str) -> str:
+        """Resolve a reference leaf/subject name to a genome id in ``labels``.
+
+        Resolution order (mirrors the canonical taxonomy path so pipeless
+        reference proteins resolve consistently):
+          1. the id itself is a label key (preserves genome ids that legitimately
+             end in ``_<int>``, e.g. ``NCLDV__Mimi_1``);
+          2. the id with a trailing ``_<int>`` gene suffix stripped is a label
+             key (fixes pipeless PHAGE proteins like ``...GCA-003814125-1_7``);
+          3. the part before a ``|`` is a label key (protein-id form);
+          4. fall back to the suffix-stripped id.
+        """
+        if subject_id in self.labels:
+            return subject_id
+        stripped = re.sub(r"_\d+$", "", subject_id)
+        if stripped in self.labels:
+            return stripped
         if "|" in subject_id:
             return subject_id.split("|", 1)[0]
-        return subject_id
+        return stripped
 
     @staticmethod
     def protein_to_contig_id(protein_id: str) -> str:
