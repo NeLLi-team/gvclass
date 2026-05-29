@@ -124,8 +124,17 @@ jobs:
       - name: Build SIF
         run: apptainer build gvclass.sif containers/apptainer/gvclass.def
 
-      - name: Smoke-test SIF
-        run: apptainer exec gvclass.sif /opt/gvclass/gvclass --version
+      - name: Smoke-test SIF (bare gvclass command, as Snakemake invokes it)
+        run: |
+          # Exercise the bare `gvclass` command via PATH + the
+          # /usr/local/bin/gvclass symlink and non-root exec permissions —
+          # the way workflow engines (Snakemake/Nextflow) call it — rather
+          # than the absolute /opt/gvclass/gvclass path. This way a regression
+          # of the container command-publishing fix fails CI.
+          apptainer exec gvclass.sif gvclass --version
+          resolved="$(apptainer exec gvclass.sif sh -c 'command -v gvclass')"
+          echo "gvclass resolves to: ${resolved}"
+          test "${resolved}" = "/usr/local/bin/gvclass"
 
       - name: Generate SBOM
         uses: anchore/sbom-action@v0
