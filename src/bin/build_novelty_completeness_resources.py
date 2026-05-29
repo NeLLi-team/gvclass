@@ -72,7 +72,11 @@ def parse_args() -> argparse.Namespace:
 def load_order_table(resources_dir: Path) -> Tuple[Dict[str, List[str]], Dict[str, float]]:
     order_markers: Dict[str, List[str]] = {}
     order_baselines: Dict[str, float] = {}
-    path = resources_dir / "order_completeness.tab"
+    # v1.5.0 moved order_completeness.tab under markers/; fall back to the
+    # pre-reorg top-level location for older resource layouts.
+    path = resources_dir / "markers" / "order_completeness.tab"
+    if not path.exists():
+        path = resources_dir / "order_completeness.tab"
     with path.open() as handle:
         for row in csv.DictReader(handle, delimiter="\t"):
             order_name = row["Order"]
@@ -493,6 +497,58 @@ def train_models(training_df: pd.DataFrame) -> Tuple[Dict[str, object], pd.DataF
     return models, pd.DataFrame(metadata_rows)
 
 
+def compute_marker_conservation(
+    order_markers: Dict[str, List[str]],
+    order_profiles: Dict[str, Dict[str, Dict[str, int]]],
+) -> List[Dict[str, object]]:
+    """Per-(order, marker) conservation used by the weighted-completeness scorer.
+
+    Reuses the same prevalence definition (present / genome_count) that the
+    strategy-2 tier sets are derived from, so ``weighted_order_completeness``
+    and the tier model agree on marker conservation rather than the scorer
+    silently falling back to uniform 1.0 weights (the file the scorer used to
+    read, ``markers/stats.tsv``, is an HMM size table with the wrong schema).
+    """
+    rows: List[Dict[str, object]] = []
+    for order_name, markers in sorted(order_markers.items()):
+        genome_profiles = order_profiles.get(order_name, {})
+        stats = marker_stats_for_group(genome_profiles, markers)
+        if stats.empty:
+            continue
+        for _, row in stats.iterrows():
+            rows.append(
+                {
+                    "marker_name": row["marker"],
+                    "order_name": order_name,
+                    "percent_genomes_with_marker": round(
+                        float(row["prevalence"]) * 100.0, 4
+                    ),
+                    "avg_duplication_factor": round(float(row["avg_copy"]), 4),
+                    "n_genomes": int(row["n_genomes"]),
+                }
+            )
+    return rows
+
+
+def write_marker_conservation(
+    resources_dir: Path, rows: List[Dict[str, object]]
+) -> None:
+    path = resources_dir / "markers" / "marker_conservation.tsv"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fieldnames = [
+        "marker_name",
+        "order_name",
+        "percent_genomes_with_marker",
+        "avg_duplication_factor",
+        "n_genomes",
+    ]
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames, delimiter="\t")
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(row)
+
+
 def write_resources(
     resources_dir: Path,
     order_markers: Dict[str, List[str]],
@@ -562,6 +618,9 @@ def main() -> None:
     order_markers, order_baselines = load_order_table(resources_dir)
     labels = load_labels(resources_dir)
     order_profiles, family_profiles = parse_reference_marker_profiles(resources_dir, labels, order_markers)
+    write_marker_conservation(
+        resources_dir, compute_marker_conservation(order_markers, order_profiles)
+    )
     tiers, baselines = build_group_resources(order_markers, order_profiles, family_profiles)
     training_df = build_training_df(labels, order_profiles, order_markers, order_baselines, tiers, baselines)
     models, model_metadata = train_models(training_df)

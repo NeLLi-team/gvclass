@@ -314,6 +314,11 @@ def _combine_with_resume_skipped_results(
             "Resume mode: skipped queries missing readable summary files: %s",
             ", ".join(missing_names),
         )
+        # A query that resume declared complete (SUCCESS sentinel) but whose
+        # loose summary cannot be re-read must still appear in the run, as a
+        # failed row, rather than silently disappearing from the final summary.
+        for name in missing_names:
+            combined_results[name] = {"query": name, "status": "missing_summary"}
 
     return list(combined_results.values())
 

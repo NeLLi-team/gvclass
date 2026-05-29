@@ -303,7 +303,28 @@ def load_config(config_file: str, repo_dir: Path, output: CliOutput):
         return default_config
 
     with open(config_path, "r") as handle:
-        return yaml.safe_load(handle)
+        loaded = yaml.safe_load(handle) or {}
+    return _deep_merge_config(default_config, loaded)
+
+
+def _deep_merge_config(base: dict, overlay: dict) -> dict:
+    """Recursively merge ``overlay`` onto a copy of ``base``.
+
+    Nested dicts merge key-by-key so a config that omits a whole section (e.g.
+    ``pipeline``) or only sets one key still inherits every default. Scalars and
+    lists in ``overlay`` overwrite the corresponding ``base`` value.
+    """
+    merged = dict(base)
+    for key, value in overlay.items():
+        if (
+            key in merged
+            and isinstance(merged[key], dict)
+            and isinstance(value, dict)
+        ):
+            merged[key] = _deep_merge_config(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
 
 
 def resolve_database_setting(database_override: Optional[str], config) -> str:

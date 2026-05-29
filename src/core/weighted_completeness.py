@@ -401,7 +401,11 @@ def create_weighted_calculator(database_path: Path) -> WeightedCompletenessCalcu
     Returns:
         Configured WeightedCompletenessCalculator instance
     """
-    marker_stats_path = database_path / "markers" / "stats.tsv"
+    # Per-order marker conservation table (marker_name / order_name /
+    # percent_genomes_with_marker). NOT markers/stats.tsv, which is an HMM
+    # size table (model_name / n_sequences / size_kb) and lacks these columns,
+    # which silently forced uniform 1.0 weights.
+    marker_stats_path = database_path / "markers" / "marker_conservation.tsv"
 
     return WeightedCompletenessCalculator(
         marker_stats_path=marker_stats_path,

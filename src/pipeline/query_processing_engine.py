@@ -30,6 +30,7 @@ from src.pipeline.summary_writer import (
 )
 from src.utils.common import sha256_file
 from src.utils.error_handling import ProcessingError
+from src.utils.input_validation import InputValidator
 
 SUCCESS_SENTINEL_VERSION = 1
 _SOFTWARE_VERSION = f"v{_GVCLASS_VERSION}"
@@ -58,6 +59,7 @@ class PreparedQueryInput:
     protein_file: Path
     reformatted_file: Path
     best_code: Optional[int]
+    is_nucleotide: bool = False
 
 def process_single_query(
     query_file: Path,
@@ -99,6 +101,7 @@ def process_single_query(
         prepared_input.reformatted_file,
         prepared_input.protein_file,
         prepared_input.best_code,
+        prepared_input.is_nucleotide,
         logger,
     )
     _write_contamination_candidates_file(query_output_dir, query_name, summary_data, logger)
@@ -161,11 +164,31 @@ def _prepare_query_input(
     threads: int,
     logger,
 ) -> PreparedQueryInput:
-    if query_file.suffix == ".fna":
+    if _is_nucleotide_input(query_file):
         return _prepare_nucleotide_query(
             query_file, query_output_dir, database_path, genetic_codes, threads, logger
         )
     return _prepare_protein_query(query_file, query_output_dir, logger)
+
+
+def _is_nucleotide_input(query_file: Path) -> bool:
+    """Decide nucleotide vs protein by alphabet, not just the suffix.
+
+    ``.fna`` is always nucleotide and ``.faa`` always protein. For the
+    extension-agnostic ``.fasta``/``.fas`` (which the validator admits as
+    either), infer the alphabet from the contents using the same helper the
+    validator uses, so a DNA ``.fasta`` is gene-called instead of being fed
+    raw to the protein path.
+    """
+    suffix = query_file.suffix.lower()
+    if suffix == ".fna":
+        return True
+    if suffix == ".faa":
+        return False
+    if suffix in (".fasta", ".fas"):
+        records = list(SeqIO.parse(str(query_file), "fasta"))
+        return InputValidator._infer_fasta_type_from_content(records) == "fna"
+    return False
 
 def _prepare_nucleotide_query(
     query_file: Path,
@@ -195,6 +218,7 @@ def _prepare_nucleotide_query(
         protein_file=Path(outputs["faa"]),
         reformatted_file=reformatted_file,
         best_code=best_code,
+        is_nucleotide=True,
     )
 
 def _prepare_protein_query(
@@ -214,6 +238,7 @@ def _prepare_protein_query(
         protein_file=reformatted_file,
         reformatted_file=reformatted_file,
         best_code=None,
+        is_nucleotide=False,
     )
 
 def _write_reformatted_sequences(records, query_file: Path, reformatted_file: Path) -> None:
@@ -747,9 +772,13 @@ def _copy_final_sequence_outputs(
     reformatted_file: Path,
     protein_file: Path,
     best_code: Optional[int],
+    is_nucleotide: bool,
     logger,
 ) -> None:
-    if query_file.suffix != ".fna" or best_code is None:
+    # Gate on the inferred alphabet (not the literal .fna suffix) so a DNA
+    # .fasta/.fas that was gene-called still gets its <name>.fna/.faa/.gff
+    # written; protein inputs (.faa or AA .fasta) have no gene-calling output.
+    if not is_nucleotide or best_code is None:
         return
     query_faa_dir = query_output_dir / "query_faa"
     query_fna_dir = query_output_dir / "query_fna"

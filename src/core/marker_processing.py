@@ -99,8 +99,10 @@ class MarkerProcessor:
             threads=threads,
         )
 
-        # Parse BLAST results and extract top hits
-        blast_hits = parse_blastp(str(blast_out))
+        # Parse BLAST results and extract top hits. Keep the per-query cap in
+        # sync with max_hits so parse_blastp's default (10) does not silently
+        # gate below the intended reference count.
+        blast_hits = parse_blastp(str(blast_out), max_hits_per_query=max_hits)
 
         # Get top hit IDs (up to max_hits)
         # parse_blastp returns a flat list of best hits

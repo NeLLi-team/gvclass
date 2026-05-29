@@ -172,24 +172,10 @@ class DatabaseManager:
             "filename": "resources_v1_2_1.tar.gz",
             "sha256": "94ad59100a158ca7ac760e9a1d35f01ff5e2eb07c270c4ca1b45fbe9e3e637eb",
         },
-        {
-            "version": "v1.2.0",
-            "url": "https://portal.nersc.gov/cfs/nelli/gvclassDB/resources_v1_2_0.tar.gz",
-            "filename": "resources_v1_2_0.tar.gz",
-            "sha256": None,
-        },
-        {
-            "version": "v1.1.1",
-            "url": "https://portal.nersc.gov/cfs/nelli/gvclassDB/resources_v1_1_1.tar.gz",
-            "filename": "resources_v1_1_1.tar.gz",
-            "sha256": None,
-        },
-        {
-            "version": "v1.1.0",
-            "url": "https://portal.nersc.gov/cfs/nelli/gvclassDB/resources_v1_1_0.tar.gz",
-            "filename": "resources_v1_1_0.tar.gz",
-            "sha256": None,
-        },
+        # NOTE: the legacy v1.2.0 / v1.1.1 / v1.1.0 NERSC mirrors were dropped
+        # because they shipped with sha256=None (unverifiable downloads) and
+        # are incompatible with the current resource schema. Every retained
+        # source carries a pinned checksum so downloads are always verified.
     ]
     DATABASE_SOURCES = [DEFAULT_DATABASE_SOURCE, *LEGACY_DATABASE_SOURCES]
     DATABASE_VERSION = DEFAULT_DATABASE_SOURCE["version"]
@@ -434,6 +420,22 @@ class DatabaseManager:
         if not url:
             return None
 
+        sha256 = os.environ.get("GVCLASS_DB_SHA256", "").strip() or None
+        allow_unverified = os.environ.get(
+            "GVCLASS_DB_ALLOW_UNVERIFIED", ""
+        ).strip().lower() in {"1", "true", "yes", "on"}
+        # Fail closed here, at source resolution, BEFORE _download_database can
+        # catch a per-source failure and silently fall back to the default
+        # source: an attacker-influenced GVCLASS_DB_URL with no checksum would
+        # otherwise feed an unverified, pickle-bearing archive into extraction.
+        if sha256 is None and not allow_unverified:
+            raise RuntimeError(
+                "GVCLASS_DB_URL is set but GVCLASS_DB_SHA256 is not. Refusing to "
+                "download an unverified database archive. Set GVCLASS_DB_SHA256 to "
+                "the expected SHA-256, or set GVCLASS_DB_ALLOW_UNVERIFIED=1 to "
+                "explicitly opt in to an unverified download."
+            )
+
         return {
             "version": os.environ.get(
                 "GVCLASS_DB_VERSION",
@@ -441,7 +443,7 @@ class DatabaseManager:
             ).strip(),
             "url": url,
             "filename": os.environ.get("GVCLASS_DB_FILENAME", "").strip() or None,
-            "sha256": os.environ.get("GVCLASS_DB_SHA256", "").strip() or None,
+            "sha256": sha256,
         }
 
     @classmethod
@@ -453,6 +455,14 @@ class DatabaseManager:
         url = str(source.get("url", "")).strip()
         if not url:
             return None
+
+        scheme = urlparse(url).scheme.lower()
+        if scheme != "https":
+            raise ValueError(
+                f"Refusing database source with non-https URL scheme "
+                f"'{scheme or 'none'}': {url}. Database archives must be "
+                "fetched over https."
+            )
 
         filename = str(source.get("filename", "")).strip()
         if not filename:

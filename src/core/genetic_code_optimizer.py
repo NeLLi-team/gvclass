@@ -117,7 +117,11 @@ class GeneticCodeOptimizer:
 
                 # Use the contig_id with protein number for FAA headers
                 proteins.append(f">{protein_id}\n{protein_seq}")
-                genes.append(f">{protein_id}\n{str(record.seq)[gene.begin-1:gene.end]}")
+                # Strand-aware coding sequence. A raw forward slice
+                # (record.seq[begin-1:end]) returns the sense strand and is
+                # WRONG for minus-strand genes; gene.sequence() reverse-
+                # complements them so the .fna agrees with the .faa.
+                genes.append(f">{protein_id}\n{gene.sequence()}")
 
                 # Create GFF line with full pyrodigal attributes
                 strand = "+" if gene.strand == 1 else "-"
@@ -266,6 +270,11 @@ class GeneticCodeOptimizer:
     #: required to override meta when ``complete_hits`` tie. Raised from
     #: 5% to 10% so a small noise fluctuation cannot flip the code call.
     _SCORE_RELATIVE_MARGIN = 1.10
+    #: Minimum relative improvement over meta on ``coding_density`` required to
+    #: override meta when neither the hits nor the score gate is met. This is a
+    #: genuine third override criterion (not just a tiebreaker): a non-meta code
+    #: with >=5% higher coding density than meta is preferred.
+    _CODING_DENSITY_RELATIVE_MARGIN = 1.05
 
     def _score_key(self, code: int, metrics: Dict) -> Tuple[int, float, float, int]:
         """Ranking key: (complete_hits, avg_best_hit_score, coding_density,
@@ -289,13 +298,16 @@ class GeneticCodeOptimizer:
         the final tiebreaker so standard codes (11, 1, 4) always beat
         exotic codes (6, 15, 29, 106, 129) given otherwise equal metrics.
 
-        When meta (code 0) is available, the winning non-meta candidate
-        must also clear an absolute margin over meta: either at least
-        ``_COMPLETE_HITS_ABSOLUTE_MARGIN`` extra complete hits OR at least
-        ``_SCORE_RELATIVE_MARGIN`` higher ``avg_best_hit_score``. Without
-        one of those margins the selector falls back to meta, so
-        noise-driven differences on fragmented bins cannot flip the code
-        to 106 / 129.
+        When meta (code 0) is available and the top-ranked candidate is a
+        non-meta code, that candidate is kept only if it clears at least one
+        margin over meta: at least ``_COMPLETE_HITS_ABSOLUTE_MARGIN`` extra
+        complete hits, OR at least ``_SCORE_RELATIVE_MARGIN`` higher
+        ``avg_best_hit_score``, OR — when neither of those holds — at least
+        ``_CODING_DENSITY_RELATIVE_MARGIN`` higher ``coding_density``. If the
+        top-ranked non-meta candidate clears none of the three gates, the
+        selector keeps meta. (Meta also wins outright whenever it is itself the
+        top-ranked code, so a lower-ranked code cannot override a clearly
+        better meta on coding density alone.)
 
         Returns:
             Tuple of (best_code, best_metrics)
@@ -310,22 +322,32 @@ class GeneticCodeOptimizer:
         )
         best_code, best_metrics = ranked[0]
 
-        # If meta is present and the top-ranked candidate is a non-meta
-        # code, require an absolute margin over meta before overriding it.
+        # If meta is present and the top-ranked candidate is a non-meta code,
+        # require an override margin over meta before keeping it.
         if best_code != 0 and 0 in code_results:
-            meta = code_results[0]
-            passes_hits_margin = (
-                best_metrics["complete_hits"]
-                >= meta["complete_hits"] + self._COMPLETE_HITS_ABSOLUTE_MARGIN
-            )
-            passes_score_margin = best_metrics[
-                "avg_best_hit_score"
-            ] >= meta["avg_best_hit_score"] * self._SCORE_RELATIVE_MARGIN
-            if not (passes_hits_margin or passes_score_margin):
+            if not self._beats_meta(best_metrics, code_results[0]):
                 best_code = 0
-                best_metrics = meta
+                best_metrics = code_results[0]
 
         return best_code, best_metrics
+
+    def _beats_meta(self, metrics: Dict, meta: Dict) -> bool:
+        """True if ``metrics`` clears any override gate over meta: a +2
+        absolute complete-hit margin, a 10% relative avg_best_hit_score
+        margin, or a 5% relative coding_density margin."""
+        passes_hits_margin = (
+            metrics["complete_hits"]
+            >= meta["complete_hits"] + self._COMPLETE_HITS_ABSOLUTE_MARGIN
+        )
+        passes_score_margin = (
+            metrics["avg_best_hit_score"]
+            >= meta["avg_best_hit_score"] * self._SCORE_RELATIVE_MARGIN
+        )
+        passes_density_margin = (
+            metrics["coding_density"]
+            >= meta["coding_density"] * self._CODING_DENSITY_RELATIVE_MARGIN
+        )
+        return passes_hits_margin or passes_score_margin or passes_density_margin
 
     def optimize_genetic_code(
         self,

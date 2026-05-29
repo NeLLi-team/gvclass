@@ -223,6 +223,11 @@ TWO_DECIMAL_COLUMNS = {
     "cellular_hit_identity_median",
 }
 
+# Quality metrics that must keep higher precision than the default .0f fallback.
+FOUR_DECIMAL_COLUMNS = {
+    "estimated_completeness_r2_holdout",
+}
+
 LEGACY_TWO_DECIMAL_COLUMNS = {
     "avgdist",
     "order_dup",
@@ -454,6 +459,8 @@ def _format_final_summary_value(column: str, value: Any) -> str:
         # See _format_legacy_summary_value: preserve NaN rather than collapse
         # to 0.00, so the sensitive-mode contamination skip is visible.
         return "NaN"
+    if column in FOUR_DECIMAL_COLUMNS:
+        return f"{value:.4f}"
     if column in TWO_DECIMAL_COLUMNS:
         return f"{value:.2f}"
     return f"{value:.0f}"
