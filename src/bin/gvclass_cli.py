@@ -266,10 +266,10 @@ def load_config(config_file: str, repo_dir: Path, output: CliOutput):
     default_config = {
         "database": {
             "path": str(repo_dir / "resources"),
-            "download_url": "https://zenodo.org/records/19674504/files/resources_v1_5_0.tar.gz?download=1",
-            "download_version": "v1.5.0",
-            "download_sha256": "5357d96d99aa1eaf4b396ef701ed4c3b22d9015f79b7ae6c6be354c897704c80",
-            "expected_size": 1750,
+            "download_url": "https://zenodo.org/records/20479524/files/resources_v1_6_0.tar.gz?download=1",
+            "download_version": "v1.6.0",
+            "download_sha256": "f744f7144ea69d6c3ccffe56e7721d6fd598685853005e0fb90d04e699d9b23f",
+            "expected_size": 1752,
         },
         "pipeline": {
             "tree_method": "fasttree",

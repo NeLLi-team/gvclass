@@ -50,7 +50,7 @@ def test_load_config_partial_pipeline_uses_defaults(tmp_path):
     assert config["pipeline"]["mode_fast"] is True
     assert config["pipeline"]["completeness_mode"] == "novelty-aware"
     # The whole database section must still be present.
-    assert config["database"]["download_version"] == "v1.5.0"
+    assert config["database"]["download_version"] == "v1.6.0"
 
 
 def test_load_config_missing_database_uses_defaults(tmp_path):
@@ -72,4 +72,4 @@ def test_load_config_partial_database_preserves_download_fields(tmp_path):
 def test_load_config_empty_file_returns_defaults(tmp_path):
     config = _load(tmp_path, "# only a comment\n")
     assert config["pipeline"]["threads"] == 16
-    assert config["database"]["download_version"] == "v1.5.0"
+    assert config["database"]["download_version"] == "v1.6.0"

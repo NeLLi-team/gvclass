@@ -142,12 +142,18 @@ class DatabaseManager:
     ]
 
     DEFAULT_DATABASE_SOURCE = {
-        "version": "v1.5.0",
-        "url": "https://zenodo.org/records/19674504/files/resources_v1_5_0.tar.gz?download=1",
-        "filename": "resources_v1_5_0.tar.gz",
-        "sha256": "5357d96d99aa1eaf4b396ef701ed4c3b22d9015f79b7ae6c6be354c897704c80",
+        "version": "v1.6.0",
+        "url": "https://zenodo.org/records/20479524/files/resources_v1_6_0.tar.gz?download=1",
+        "filename": "resources_v1_6_0.tar.gz",
+        "sha256": "f744f7144ea69d6c3ccffe56e7721d6fd598685853005e0fb90d04e699d9b23f",
     }
     LEGACY_DATABASE_SOURCES = [
+        {
+            "version": "v1.5.0",
+            "url": "https://zenodo.org/records/19674504/files/resources_v1_5_0.tar.gz?download=1",
+            "filename": "resources_v1_5_0.tar.gz",
+            "sha256": "5357d96d99aa1eaf4b396ef701ed4c3b22d9015f79b7ae6c6be354c897704c80",
+        },
         {
             "version": "v1.5.0-nersc-mirror",
             "url": "https://portal.nersc.gov/cfs/nelli/gvclassDB/resources_v1_5_0.tar.gz",

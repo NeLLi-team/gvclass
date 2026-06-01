@@ -17,8 +17,7 @@ pytestmark = skip_if_no_runtime_resources()
 from collections import Counter, defaultdict
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Dict
-
+from typing import Dict, Tuple
 
 # ---------------------------------------------------------------------------
 # 2.1 Taxonomy majority per marker.
@@ -41,6 +40,35 @@ def _make_summarizer(tmp_path: Path):
         "marker_name\torder_name\tpercent_genomes_with_marker\n"
     )
     return FullSummarizer(db)
+
+
+def _empty_taxonomy_vote_inputs(summarizer):
+    flat_counters: Dict[str, Counter] = {
+        level: Counter() for level in summarizer.TAX_LEVELS
+    }
+    per_marker: Dict[str, Dict[str, Counter]] = {
+        level: defaultdict(Counter) for level in summarizer.TAX_LEVELS
+    }
+    lineage_counters: Dict[str, Counter[Tuple[str, ...]]] = defaultdict(Counter)
+    return flat_counters, per_marker, lineage_counters
+
+
+def _add_lineage_vote(
+    summarizer,
+    flat_counters: Dict[str, Counter],
+    per_marker: Dict[str, Dict[str, Counter]],
+    lineage_counters: Dict[str, Counter[Tuple[str, ...]]],
+    marker: str,
+    lineage: Tuple[str, ...],
+) -> None:
+    domain = lineage[0]
+    for level, tax_value in zip(summarizer.TAX_LEVELS, lineage):
+        if not tax_value:
+            continue
+        tax_key = summarizer._build_taxonomy_key(level, domain, tax_value)
+        flat_counters[level][tax_key] += 1
+        per_marker[level][marker][tax_key] += 1
+    lineage_counters[marker][lineage] += 1
 
 
 def test_per_marker_majority_requires_distinct_marker_support(tmp_path: Path) -> None:
@@ -137,7 +165,10 @@ def test_build_consensus_taxonomies_fast_mode_relaxes_order_threshold(
 
 
 def test_taxonomy_confidence_column_present_in_summary_schemas() -> None:
-    from src.pipeline.summary_writer import FINAL_SUMMARY_COLUMNS, LEGACY_SUMMARY_HEADERS
+    from src.pipeline.summary_writer import (
+        FINAL_SUMMARY_COLUMNS,
+        LEGACY_SUMMARY_HEADERS,
+    )
 
     assert "taxonomy_confidence" in FINAL_SUMMARY_COLUMNS
     assert "taxonomy_confidence" in LEGACY_SUMMARY_HEADERS
@@ -197,6 +228,281 @@ def test_fast_mode_not_flagged_when_support_meets_standard_threshold(
     assert confidence == "high"
 
 
+def test_build_consensus_taxonomies_keeps_lower_ranks_in_majority_domain(
+    tmp_path: Path,
+) -> None:
+    summarizer = _make_summarizer(tmp_path)
+
+    flat_counters, per_marker, lineage_counters = _empty_taxonomy_vote_inputs(
+        summarizer
+    )
+    for marker, lineage in {
+        "m1": (
+            "MIRUS",
+            "Mirusviricota",
+            "Class_04",
+            "Demutovirales",
+            "Demuto_02",
+            "MIRUS_unclassified",
+            "MIRUS__Delmont2025__MIRUS_G_0838",
+        ),
+        "m2": (
+            "MIRUS",
+            "Mirusviricota",
+            "Class_04",
+            "Demutovirales",
+            "Demuto_02",
+            "MIRUS_unclassified",
+            "MIRUS__Delmont2025__MIRUS_G_0838",
+        ),
+        "m3": (
+            "MIRUS",
+            "Mirusviricota",
+            "Class_04",
+            "Demutovirales",
+            "Demuto_02",
+            "MIRUS_unclassified",
+            "MIRUS__Delmont2025__MIRUS_G_1322",
+        ),
+        "m4": (
+            "MIRUS",
+            "Mirusviricota",
+            "Class_04",
+            "Demutovirales",
+            "Demuto_02",
+            "MIRUS_unclassified",
+            "MIRUS__Delmont2025__MIRUS_G_1322",
+        ),
+        "m5": (
+            "MIRUS",
+            "Mirusviricota",
+            "MIRUS_unclassified",
+            "MIRUS_unclassified",
+            "MIRUS_unclassified",
+            "MIRUS_unclassified",
+            "TARA_PSW_NCLDV_00076",
+        ),
+        "m6": (
+            "MIRUS",
+            "Mirusviricota",
+            "MIRUS_unclassified",
+            "MIRUS_unclassified",
+            "MIRUS_unclassified",
+            "MIRUS_unclassified",
+            "TARA_PSW_NCLDV_00076",
+        ),
+        "m7": (
+            "EUK",
+            "EUK_unclassified",
+            "EUK_unclassified",
+            "EUK_unclassified",
+            "EUK_unclassified",
+            "EUK_unclassified",
+            "Stramenopiles sp. TOSAG23-3",
+        ),
+        "m8": (
+            "EUK",
+            "EUK_unclassified",
+            "EUK_unclassified",
+            "EUK_unclassified",
+            "EUK_unclassified",
+            "EUK_unclassified",
+            "Stramenopiles sp. TOSAG23-3",
+        ),
+        "m9": (
+            "EUK",
+            "EUK_unclassified",
+            "EUK_unclassified",
+            "EUK_unclassified",
+            "EUK_unclassified",
+            "EUK_unclassified",
+            "Stramenopiles sp. TOSAG23-3",
+        ),
+    }.items():
+        _add_lineage_vote(
+            summarizer, flat_counters, per_marker, lineage_counters, marker, lineage
+        )
+
+    majority, _, confidence = summarizer._build_consensus_taxonomies(
+        flat_counters,
+        per_marker,
+        mode_fast=True,
+        per_marker_lineage_counters=lineage_counters,
+    )
+
+    parts = dict(zip(summarizer.TAX_LEVELS, majority.split(";")))
+    assert parts["domain"] == "d_MIRUS"
+    assert parts["phylum"] == "p_Mirusviricota"
+    assert parts["class"] == "c_Class_04"
+    assert parts["species"] == "s_MIRUS_G_0838"
+    assert "EUK_unclassified" not in majority
+    assert "Stramenopiles" not in majority
+    assert confidence == "high"
+
+
+def test_build_consensus_taxonomies_keeps_child_ranks_in_selected_parent(
+    tmp_path: Path,
+) -> None:
+    summarizer = _make_summarizer(tmp_path)
+    flat_counters, per_marker, lineage_counters = _empty_taxonomy_vote_inputs(
+        summarizer
+    )
+
+    lineages = {
+        "m1": (
+            "NCLDV",
+            "Phylum_A",
+            "Class_A1",
+            "Order_A1",
+            "Family_A1",
+            "Genus_A1",
+            "Species_A1",
+        ),
+        "m2": (
+            "NCLDV",
+            "Phylum_A",
+            "Class_A1",
+            "Order_A1",
+            "Family_A1",
+            "Genus_A1",
+            "Species_A1",
+        ),
+        "m3": (
+            "NCLDV",
+            "Phylum_A",
+            "Class_A1",
+            "Order_A1",
+            "Family_A1",
+            "Genus_A1",
+            "Species_A1",
+        ),
+        "m4": (
+            "NCLDV",
+            "Phylum_A",
+            "Class_A2",
+            "Order_A2",
+            "Family_A2",
+            "Genus_A2",
+            "Species_A2",
+        ),
+        "m5": (
+            "NCLDV",
+            "Phylum_A",
+            "Class_A2",
+            "Order_A2",
+            "Family_A2",
+            "Genus_A2",
+            "Species_A2",
+        ),
+        "m6": (
+            "NCLDV",
+            "Phylum_B",
+            "Class_B",
+            "Order_B",
+            "Family_B",
+            "Genus_B",
+            "Species_B",
+        ),
+        "m7": (
+            "NCLDV",
+            "Phylum_B",
+            "Class_B",
+            "Order_B",
+            "Family_B",
+            "Genus_B",
+            "Species_B",
+        ),
+        "m8": (
+            "NCLDV",
+            "Phylum_B",
+            "Class_B",
+            "Order_B",
+            "Family_B",
+            "Genus_B",
+            "Species_B",
+        ),
+        "m9": (
+            "NCLDV",
+            "Phylum_B",
+            "Class_B",
+            "Order_B",
+            "Family_B",
+            "Genus_B",
+            "Species_B",
+        ),
+    }
+    for marker, lineage in lineages.items():
+        _add_lineage_vote(
+            summarizer, flat_counters, per_marker, lineage_counters, marker, lineage
+        )
+
+    majority, _, confidence = summarizer._build_consensus_taxonomies(
+        flat_counters,
+        per_marker,
+        mode_fast=True,
+        per_marker_lineage_counters=lineage_counters,
+    )
+
+    parts = dict(zip(summarizer.TAX_LEVELS, majority.split(";")))
+    assert parts["phylum"] == "p_Phylum_A"
+    assert parts["class"] == "c_Class_A1"
+    assert "Class_B" not in majority
+    assert confidence == "high"
+
+
+def test_build_consensus_taxonomies_stops_below_unresolved_parent(
+    tmp_path: Path,
+) -> None:
+    summarizer = _make_summarizer(tmp_path)
+    flat_counters, per_marker, lineage_counters = _empty_taxonomy_vote_inputs(
+        summarizer
+    )
+
+    lineages = {
+        "m1": (
+            "NCLDV",
+            "Phylum_A",
+            "Class_Z",
+            "Order_Z",
+            "Family_Z",
+            "Genus_Z",
+            "Species_Z",
+        ),
+        "m2": (
+            "NCLDV",
+            "Phylum_B",
+            "Class_Z",
+            "Order_Z",
+            "Family_Z",
+            "Genus_Z",
+            "Species_Z",
+        ),
+        "m3": (
+            "NCLDV",
+            "Phylum_C",
+            "Class_Z",
+            "Order_Z",
+            "Family_Z",
+            "Genus_Z",
+            "Species_Z",
+        ),
+    }
+    for marker, lineage in lineages.items():
+        _add_lineage_vote(
+            summarizer, flat_counters, per_marker, lineage_counters, marker, lineage
+        )
+
+    majority, _, confidence = summarizer._build_consensus_taxonomies(
+        flat_counters,
+        per_marker,
+        mode_fast=True,
+        per_marker_lineage_counters=lineage_counters,
+    )
+
+    assert majority == "d_NCLDV;p_;c_;o_;f_;g_;s_"
+    assert "low_support" in confidence
+
+
 # ---------------------------------------------------------------------------
 # 2.2 Marker extraction by record.id with description fallback.
 # ---------------------------------------------------------------------------
@@ -247,13 +553,35 @@ def test_select_best_code_standard_beats_exotic_on_tie(tmp_path: Path) -> None:
     from src.core.genetic_code_optimizer import GeneticCodeOptimizer
 
     optimizer = GeneticCodeOptimizer(database_path=tmp_path, threads=1)
-    results = _code_results({
-        0: {"complete_hits": 5, "avg_best_hit_score": 100.0, "coding_density": 0.90},
-        4: {"complete_hits": 5, "avg_best_hit_score": 100.0, "coding_density": 0.90},
-        11: {"complete_hits": 5, "avg_best_hit_score": 100.0, "coding_density": 0.90},
-        15: {"complete_hits": 5, "avg_best_hit_score": 100.0, "coding_density": 0.90},
-        106: {"complete_hits": 5, "avg_best_hit_score": 100.0, "coding_density": 0.90},
-    })
+    results = _code_results(
+        {
+            0: {
+                "complete_hits": 5,
+                "avg_best_hit_score": 100.0,
+                "coding_density": 0.90,
+            },
+            4: {
+                "complete_hits": 5,
+                "avg_best_hit_score": 100.0,
+                "coding_density": 0.90,
+            },
+            11: {
+                "complete_hits": 5,
+                "avg_best_hit_score": 100.0,
+                "coding_density": 0.90,
+            },
+            15: {
+                "complete_hits": 5,
+                "avg_best_hit_score": 100.0,
+                "coding_density": 0.90,
+            },
+            106: {
+                "complete_hits": 5,
+                "avg_best_hit_score": 100.0,
+                "coding_density": 0.90,
+            },
+        }
+    )
 
     key_11 = optimizer._score_key(11, results[11])
     key_4 = optimizer._score_key(4, results[4])
@@ -272,10 +600,16 @@ def test_select_best_code_switches_to_standard_with_strong_hits_improvement(
     from src.core.genetic_code_optimizer import GeneticCodeOptimizer
 
     optimizer = GeneticCodeOptimizer(database_path=tmp_path, threads=1)
-    results = _code_results({
-        0: {"complete_hits": 3, "avg_best_hit_score": 80.0, "coding_density": 0.85},
-        11: {"complete_hits": 5, "avg_best_hit_score": 90.0, "coding_density": 0.90},
-    })
+    results = _code_results(
+        {
+            0: {"complete_hits": 3, "avg_best_hit_score": 80.0, "coding_density": 0.85},
+            11: {
+                "complete_hits": 5,
+                "avg_best_hit_score": 90.0,
+                "coding_density": 0.90,
+            },
+        }
+    )
     best_code, best = optimizer.select_best_code(results, [0, 11])
     assert best_code == 11
     assert best["complete_hits"] == 5
@@ -288,10 +622,20 @@ def test_select_best_code_rejects_noise_driven_switch_to_exotic(
     from src.core.genetic_code_optimizer import GeneticCodeOptimizer
 
     optimizer = GeneticCodeOptimizer(database_path=tmp_path, threads=1)
-    results = _code_results({
-        0: {"complete_hits": 5, "avg_best_hit_score": 100.0, "coding_density": 0.90},
-        106: {"complete_hits": 5, "avg_best_hit_score": 103.0, "coding_density": 0.93},
-    })
+    results = _code_results(
+        {
+            0: {
+                "complete_hits": 5,
+                "avg_best_hit_score": 100.0,
+                "coding_density": 0.90,
+            },
+            106: {
+                "complete_hits": 5,
+                "avg_best_hit_score": 103.0,
+                "coding_density": 0.93,
+            },
+        }
+    )
     best_code, _ = optimizer.select_best_code(results, [0, 106])
     assert best_code == 0
 
@@ -301,11 +645,21 @@ def test_select_best_code_code_106_no_longer_displaces_code_11(tmp_path: Path) -
     from src.core.genetic_code_optimizer import GeneticCodeOptimizer
 
     optimizer = GeneticCodeOptimizer(database_path=tmp_path, threads=1)
-    results = _code_results({
-        0: {"complete_hits": 2, "avg_best_hit_score": 60.0, "coding_density": 0.80},
-        11: {"complete_hits": 8, "avg_best_hit_score": 110.0, "coding_density": 0.92},
-        106: {"complete_hits": 7, "avg_best_hit_score": 110.0, "coding_density": 0.92},
-    })
+    results = _code_results(
+        {
+            0: {"complete_hits": 2, "avg_best_hit_score": 60.0, "coding_density": 0.80},
+            11: {
+                "complete_hits": 8,
+                "avg_best_hit_score": 110.0,
+                "coding_density": 0.92,
+            },
+            106: {
+                "complete_hits": 7,
+                "avg_best_hit_score": 110.0,
+                "coding_density": 0.92,
+            },
+        }
+    )
     best_code, _ = optimizer.select_best_code(results, [0, 11, 106])
     assert best_code == 11
 

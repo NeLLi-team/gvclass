@@ -172,4 +172,10 @@ jobs:
           rm -f "${token_file}"
           apptainer push -U gvclass.sif \
             "library://nelligroup-jgi/gvclass/gvclass:${version}"
-          echo "Published library://nelligroup-jgi/gvclass/gvclass:${version}"
+          # Re-tag the same image as :latest so consumers can pull
+          # library://nelligroup-jgi/gvclass/gvclass without pinning a version.
+          # The library is content-addressed, so this reuses the blob just
+          # uploaded and completes near-instantly.
+          apptainer push -U gvclass.sif \
+            "library://nelligroup-jgi/gvclass/gvclass:latest"
+          echo "Published library://nelligroup-jgi/gvclass/gvclass:${version} and :latest"
