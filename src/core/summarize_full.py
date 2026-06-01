@@ -357,8 +357,8 @@ class FullSummarizer:
             normalized_completeness, baseline_mean, baseline_std = (
                 self._normalize_order_completeness(raw_completeness, order_tax)
             )
-            normalized_weighted_completeness, _, _ = (
-                self._normalize_order_completeness(raw_weighted_completeness, order_tax)
+            normalized_weighted_completeness, _, _ = self._normalize_order_completeness(
+                raw_weighted_completeness, order_tax
             )
             result = {
                 "order_completeness": normalized_completeness,
@@ -531,7 +531,9 @@ class FullSummarizer:
             logger.error(f"Error reading stats TSV: {e}")
         return basic_stats
 
-    def _read_stats_tab(self, stats_tab_file: Path, basic_stats: Dict[str, any]) -> None:
+    def _read_stats_tab(
+        self, stats_tab_file: Path, basic_stats: Dict[str, any]
+    ) -> None:
         """Merge coding table/genecount fields from legacy stats.tab file."""
         if not stats_tab_file.exists():
             return
@@ -555,7 +557,9 @@ class FullSummarizer:
         if line.startswith("coding_density\t"):
             basic_stats["CODINGperc"] = float(line.strip().split("\t")[1])
 
-    def _load_basic_stats(self, query_id: str, query_output_dir: Path) -> Dict[str, any]:
+    def _load_basic_stats(
+        self, query_id: str, query_output_dir: Path
+    ) -> Dict[str, any]:
         """Load query summary statistics from available stats files."""
         stats_tsv_file = query_output_dir / "stats" / f"{query_id}_stats.tsv"
         stats_tab_file = query_output_dir / "stats" / f"{query_id}.stats.tab"
@@ -584,6 +588,7 @@ class FullSummarizer:
     ) -> Tuple[
         Dict[str, Counter],
         Dict[str, Dict[str, Counter]],
+        Dict[str, Counter[Tuple[str, ...]]],
         List[float],
     ]:
         """Aggregate taxonomy counts from NN tree hits.
@@ -596,12 +601,19 @@ class FullSummarizer:
           rule in :meth:`_build_consensus_taxonomies` uses this to avoid
           the prior bug where a single marker with many paralog hits could
           dominate the majority vote by sheer count.
+        * ``per_marker_lineage_counters`` — ``Dict[marker, Counter[lineage]]``
+          retaining the full 7-rank lineage for each hit. Consensus taxonomy
+          uses this to constrain lower ranks to the already selected parent
+          lineage.
         * ``distances`` — flat list of patristic distances for the mean.
         """
         tax_counters = {level: Counter() for level in self.TAX_LEVELS}
         per_marker_counters: Dict[str, Dict[str, Counter]] = {
             level: defaultdict(Counter) for level in self.TAX_LEVELS
         }
+        per_marker_lineage_counters: Dict[str, Counter[Tuple[str, ...]]] = defaultdict(
+            Counter
+        )
         distances: List[float] = []
 
         for marker, query_neighbors in tree_nn_results.items():
@@ -618,9 +630,26 @@ class FullSummarizer:
                     self._add_taxonomy_counts_for_marker(
                         genome_id, tax_info, per_marker_counters, marker
                     )
+                    lineage = self._build_taxonomy_lineage(genome_id, tax_info)
+                    if any(lineage):
+                        per_marker_lineage_counters[marker][lineage] += 1
                     distances.append(distance)
 
-        return tax_counters, per_marker_counters, distances
+        return tax_counters, per_marker_counters, per_marker_lineage_counters, distances
+
+    def _build_taxonomy_lineage(
+        self, genome_id: str, tax_info: List[str]
+    ) -> Tuple[str, ...]:
+        """Return a normalized 7-rank lineage tuple for one labeled genome."""
+        domain_prefix = genome_id.split("__", 1)[0] if "__" in genome_id else ""
+        lineage: List[str] = []
+        for level in self.TAX_LEVELS:
+            idx = self.TAX_LEVEL_MAPPING[level]
+            tax_value = tax_info[idx].strip() if idx < len(tax_info) else ""
+            if level == "domain":
+                tax_value = domain_prefix or tax_value
+            lineage.append(tax_value)
+        return tuple(lineage)
 
     def _add_taxonomy_counts_for_neighbor(
         self, genome_id: str, tax_info: List[str], tax_counters: Dict[str, Counter]
@@ -686,7 +715,9 @@ class FullSummarizer:
 
     @classmethod
     def _min_markers_for_level(cls, level: str, mode_fast: bool) -> int:
-        threshold_map = cls._MIN_MARKERS_FOR_LEVEL_FAST if mode_fast else cls._MIN_MARKERS_FOR_LEVEL
+        threshold_map = (
+            cls._MIN_MARKERS_FOR_LEVEL_FAST if mode_fast else cls._MIN_MARKERS_FOR_LEVEL
+        )
         return threshold_map.get(level, 2)
 
     @staticmethod
@@ -735,11 +766,49 @@ class FullSummarizer:
         winning_taxon, supporting_markers = cls._stable_top(marker_votes)
         return winning_taxon, supporting_markers, total_markers
 
+    @staticmethod
+    def _tax_key_matches_domain(tax_key: str, domain: Optional[str]) -> bool:
+        if not domain:
+            return True
+        return tax_key.startswith(f"{domain}__")
+
+    @classmethod
+    def _filter_counter_to_domain(
+        cls, counter: Counter, domain: Optional[str]
+    ) -> Counter:
+        if not domain:
+            return counter
+        return Counter(
+            {
+                tax_key: count
+                for tax_key, count in counter.items()
+                if cls._tax_key_matches_domain(tax_key, domain)
+            }
+        )
+
+    @classmethod
+    def _filter_per_marker_counters_to_domain(
+        cls,
+        per_marker_level_counters: Dict[str, Counter],
+        domain: Optional[str],
+    ) -> Dict[str, Counter]:
+        if not domain:
+            return per_marker_level_counters
+        filtered: Dict[str, Counter] = {}
+        for marker, counter in per_marker_level_counters.items():
+            marker_counter = cls._filter_counter_to_domain(counter, domain)
+            if marker_counter:
+                filtered[marker] = marker_counter
+        return filtered
+
     def _build_consensus_taxonomies(
         self,
         tax_counters: Dict[str, Counter],
         per_marker_counters: Dict[str, Dict[str, Counter]],
         mode_fast: bool,
+        per_marker_lineage_counters: Optional[
+            Dict[str, Counter[Tuple[str, ...]]]
+        ] = None,
     ) -> Tuple[str, str, str]:
         """Build majority and strict taxonomy strings and a confidence label.
 
@@ -750,14 +819,27 @@ class FullSummarizer:
         continues to require 100% agreement within the flat counter for
         backward compatibility with pre-1.4.3 callers.
         """
+        if per_marker_lineage_counters is not None:
+            return self._build_consensus_taxonomies_from_lineages(
+                per_marker_lineage_counters, mode_fast
+            )
+
         majority_parts = []
         strict_parts = []
         confidence_flags: List[str] = []
         saw_taxonomy_evidence = False
+        selected_domain: Optional[str] = None
 
-        for level in reversed(self.TAX_LEVELS):
+        for level in self.TAX_LEVELS:
             flat_counter = tax_counters[level]
             per_marker_level = per_marker_counters.get(level, {})
+            if level != "domain":
+                flat_counter = self._filter_counter_to_domain(
+                    flat_counter, selected_domain
+                )
+                per_marker_level = self._filter_per_marker_counters_to_domain(
+                    per_marker_level, selected_domain
+                )
             threshold = self._min_markers_for_level(level, mode_fast)
             winning, supporting, total = self._per_marker_majority(per_marker_level)
             if flat_counter or total > 0:
@@ -765,6 +847,8 @@ class FullSummarizer:
 
             if winning is not None and supporting >= threshold:
                 majority = self._format_tax_label(level, winning)
+                if level == "domain":
+                    selected_domain = winning
                 # Only flag reduced_fastmode when the relaxed threshold is
                 # what actually allowed the call — i.e. the support falls
                 # below the standard-mode threshold but clears the fast-mode
@@ -796,8 +880,160 @@ class FullSummarizer:
         if not saw_taxonomy_evidence:
             confidence_flags.append("no_support")
 
-        majority_str = ";".join(reversed(majority_parts))
-        strict_str = ";".join(reversed(strict_parts))
+        majority_str = ";".join(majority_parts)
+        strict_str = ";".join(strict_parts)
+        confidence = self._aggregate_confidence_flags(confidence_flags)
+        return majority_str, strict_str, confidence
+
+    @staticmethod
+    def _lineage_matches_prefix(
+        lineage: Tuple[str, ...], selected_prefix: Tuple[str, ...]
+    ) -> bool:
+        return lineage[: len(selected_prefix)] == selected_prefix
+
+    @classmethod
+    def _lineage_rank_counter(
+        cls,
+        per_marker_lineage_counters: Dict[str, Counter[Tuple[str, ...]]],
+        rank_index: int,
+        selected_prefix: Tuple[str, ...],
+    ) -> Counter:
+        rank_counter: Counter = Counter()
+        for marker_counter in per_marker_lineage_counters.values():
+            for lineage, count in marker_counter.items():
+                if not cls._lineage_matches_prefix(lineage, selected_prefix):
+                    continue
+                if rank_index >= len(lineage):
+                    continue
+                tax_value = lineage[rank_index].strip()
+                if tax_value:
+                    rank_counter[tax_value] += count
+        return rank_counter
+
+    @classmethod
+    def _per_marker_lineage_majority(
+        cls,
+        per_marker_lineage_counters: Dict[str, Counter[Tuple[str, ...]]],
+        rank_index: int,
+        selected_prefix: Tuple[str, ...],
+    ) -> Tuple[Optional[str], int, int]:
+        marker_votes: Counter = Counter()
+        total_markers = 0
+
+        for marker_counter in per_marker_lineage_counters.values():
+            rank_counter: Counter = Counter()
+            for lineage, count in marker_counter.items():
+                if not cls._lineage_matches_prefix(lineage, selected_prefix):
+                    continue
+                if rank_index >= len(lineage):
+                    continue
+                tax_value = lineage[rank_index].strip()
+                if tax_value:
+                    rank_counter[tax_value] += count
+            if not rank_counter:
+                continue
+            total_markers += 1
+            winner_pair = cls._stable_top(rank_counter)
+            if winner_pair is None:
+                continue
+            marker_votes[winner_pair[0]] += 1
+
+        if not marker_votes:
+            return None, 0, total_markers
+
+        winning_taxon, supporting_markers = cls._stable_top(marker_votes)
+        return winning_taxon, supporting_markers, total_markers
+
+    def _format_lineage_tax_label(
+        self, level: str, selected_prefix: Tuple[str, ...], tax_value: str
+    ) -> str:
+        if not tax_value:
+            return f"{level[0]}_"
+        if level == "domain":
+            return self._format_tax_label(level, tax_value)
+        domain = selected_prefix[0] if selected_prefix else ""
+        return self._format_tax_label(
+            level, self._build_taxonomy_key(level, domain, tax_value)
+        )
+
+    def _build_consensus_taxonomies_from_lineages(
+        self,
+        per_marker_lineage_counters: Dict[str, Counter[Tuple[str, ...]]],
+        mode_fast: bool,
+    ) -> Tuple[str, str, str]:
+        """Build top-down consensus taxonomy from full neighbor lineages."""
+        majority_parts = []
+        strict_parts = []
+        confidence_flags: List[str] = []
+        saw_taxonomy_evidence = False
+        selected_prefix: Tuple[str, ...] = ()
+        strict_prefix: Optional[Tuple[str, ...]] = ()
+        stop_lower_ranks = False
+
+        for rank_index, level in enumerate(self.TAX_LEVELS):
+            blank = f"{level[0]}_"
+            if stop_lower_ranks:
+                majority_parts.append(blank)
+                strict_parts.append(blank)
+                continue
+
+            flat_counter = self._lineage_rank_counter(
+                per_marker_lineage_counters, rank_index, selected_prefix
+            )
+            threshold = self._min_markers_for_level(level, mode_fast)
+            winning, supporting, total = self._per_marker_lineage_majority(
+                per_marker_lineage_counters, rank_index, selected_prefix
+            )
+            if flat_counter or total > 0:
+                saw_taxonomy_evidence = True
+
+            if winning is not None and supporting >= threshold:
+                majority = self._format_lineage_tax_label(
+                    level, selected_prefix, winning
+                )
+                strict = blank
+                if strict_prefix is not None:
+                    strict_counter = self._lineage_rank_counter(
+                        per_marker_lineage_counters,
+                        rank_index,
+                        strict_prefix,
+                    )
+                    if len(strict_counter) == 1:
+                        strict_value = next(iter(strict_counter))
+                        if strict_value == winning:
+                            strict = self._format_lineage_tax_label(
+                                level, strict_prefix, strict_value
+                            )
+                            strict_prefix = strict_prefix + (strict_value,)
+                        else:
+                            strict_prefix = None
+                    else:
+                        strict_prefix = None
+                selected_prefix = selected_prefix + (winning,)
+
+                standard_threshold = self._MIN_MARKERS_FOR_LEVEL.get(level, 2)
+                if (
+                    mode_fast
+                    and threshold < standard_threshold
+                    and supporting < standard_threshold
+                ):
+                    confidence_flags.append("reduced_fastmode")
+            else:
+                majority = blank
+                strict = blank
+                stop_lower_ranks = True
+                strict_prefix = None
+                if total > 0:
+                    confidence_flags.append("low_support")
+
+            majority_parts.append(majority)
+            strict_parts.append(strict)
+
+        if not saw_taxonomy_evidence:
+            confidence_flags.append("no_support")
+
+        majority_str = ";".join(majority_parts)
+        strict_str = ";".join(strict_parts)
         confidence = self._aggregate_confidence_flags(confidence_flags)
         return majority_str, strict_str, confidence
 
@@ -827,6 +1063,7 @@ class FullSummarizer:
         result: Dict[str, any],
         tax_counters: Dict[str, Counter],
         per_marker_counters: Dict[str, Dict[str, Counter]],
+        per_marker_lineage_counters: Dict[str, Counter[Tuple[str, ...]]],
         distances: List[float],
         mode_fast: bool,
     ) -> None:
@@ -837,7 +1074,10 @@ class FullSummarizer:
         result["avgdist"] = sum(distances) / len(distances) if distances else 0.0
         taxonomy_majority, taxonomy_strict, taxonomy_confidence = (
             self._build_consensus_taxonomies(
-                tax_counters, per_marker_counters, mode_fast
+                tax_counters,
+                per_marker_counters,
+                mode_fast,
+                per_marker_lineage_counters,
             )
         )
         result["taxonomy_majority"] = taxonomy_majority
@@ -851,7 +1091,9 @@ class FullSummarizer:
         marker_hits: Optional[Dict[str, Set[str]]] = None,
     ) -> None:
         """Populate marker-based metrics for the query."""
-        result["gvog4_unique"] = sum(1 for m in GVOG4M_MODELS if marker_counts.get(m, 0) > 0)
+        result["gvog4_unique"] = sum(
+            1 for m in GVOG4M_MODELS if marker_counts.get(m, 0) > 0
+        )
 
         gvog8_unique = sum(1 for m in GVOG8M_MODELS if marker_counts.get(m, 0) > 0)
         gvog8_total = sum(marker_counts.get(m, 0) for m in GVOG8M_MODELS)
@@ -877,7 +1119,9 @@ class FullSummarizer:
                 marker_hits, cellular_models
             )
         else:
-            result["ncldv_mcp_total"] = sum(marker_counts.get(m, 0) for m in NCLDV_MCP_MODELS)
+            result["ncldv_mcp_total"] = sum(
+                marker_counts.get(m, 0) for m in NCLDV_MCP_MODELS
+            )
             result["mcp_total"] = sum(marker_counts.get(m, 0) for m in MCP_MODELS)
             result["mrya_total"] = sum(marker_counts.get(m, 0) for m in MRYA_MODELS)
             result["phage_total"] = sum(marker_counts.get(m, 0) for m in PHAGE_MODELS)
@@ -907,7 +1151,9 @@ class FullSummarizer:
         cellular_unique = sum(1 for m in cellular_models if marker_counts.get(m, 0) > 0)
         result["cellular_unique"] = cellular_unique
         result["cellular_total"] = cellular_total
-        result["cellular_dup"] = cellular_total / cellular_unique if cellular_unique > 0 else 0
+        result["cellular_dup"] = (
+            cellular_total / cellular_unique if cellular_unique > 0 else 0
+        )
 
     def _set_default_marker_metrics(self, result: Dict[str, any]) -> None:
         """Apply default marker metric values when counts are unavailable."""
@@ -957,13 +1203,18 @@ class FullSummarizer:
         return parts[1] if len(parts) > 1 else most_common_family
 
     def _add_order_metrics(
-        self, result: Dict[str, any], counts_file: Path, tax_counters: Dict[str, Counter]
+        self,
+        result: Dict[str, any],
+        counts_file: Path,
+        tax_counters: Dict[str, Counter],
     ) -> None:
         """Populate order-level completeness metrics from order assignment."""
         order_tax = self._extract_order_taxonomy(tax_counters)
         family_tax = self._extract_family_taxonomy(tax_counters)
         if order_tax:
-            result.update(self.calculate_order_metrics(counts_file, order_tax, family_tax))
+            result.update(
+                self.calculate_order_metrics(counts_file, order_tax, family_tax)
+            )
             return
 
         result.update(self._default_order_metrics(order_tax))
@@ -1019,8 +1270,12 @@ class FullSummarizer:
                 tree_nn_results=tree_nn_results or {},
             )
             contig_features = {
-                "suspicious_bp_fraction_v2": contig_features_raw["suspicious_bp_fraction"],
-                "suspicious_contig_count_v2": contig_features_raw["suspicious_contig_count"],
+                "suspicious_bp_fraction_v2": contig_features_raw[
+                    "suspicious_bp_fraction"
+                ],
+                "suspicious_contig_count_v2": contig_features_raw[
+                    "suspicious_contig_count"
+                ],
                 # v1.4.3 Phase 2 per-contig purity features.
                 "cellular_coherent_contig_count": contig_features_raw.get(
                     "cellular_coherent_contig_count", 0
@@ -1063,11 +1318,15 @@ class FullSummarizer:
                 self.contamination_scorer.predict_contamination(result, contig_features)
             )
             result["contamination_type"] = self._classify_contamination_type(result)
-            result["_contamination_reporting_threshold"] = self._contamination_reporting_threshold()
+            result["_contamination_reporting_threshold"] = (
+                self._contamination_reporting_threshold()
+            )
             result["_contamination_candidates"] = [
                 {
                     **candidate,
-                    "candidate_type": self._candidate_type_for_reason(candidate.get("reason", "")),
+                    "candidate_type": self._candidate_type_for_reason(
+                        candidate.get("reason", "")
+                    ),
                 }
                 for candidate in contig_features_raw.get("suspicious_contigs", [])
             ]
@@ -1146,7 +1405,10 @@ class FullSummarizer:
         candidates = [
             query_output_dir / "query_fna" / f"{query_id}.fna",
             query_output_dir / f"{query_id}_reformatted.fna",
-            query_output_dir / "gene_calling" / f"{query_id}_reformatted" / f"{query_id}_reformatted.fna",
+            query_output_dir
+            / "gene_calling"
+            / f"{query_id}_reformatted"
+            / f"{query_id}_reformatted.fna",
         ]
         for candidate in candidates:
             if candidate.exists():
@@ -1157,7 +1419,10 @@ class FullSummarizer:
     def _resolve_query_faa_path(query_id: str, query_output_dir: Path) -> Path:
         candidates = [
             query_output_dir / "query_faa" / f"{query_id}.faa",
-            query_output_dir / "gene_calling" / f"{query_id}_reformatted" / f"{query_id}_reformatted.faa",
+            query_output_dir
+            / "gene_calling"
+            / f"{query_id}_reformatted"
+            / f"{query_id}_reformatted.faa",
         ]
         for candidate in candidates:
             if candidate.exists():
@@ -1176,11 +1441,19 @@ class FullSummarizer:
         basic_stats = self._load_basic_stats(query_id, query_output_dir)
         result = self._initialize_summary_result(query_id, basic_stats)
 
-        tax_counters, per_marker_counters, distances = self._collect_taxonomy_counts(
-            tree_nn_results
-        )
+        (
+            tax_counters,
+            per_marker_counters,
+            per_marker_lineage_counters,
+            distances,
+        ) = self._collect_taxonomy_counts(tree_nn_results)
         self._add_taxonomy_summary(
-            result, tax_counters, per_marker_counters, distances, mode_fast
+            result,
+            tax_counters,
+            per_marker_counters,
+            per_marker_lineage_counters,
+            distances,
+            mode_fast,
         )
 
         counts_file = query_output_dir / "hmmout" / "models.counts"

@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-v1.6.0-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/version-v1.6.1-blue.svg" alt="Version">
   <img src="https://img.shields.io/badge/license-BSD--3--Clause-green.svg" alt="License">
   <img src="https://img.shields.io/badge/python-3.11-blue.svg" alt="Python">
   <img src="https://img.shields.io/badge/pixi-enabled-orange.svg" alt="Pixi">
@@ -167,9 +167,9 @@ Create `gvclass_config.yaml` to set defaults:
 database:
   path: resources                    # Relative path: <gvclass_repo>/resources
   # path: /media/shared-expansion/dbs/gvclass_resources  # Absolute path on shared storage
-  download_url: https://zenodo.org/records/19674504/files/resources_v1_5_0.tar.gz?download=1
-  download_version: v1.5.0
-  download_sha256: 5357d96d99aa1eaf4b396ef701ed4c3b22d9015f79b7ae6c6be354c897704c80
+  download_url: https://zenodo.org/records/20479524/files/resources_v1_6_0.tar.gz?download=1
+  download_version: v1.6.0
+  download_sha256: f744f7144ea69d6c3ccffe56e7721d6fd598685853005e0fb90d04e699d9b23f
 
 pipeline:
   tree_method: fasttree             # or 'iqtree' for more accuracy
@@ -229,10 +229,10 @@ database version, checks Zenodo for the latest published version, and offers to 
 
 Release notes are maintained on the
 [GitHub Releases page](https://github.com/NeLLi-team/gvclass/releases).
-The latest software release is `v1.6.0`; the compatible database/runtime
-resource bundle remains `v1.5.0`. This release fixes container command lookup
-and runtime permissions so Snakemake can call `gvclass` directly inside the
-Apptainer/Singularity image.
+The latest software release is `v1.6.1`; the compatible database/runtime
+resource bundle is `v1.6.0` (Zenodo DOI
+`10.5281/zenodo.20479524`). This release fixes lineage-constrained taxonomy
+consensus and uses the harmonized database labels by default.
 
 ## Advanced Usage
 
@@ -243,11 +243,11 @@ The `gvclass-a` wrapper handles container execution automatically. For manual co
 ```bash
 # Pull the image manually (works without auth token for public images)
 apptainer pull --library https://library.sylabs.io \
-  gvclass_1.6.0.sif library://nelligroup-jgi/gvclass/gvclass:1.6.0
+  gvclass_1.6.1.sif library://nelligroup-jgi/gvclass/gvclass:1.6.1
 
 # Run with manual bind mounts
 apptainer run -B /path/to/data:/input -B /path/to/results:/output \
-  gvclass_1.6.0.sif /input -o /output -t 32
+  gvclass_1.6.1.sif /input -o /output -t 32
 ```
 
 The wrapper is simpler and handles bind mounts automatically.
@@ -270,7 +270,7 @@ apptainer build gvclass.sif containers/apptainer/gvclass.def
 apptainer remote login
 
 # Push the image to the library
-apptainer push gvclass.sif library://nelligroup-jgi/gvclass/gvclass:1.6.0
+apptainer push gvclass.sif library://nelligroup-jgi/gvclass/gvclass:1.6.1
 ```
 
 ### Full CLI Reference (gvclass)
@@ -556,4 +556,4 @@ The GVClass runtime resources include genomes/models derived from the following 
 BSD 3-Clause License - see LICENSE file for details
 
 ---
-<sub>Version 1.6.0 - May 2026</sub>
+<sub>Version 1.6.1 - May 2026</sub>
