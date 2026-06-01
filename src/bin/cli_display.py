@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -37,12 +38,13 @@ def print_banner(plain_output: bool, software_version: str) -> None:
             print(line)
         return
 
-    width = 61
+    ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+    width = 60
     print(f"    ╔{'═' * width}╗")
     for line in _build_color_banner_lines(software_version):
-        print(f"    ║{line:<{width}}║")
+        padding = max(0, width - len(ANSI_RE.sub("", line)))
+        print(f"    ║{line}{' ' * padding}║")
     print(f"    ╚{'═' * width}╝")
-
 
 def print_configuration(
     args,
