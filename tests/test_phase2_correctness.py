@@ -95,6 +95,49 @@ def test_per_marker_majority_requires_distinct_marker_support(tmp_path: Path) ->
     assert total == 4
 
 
+def test_tax_level_counts_normalize_domain_unclassified_placeholders(
+    tmp_path: Path,
+) -> None:
+    summarizer = _make_summarizer(tmp_path)
+
+    formatted = summarizer.format_tax_level_counts(
+        Counter({"NCLDV__NCLDV_unclassified": 6, "NCLDV__Megaviricetes": 4}),
+        level="class",
+    )
+
+    assert "NCLDV__unclassified:6(60.00%)" in formatted
+    assert "NCLDV__NCLDV_unclassified" not in formatted
+
+
+def test_tax_level_counts_use_domain_prefix_for_grouped_minor_taxa(
+    tmp_path: Path,
+) -> None:
+    summarizer = _make_summarizer(tmp_path)
+
+    formatted = summarizer.format_tax_level_counts(
+        Counter({"NCLDV__S392": 18, "PLV__EP00001": 1, "NCLDV__singleton": 1}),
+        level="species",
+    )
+
+    assert "PLV__other:1(5.00%)" in formatted
+    assert "NCLDV__other:1(5.00%)" in formatted
+    assert "PLV_other" not in formatted
+    assert "NCLDV_other" not in formatted
+
+
+def test_domain_counts_are_not_grouped_as_other(tmp_path: Path) -> None:
+    summarizer = _make_summarizer(tmp_path)
+
+    formatted = summarizer.format_tax_level_counts(
+        Counter({"NCLDV": 19, "PLV": 1}),
+        level="domain",
+    )
+
+    assert "NCLDV:19(95.00%)" in formatted
+    assert "PLV:1(5.00%)" in formatted
+    assert "PLV_other" not in formatted
+
+
 def test_build_consensus_taxonomies_emits_low_support_when_below_threshold(
     tmp_path: Path,
 ) -> None:
