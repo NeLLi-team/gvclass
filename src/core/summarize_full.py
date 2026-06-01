@@ -263,33 +263,34 @@ class FullSummarizer:
         # Third try: strip protein suffix from full ID even if not in labels
         return stripped
 
-    def format_tax_level_counts(self, tax_counter: Counter) -> str:
+    def format_tax_level_counts(
+        self, tax_counter: Counter, level: str | None = None
+    ) -> str:
         """Format taxonomy counts with percentages, grouping low-frequency taxa."""
         if not tax_counter:
             return ""
 
-        total = sum(tax_counter.values())
+        normalized_counter = Counter()
+        for tax, count in tax_counter.items():
+            normalized_counter[self._format_tax_count_key(tax, level)] += count
+
+        total = sum(normalized_counter.values())
         if total <= 0:
             return ""
 
-        grouped_counter = Counter(tax_counter)
+        grouped_counter = Counter(normalized_counter)
         low_threshold = 5.0
-        low_counts_by_prefix = Counter()
+        low_counts_by_group = Counter()
 
-        for tax, count in tax_counter.items():
+        for tax, count in normalized_counter.items():
             percentage = (count / total) * 100
-            if percentage <= low_threshold:
-                if "__" in tax:
-                    prefix = tax.split("__", 1)[0]
-                elif "_" in tax:
-                    prefix = tax.split("_", 1)[0]
-                else:
-                    prefix = tax
-                low_counts_by_prefix[prefix] += count
+            group_key = self._low_frequency_tax_group_key(tax, level)
+            if percentage <= low_threshold and group_key:
+                low_counts_by_group[group_key] += count
                 grouped_counter.pop(tax, None)
 
-        for prefix, count in low_counts_by_prefix.items():
-            grouped_counter[f"{prefix}_other"] += count
+        for group_key, count in low_counts_by_group.items():
+            grouped_counter[group_key] += count
 
         sorted_counts = sorted(
             grouped_counter.items(), key=lambda x: x[1], reverse=True
@@ -301,6 +302,33 @@ class FullSummarizer:
             formatted.append(f"{tax}:{count}({percentage:.2f}%)")
 
         return ",".join(formatted)
+
+    @staticmethod
+    def _format_tax_count_key(tax_key: str, level: str | None = None) -> str:
+        if level == "domain":
+            return tax_key.split("__", 1)[0]
+
+        if "__" not in tax_key:
+            return tax_key
+
+        domain, tax_name = tax_key.split("__", 1)
+        if tax_name == f"{domain}_unclassified":
+            tax_name = "unclassified"
+        elif tax_name == f"{domain}_other":
+            tax_name = "other"
+        return f"{domain}__{tax_name}"
+
+    @staticmethod
+    def _low_frequency_tax_group_key(tax_key: str, level: str | None = None) -> str:
+        if level == "domain":
+            return ""
+        if "__" in tax_key:
+            domain = tax_key.split("__", 1)[0]
+            return f"{domain}__other"
+        if "_" in tax_key:
+            domain = tax_key.split("_", 1)[0]
+            return f"{domain}__other"
+        return f"{tax_key}_other"
 
     def get_tax_consensus(self, tax_counter: Counter, level: str) -> Tuple[str, str]:
         """Get majority and strict consensus for a taxonomic level."""
@@ -1069,7 +1097,9 @@ class FullSummarizer:
     ) -> None:
         """Populate taxonomy count and consensus fields on the result payload."""
         for level in self.TAX_LEVELS:
-            result[level] = self.format_tax_level_counts(tax_counters[level])
+            result[level] = self.format_tax_level_counts(
+                tax_counters[level], level=level
+            )
 
         result["avgdist"] = sum(distances) / len(distances) if distances else 0.0
         taxonomy_majority, taxonomy_strict, taxonomy_confidence = (

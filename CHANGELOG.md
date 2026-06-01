@@ -24,6 +24,12 @@ Compatible resource bundle: v1.6.0 (Zenodo DOI 10.5281/zenodo.20479524).
   lower-rank labels from leaking into MIRUS/NCLDV calls.
 - `taxonomy_strict` remains no more specific than the accepted majority path
   and blanks lower ranks once an upstream parent rank is unresolved.
+- Taxonomy support-count columns now render placeholder and grouped labels
+  consistently as `DOMAIN__unclassified` and `DOMAIN__other` for non-domain
+  ranks, while domain counts remain plain `DOMAIN`. This removes output strings
+  such as `NCLDV__NCLDV_unclassified`, `NCLDV_other`, and `PLV_other`.
+- The colorized terminal banner frame now aligns correctly by computing padding
+  from visible text after stripping ANSI escape sequences.
 
 ### Changed
 - Default database download configuration now points to the harmonized
