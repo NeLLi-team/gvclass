@@ -154,7 +154,7 @@ class TreeAnalyzer:
         Extract genome ID from a protein ID for labels lookup.
 
         Protein IDs can have formats like:
-        - VP__IMGVR_UViG_3300044959|000235_9 -> VP__IMGVR_UViG_3300044959|000235
+        - PPV__IMGVR_UViG_3300044959|000235_9 -> PPV__IMGVR_UViG_3300044959|000235
         - NCLDV__GCA_000123456|contig_1_42 -> NCLDV__GCA_000123456|contig_1
         - simple_genome_id -> simple_genome_id
 
@@ -169,7 +169,7 @@ class TreeAnalyzer:
         import re
 
         # First try: check if the full ID (minus trailing _digits) is in labels
-        # This handles: VP__IMGVR_UViG_3300044959|000235_9 -> VP__IMGVR_UViG_3300044959|000235
+        # This handles: PPV__IMGVR_UViG_3300044959|000235_9 -> PPV__IMGVR_UViG_3300044959|000235
         stripped = re.sub(r"_\d+$", "", protein_id)
         if stripped in self.labels_dict:
             return stripped
@@ -316,8 +316,8 @@ class TreeAnalyzer:
                         for neighbor, distance in neighbors.items():
                             # Extract genome ID from protein ID
                             # Protein IDs have format: genome_id|contig_protein
-                            # e.g., VP__IMGVR_UViG_3300044959|000235_9
-                            # Labels use: VP__IMGVR_UViG_3300044959|000235
+                            # e.g., PPV__IMGVR_UViG_3300044959|000235_9
+                            # Labels use: PPV__IMGVR_UViG_3300044959|000235
                             # Need to strip protein suffix (_N) from the end
                             genome_id = self._extract_genome_id(neighbor)
                             tax_str = "unknown"

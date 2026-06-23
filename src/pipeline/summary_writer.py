@@ -154,6 +154,7 @@ FINAL_SUMMARY_COLUMNS: List[str] = [
     "taxonomy_majority",
     "taxonomy_strict",
     "taxonomy_confidence",
+    "capscan_group",
     "species",
     "genus",
     "family",

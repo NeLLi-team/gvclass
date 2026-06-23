@@ -13,6 +13,35 @@ compatible bundle is noted per release.
 
 ## [Unreleased]
 
+Capscan / Preplasmiviricota augmentation (in progress; ships with a new resource bundle).
+
+### Changed
+- **Preplasmiviricota domain renamed `PLV`/`VP` → `PPV`.** The unified
+  Preplasmiviricota domain (Polinton-like viruses + virophages, merged in the
+  v1.7.0 bundle) now reports as `PPV` in the `domain` column and lineage strings,
+  replacing the class-level misnomer `PLV`. Marker names (`PLV_MCP_*`, `VP_MCP_*`,
+  `plv_mcp_caps_*`, …) and the `plv` / `vp_*` summary columns are unchanged. This is
+  a label-only rename (tree topology and vote counts are identical); it requires the
+  matching `PPV` resource bundle.
+- **Same-family marker models are consolidated into grouped trees.** Models that
+  share reference proteins (e.g. the MCP / PolB / ATPase families) are merged into a
+  single alignment → tree → nearest-neighbour vote, removing the per-model
+  vote over-counting that previously fragmented classification. Raw per-marker count
+  columns (`*_total`, `*_unique`) are unaffected; contamination scoring is group-aware.
+
+### Added
+- **Bellas & Sommaruga capscan MCP markers are now first-class tree markers.** The
+  caps major-capsid-protein HMMs feed the `mcp_plv` / `mcp_ncldv` group trees, with
+  external (figshare `annotated_PLVs`) reference proteins labelled by Bellas group so
+  nearest-neighbour placement can resolve Polinton-like / virophage / NCV-like capsid
+  groups. References are curated anti-circularly (external, not GVClass's own homologs);
+  the PgVV group is held out for validation (held-out PgVV proteins place to the PgVV
+  group 43/43).
+- **`capscan_group` summary column** reports the Bellas capsid group from the MCP-tree
+  nearest-neighbour placement (the neighbour's family rank), replacing a best-HMM-hit
+  heuristic. It is an advisory field next to the taxonomy consensus; non-capsid genomes
+  report an empty group.
+
 ## [1.6.1] - 2026-05-31
 
 Compatible resource bundle: v1.6.0 (Zenodo DOI 10.5281/zenodo.20479524).

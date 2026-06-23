@@ -14,6 +14,18 @@ It is intentionally conservative: labels are not collapsed just because their
 taxonomy strings match. Duplicate taxonomy labels are dereplicated only when
 there is a unique FAA-backed canonical label or an explicit virophage PHAGE/PLV
 to VP mapping.
+
+This module emits the LEGACY base bundle (split Preplasmiviricota: PLV =
+Polintoviricetes, VP = Maveriviricetes). The shipped DB is then produced by a
+chain of idempotent post-hoc migration scripts applied to that base, in order:
+  1. relabel_issue17_vp_to_plv.py     VP__ -> PLV__ (single Preplasmiviricota domain)
+  2. resolve_collisions_by_blast.py   __vpdup collision resolution
+  3. ICTV-2025 rename                 Maveriviricetes -> Virophaviricetes
+  4. relabel_ppv_preplasmiviricota.py PLV__/VP__ -> PPV__ (domain = phylum, "PPV")
+So in the LIVE resources the Preplasmiviricota domain prefix is "PPV"; this
+generator is deliberately left at the pre-migration base it has always emitted
+(its tests pin that contract and the migration scripts consume it). When
+rebuilding from scratch, run this script then re-apply the migration chain.
 """
 
 from __future__ import annotations

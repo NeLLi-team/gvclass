@@ -145,7 +145,7 @@ The runtime implementation for completeness and contamination metrics lives in
 | mcp_total | All MCP marker count (NCLDV + Mirus) |
 | vp_completeness | Virophage completeness (n/4 core markers: MCP, Penton, ATPase, Protease) |
 | vp_mcp | Count of proteins with VP MCP marker hits |
-| plv | Count of proteins with PLV marker hits (single PLV marker; values can be 0..N) |
+| plv | Count of proteins hitting the PLV-specific marker; flags Polinton-like viruses within the `PPV` (Preplasmiviricota) domain (values can be 0..N) |
 | vp_df | Virophage duplication factor (total VP hits / 4) |
 | mirus_completeness | Mirusviricota completeness (n/4 core markers: MCP, ATPase, Portal, Triplex) |
 | mirus_df | Mirusviricota duplication factor |
@@ -363,7 +363,7 @@ Use sensitive mode when you want a more permissive marker search:
 - `gvog8_total` and `gvog8_unique` help distinguish true gene expansions (high total, moderate duplication) from assembly artefacts (high duplication, low uniqueness).
 - `ncldv_mcp_total`, `mirus_df`, `mrya_total` provide additional lineage-specific duplication hints.
 - `vp_completeness` and `mirus_completeness` show core marker coverage (n/4) for virophages and Mirusviricota respectively.
-- `plv` count helps distinguish PLV from virophages (PLVs share VP markers but have additional PLV-specific marker; count is not binary).
+- Polinton-like viruses and virophages are reported together under the unified `PPV` (Preplasmiviricota) domain; the `plv` count helps tell Polinton-like viruses apart from virophages within it (both carry VP MCP markers, but Polinton-like viruses also hit a PLV-specific marker; the count is not binary).
 
 ### Cellular carry-over
 - `order_dup`, `gvog8_dup`, `vp_df`, `mirus_df`, and `cellular_dup` are retained in the final summary table as duplication-style QC indicators.
@@ -545,6 +545,8 @@ The GVClass runtime resources include genomes/models derived from the following 
 > Fiamenghi MB, Camargo AP, Chasapi IN, et al. (2025): Meta-virus resource (MetaVR): expanding the frontiers of viral diversity with 24 million uncultivated virus genomes. Nucleic Acids Research gkaf1283. https://doi.org/10.1093/nar/gkaf1283
 
 > Vasquez YM, Nardi T, Terasaki GM, et al. (2025): Genome-resolved expansion of Nucleocytoviricota and Mirusviricota reveals new diversity, functional potential, and biotechnological applications. bioRxiv 2025.09.26.678796. https://doi.org/10.1101/2025.09.26.678796
+
+> Bellas CM, Sommaruga R (2021): Polinton-like viruses are abundant in aquatic ecosystems. Microbiome 9:13. https://doi.org/10.1186/s40168-020-00956-0
 
 ## Support
 

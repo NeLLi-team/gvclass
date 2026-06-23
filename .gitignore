@@ -59,3 +59,12 @@ tests/test_real_contig_contamination_benchmark.py
 tests/test_benchmark_v1_5_0_smoke.py
 benchmarking/contamination/v1_5_0/
 .codex
+
+# capscan/issue-17 augmentation — local artifacts + one-off DB-migration scripts (do not commit)
+*.egg-info/
+.memd/
+memory.md
+*.bak_*
+scripts/relabel_issue17_vp_to_plv.py
+scripts/resolve_collisions_by_blast.py
+scripts/build_caps_refs_figshare.py

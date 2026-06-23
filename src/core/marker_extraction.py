@@ -10,6 +10,7 @@ from typing import Any, Dict, Iterable, Set, List, Tuple
 from Bio import SeqIO
 
 from src.utils import setup_logging
+from src.config.marker_sets import MODEL_TO_GROUP
 
 logger = setup_logging(__name__)
 
@@ -150,6 +151,22 @@ def extract_marker_hits(
         og_markers_skipped = og_markers_before - len(filtered_markers)
         if og_markers_skipped > 0:
             logger.info(f"Skipped {og_markers_skipped} OG markers in fast mode")
+
+    # Collapse same-family models into one group marker (tree path only). A gene family
+    # detected by several HMMs (e.g. PLV_MCP_1..10 -> mcp_plv) builds ONE alignment/tree
+    # -> ONE nearest-neighbour vote, removing the per-model vote over-counting that
+    # fragments classification. Ungrouped models are unchanged; the raw parse_hmm_output
+    # and marker_counts (*_total metrics) paths are deliberately untouched.
+    if MODEL_TO_GROUP:
+        grouped: Dict[str, Set[str]] = defaultdict(set)
+        for marker, hits in filtered_markers.items():
+            grouped[MODEL_TO_GROUP.get(marker, marker)] |= hits
+        n_collapsed = len(filtered_markers) - len(grouped)
+        filtered_markers = dict(grouped)
+        if n_collapsed > 0:
+            logger.info(
+                f"Collapsed model-markers into {len(grouped)} family groups (-{n_collapsed})"
+            )
 
     logger.info(f"Processing {len(filtered_markers)} markers with >= {min_hits} hits")
 

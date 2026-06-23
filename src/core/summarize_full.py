@@ -12,6 +12,7 @@ from typing import Dict, List, Optional, Set, Tuple
 import pandas as pd
 
 from src.config.marker_sets import (
+    CAPS_MARKER_GROUP,
     MIRUS_CATEGORY_MODELS,
     BUSCO_MODELS,
     PHAGE_MODELS,
@@ -36,6 +37,48 @@ from src.core.novelty_completeness import create_novelty_completeness_scorer
 from src.core.contamination_scoring import create_contamination_scorer
 
 logger = logging.getLogger(__name__)
+
+
+def _dominant(counter: Counter) -> str:
+    """Single dominant key, or "" on an empty counter or a top-2 tie."""
+    top = counter.most_common(2)
+    if not top or (len(top) > 1 and top[0][1] == top[1][1]):
+        return ""
+    return top[0][0]
+
+
+# Bellas&Sommaruga caps group names (the family rank of caps reference lineages).
+# Used to recognise a caps-group nearest neighbour in the MCP trees and ignore generic
+# (non-caps) refs whose family rank is some other taxon.
+CAPS_GROUPS = frozenset(CAPS_MARKER_GROUP.values()) - {"unclassified"}
+
+
+def derive_capscan_group(marker_hits, marker_counts) -> str:
+    """Dominant capscan (Bellas&Sommaruga 2026) group for a query.
+
+    Resolves a single best group PER PROTEIN first (a protein cross-hitting several
+    caps HMMs of one group votes once), then takes the dominant group across proteins.
+    Avoids the profile-multiplicity bias of counting raw per-(protein,model) hits and
+    the per-marker tree-vote fragmentation of GVClass's consensus. Falls back to raw
+    caps-hit counts when per-protein hits are unavailable. Ties resolve to "".
+    """
+    caps_groups: Counter = Counter()
+    if marker_hits:
+        prot_groups: defaultdict = defaultdict(Counter)
+        for marker, proteins in marker_hits.items():
+            if "_caps_" in marker and marker in CAPS_MARKER_GROUP:
+                grp = CAPS_MARKER_GROUP[marker]
+                for protein in proteins:
+                    prot_groups[protein][grp] += 1
+        for grp_counts in prot_groups.values():
+            winner = _dominant(grp_counts)
+            if winner:
+                caps_groups[winner] += 1
+    if not caps_groups:
+        for marker, count in marker_counts.items():
+            if count > 0 and "_caps_" in marker and marker in CAPS_MARKER_GROUP:
+                caps_groups[CAPS_MARKER_GROUP[marker]] += count
+    return _dominant(caps_groups)
 
 
 class FullSummarizer:
@@ -236,7 +279,7 @@ class FullSummarizer:
         Extract genome ID from a protein ID for labels lookup.
 
         Protein IDs can have formats like:
-        - VP__IMGVR_UViG_3300044959|000235_9 -> VP__IMGVR_UViG_3300044959|000235
+        - PPV__IMGVR_UViG_3300044959|000235_9 -> PPV__IMGVR_UViG_3300044959|000235
         - NCLDV__GCA_000123456|contig_1_42 -> NCLDV__GCA_000123456|contig_1
 
         The protein suffix is typically _N where N is a number at the end.
@@ -248,7 +291,7 @@ class FullSummarizer:
             Genome/contig ID suitable for labels lookup
         """
         # First try: check if the full ID (minus trailing _digits) is in labels
-        # This handles: VP__IMGVR_UViG_3300044959|000235_9 -> VP__IMGVR_UViG_3300044959|000235
+        # This handles: PPV__IMGVR_UViG_3300044959|000235_9 -> PPV__IMGVR_UViG_3300044959|000235
         stripped = re.sub(r"_\d+$", "", protein_id)
         if stripped in self.labels_dict:
             return stripped
@@ -1114,11 +1157,48 @@ class FullSummarizer:
         result["taxonomy_strict"] = taxonomy_strict
         result["taxonomy_confidence"] = taxonomy_confidence
 
+    def _caps_group_from_tree(self, tree_nn_results) -> str:
+        """Dominant Bellas&Sommaruga caps group from the caps MCP tree-NN placement.
+
+        A caps reference lineage carries its Bellas group at the family rank; the
+        CAPS_GROUPS whitelist gates out everything else (caps group names occur only on
+        caps references — under PPV or NCLDV domains — never on a non-caps genome).
+        Each query protein votes ONCE: its single nearest neighbour is read per MCP group
+        tree, and a cross-reactive MCP that places in BOTH mcp_plv and mcp_ncldv is
+        resolved to its CLOSEST caps-group placement so it cannot double-count (mirrors
+        contamination_scoring._per_protein_dominant_lineage). Dominant group across
+        proteins; a tie, or no caps-group neighbour, resolves to "".
+        """
+        fam_idx = self.TAX_LEVEL_MAPPING["family"]
+        per_protein: Dict[str, Tuple[Optional[str], float]] = {}
+        for marker in ("mcp_plv", "mcp_ncldv"):
+            for protein, neighbors in tree_nn_results.get(marker, {}).items():
+                if not neighbors:
+                    continue
+                nearest, dist = min(neighbors.items(), key=lambda kv: kv[1])
+                tax = self.labels_dict.get(self._extract_genome_id(nearest))
+                if not tax or len(tax) <= fam_idx:
+                    continue
+                family = tax[fam_idx].strip()
+                if family not in CAPS_GROUPS:
+                    continue
+                prev = per_protein.get(protein)
+                if prev is None or dist < prev[1]:
+                    per_protein[protein] = (family, dist)
+                elif dist == prev[1] and family != prev[0]:
+                    # equal-distance placements in different caps groups -> ambiguous, drop
+                    per_protein[protein] = (None, dist)
+        groups: Counter = Counter(
+            fam for fam, _dist in per_protein.values() if fam is not None
+        )
+        return _dominant(groups)
+
     def _add_marker_metrics(
         self,
         result: Dict[str, any],
         marker_counts: Dict[str, int],
         marker_hits: Optional[Dict[str, Set[str]]] = None,
+        tree_nn_results: Optional[Dict[str, Dict[str, Dict[str, float]]]] = None,
     ) -> None:
         """Populate marker-based metrics for the query."""
         result["gvog4_unique"] = sum(
@@ -1174,6 +1254,18 @@ class FullSummarizer:
 
         mrya_unique = sum(1 for m in MRYA_MODELS if marker_counts.get(m, 0) > 0)
         result["mrya_unique"] = mrya_unique
+
+        # capscan group from the caps MCP tree-NN placement: the query's MCP places next
+        # to its Bellas group's references, so the nearest neighbour's family rank IS the
+        # group. Authoritative when an MCP group tree was built (incl "" = placed among
+        # non-caps refs). Falls back to the best-HMM-hit heuristic only when no MCP tree
+        # is available (counts-only resume, or a partial run that skipped the MCP trees).
+        if tree_nn_results and any(
+            m in tree_nn_results for m in ("mcp_plv", "mcp_ncldv")
+        ):
+            result["capscan_group"] = self._caps_group_from_tree(tree_nn_results)
+        else:
+            result["capscan_group"] = derive_capscan_group(marker_hits, marker_counts)
 
         phage_unique = sum(1 for m in PHAGE_MODELS if marker_counts.get(m, 0) > 0)
         result["phage_unique"] = phage_unique
@@ -1491,7 +1583,9 @@ class FullSummarizer:
         marker_counts = self._load_marker_counts(counts_file)
         marker_hits = self._load_marker_hits(marker_hits_file)
         if marker_counts:
-            self._add_marker_metrics(result, marker_counts, marker_hits)
+            self._add_marker_metrics(
+                result, marker_counts, marker_hits, tree_nn_results=tree_nn_results
+            )
         else:
             self._set_default_marker_metrics(result)
 

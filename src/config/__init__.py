@@ -10,6 +10,7 @@ from .marker_sets import (
     GVOG8M_MODELS,
     UNI56_MODELS,
     MCP_MODELS,
+    CAPS_MARKER_GROUP,
     MRYA_MODELS,
 )
 
@@ -21,5 +22,6 @@ __all__ = [
     "GVOG8M_MODELS",
     "UNI56_MODELS",
     "MCP_MODELS",
+    "CAPS_MARKER_GROUP",
     "MRYA_MODELS",
 ]
