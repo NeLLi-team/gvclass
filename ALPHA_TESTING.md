@@ -1,0 +1,60 @@
+# Alpha testing the `gvclass-dev` branch
+
+This branch carries the v2.0 candidate: the capscan/PPV taxonomy update and the
+new opt-in `--species-tree` feature. It is wired to a separate **alpha-test
+resource bundle** so testers get the updated reference models without waiting for
+the Zenodo release. `main` is unchanged and still uses the published Zenodo asset.
+
+## 1. Get the branch
+
+```bash
+git clone -b gvclass-dev https://github.com/NeLLi-team/gvclass.git
+cd gvclass
+curl -fsSL https://pixi.sh/install.sh | bash   # if you don't have pixi
+```
+
+## 2. Resources (auto-downloaded)
+
+On first run (or `pixi run setup-db`) gvclass downloads and verifies the pinned
+bundle into `./resources/`:
+
+- URL: `https://dl.newlineages.com/gvclass/resources_v1_7_0.tar.gz`
+- Version: `v1.7.0` (capscan/PPV-unified models)
+- Size: ~2.0 GB &nbsp;·&nbsp; SHA-256 `4827ce937e2071f321f6ab0b130d681af5f4fd73099c962133cc5220f1a3a786`
+
+The URL/version/sha256 are pinned in `config/gvclass_config.yaml`; the download is
+checksum-verified before it is installed. Nothing else to configure.
+
+> Already have a released `resources/` (v1.6.0)? gvclass treats an existing,
+> complete database as up to date and will **not** auto-upgrade. To pull the
+> v1.7.0 bundle, point gvclass at a fresh location:
+> `export GVCLASS_DB=/path/to/empty/dir` (or move your old `resources/` aside),
+> then run `pixi run setup-db`.
+
+Advanced override (e.g. a local mirror): set `GVCLASS_DB_URL` and
+`GVCLASS_DB_SHA256` — a custom URL requires the checksum (or
+`GVCLASS_DB_ALLOW_UNVERIFIED=1`).
+
+## 3. What to exercise
+
+```bash
+# Standard classification (should match main for non-NCLDV/PPV/MIRUS genomes)
+pixi run gvclass example -o example_results --threads 8
+
+# New: per-query species tree + placement taxonomy (default)
+pixi run gvclass example -o st_results --species-tree --threads 8
+
+# Optional: also build one combined tree over all queries
+pixi run gvclass example -o st_results --species-tree-combined --threads 8
+```
+
+Per NCLDV/PPV/MIRUS genome, `--species-tree` writes `out/species_tree/<query>/`
+(`<query>.treefile`, `<query>.partitions.txt`, `species_tree_taxonomy.tsv`) and
+adds `species_tree_nn_taxonomy`/`_nn_genome`/`_nn_distance`/`_clade_id` to the
+summary. See the README "Species tree" section for details and `--species-tree-trim`.
+
+## 4. Reporting
+
+File issues at https://github.com/NeLLi-team/gvclass/issues — please include the
+gvclass commit (`git rev-parse --short HEAD`), the resource version
+(`cat resources/DB_VERSION`), and the command you ran.
