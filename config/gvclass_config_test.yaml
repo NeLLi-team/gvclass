@@ -4,9 +4,10 @@
 # Database configuration
 database:
   path: resources
-  download_url: https://zenodo.org/records/20479524/files/resources_v1_6_0.tar.gz?download=1
-  download_version: v1.6.0
-  download_sha256: f744f7144ea69d6c3ccffe56e7721d6fd598685853005e0fb90d04e699d9b23f
+  # gvclass-dev alpha-test resources (v1.7.0) via the Cloudflare tunnel.
+  download_url: https://dl.newlineages.com/gvclass/resources_v1_7_0.tar.gz
+  download_version: v1.7.0
+  download_sha256: 4827ce937e2071f321f6ab0b130d681af5f4fd73099c962133cc5220f1a3a786
   expected_size: 1752
 
 # Pipeline settings - optimized for testing
