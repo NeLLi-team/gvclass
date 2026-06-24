@@ -7,10 +7,29 @@ the Zenodo release. `main` is unchanged and still uses the published Zenodo asse
 
 ## 1. Get the branch
 
+**Fresh clone** — checks out `gvclass-dev` directly via `-b`:
+
 ```bash
 git clone -b gvclass-dev https://github.com/NeLLi-team/gvclass.git
 cd gvclass
 curl -fsSL https://pixi.sh/install.sh | bash   # if you don't have pixi
+```
+
+**Already have gvclass cloned?** A plain `git pull` leaves you on `main` (the v1
+release) — you must switch to the dev branch:
+
+```bash
+cd gvclass
+git fetch origin gvclass-dev
+git checkout gvclass-dev
+git pull
+```
+
+Either way, **confirm you are on the dev branch before continuing** — this must
+print `gvclass-dev`:
+
+```bash
+git rev-parse --abbrev-ref HEAD
 ```
 
 ## 2. Resources (auto-downloaded)
@@ -56,5 +75,6 @@ summary. See the README "Species tree" section for details and `--species-tree-t
 ## 4. Reporting
 
 File issues at https://github.com/NeLLi-team/gvclass/issues — please include the
-gvclass commit (`git rev-parse --short HEAD`), the resource version
+gvclass branch (`git rev-parse --abbrev-ref HEAD`, should be `gvclass-dev`) and
+commit (`git rev-parse --short HEAD`), the resource version
 (`cat resources/DB_VERSION`), and the command you ran.
