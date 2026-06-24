@@ -16,6 +16,8 @@ def run_query_processing(
     completeness_mode: str = "legacy",
     sensitive_mode: bool = False,
     threads: int = 4,
+    species_tree: bool = False,
+    species_tree_trim: str = "witchi",
 ) -> Dict[str, Any]:
     """Process a single query through the entire pipeline."""
     return process_single_query(
@@ -28,4 +30,6 @@ def run_query_processing(
         completeness_mode=completeness_mode,
         sensitive_mode=sensitive_mode,
         threads=threads,
+        species_tree=species_tree,
+        species_tree_trim=species_tree_trim,
     )

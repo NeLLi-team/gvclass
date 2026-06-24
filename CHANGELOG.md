@@ -15,6 +15,30 @@ compatible bundle is noted per release.
 
 Capscan / Preplasmiviricota augmentation (in progress; ships with a new resource bundle).
 
+### Added
+- **`--species-tree`: opt-in NCLDV GVOG8 supermatrix species tree + tree-placement
+  taxonomy.** For genomes gvclass calls NCLDV, the run gathers each query's nearest
+  NCLDV references per GVOG8 marker (dedicated NCLDV-only search → per-group gene
+  tree), concatenates one representative protein per marker into a supermatrix
+  (pyfamsa alignment → `witchi` chi-squared column pruning, with pytrimal/unpruned
+  fallbacks → VeryFastTree), and assigns each query a **root-invariant**
+  nearest-reference lineage. By default it builds **one species tree per query**
+  (`NEIGHBORS_PER_QUERY_TREE=30` reference genomes/marker), writing
+  `out/species_tree/<query>/` (`<query>.treefile`, `<query>.partitions.txt`,
+  `species_tree_taxonomy.tsv`) and adding `species_tree_nn_taxonomy`,
+  `species_tree_nn_genome`, `species_tree_nn_distance`, and `species_tree_clade_id`
+  to `gvclass_summary.tsv` (the per-query placement owns these columns).
+  `--species-tree-combined` additionally builds one combined tree over all queries
+  (`NEIGHBORS_PER_COMBINED_TREE=20`), writing `out/species_tree/combined.*` (or
+  `out/species_tree/_combined/<panel>/` for multi-domain batches) as an extra
+  artifact. Both neighbor counts are adjustable in
+  `src/core/species_tree/config.py`. The supermatrix column trimmer is selectable via
+  `--species-tree-trim {witchi,pytrimal,none}` (default `witchi`, sped up to 20
+  permutations / 10 columns per pruning step). The route is fully isolated from
+  standard per-marker classification — a run without the flag, or a non-NCLDV genome,
+  is byte-for-byte unchanged. PPV and MIRUS domains are registered as additional
+  panels. Adds the pure-python `witchi` dependency.
+
 ### Changed
 - **Preplasmiviricota domain renamed `PLV`/`VP` → `PPV`.** The unified
   Preplasmiviricota domain (Polinton-like viruses + virophages, merged in the

@@ -94,6 +94,42 @@ pixi run gvclass my_genomes -t 32 --sensitive
 pixi run gvclass --contigs my_genome.fna -o results -t 32
 ```
 
+### Species tree (opt-in supermatrix)
+
+```bash
+# Build one supermatrix species tree per query + placement taxonomy
+pixi run gvclass my_genomes -o my_results -t 32 --species-tree
+
+# Also build one combined tree over all queries at once (implies --species-tree)
+pixi run gvclass my_genomes -o my_results -t 32 --species-tree-combined
+
+# Choose the supermatrix column trimmer: witchi (default, rigorous), pytrimal (fast), none
+pixi run gvclass my_genomes -o my_results -t 32 --species-tree --species-tree-trim pytrimal
+```
+
+For each genome gvclass classifies into a registered domain (NCLDV, PPV, or MIRUS),
+`--species-tree` concatenates that panel's markers (the eight GVOG8 markers for NCLDV)
+into a per-query supermatrix, builds that query's own species tree, and writes
+`my_results/species_tree/<query>/` (`<query>.treefile`, `<query>.partitions.txt`,
+`species_tree_taxonomy.tsv`) plus the `species_tree_nn_taxonomy`, `species_tree_nn_genome`,
+`species_tree_nn_distance`, and `species_tree_clade_id` summary columns (the per-query
+placement owns these). Adding `--species-tree-combined` additionally builds one combined
+tree over all queries at once, writing `my_results/species_tree/combined.*` (or, when a
+batch spans multiple domains, `my_results/species_tree/_combined/<panel>/combined.*`) as
+an extra artifact (it does not change the summary columns). Neighbor breadth is adjustable
+in `src/core/species_tree/config.py` — `NEIGHBORS_PER_QUERY_TREE` (default 30) and
+`NEIGHBORS_PER_COMBINED_TREE` (default 20) set the top-k reference genomes kept per
+marker tree. The route is fully isolated from standard per-marker classification — a
+run without the flag (or a genome in no registered domain) is unchanged. Tree inference
+dominates the wall clock (the per-group neighbor trees + the supermatrix tree), so the
+species tree is opt-in. Tree topology, the selected reference set, and the 6-dp distances
+may vary run-to-run from multi-threaded tree inference; the nearest-reference taxonomy
+(the placement) is stable to this — use `--threads 1` for byte-identical results.
+
+On `--resume`, queries skipped because they already completed keep their existing
+`species_tree/<query>/` artifacts but are not re-placed (a logged warning notes this);
+re-run those without `--resume` to (re)build their trees.
+
 ### Using Apptainer (gvclass-a)
 
 ```bash
@@ -121,6 +157,7 @@ Results are saved to `<input_name>_results/` containing:
 - `gvclass_summary.csv`, `gvclass_summary.tsv`
 - Optional per-query `*.contamination_candidates.tsv` files when `estimated_contamination >= 10`, the type is interpretable, and suspicious contigs are identified
 - Individual query subdirectories with detailed analysis
+- With `--species-tree`: a `species_tree/<query>/` directory per placed query (`<query>.treefile`, `<query>.partitions.txt`, `species_tree_taxonomy.tsv`); with `--species-tree-combined`, also `species_tree/combined.*` over all queries (`species_tree/_combined/<panel>/` for multi-domain batches)
 
 ### Output Columns Explained
 

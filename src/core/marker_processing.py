@@ -8,10 +8,9 @@ from pathlib import Path
 from typing import Dict, Tuple
 from datetime import datetime
 from Bio import SeqIO, AlignIO
-import pyfamsa
 import pytrimal
-import veryfasttree
 
+from src.core.alignment import align_sequences_pyfamsa, run_veryfasttree
 from src.core.blast import run_blastp, parse_blastp
 from src.utils import setup_logging
 
@@ -160,20 +159,13 @@ class MarkerProcessor:
             SeqIO.write(sequences, str(trim_out), "fasta")
             return align_out, trim_out
 
-        # Convert to pyfamsa format
-        famsa_seqs = []
-        for seq in sequences:
-            famsa_seq = pyfamsa.Sequence(seq.id.encode(), str(seq.seq).encode())
-            famsa_seqs.append(famsa_seq)
+        # Align with FAMSA via the shared helper (identical params to the
+        # historical inline call) and write the MSA in the same format as before.
+        aligned = align_sequences_pyfamsa(sequences, threads)
 
-        # Perform alignment
-        aligner = pyfamsa.Aligner(threads=threads)
-        msa = aligner.align(famsa_seqs)
-
-        # Write alignment
         with open(align_out, "w") as f:
-            for seq in msa:
-                f.write(f">{seq.id.decode()}\n{seq.sequence.decode()}\n")
+            for seq_id, seq_str in aligned:
+                f.write(f">{seq_id}\n{seq_str}\n")
 
         # Trim alignment
         try:
@@ -262,11 +254,7 @@ class MarkerProcessor:
                 # Forward `threads` so the per-marker worker budget is
                 # honored; the previous call was single-threaded regardless
                 # of how many threads the pipeline allocated per marker.
-                tree_result = veryfasttree.run(
-                    alignment=str(trimmed_alignment),
-                    quiet=True,
-                    threads=max(1, int(threads)),
-                )
+                tree_result = run_veryfasttree(trimmed_alignment, threads)
 
                 with open(tree_out, "w") as f:
                     f.write(tree_result)

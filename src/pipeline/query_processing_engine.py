@@ -71,6 +71,8 @@ def process_single_query(
     completeness_mode: str = "legacy",
     sensitive_mode: bool = False,
     threads: int = 4,
+    species_tree: bool = False,
+    species_tree_trim: str = "witchi",
 ) -> Dict[str, Any]:
     """Run the complete pipeline for one query."""
     logger = _pipeline_logger()
@@ -92,6 +94,30 @@ def process_single_query(
         threads=threads,
         logger=logger,
     )
+
+    # Species-tree per-query hook (the default product): runs while the per-query
+    # gene trees still exist (before _post_process_query archives + deletes the
+    # dir) and merges this query's tree-placement columns into summary_data before
+    # the per-query summary is written below. Never blocks the standard pipeline.
+    if species_tree:
+        # Guard the import too, so even a broken species-tree module can never
+        # block the standard per-query pipeline/summary.
+        try:
+            from src.core.species_tree.orchestration import run_per_query_species_tree
+
+            run_per_query_species_tree(
+                query_name,
+                query_output_dir,
+                database_path,
+                summary_data,
+                output_base,
+                threads,
+                species_tree_trim,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Species-tree per-query hook failed for %s: %s", query_name, exc
+            )
 
     _create_output_dirs(query_output_dir)
     _copy_final_sequence_outputs(

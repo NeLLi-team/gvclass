@@ -201,6 +201,12 @@ FINAL_SUMMARY_COLUMNS: List[str] = [
     "genecount",
     "CODINGperc",
     "ttable",
+    # Opt-in --species-tree placement columns (blank unless the run built a
+    # species tree and the query is NCLDV/PPV/MIRUS and passed the marker floor).
+    "species_tree_nn_taxonomy",
+    "species_tree_nn_genome",
+    "species_tree_nn_distance",
+    "species_tree_clade_id",
 ]
 
 FAILED_QUERY_COLUMNS: List[str] = ["query", "status", "error"]
@@ -222,6 +228,8 @@ TWO_DECIMAL_COLUMNS = {
     "cellular_coherent_bp_fraction",
     "cellular_lineage_purity_median",
     "cellular_hit_identity_median",
+    # Species-tree placement distance (full precision lives in species_tree_taxonomy.tsv).
+    "species_tree_nn_distance",
 }
 
 # Quality metrics that must keep higher precision than the default .0f fallback.

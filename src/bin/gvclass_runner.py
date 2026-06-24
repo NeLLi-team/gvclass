@@ -82,6 +82,9 @@ def run_flow(
     cluster_config: dict,
     resume: bool,
     allow_short: bool = False,
+    species_tree: bool = False,
+    species_tree_combined: bool = False,
+    species_tree_trim: str = "witchi",
 ):
     return gvclass_flow(
         query_dir=str(query_path),
@@ -98,6 +101,9 @@ def run_flow(
         cluster_config=cluster_config if cluster_config else None,
         resume=resume,
         allow_short=allow_short,
+        species_tree=species_tree,
+        species_tree_combined=species_tree_combined,
+        species_tree_trim=species_tree_trim,
     )
 
 
@@ -155,6 +161,9 @@ def execute_cli_flow(
     cluster_config: dict,
     resume: bool,
     allow_short: bool = False,
+    species_tree: bool = False,
+    species_tree_combined: bool = False,
+    species_tree_trim: str = "witchi",
 ):
     result = run_flow(
         query_path=query_path,
@@ -171,6 +180,9 @@ def execute_cli_flow(
         cluster_config=cluster_config,
         resume=resume,
         allow_short=allow_short,
+        species_tree=species_tree,
+        species_tree_combined=species_tree_combined,
+        species_tree_trim=species_tree_trim,
     )
     click.echo("\nPipeline completed successfully!")
     click.echo(f"Results written to: {result}")
@@ -243,7 +255,31 @@ def execute_cli_flow(
         "runs on short inputs."
     ),
 )
-def main(querydir, output_dir, database, threads, max_workers, threads_per_worker, tree_method, mode_fast, completeness_mode, sensitive, cluster_type, cluster_queue, cluster_project, cluster_walltime, verbose, resume, allow_short):
+@click.option(
+    "--species-tree",
+    is_flag=True,
+    help=(
+        "Build one supermatrix species tree per query (NCLDV GVOG8 by default; "
+        "PPV/MIRUS routed by taxonomy) and assign tree-placement taxonomy "
+        "(writes out/species_tree/<query>/ and the summary columns)."
+    ),
+)
+@click.option(
+    "--species-tree-combined",
+    is_flag=True,
+    help=(
+        "Implies --species-tree; additionally build one combined species tree "
+        "over all queries at once (writes out/species_tree/combined.*)."
+    ),
+)
+@click.option(
+    "--species-tree-trim",
+    type=click.Choice(["witchi", "pytrimal", "none"]),
+    default="witchi",
+    show_default=True,
+    help="Supermatrix column trimming for --species-tree: witchi (rigorous), pytrimal (fast), or none.",
+)
+def main(querydir, output_dir, database, threads, max_workers, threads_per_worker, tree_method, mode_fast, completeness_mode, sensitive, cluster_type, cluster_queue, cluster_project, cluster_walltime, verbose, resume, allow_short, species_tree, species_tree_combined, species_tree_trim):
     log_level = "DEBUG" if verbose else "INFO"
     logger = setup_logging("gvclass_runner", level=log_level)
 
@@ -264,7 +300,7 @@ def main(querydir, output_dir, database, threads, max_workers, threads_per_worke
             completeness_mode=completeness_mode,
             sensitive=sensitive,
         )
-        execute_cli_flow(query_path, output_path, db_path, threads, max_workers, threads_per_worker, tree_method, mode_fast, completeness_mode, sensitive, cluster_type, cluster_config, resume, allow_short=allow_short)
+        execute_cli_flow(query_path, output_path, db_path, threads, max_workers, threads_per_worker, tree_method, mode_fast, completeness_mode, sensitive, cluster_type, cluster_config, resume, allow_short=allow_short, species_tree=species_tree, species_tree_combined=species_tree_combined, species_tree_trim=species_tree_trim)
     except FileNotFoundError as exc:
         click.echo(f"Error: {exc}", err=True)
         sys.exit(1)

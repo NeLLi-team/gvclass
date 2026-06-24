@@ -36,6 +36,7 @@ pyfamsa = "==0.5.3.post1"     # Multiple sequence alignment (manylinux_2_17 whee
 pyrodigal = { git = "https://github.com/tomasbruna/pyrodigal.git" }  # Gene calling with codes 106, 129
 pyswrd = "==0.3.1"            # BLAST alternative
 veryfasttree = "==4.0.4.1"    # FastTree implementation
+witchi = { git = "https://github.com/stephkoest/witchi", rev = "22bd7da653329dfff02ed4cfbd4751dde97772af" }  # chi-squared alignment column pruner (v0.2.0; pure-python; CLI `witchi prune`)
 
 # CLI framework
 click = "==8.3.1"

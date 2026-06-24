@@ -220,6 +220,32 @@ def _add_mode_arguments(parser: argparse.ArgumentParser) -> None:
             "exploratory runs on short inputs."
         ),
     )
+    parser.add_argument(
+        "--species-tree",
+        action="store_true",
+        help=(
+            "Build one supermatrix species tree per query (NCLDV GVOG8 by "
+            "default; PPV/MIRUS routed by taxonomy) and assign tree-placement "
+            "taxonomy (writes out/species_tree/<query>/ and summary columns)."
+        ),
+    )
+    parser.add_argument(
+        "--species-tree-combined",
+        action="store_true",
+        help=(
+            "Implies --species-tree; additionally build one combined species "
+            "tree over all queries at once (writes out/species_tree/combined.*)."
+        ),
+    )
+    parser.add_argument(
+        "--species-tree-trim",
+        choices=["witchi", "pytrimal", "none"],
+        default="witchi",
+        help=(
+            "Supermatrix column trimming for --species-tree: witchi (rigorous, "
+            "default), pytrimal (fast), or none (unpruned)."
+        ),
+    )
 
 
 def _add_cluster_arguments(parser: argparse.ArgumentParser) -> None:
@@ -750,6 +776,13 @@ def _append_optional_pipeline_flags(
         cmd.append("--resume")
     if getattr(args, "allow_short", False):
         cmd.append("--allow-short")
+    if getattr(args, "species_tree", False):
+        cmd.append("--species-tree")
+    if getattr(args, "species_tree_combined", False):
+        cmd.append("--species-tree-combined")
+    trim = getattr(args, "species_tree_trim", "witchi")
+    if trim and trim != "witchi":
+        cmd.extend(["--species-tree-trim", trim])
 
 
 def build_pipeline_command(

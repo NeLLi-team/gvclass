@@ -59,6 +59,8 @@ def process_query_task(
     completeness_mode: str = "legacy",
     sensitive_mode: bool = False,
     threads: int = 4,
+    species_tree: bool = False,
+    species_tree_trim: str = "witchi",
 ) -> Dict[str, Any]:
     """
     Process a single query through the entire pipeline.
@@ -74,6 +76,8 @@ def process_query_task(
         completeness_mode=completeness_mode,
         sensitive_mode=sensitive_mode,
         threads=threads,
+        species_tree=species_tree,
+        species_tree_trim=species_tree_trim,
     )
 
 
@@ -221,6 +225,8 @@ def _submit_query_jobs(
     completeness_mode: str,
     sensitive_mode: bool,
     threads_per_worker: int,
+    species_tree: bool = False,
+    species_tree_trim: str = "witchi",
 ) -> Dict[Future, Path]:
     future_to_query: Dict[Future, Path] = {}
     for query_file in query_files:
@@ -235,6 +241,8 @@ def _submit_query_jobs(
             completeness_mode=completeness_mode,
             sensitive_mode=sensitive_mode,
             threads=threads_per_worker,
+            species_tree=species_tree,
+            species_tree_trim=species_tree_trim,
         )
         future_to_query[future] = query_file
     return future_to_query
@@ -267,6 +275,8 @@ def _process_queries_in_parallel(
     sensitive_mode: bool,
     threads_per_worker: int,
     logger,
+    species_tree: bool = False,
+    species_tree_trim: str = "witchi",
 ) -> Tuple[List[Dict[str, Any]], int]:
     query_files = list(config["query_files"])
     total_queries = len(query_files)
@@ -285,6 +295,8 @@ def _process_queries_in_parallel(
             completeness_mode,
             sensitive_mode,
             threads_per_worker,
+            species_tree=species_tree,
+            species_tree_trim=species_tree_trim,
         )
         results = _collect_query_results(future_to_query, logger)
 
@@ -339,9 +351,14 @@ def gvclass_flow(
     cluster_config: Optional[Dict[str, Any]] = None,
     resume: bool = False,
     allow_short: bool = False,
+    species_tree: bool = False,
+    species_tree_combined: bool = False,
+    species_tree_trim: str = "witchi",
 ):
     """Main GVClass pipeline."""
     logger = logging.getLogger("gvclass_runner")
+    if species_tree_combined:
+        species_tree = True  # --species-tree-combined implies --species-tree
     logger.info("Validating inputs and setting up directories")
     config = validate_and_setup_task(
         query_dir, output_dir, database_path, allow_short=allow_short
@@ -359,6 +376,12 @@ def gvclass_flow(
         logger.info(
             "No queries remaining after resume filter; skipping parallel processing."
         )
+        if species_tree_combined:
+            logger.info(
+                "All queries resume-skipped; the combined species tree is built only "
+                "from this run's queries, so it is not regenerated. Re-run without "
+                "--resume to rebuild out/species_tree/combined.*"
+            )
         all_results = _combine_with_resume_skipped_results(config, [], logger)
         summary_file = create_final_summary_task(all_results, config["output_path"])
         logger.info(f"Pipeline completed! Results in: {config['output_path']}")
@@ -374,6 +397,35 @@ def gvclass_flow(
         f"Parallelization strategy: {n_workers} workers × {threads_per_worker} threads"
     )
 
+    # Clear any previous species-tree scratch + outputs and record this run's
+    # queries so the per-query hook and the opt-in combined step read exactly this
+    # run's sidecars. Wrapped so a scratch/filesystem failure disables the feature
+    # rather than aborting the run.
+    if species_tree:
+        skipped = config.get("resume_skipped_query_names", [])
+        if resume and skipped:
+            logger.warning(
+                "%d resume-skipped queries will have no species-tree placement this run "
+                "(per-query trees + species_tree_* columns are produced only for queries "
+                "processed this run); re-run those without --resume to place them.",
+                len(skipped),
+            )
+        try:
+            from src.core.species_tree.handoff import init_handoff
+
+            init_handoff(
+                Path(config["output_path"]),
+                [query_file.stem for query_file in config["query_files"]],
+                resume=resume,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Species-tree handoff init failed (%s); disabling --species-tree for this run",
+                exc,
+            )
+            species_tree = False
+            species_tree_combined = False
+
     logger.info("Starting parallel query processing")
     results, total_queries = _process_queries_in_parallel(
         config,
@@ -385,11 +437,32 @@ def gvclass_flow(
         sensitive_mode,
         threads_per_worker,
         logger,
+        species_tree=species_tree,
+        species_tree_trim=species_tree_trim,
     )
     completed_count = _count_completed(results)
     logger.info(
         f"All queries complete. Successfully processed {completed_count}/{total_queries} queries"
     )
+
+    # Opt-in combined species tree from this run's sidecars (--species-tree-combined).
+    # The per-query hook already owns the summary columns, so this writes only the
+    # additional <out>/species_tree/ combined artifacts. Never blocks the summary
+    # (internally wrapped). Resume-skipped queries are excluded (they have no
+    # sidecar this run) — a documented limitation.
+    if species_tree_combined:
+        try:
+            from src.core.species_tree.orchestration import run_combined_species_tree
+
+            run_combined_species_tree(
+                Path(config["output_path"]),
+                Path(config["database_path"]),
+                results,
+                total_threads,
+                species_tree_trim,
+            )
+        except Exception as exc:
+            logger.warning("Combined species-tree step failed: %s", exc)
 
     logger.info("Creating final summary...")
     all_results = _combine_with_resume_skipped_results(config, results, logger)
