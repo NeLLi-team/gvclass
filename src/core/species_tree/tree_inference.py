@@ -13,15 +13,15 @@ from src.core.alignment import run_iqtree, run_veryfasttree
 
 
 def infer_species_tree(
-    supermatrix_faa: Path, out_tree: Path, threads: int = 4, tree_method: str = "iqtree"
+    supermatrix_faa: Path, out_tree: Path, threads: int = 4, tree_method: str = "veryfasttree"
 ) -> Path:
     """Infer the concatenated species tree from the supermatrix; write Newick.
 
-    Uses IQ-TREE (``--fast``, Q.pfam+R10+F) by default, the same engine/model as
-    the per-marker gene trees; set ``tree_method="fasttree"`` for VeryFastTree.
-    Returns the tree path; raises if no tree is produced.
+    Uses VeryFastTree by default (fast); set ``tree_method="iqtree"`` to build the
+    species tree with IQ-TREE (``Q.pfam+R10+F``; slower, optionally with ultrafast
+    bootstrap via ``--iqtree-mode ufboot``). Returns the tree path; raises if none.
     """
-    if tree_method == "fasttree":
+    if tree_method in ("veryfasttree", "fasttree"):
         newick = run_veryfasttree(supermatrix_faa, threads)
         if not newick or not newick.strip():
             raise RuntimeError(f"VeryFastTree produced no tree for {supermatrix_faa}")

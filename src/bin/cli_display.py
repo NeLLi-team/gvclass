@@ -84,7 +84,7 @@ def print_configuration(
         f"Threads: {threads_used} used / {threads} requested "
         f"(Workers: {workers.workers} × {workers.threads_per_worker} threads)"
     )
-    print(f"Tree method: {args.tree_method if args.tree_method else 'iqtree'}")
+    print(f"Tree method: {args.tree_method if args.tree_method else 'veryfasttree'}")
     print(f"Fast mode: {mode_fast}")
     print(f"Sensitive mode: {sensitive_mode}")
     if args.resume:

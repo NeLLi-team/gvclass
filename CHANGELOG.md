@@ -15,17 +15,24 @@ compatible bundle is noted per release.
 
 Capscan / Preplasmiviricota augmentation (in progress; ships with a new resource bundle).
 
-### Changed — default tree inference is now IQ-TREE
-- The per-marker gene trees and the `--species-tree` supermatrix tree now default
-  to **IQ-TREE (`--fast`, model `Q.pfam+R10+F`)** instead of VeryFastTree, for more
-  accurate placement. VeryFastTree is kept as an option: `--tree-method fasttree`
-  (or `pipeline.tree_method: fasttree`). IQ-TREE is pinned to 3.1.2 (latest on
-  bioconda; 3.1.3 is GitHub-only). Trade-off: noticeably slower than VeryFastTree.
+### Added — IQ-TREE as an opt-in tree builder
+- **VeryFastTree remains the default** (`tree_method: veryfasttree`). IQ-TREE
+  (`--fast`, model `Q.pfam+R10+F`) is now selectable via `--tree-method iqtree`
+  (or `pipeline.tree_method: iqtree`) for more accurate placement at a much higher
+  runtime cost. IQ-TREE is pinned to 3.1.2 (latest on bioconda; 3.1.3 is GitHub-only).
+  `fasttree` is accepted as an alias for `veryfasttree`.
 - **New `--iqtree-mode` / `pipeline.iqtree_mode`** for the species tree:
   `fast` (default, `--fast`) or `ufboot` (ultrafast bootstrap `-B 1000 -bnni`, which
   adds branch-support values and writes a `.contree` consensus tree). UFBoot is much
   slower, so it is scoped to the species tree; per-marker gene trees always use
   `--fast`.
+
+### Fixed — database auto-update on a configured version bump
+- gvclass now re-downloads the database when the installed `DB_VERSION` is older
+  than the version pinned in `config/gvclass_config.yaml`, even when the configured
+  source is not Zenodo (e.g. the gvclass-dev tunnel bundle). Previously a config
+  bump (v1.7.0 -> v1.7.1) on a non-Zenodo source left testers on the stale bundle.
+  Interactive runs prompt; non-interactive runs update automatically.
 
 ### Changed — final summary schema overhaul (breaking)
 

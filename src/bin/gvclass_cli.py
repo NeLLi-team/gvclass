@@ -171,8 +171,8 @@ def _add_core_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--threads-per-worker", type=int, help="Threads per worker")
     parser.add_argument(
         "--tree-method",
-        choices=["fasttree", "iqtree"],
-        help="Tree building method (overrides config)",
+        choices=["veryfasttree", "iqtree", "fasttree"],
+        help="Tree building method (overrides config); default veryfasttree",
     )
     parser.add_argument(
         "--iqtree-mode",
@@ -304,7 +304,7 @@ def load_config(config_file: str, repo_dir: Path, output: CliOutput):
             "expected_size": 1752,
         },
         "pipeline": {
-            "tree_method": "iqtree",
+            "tree_method": "veryfasttree",
             "iqtree_mode": "fast",
             "mode_fast": True,
             "completeness_mode": "novelty-aware",
@@ -401,7 +401,7 @@ def resolve_database_download_source(config) -> Optional[dict]:
 def resolve_tree_method(args, config) -> str:
     if args.tree_method:
         return args.tree_method
-    return config["pipeline"].get("tree_method", "iqtree")
+    return config["pipeline"].get("tree_method", "veryfasttree")
 
 
 def resolve_iqtree_mode(args, config) -> str:
@@ -565,41 +565,49 @@ def check_and_setup_database(db_path: Path, config, output: CliOutput) -> bool:
     preferred_source = resolve_database_download_source(config)
     db_state = inspect_local_database_state(db_path)
     latest_source = DatabaseManager.get_latest_database_source(preferred_source)
+    # Prefer a Zenodo-resolved "latest" when available; otherwise fall back to the
+    # version pinned in the config (e.g. the gvclass-dev tunnel bundle). Without this
+    # fallback a config version bump (v1.7.0 -> v1.7.1) on a non-Zenodo source never
+    # triggers a re-download, leaving testers on the stale bundle.
+    update_source = latest_source or preferred_source
 
     if db_state["exists"] and db_state["complete"]:
         output.line(f"Database found at: {db_path}", key="success")
         output.line(
             f"Installed database version: {db_state['version']}", key="database"
         )
-        if latest_source:
+        if update_source and update_source.get("version"):
             output.line(
-                f"Latest database version on Zenodo: {latest_source['version']}",
+                f"Configured database version: {update_source['version']}",
                 key="download",
             )
 
-        if should_offer_database_update(db_state["version"], latest_source):
+        if should_offer_database_update(db_state["version"], update_source):
+            target_version = update_source["version"]
             if sys.stdin.isatty() and sys.stdout.isatty():
                 wants_update = prompt_yes_no(
-                    f"Update database from {db_state['version']} to {latest_source['version']}?",
+                    f"Update database from {db_state['version']} to {target_version}?",
                     default=True,
                 )
             else:
+                # The config pins a newer version; update automatically rather than
+                # silently running against a stale database.
                 output.line(
-                    "Newer database version available, but this session is non-interactive; "
-                    "skipping update prompt.",
-                    key="warning",
+                    f"Installed database {db_state['version']} is older than the "
+                    f"configured {target_version}; updating automatically.",
+                    key="download",
                 )
-                wants_update = False
+                wants_update = True
 
             if wants_update:
                 output.line(
-                    f"Updating database from {db_state['version']} to {latest_source['version']}...",
+                    f"Updating database from {db_state['version']} to {target_version}...",
                     key="download",
                 )
                 try:
                     DatabaseManager.setup_database(
                         str(db_path),
-                        preferred_source=latest_source,
+                        preferred_source=update_source,
                         force=True,
                     )
                     output.line("Database setup complete!", key="success")

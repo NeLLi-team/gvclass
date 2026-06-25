@@ -207,7 +207,7 @@ class MarkerProcessor:
         return align_out, trim_out
 
     def build_tree(
-        self, trimmed_alignment: Path, tree_method: str = "fasttree", threads: int = 4
+        self, trimmed_alignment: Path, tree_method: str = "veryfasttree", threads: int = 4
     ) -> Path:
         """
         Build phylogenetic tree from alignment.
@@ -248,7 +248,7 @@ class MarkerProcessor:
             # Return None to indicate no tree was built
             return None
 
-        if tree_method == "fasttree":
+        if tree_method in ("veryfasttree", "fasttree"):
             # Use VeryFastTree
             try:
                 # Forward `threads` so the per-marker worker budget is
@@ -369,7 +369,7 @@ class MarkerProcessor:
         self,
         query_hits_faa: Path,
         max_blast_hits: int = 100,
-        tree_method: str = "fasttree",
+        tree_method: str = "veryfasttree",
         threads: int = 4,
     ) -> Dict[str, Path]:
         """

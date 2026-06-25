@@ -345,7 +345,7 @@ def gvclass_flow(
     total_threads: int = 16,
     max_workers: Optional[int] = None,
     threads_per_worker: Optional[int] = None,
-    tree_method: str = "fasttree",
+    tree_method: str = "veryfasttree",
     iqtree_mode: str = "fast",
     mode_fast: bool = True,
     completeness_mode: str = "legacy",

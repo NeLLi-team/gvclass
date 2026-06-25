@@ -210,7 +210,7 @@ database:
   download_sha256: f744f7144ea69d6c3ccffe56e7721d6fd598685853005e0fb90d04e699d9b23f
 
 pipeline:
-  tree_method: iqtree               # IQ-TREE --fast, Q.pfam+R10+F (default); or 'fasttree' (VeryFastTree) for speed
+  tree_method: veryfasttree         # VeryFastTree (default, fast); or 'iqtree' (Q.pfam+R10+F --fast; slower, more accurate)
   iqtree_mode: fast                 # species-tree IQ-TREE search: 'fast' (--fast) or 'ufboot' (ultrafast bootstrap, slower, writes .contree)
   mode_fast: false                  # Skip order-level marker trees when true (speeds up analysis)
   completeness_mode: novelty-aware  # or 'legacy' to surface the old estimate
@@ -322,7 +322,7 @@ apptainer push gvclass.sif library://nelligroup-jgi/gvclass/gvclass:1.6.1
 | `--max-workers` | `-j` | Parallel workers | Auto |
 | `--threads-per-worker` | | Threads per worker | Auto |
 | `--database` | `-d` | Override database path | `GVCLASS_DB` → config → `<repo>/resources` |
-| `--tree-method` | | `iqtree` or `fasttree` | iqtree |
+| `--tree-method` | | `veryfasttree` or `iqtree` | veryfasttree |
 | `--iqtree-mode` | | `fast` or `ufboot` (species-tree IQ-TREE search) | fast |
 | `--mode-fast` | `-f` | Fast mode: core markers only | True |
 | `--extended` | `-e` | Extended mode: all marker trees | False |
@@ -424,13 +424,13 @@ Use these fields together: a high completeness score with low duplication and `c
      mode_fast: true  # Skips ~100 order-specific markers, 2-3x faster
    ```
 
-2. **Use VeryFastTree Instead of IQ-TREE**:
+2. **Use IQ-TREE for higher accuracy (slower)**:
    ```bash
-   # Default: IQ-TREE --fast with the Q.pfam+R10+F model (more accurate, slower)
-   pixi run gvclass <input_directory> --tree-method iqtree
+   # Default: VeryFastTree (fast)
+   pixi run gvclass <input_directory> --tree-method veryfasttree
 
-   # VeryFastTree (much faster, lower resolution)
-   pixi run gvclass <input_directory> --tree-method fasttree
+   # IQ-TREE (--fast, Q.pfam+R10+F; more accurate, much slower)
+   pixi run gvclass <input_directory> --tree-method iqtree
    ```
 
 3. **Optimize Thread Usage**:
@@ -444,7 +444,7 @@ Use these fields together: a high completeness score with low duplication and `c
 
 ### IQ-TREE Specific Options
 
-When using IQ-TREE (`--tree-method iqtree`, the default), the pipeline uses:
+VeryFastTree is the default. When IQ-TREE is selected (`--tree-method iqtree`), the pipeline uses:
 - Model: `Q.pfam+R10+F` (Pfam exchange matrix + 10-category FreeRate + empirical frequencies)
 - Search mode (`--iqtree-mode` / config `iqtree_mode`):
   - `fast` (default): `--fast` search (FastTree-like), no bootstrap.
@@ -547,8 +547,8 @@ flowchart TD
         BLAST --> ALIGN[MAFFT/pyfamsa<br/>alignment]
         ALIGN --> TRIM[TrimAl/pytrimal<br/>trimming]
         TRIM --> TREE{Tree Building}
-        TREE -->|IQ-TREE default| IQ[iqtree<br/>Q.pfam+R10+F --fast]
-        TREE -->|fasttree opt| FT[veryfasttree]
+        TREE -->|VeryFastTree default| FT[veryfasttree]
+        TREE -->|iqtree opt| IQ[iqtree<br/>Q.pfam+R10+F]
     end
     
     FT --> NN[Get nearest<br/>neighbors]

@@ -626,7 +626,7 @@ class InputValidator:
         Raises:
             ValidationError: If method is invalid
         """
-        valid_methods = {"iqtree", "fasttree"}
+        valid_methods = {"iqtree", "veryfasttree", "fasttree"}
 
         if not isinstance(method, str):
             raise ValidationError(

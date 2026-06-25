@@ -46,7 +46,7 @@ def test_load_config_partial_pipeline_uses_defaults(tmp_path):
     # Only one pipeline key set; the rest must fall back to defaults.
     config = _load(tmp_path, "pipeline:\n  threads: 4\n")
     assert config["pipeline"]["threads"] == 4
-    assert config["pipeline"]["tree_method"] == "iqtree"
+    assert config["pipeline"]["tree_method"] == "veryfasttree"
     assert config["pipeline"]["mode_fast"] is True
     assert config["pipeline"]["completeness_mode"] == "novelty-aware"
     # The whole database section must still be present.

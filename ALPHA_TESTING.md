@@ -2,8 +2,8 @@
 
 This branch carries the v2.0 candidate: the capscan/PPV taxonomy update, a
 re-curated PPV reference set, a streamlined summary table (see CHANGELOG for the
-column changes), **IQ-TREE (`Q.pfam+R10+F`, `--fast`) as the default tree builder**
-(VeryFastTree stays available via `--tree-method fasttree`), and the opt-in
+column changes), **VeryFastTree as the default tree builder**
+(IQ-TREE `Q.pfam+R10+F` is opt-in via `--tree-method iqtree`), and the opt-in
 `--species-tree` feature. It is wired to a separate **alpha-test resource bundle**
 so testers get the updated reference models without waiting for the Zenodo release.
 `main` is unchanged and still uses the published Zenodo asset.
@@ -47,9 +47,11 @@ bundle into `./resources/`:
 The URL/version/sha256 are pinned in `config/gvclass_config.yaml`; the download is
 checksum-verified before it is installed. Nothing else to configure.
 
-> Already have a released `resources/` (v1.6.0)? gvclass treats an existing,
-> complete database as up to date and will **not** auto-upgrade. To pull the
-> v1.7.1 bundle, point gvclass at a fresh location:
+> gvclass now auto-updates the database when the installed `DB_VERSION` is older
+> than the version pinned in the config, so an existing `resources/` (v1.6.0 or
+> v1.7.0) is refreshed to v1.7.1 on the next run (interactive: prompted;
+> non-interactive: automatic). To force a clean re-download, point gvclass at a
+> fresh location:
 > `export GVCLASS_DB=/path/to/empty/dir` (or move your old `resources/` aside),
 > then run `pixi run setup-db`.
 
@@ -69,12 +71,12 @@ pixi run gvclass example -o st_results --species-tree --threads 8
 # Optional: also build one combined tree over all queries
 pixi run gvclass example -o st_results --species-tree-combined --threads 8
 
-# Tree engine note: IQ-TREE (Q.pfam+R10+F --fast) is the default and is much
-# slower than VeryFastTree. For a quick run, switch back to VeryFastTree:
-pixi run gvclass example -o fast_results --tree-method fasttree --threads 8
+# Tree engine note: VeryFastTree is the default (fast). For higher-accuracy
+# (much slower) IQ-TREE trees (Q.pfam+R10+F --fast):
+pixi run gvclass example -o iqtree_results --tree-method iqtree --threads 8
 
-# Bootstrap-supported species tree (ultrafast bootstrap; writes a .contree, slower):
-pixi run gvclass example -o ufb_results --species-tree --iqtree-mode ufboot --threads 8
+# Bootstrap-supported species tree (IQ-TREE ultrafast bootstrap; writes a .contree, slowest):
+pixi run gvclass example -o ufb_results --species-tree --tree-method iqtree --iqtree-mode ufboot --threads 8
 ```
 
 Per NCLDV/PPV/MIRUS genome, `--species-tree` writes `out/species_tree/<query>/`

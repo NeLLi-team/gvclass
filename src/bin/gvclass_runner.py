@@ -215,9 +215,9 @@ def execute_cli_flow(
 )
 @click.option(
     "--tree-method",
-    default="fasttree",
-    type=click.Choice(["fasttree", "iqtree"]),
-    help="Tree building method",
+    default="veryfasttree",
+    type=click.Choice(["veryfasttree", "iqtree", "fasttree"]),
+    help="Tree building method (default veryfasttree; iqtree is slower/more accurate)",
 )
 @click.option(
     "--iqtree-mode",

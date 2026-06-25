@@ -12,7 +12,7 @@ database:
 
 # Pipeline settings - optimized for testing
 pipeline:
-  tree_method: iqtree
+  tree_method: veryfasttree
   iqtree_mode: fast   # 'fast' (--fast) or 'ufboot' (ultrafast bootstrap; species tree only)
   # Enable fast mode for testing
   mode_fast: true

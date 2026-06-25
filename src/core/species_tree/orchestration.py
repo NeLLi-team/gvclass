@@ -91,7 +91,7 @@ def run_per_query_species_tree(
     output_base: Path,
     threads: int,
     trim_method: str = "witchi",
-    tree_method: str = "iqtree",
+    tree_method: str = "veryfasttree",
 ) -> None:
     """Per-query species-tree step (gated on the genome's domain panel).
 
@@ -127,7 +127,7 @@ def _run_per_query(
     output_base: Path,
     threads: int,
     trim_method: str = "witchi",
-    tree_method: str = "iqtree",
+    tree_method: str = "veryfasttree",
 ) -> None:
     query_hits_dir = query_output_dir / "query_hits_faa"
     if not query_hits_dir.exists():
@@ -227,7 +227,7 @@ def run_combined_species_tree(
     results: List[Dict],
     threads: int,
     trim_method: str = "witchi",
-    tree_method: str = "iqtree",
+    tree_method: str = "veryfasttree",
 ) -> None:
     """Combined species-tree step over this run's sidecars (one tree per panel)."""
     try:
@@ -242,7 +242,7 @@ def _run_combined(
     results: List[Dict],
     threads: int,
     trim_method: str = "witchi",
-    tree_method: str = "iqtree",
+    tree_method: str = "veryfasttree",
 ) -> None:
     scratch = scratch_dir_for(output_base)
     # Only place queries whose standard pipeline COMPLETED — a query can write its
@@ -342,7 +342,7 @@ def _build_and_place(
     threads: int,
     summary_by_query: Dict[str, Dict],
     trim_method: str = "witchi",
-    tree_method: str = "iqtree",
+    tree_method: str = "veryfasttree",
     k_neighbors: int = NEIGHBORS_PER_COMBINED_TREE,
     basename: str = "combined",
 ) -> None:

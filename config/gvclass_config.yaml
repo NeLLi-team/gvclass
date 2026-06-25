@@ -18,8 +18,8 @@ database:
 
 # Pipeline settings
 pipeline:
-  # Tree building method: fasttree or iqtree
-  tree_method: iqtree
+  # Tree building method: veryfasttree (default, fast) or iqtree (slower, more accurate)
+  tree_method: veryfasttree
   # Species-tree IQ-TREE search: 'fast' (--fast, default) or 'ufboot' (ultrafast
   # bootstrap -B 1000 -bnni; slower, writes a .contree). Per-marker trees stay --fast.
   iqtree_mode: fast
