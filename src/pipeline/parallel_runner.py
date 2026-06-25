@@ -463,6 +463,7 @@ def gvclass_flow(
                 results,
                 total_threads,
                 species_tree_trim,
+                tree_method,
             )
         except Exception as exc:
             logger.warning("Combined species-tree step failed: %s", exc)

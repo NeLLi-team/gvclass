@@ -113,6 +113,7 @@ def process_single_query(
                 output_base,
                 threads,
                 species_tree_trim,
+                tree_method,
             )
         except Exception as exc:
             logger.warning(

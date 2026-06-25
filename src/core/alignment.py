@@ -81,3 +81,42 @@ def run_veryfasttree(alignment_path: Union[str, Path], threads: int = 4) -> str:
         quiet=True,
         threads=max(1, int(threads)),
     )
+
+
+#: Default IQ-TREE model for the per-marker gene trees and the species tree.
+IQTREE_MODEL = "Q.pfam+R10+F"
+
+
+def run_iqtree(
+    alignment_path: Union[str, Path],
+    out_tree: Union[str, Path],
+    threads: int = 4,
+    model: str = IQTREE_MODEL,
+) -> str:
+    """Infer a tree with IQ-TREE in ``--fast`` mode under ``model``.
+
+    Runs ``iqtree --fast -m <model> -s <aln> -pre <prefix>`` (the prefix is
+    derived from ``out_tree`` so IQ-TREE writes ``<prefix>.treefile == out_tree``)
+    and returns the Newick string. Caller owns the too-few-sequences guard and
+    result validation.
+    """
+    import subprocess
+
+    out_tree = Path(out_tree)
+    prefix = out_tree.with_suffix("")
+    cmd = [
+        "iqtree",
+        "--fast",
+        "-s",
+        str(alignment_path),
+        "-m",
+        model,
+        "-nt",
+        str(max(1, int(threads))),
+        "-pre",
+        str(prefix),
+        "-quiet",
+    ]
+    subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=1800)
+    treefile = prefix.with_suffix(".treefile")
+    return treefile.read_text() if treefile.exists() else ""

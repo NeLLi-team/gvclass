@@ -15,7 +15,7 @@ biopython = "==1.85"      # Used for sequence I/O
 
 # Phylogenetic analysis
 ete3 = "==3.1.2"          # Used for tree parsing and analysis
-iqtree = "==3.0.1"        # External binary for tree building
+iqtree = "==3.1.2"        # External binary for tree building (Q.pfam+R10+F --fast)
 diamond = "==2.1.23"      # Fast protein alignment
 
 # Build dependencies for pyrodigal

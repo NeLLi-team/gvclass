@@ -13,7 +13,7 @@ database:
 # Pipeline settings - optimized for testing
 pipeline:
   # Use fasttree for speed
-  tree_method: fasttree
+  tree_method: iqtree
   # Enable fast mode for testing
   mode_fast: true
   # Match the production default: sensitive pyhmmer filtering is enabled

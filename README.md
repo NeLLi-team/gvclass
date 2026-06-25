@@ -210,7 +210,7 @@ database:
   download_sha256: f744f7144ea69d6c3ccffe56e7721d6fd598685853005e0fb90d04e699d9b23f
 
 pipeline:
-  tree_method: fasttree             # or 'iqtree' for more accuracy
+  tree_method: iqtree               # IQ-TREE --fast, Q.pfam+R10+F (default); or 'fasttree' (VeryFastTree) for speed
   mode_fast: false                  # Skip order-level marker trees when true (speeds up analysis)
   completeness_mode: novelty-aware  # or 'legacy' to surface the old estimate
   sensitive_mode: true              # Default: use E-value 1e-5 for pyhmmer instead of GA cutoffs
@@ -321,7 +321,7 @@ apptainer push gvclass.sif library://nelligroup-jgi/gvclass/gvclass:1.6.1
 | `--max-workers` | `-j` | Parallel workers | Auto |
 | `--threads-per-worker` | | Threads per worker | Auto |
 | `--database` | `-d` | Override database path | `GVCLASS_DB` → config → `<repo>/resources` |
-| `--tree-method` | | `fasttree` or `iqtree` | fasttree |
+| `--tree-method` | | `iqtree` or `fasttree` | iqtree |
 | `--mode-fast` | `-f` | Fast mode: core markers only | True |
 | `--extended` | `-e` | Extended mode: all marker trees | False |
 | `--completeness-mode` | | `legacy` or `novelty-aware` for `estimated_completeness` | novelty-aware |
@@ -422,13 +422,13 @@ Use these fields together: a high completeness score with low duplication and `c
      mode_fast: true  # Skips ~100 order-specific markers, 2-3x faster
    ```
 
-2. **Use FastTree Instead of IQ-TREE**:
+2. **Use VeryFastTree Instead of IQ-TREE**:
    ```bash
-   # Default (faster)
-   pixi run gvclass <input_directory> --tree-method fasttree
-   
-   # IQ-TREE (more accurate but slower)
+   # Default: IQ-TREE --fast with the Q.pfam+R10+F model (more accurate, slower)
    pixi run gvclass <input_directory> --tree-method iqtree
+
+   # VeryFastTree (much faster, lower resolution)
+   pixi run gvclass <input_directory> --tree-method fasttree
    ```
 
 3. **Optimize Thread Usage**:

@@ -19,7 +19,7 @@ database:
 # Pipeline settings
 pipeline:
   # Tree building method: fasttree or iqtree
-  tree_method: fasttree
+  tree_method: iqtree
   # Fast mode - skip order-level marker trees when True
   mode_fast: true
   # Completeness estimate to surface in the summary tables

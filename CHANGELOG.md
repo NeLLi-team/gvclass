@@ -15,6 +15,13 @@ compatible bundle is noted per release.
 
 Capscan / Preplasmiviricota augmentation (in progress; ships with a new resource bundle).
 
+### Changed — default tree inference is now IQ-TREE
+- The per-marker gene trees and the `--species-tree` supermatrix tree now default
+  to **IQ-TREE (`--fast`, model `Q.pfam+R10+F`)** instead of VeryFastTree, for more
+  accurate placement. VeryFastTree is kept as an option: `--tree-method fasttree`
+  (or `pipeline.tree_method: fasttree`). IQ-TREE is pinned to 3.1.2 (latest on
+  bioconda; 3.1.3 is GitHub-only). Trade-off: noticeably slower than VeryFastTree.
+
 ### Changed — final summary schema overhaul (breaking)
 
 The `gvclass_summary.tsv` columns changed:

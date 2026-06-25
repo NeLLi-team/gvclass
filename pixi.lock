@@ -11,7 +11,7 @@ environments:
     packages:
       linux-64:
       - conda: https://conda.anaconda.org/bioconda/linux-64/diamond-2.1.23-hf93d47f_0.conda
-      - conda: https://conda.anaconda.org/bioconda/linux-64/iqtree-3.0.1-h503566f_0.tar.bz2
+      - conda: https://conda.anaconda.org/bioconda/linux-64/iqtree-3.1.2-h8471819_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-20_gnu.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/alsa-lib-1.2.15.3-hb03c661_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/attr-2.5.2-h39aace5_0.conda
@@ -209,19 +209,20 @@ packages:
   license_family: GPL3
   size: 3168144
   timestamp: 1771162414119
-- conda: https://conda.anaconda.org/bioconda/linux-64/iqtree-3.0.1-h503566f_0.tar.bz2
-  sha256: e0dcb9e8678bd5a50c2c966d1916f9b38fc29ee5e98ce3207e0f50c2145d6dba
-  md5: fd4dfb10aac70986b4b51d73c45b4312
+- conda: https://conda.anaconda.org/bioconda/linux-64/iqtree-3.1.2-h8471819_0.conda
+  sha256: 1a71184e2a72019d146a0094f2bb3b040dba64343568262ec89d943681bc29a0
+  md5: 933288b3ac1a54275dc846d572a810ac
   depends:
+  - __glibc >=2.17,<3.0.a0
   - _openmp_mutex >=4.5
-  - libgcc >=13
+  - libgcc >=14
   - libgomp
-  - libstdcxx >=13
+  - libstdcxx >=14
   license: GPL-2.0-or-later
   license_family: GPL2
   purls: []
-  size: 4400455
-  timestamp: 1752022486560
+  size: 4351734
+  timestamp: 1779049030031
 - conda: https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-20_gnu.conda
   build_number: 20
   sha256: 1dd3fffd892081df9726d7eb7e0dea6198962ba775bd88842135a4ddb4deb3c9

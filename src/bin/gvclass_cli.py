@@ -298,7 +298,7 @@ def load_config(config_file: str, repo_dir: Path, output: CliOutput):
             "expected_size": 1752,
         },
         "pipeline": {
-            "tree_method": "fasttree",
+            "tree_method": "iqtree",
             "mode_fast": True,
             "completeness_mode": "novelty-aware",
             "sensitive_mode": True,
@@ -394,7 +394,7 @@ def resolve_database_download_source(config) -> Optional[dict]:
 def resolve_tree_method(args, config) -> str:
     if args.tree_method:
         return args.tree_method
-    return config["pipeline"].get("tree_method", "fasttree")
+    return config["pipeline"].get("tree_method", "iqtree")
 
 
 def resolve_mode_fast(args, config) -> bool:

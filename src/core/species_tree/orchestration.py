@@ -91,6 +91,7 @@ def run_per_query_species_tree(
     output_base: Path,
     threads: int,
     trim_method: str = "witchi",
+    tree_method: str = "iqtree",
 ) -> None:
     """Per-query species-tree step (gated on the genome's domain panel).
 
@@ -111,6 +112,7 @@ def run_per_query_species_tree(
             output_base,
             threads,
             trim_method,
+            tree_method,
         )
     except Exception as exc:  # never block the standard pipeline
         logger.warning("Species-tree per-query step failed for %s: %s", query_id, exc)
@@ -125,6 +127,7 @@ def _run_per_query(
     output_base: Path,
     threads: int,
     trim_method: str = "witchi",
+    tree_method: str = "iqtree",
 ) -> None:
     query_hits_dir = query_output_dir / "query_hits_faa"
     if not query_hits_dir.exists():
@@ -207,6 +210,7 @@ def _run_per_query(
         threads,
         summary_by_query={query_id: summary_data},
         trim_method=trim_method,
+        tree_method=tree_method,
         k_neighbors=NEIGHBORS_PER_QUERY_TREE,
         basename=query_id,
     )
@@ -223,10 +227,11 @@ def run_combined_species_tree(
     results: List[Dict],
     threads: int,
     trim_method: str = "witchi",
+    tree_method: str = "iqtree",
 ) -> None:
     """Combined species-tree step over this run's sidecars (one tree per panel)."""
     try:
-        _run_combined(output_base, database_path, results, threads, trim_method)
+        _run_combined(output_base, database_path, results, threads, trim_method, tree_method)
     except Exception as exc:  # never block the final summary
         logger.warning("Combined species-tree step failed: %s", exc)
 
@@ -237,6 +242,7 @@ def _run_combined(
     results: List[Dict],
     threads: int,
     trim_method: str = "witchi",
+    tree_method: str = "iqtree",
 ) -> None:
     scratch = scratch_dir_for(output_base)
     # Only place queries whose standard pipeline COMPLETED — a query can write its
@@ -289,6 +295,7 @@ def _run_combined(
             threads,
             summary_by_query={},
             trim_method=trim_method,
+            tree_method=tree_method,
             k_neighbors=NEIGHBORS_PER_COMBINED_TREE,
         )
 
@@ -335,6 +342,7 @@ def _build_and_place(
     threads: int,
     summary_by_query: Dict[str, Dict],
     trim_method: str = "witchi",
+    tree_method: str = "iqtree",
     k_neighbors: int = NEIGHBORS_PER_COMBINED_TREE,
     basename: str = "combined",
 ) -> None:
@@ -389,7 +397,7 @@ def _build_and_place(
         logger.warning("Species-tree supermatrix empty for panel %s", panel.name)
         return
 
-    tree = infer_species_tree(result.supermatrix_faa, out_dir / f"{basename}.treefile", threads)
+    tree = infer_species_tree(result.supermatrix_faa, out_dir / f"{basename}.treefile", threads, tree_method)
     classifier = SpeciesTreeClassifier(database_path / "labels.tsv")
     rows = classifier.classify(tree)
     write_species_tree_taxonomy(rows, out_dir / "species_tree_taxonomy.tsv")

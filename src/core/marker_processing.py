@@ -10,7 +10,7 @@ from datetime import datetime
 from Bio import SeqIO, AlignIO
 import pytrimal
 
-from src.core.alignment import align_sequences_pyfamsa, run_veryfasttree
+from src.core.alignment import IQTREE_MODEL, align_sequences_pyfamsa, run_veryfasttree
 from src.core.blast import run_blastp, parse_blastp
 from src.utils import setup_logging
 
@@ -295,7 +295,7 @@ class MarkerProcessor:
                 "-s",
                 str(trimmed_alignment),
                 "-m",
-                "LG+F+G",
+                IQTREE_MODEL,
                 "-nt",
                 str(threads),
                 "-pre",
