@@ -169,7 +169,7 @@ The runtime implementation for completeness and contamination metrics lives in
 |--------|-------------|
 | query | Input filename |
 | taxonomy_majority | Full taxonomy from the per-marker single-gene tree-NN majority vote |
-| species_tree_nn_taxonomy | Taxonomy of the nearest reference in the concatenated-marker species tree (a strong genome-level phylogenomic signal). `no-species-tree-calculated` unless the run used `--species-tree` |
+| species_tree_nn_taxonomy | Taxonomy of the nearest reference in the concatenated-marker species tree (a strong genome-level phylogenomic signal). `nd` unless the run used `--species-tree` (all four `species_tree_*` columns are `nd` when no species tree was built) |
 | taxonomy_confidence | Confidence of the majority taxonomy: `high` (every emitted rank cleared its distinct-marker threshold) or one/more of `low_support`, `reduced_fastmode`, `no_support` |
 | capsid_group | Unified capsid-type tally across the MCP panels as `label:count` (e.g. `Nucleocytoviricota:4,Gossevirus:1`); covers the Nucleocytoviricota/Mirusviricota phyla and the Bellas & Sommaruga caps groups |
 | species → domain | Individual taxonomic levels with taxon counts |
@@ -179,17 +179,23 @@ The runtime implementation for completeness and contamination metrics lives in
 | completeness_model_reliability | Reliability of the per-lineage completeness model (`advisory_only` / `moderate` / `high`, from its hold-out R²) — a property of the model for the assigned order, not of the genome |
 | estimated_contamination | Estimated percentage of the assembly likely to represent contaminant or mixed-origin sequence. Determined by the trained `extra_trees_v1` contamination model in `resources/contamination/model.joblib` (retrained in v1.5.0 under `sensitive_mode=true` features). |
 | contamination_type | High-level contamination interpretation (`clean`, `cellular`, `mixed_viral`, `phage`, `duplication`, or `uncertain`) when `estimated_contamination >= 10`. v1.5.0 adds a per-contig taxonomic-purity classifier (see `cellular_coherent_contig_count` column); bins with a novel-virus signature (no coherent cellular contigs + ≥3 viral-bearing contigs + `viral_mixture` rule-based source) are downgraded from `mixed_viral` to `uncertain` so curators can triage. |
-| gvog4_unique | Count of unique GVOG4 markers found |
-| gvog8_unique/total/dup | GVOG8 marker counts and duplication |
+| gvog4_completeness | GVOG4 completeness as `n/4` (distinct core NCLDV markers present) |
+| gvog4_dup | GVOG4 duplication factor (total marker hits / distinct GVOG4 markers present) |
+| gvog8_completeness | GVOG8 completeness as `n/8` (distinct core NCLDV markers present) |
+| gvog8_dup | GVOG8 duplication factor (total marker hits / distinct GVOG8 markers present) |
+| busco_completeness | Eukaryotic BUSCO single-copy completeness as `n/255`; elevated `busco_dup` indicates cellular contamination |
+| busco_dup | BUSCO duplication factor (total marker hits / distinct BUSCO markers present) |
+| cog_completeness | Universal COG (UNI56) single-copy completeness as `n/56`; elevated `cog_dup` indicates cellular contamination |
+| cog_dup | COG (UNI56) duplication factor (total marker hits / distinct COG markers present) |
+| mrya_completeness | Mryavirus completeness as `n/6` (distinct Mryavirus markers present) |
+| mrya_dup | Mryavirus duplication factor (total marker hits / distinct Mryavirus markers present) |
+| phage_completeness | Phage (geNomad) completeness as `n/20`; elevated `phage_dup` indicates phage contamination |
+| phage_dup | Phage duplication factor (total marker hits / distinct phage markers present) |
 | ncldv_mcp_total | NCLDV-specific MCP marker count |
-| mcp_total | All MCP marker count (NCLDV + Mirus) |
 | vp_completeness | Virophage completeness (n/4 core markers: MCP, Penton, ATPase, Protease) |
 | vp_mcp | Count of proteins with VP MCP marker hits |
 | plv | Count of A32-marker proteins that place with `PPV` references in the marker tree. The A32 (`PLV_PC_054`) is shared with NCLDV, so only genuine PPV placements are counted — this is 0 for ordinary NCLDV and flags Polinton-like viruses / virophages within the `PPV` (Preplasmiviricota) domain |
 | mirus_completeness | Mirusviricota completeness (n/4 core markers: MCP, ATPase, Portal, Triplex) |
-| mrya_unique/total | Mryavirus-specific marker counts |
-| phage_unique/total | Phage marker counts |
-| cellular_unique/total | Cellular single-copy marker counts (BUSCO + UNI56 COGs); elevated values indicate cellular contamination |
 | contigs | Number of contigs |
 | LENbp | Total length in base pairs |
 | GCperc | GC content percentage |
@@ -400,13 +406,13 @@ Use sensitive mode when you want a more permissive marker search:
 - `contamination_type` is the high-level interpretation of the likely contamination source when `estimated_contamination >= 10`.
 - Detailed per-contig taxonomic-purity / contamination diagnostics (`cellular_coherent_*`, `cellular_lineage_purity_median`, `cellular_hit_identity_median`, `viral_bearing_contig_count`, `contig_attribution_mode`) are written to the supplementary `gvclass_summary.extended.tsv`, keeping the main summary table readable.
 - `order_dup` and `gvog8_dup` summarize marker duplication. Values above ~2 suggest multiple populations or assembly chimeras; below ~1.5 is typically clean.
-- `gvog8_total` and `gvog8_unique` help distinguish true gene expansions (high total, moderate duplication) from assembly artefacts (high duplication, low uniqueness).
-- `ncldv_mcp_total` and `mrya_total` provide additional lineage-specific marker hints.
+- `gvog8_completeness` and `gvog8_dup` help distinguish true gene expansions (more distinct markers, moderate duplication) from assembly artefacts (high duplication, few distinct markers).
+- `ncldv_mcp_total` and `mrya_completeness` provide additional lineage-specific marker hints.
 - `vp_completeness` and `mirus_completeness` show core marker coverage (n/4) for virophages and Mirusviricota respectively.
 - Polinton-like viruses and virophages are reported together under the unified `PPV` (Preplasmiviricota) domain; the `plv` count helps tell Polinton-like viruses apart from virophages within it (both carry VP MCP markers, but Polinton-like viruses also hit a PLV-specific marker; the count is not binary).
 
 ### Cellular carry-over
-- `order_dup` and `gvog8_dup` are retained in the final summary table as duplication-style QC indicators; `cellular_unique`/`cellular_total` flag cellular single-copy-marker carry-over.
+- `order_dup` and `gvog8_dup` are retained in the final summary table as duplication-style QC indicators; the `busco_completeness`/`cog_completeness` panels (and their `_dup` factors) flag cellular single-copy-marker carry-over.
 
 Use these fields together: a high completeness score with low duplication and `contamination_type = clean` is characteristic of a high-quality GVMAG; any combination of low completeness plus high duplication or a non-clean contamination type warrants manual curation.
 

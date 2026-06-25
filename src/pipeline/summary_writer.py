@@ -49,25 +49,25 @@ LEGACY_SUMMARY_HEADERS: List[str] = [
     "estimated_contamination_strategy",
     "suspicious_bp_fraction_v2",
     "suspicious_contig_count_v2",
-    "gvog4_unique",
-    "gvog8_unique",
-    "gvog8_total",
+    "gvog4_completeness",
+    "gvog4_dup",
+    "gvog8_completeness",
     "gvog8_dup",
     "ncldv_mcp_total",
-    "mcp_total",
     "vp_completeness",
     "vp_mcp",
     "plv",
     "vp_df",
     "mirus_completeness",
     "mirus_df",
-    "mrya_unique",
-    "mrya_total",
-    "phage_unique",
-    "phage_total",
-    "cellular_unique",
-    "cellular_total",
-    "cellular_dup",
+    "mrya_completeness",
+    "mrya_dup",
+    "phage_completeness",
+    "phage_dup",
+    "busco_completeness",
+    "busco_dup",
+    "cog_completeness",
+    "cog_dup",
     "contigs",
     "LENbp",
     "GCperc",
@@ -120,25 +120,25 @@ LEGACY_SUMMARY_KEY_MAPPING: Dict[str, str] = {
     "estimated_contamination_strategy": "estimated_contamination_strategy",
     "suspicious_bp_fraction_v2": "suspicious_bp_fraction_v2",
     "suspicious_contig_count_v2": "suspicious_contig_count_v2",
-    "gvog4_unique": "gvog4_unique",
-    "gvog8_unique": "gvog8_unique",
-    "gvog8_total": "gvog8_total",
+    "gvog4_completeness": "gvog4_completeness",
+    "gvog4_dup": "gvog4_dup",
+    "gvog8_completeness": "gvog8_completeness",
     "gvog8_dup": "gvog8_dup",
     "ncldv_mcp_total": "ncldv_mcp_total",
-    "mcp_total": "mcp_total",
     "vp_completeness": "vp_completeness",
     "vp_mcp": "vp_mcp",
     "plv": "plv",
     "vp_df": "vp_df",
     "mirus_completeness": "mirus_completeness",
     "mirus_df": "mirus_df",
-    "mrya_unique": "mrya_unique",
-    "mrya_total": "mrya_total",
-    "phage_unique": "phage_unique",
-    "phage_total": "phage_total",
-    "cellular_unique": "cellular_unique",
-    "cellular_total": "cellular_total",
-    "cellular_dup": "cellular_dup",
+    "mrya_completeness": "mrya_completeness",
+    "mrya_dup": "mrya_dup",
+    "phage_completeness": "phage_completeness",
+    "phage_dup": "phage_dup",
+    "busco_completeness": "busco_completeness",
+    "busco_dup": "busco_dup",
+    "cog_completeness": "cog_completeness",
+    "cog_dup": "cog_dup",
     "contigs": "contigs",
     "LENbp": "LENbp",
     "GCperc": "GCperc",
@@ -154,7 +154,7 @@ FINAL_SUMMARY_COLUMNS: List[str] = [
     "taxonomy_majority",
     # Concatenated-marker species-tree placement — a strong phylogenomic signal,
     # so it sits up front next to the single-gene-consensus taxonomy_majority.
-    # Value is "no-species-tree-calculated" when the run built no species tree.
+    # Value is "nd" (not determined) when the run built no species tree.
     "species_tree_nn_taxonomy",
     "taxonomy_confidence",
     # Unified capsid-type tally across all MCP panels (NCLDV/Mirus/PPV caps
@@ -173,29 +173,30 @@ FINAL_SUMMARY_COLUMNS: List[str] = [
     "completeness_model_reliability",
     "estimated_contamination",
     "contamination_type",
-    "gvog4_unique",
-    "gvog8_unique",
-    "gvog8_total",
+    "gvog4_completeness",
+    "gvog4_dup",
+    "gvog8_completeness",
     "gvog8_dup",
+    "busco_completeness",
+    "busco_dup",
+    "cog_completeness",
+    "cog_dup",
+    "mrya_completeness",
+    "mrya_dup",
+    "phage_completeness",
+    "phage_dup",
     "ncldv_mcp_total",
-    "mcp_total",
     "vp_completeness",
     "vp_mcp",
     "plv",
     "mirus_completeness",
-    "mrya_unique",
-    "mrya_total",
-    "phage_unique",
-    "phage_total",
-    "cellular_unique",
-    "cellular_total",
     "contigs",
     "LENbp",
     "GCperc",
     "genecount",
     "CODINGperc",
     "ttable",
-    # --species-tree placement detail (blank unless a species tree was built).
+    # --species-tree placement detail ("nd" unless a species tree was built).
     "species_tree_nn_genome",
     "species_tree_nn_distance",
     "species_tree_clade_id",
@@ -221,7 +222,12 @@ FAILED_QUERY_COLUMNS: List[str] = ["query", "status", "error"]
 TWO_DECIMAL_COLUMNS = {
     "avgdist",
     "order_dup",
+    "gvog4_dup",
     "gvog8_dup",
+    "busco_dup",
+    "cog_dup",
+    "mrya_dup",
+    "phage_dup",
     "estimated_completeness",
     "estimated_contamination",
     "GCperc",
@@ -259,10 +265,14 @@ LEGACY_TWO_DECIMAL_COLUMNS = {
     "contamination_nonviral_hit_fraction_v1",
     "estimated_contamination",
     "suspicious_bp_fraction_v2",
+    "gvog4_dup",
     "gvog8_dup",
+    "busco_dup",
+    "cog_dup",
+    "mrya_dup",
+    "phage_dup",
     "vp_df",
     "mirus_df",
-    "cellular_dup",
     "GCperc",
     "CODINGperc",
     "weighted_order_completeness",
@@ -479,6 +489,20 @@ def _read_individual_summary_result(
     return {"query": query_name, "status": "complete", "summary_data": summary_data}
 
 
+# Species-tree placement columns. When a run builds no species tree these are
+# absent from summary_data; emit the "nd" (not determined) sentinel rather than a
+# blank so all four read consistently. ``_SPECIES_TREE_ND_VALUES`` also maps the
+# retired ``no-species-tree-calculated`` literal to ``nd`` so a ``--resume`` over
+# per-query files written by an older gvclass version is migrated, not preserved.
+_SPECIES_TREE_ND_COLUMNS = {
+    "species_tree_nn_taxonomy",
+    "species_tree_nn_genome",
+    "species_tree_nn_distance",
+    "species_tree_clade_id",
+}
+_SPECIES_TREE_ND_VALUES = ("", None, "no-species-tree-calculated")
+
+
 def _build_final_summary_row(result: Dict[str, Any]) -> List[str]:
     if result["status"] != "complete" or "summary_data" not in result:
         return [result["query"]] + [""] * (len(FINAL_SUMMARY_COLUMNS) - 1)
@@ -487,8 +511,8 @@ def _build_final_summary_row(result: Dict[str, Any]) -> List[str]:
     row: List[str] = []
     for column in FINAL_SUMMARY_COLUMNS:
         value = summary_data.get(column, "")
-        if column == "species_tree_nn_taxonomy" and value in ("", None):
-            value = "no-species-tree-calculated"
+        if column in _SPECIES_TREE_ND_COLUMNS and value in _SPECIES_TREE_ND_VALUES:
+            value = "nd"
         row.append(_format_final_summary_value(column, value))
     return row
 

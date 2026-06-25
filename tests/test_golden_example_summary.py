@@ -32,13 +32,13 @@ STABLE_COLUMNS = [
     "completeness_model_reliability",
     "estimated_contamination",
     "contamination_type",
-    "gvog4_unique",
-    "gvog8_unique",
+    "gvog4_completeness",
+    "gvog8_completeness",
     "ncldv_mcp_total",
     "vp_completeness",
     "mirus_completeness",
-    "cellular_unique",
-    "cellular_total",
+    "busco_completeness",
+    "cog_completeness",
     "ttable",
 ]
 

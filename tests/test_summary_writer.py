@@ -56,7 +56,33 @@ def test_species_tree_sentinel_when_no_tree(tmp_path: Path) -> None:
     )
     with open(summary_file, newline="") as handle:
         row = next(csv.DictReader(handle, delimiter="\t"))
-    assert row["species_tree_nn_taxonomy"] == "no-species-tree-calculated"
+    assert row["species_tree_nn_taxonomy"] == "nd"
+    assert row["species_tree_nn_genome"] == "nd"
+    assert row["species_tree_nn_distance"] == "nd"
+    assert row["species_tree_clade_id"] == "nd"
+
+
+def test_legacy_species_tree_sentinel_migrated_to_nd(tmp_path: Path) -> None:
+    """A --resume over per-query files from an older gvclass version may carry the
+    retired ``no-species-tree-calculated`` literal; it must migrate to ``nd``."""
+    from src.pipeline.summary_writer import write_final_summary_files
+
+    summary_file = write_final_summary_files(
+        [
+            {
+                "query": "q1",
+                "status": "complete",
+                "summary_data": {
+                    "query": "q1",
+                    "species_tree_nn_taxonomy": "no-species-tree-calculated",
+                },
+            }
+        ],
+        tmp_path,
+    )
+    with open(summary_file, newline="") as handle:
+        row = next(csv.DictReader(handle, delimiter="\t"))
+    assert row["species_tree_nn_taxonomy"] == "nd"
 
 
 def test_species_tree_taxonomy_value_passthrough(tmp_path: Path) -> None:

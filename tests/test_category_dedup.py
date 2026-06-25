@@ -34,17 +34,20 @@ def test_add_marker_metrics_deduplicates_proteins_within_categories():
     summarizer._add_marker_metrics(result, marker_counts, marker_hits)
 
     assert result["ncldv_mcp_total"] == 4
-    assert result["mcp_total"] == 5
     assert result["vp_completeness"] == "3/4"
     assert result["vp_mcp"] == 2
     assert result["plv"] == 2
     assert result["vp_df"] == 1.0
     assert result["mirus_completeness"] == "2/4"
     assert result["mirus_df"] == 0.5
-    assert result["mrya_total"] == 2
-    assert result["phage_total"] == 2
-    assert result["cellular_total"] == 2
-    assert result["cellular_dup"] == 1.0
+    assert result["mrya_completeness"] == "2/6"
+    assert result["mrya_dup"] == 1.5
+    assert result["phage_completeness"] == "2/20"
+    assert result["phage_dup"] == 1.5
+    assert result["busco_completeness"] == "1/255"
+    assert result["busco_dup"] == 1.0
+    assert result["cog_completeness"] == "1/56"
+    assert result["cog_dup"] == 2.0
 
 
 def test_rule_based_contamination_uses_unique_proteins_for_category_totals(tmp_path):

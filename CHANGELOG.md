@@ -15,6 +15,29 @@ compatible bundle is noted per release.
 
 Capscan / Preplasmiviricota augmentation (in progress; ships with a new resource bundle).
 
+### Changed — standardized marker-panel columns in the final summary table
+- Marker panels are now reported uniformly as `{panel}_completeness` (`n/N`:
+  distinct models present out of the panel size) plus `{panel}_dup` (duplication
+  factor = total marker hits / distinct markers present), matching the existing
+  `vp_completeness`/`mirus_completeness` convention.
+- `gvog4_unique` → `gvog4_completeness` (n/4) + `gvog4_dup`;
+  `gvog8_unique`/`gvog8_total` → `gvog8_completeness` (n/8) (`gvog8_dup` kept);
+  `mrya_unique`/`mrya_total` → `mrya_completeness` (n/6) + `mrya_dup`;
+  `phage_unique`/`phage_total` → `phage_completeness` (n/20) + `phage_dup`.
+- The combined `cellular_unique`/`cellular_total` columns are split into
+  `busco_completeness` (n/255) + `busco_dup` and `cog_completeness` (n/56) +
+  `cog_dup`.
+- Removed `mcp_total` (all-MCP count). `ncldv_mcp_total` is retained, and
+  `capsid_group` continues to report capsid typing.
+- `vp_completeness`/`mirus_completeness` denominators are now derived from the
+  number of core categories (still `n/4`) so they cannot go stale if the
+  category definitions change.
+- All four `species_tree_*` columns report `nd` (not determined) when no species
+  tree was built, replacing the empty cells and the prior
+  `no-species-tree-calculated` sentinel on `species_tree_nn_taxonomy`.
+- Internal cellular/phage marker features consumed by the trained contamination
+  model are unchanged; only the summary-table presentation changed.
+
 ### Added — IQ-TREE as an opt-in tree builder
 - **VeryFastTree remains the default** (`tree_method: veryfasttree`). IQ-TREE
   (`--fast`, model `Q.pfam+R10+F`) is now selectable via `--tree-method iqtree`
@@ -38,14 +61,15 @@ Capscan / Preplasmiviricota augmentation (in progress; ships with a new resource
 
 The `gvclass_summary.tsv` columns changed:
 - Removed `taxonomy_strict`. Promoted `species_tree_nn_taxonomy` next to
-  `taxonomy_majority` (value `no-species-tree-calculated` without `--species-tree`).
+  `taxonomy_majority` (all four `species_tree_*` columns are `nd` without
+  `--species-tree`).
 - Renamed `estimated_completeness_quality` → `completeness_model_reliability`;
   dropped `estimated_completeness_advisory` and `estimated_completeness_r2_holdout`.
 - Replaced the Bellas-only `capscan_group` with a unified `capsid_group`
   (`label:count` across the NCLDV/Mirus phyla + caps groups, e.g.
   `Nucleocytoviricota:4,Gossevirus:1`).
-- Retired `vp_df` / `mirus_df`; dropped `cellular_dup`; added `cellular_unique` /
-  `cellular_total`.
+- Retired `vp_df` / `mirus_df`; dropped `cellular_dup`. (The marker-panel columns
+  were then standardized — see the marker-panel entry above.)
 - Moved the per-contig contamination diagnostics (`cellular_coherent_*`,
   `cellular_lineage_purity_median`, `cellular_hit_identity_median`,
   `viral_bearing_contig_count`, `contig_attribution_mode`) to a new always-on
