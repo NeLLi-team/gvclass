@@ -36,6 +36,7 @@ def _make_context(sensitive_mode: bool) -> PipelineContext:
         database=Path("resources"),
         threads=24,
         tree_method="fasttree",
+        iqtree_mode="fast",
         mode_fast=True,
         completeness_mode="legacy",
         sensitive_mode=sensitive_mode,

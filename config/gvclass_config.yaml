@@ -20,6 +20,9 @@ database:
 pipeline:
   # Tree building method: fasttree or iqtree
   tree_method: iqtree
+  # Species-tree IQ-TREE search: 'fast' (--fast, default) or 'ufboot' (ultrafast
+  # bootstrap -B 1000 -bnni; slower, writes a .contree). Per-marker trees stay --fast.
+  iqtree_mode: fast
   # Fast mode - skip order-level marker trees when True
   mode_fast: true
   # Completeness estimate to surface in the summary tables

@@ -211,6 +211,7 @@ database:
 
 pipeline:
   tree_method: iqtree               # IQ-TREE --fast, Q.pfam+R10+F (default); or 'fasttree' (VeryFastTree) for speed
+  iqtree_mode: fast                 # species-tree IQ-TREE search: 'fast' (--fast) or 'ufboot' (ultrafast bootstrap, slower, writes .contree)
   mode_fast: false                  # Skip order-level marker trees when true (speeds up analysis)
   completeness_mode: novelty-aware  # or 'legacy' to surface the old estimate
   sensitive_mode: true              # Default: use E-value 1e-5 for pyhmmer instead of GA cutoffs
@@ -322,6 +323,7 @@ apptainer push gvclass.sif library://nelligroup-jgi/gvclass/gvclass:1.6.1
 | `--threads-per-worker` | | Threads per worker | Auto |
 | `--database` | `-d` | Override database path | `GVCLASS_DB` → config → `<repo>/resources` |
 | `--tree-method` | | `iqtree` or `fasttree` | iqtree |
+| `--iqtree-mode` | | `fast` or `ufboot` (species-tree IQ-TREE search) | fast |
 | `--mode-fast` | `-f` | Fast mode: core markers only | True |
 | `--extended` | `-e` | Extended mode: all marker trees | False |
 | `--completeness-mode` | | `legacy` or `novelty-aware` for `estimated_completeness` | novelty-aware |
@@ -442,12 +444,19 @@ Use these fields together: a high completeness score with low duplication and `c
 
 ### IQ-TREE Specific Options
 
-When using IQ-TREE (`--tree-method iqtree`), the pipeline automatically uses:
-- Model: `LG+F+G` (fast protein model)
-- `-fast` flag for faster tree search
-- Single thread per marker (parallelization happens at marker level)
+When using IQ-TREE (`--tree-method iqtree`, the default), the pipeline uses:
+- Model: `Q.pfam+R10+F` (Pfam exchange matrix + 10-category FreeRate + empirical frequencies)
+- Search mode (`--iqtree-mode` / config `iqtree_mode`):
+  - `fast` (default): `--fast` search (FastTree-like), no bootstrap.
+  - `ufboot`: ultrafast bootstrap (`-B 1000 -bnni`); adds branch-support values and
+    writes a `.contree` consensus tree. **Much slower** — use it for a final,
+    well-supported phylogeny, not routine runs.
+- **Scope**: `iqtree_mode` applies to the **species tree** (`--species-tree`). The
+  per-marker gene trees always use `--fast` — they are internal nearest-neighbor
+  scaffolds where bootstrap adds cost but no value.
 
-To modify IQ-TREE behavior, edit `src/core/marker_processing.py`.
+To modify IQ-TREE behavior, edit `src/core/alignment.py` (`IQTREE_MODEL`,
+`iqtree_search_args`) and `src/core/marker_processing.py` (per-marker invocation).
 
 ### Understanding Markers
 
@@ -538,8 +547,8 @@ flowchart TD
         BLAST --> ALIGN[MAFFT/pyfamsa<br/>alignment]
         ALIGN --> TRIM[TrimAl/pytrimal<br/>trimming]
         TRIM --> TREE{Tree Building}
-        TREE -->|FastTree| FT[veryfasttree<br/>LG4X model]
-        TREE -->|IQ-TREE| IQ[iqtree<br/>LG+F+G -fast]
+        TREE -->|IQ-TREE default| IQ[iqtree<br/>Q.pfam+R10+F --fast]
+        TREE -->|fasttree opt| FT[veryfasttree]
     end
     
     FT --> NN[Get nearest<br/>neighbors]

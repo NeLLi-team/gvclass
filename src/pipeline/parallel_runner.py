@@ -346,6 +346,7 @@ def gvclass_flow(
     max_workers: Optional[int] = None,
     threads_per_worker: Optional[int] = None,
     tree_method: str = "fasttree",
+    iqtree_mode: str = "fast",
     mode_fast: bool = True,
     completeness_mode: str = "legacy",
     sensitive_mode: bool = False,
@@ -362,6 +363,9 @@ def gvclass_flow(
     logger = logging.getLogger("gvclass_runner")
     if species_tree_combined:
         species_tree = True  # --species-tree-combined implies --species-tree
+    from src.core.alignment import configure_iqtree
+
+    configure_iqtree(iqtree_mode)
     logger.info("Validating inputs and setting up directories")
     config = validate_and_setup_task(
         query_dir, output_dir, database_path, allow_short=allow_short

@@ -1,9 +1,12 @@
 # Alpha testing the `gvclass-dev` branch
 
-This branch carries the v2.0 candidate: the capscan/PPV taxonomy update and the
-new opt-in `--species-tree` feature. It is wired to a separate **alpha-test
-resource bundle** so testers get the updated reference models without waiting for
-the Zenodo release. `main` is unchanged and still uses the published Zenodo asset.
+This branch carries the v2.0 candidate: the capscan/PPV taxonomy update, a
+re-curated PPV reference set, a streamlined summary table (see CHANGELOG for the
+column changes), **IQ-TREE (`Q.pfam+R10+F`, `--fast`) as the default tree builder**
+(VeryFastTree stays available via `--tree-method fasttree`), and the opt-in
+`--species-tree` feature. It is wired to a separate **alpha-test resource bundle**
+so testers get the updated reference models without waiting for the Zenodo release.
+`main` is unchanged and still uses the published Zenodo asset.
 
 ## 1. Get the branch
 
@@ -65,6 +68,13 @@ pixi run gvclass example -o st_results --species-tree --threads 8
 
 # Optional: also build one combined tree over all queries
 pixi run gvclass example -o st_results --species-tree-combined --threads 8
+
+# Tree engine note: IQ-TREE (Q.pfam+R10+F --fast) is the default and is much
+# slower than VeryFastTree. For a quick run, switch back to VeryFastTree:
+pixi run gvclass example -o fast_results --tree-method fasttree --threads 8
+
+# Bootstrap-supported species tree (ultrafast bootstrap; writes a .contree, slower):
+pixi run gvclass example -o ufb_results --species-tree --iqtree-mode ufboot --threads 8
 ```
 
 Per NCLDV/PPV/MIRUS genome, `--species-tree` writes `out/species_tree/<query>/`

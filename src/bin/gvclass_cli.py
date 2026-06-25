@@ -115,6 +115,7 @@ class PipelineContext:
     database: Path
     threads: int
     tree_method: str
+    iqtree_mode: str
     mode_fast: bool
     completeness_mode: str
     sensitive_mode: bool
@@ -172,6 +173,11 @@ def _add_core_arguments(parser: argparse.ArgumentParser) -> None:
         "--tree-method",
         choices=["fasttree", "iqtree"],
         help="Tree building method (overrides config)",
+    )
+    parser.add_argument(
+        "--iqtree-mode",
+        choices=["fast", "ufboot"],
+        help="IQ-TREE species-tree search mode (overrides config)",
     )
 
 
@@ -299,6 +305,7 @@ def load_config(config_file: str, repo_dir: Path, output: CliOutput):
         },
         "pipeline": {
             "tree_method": "iqtree",
+            "iqtree_mode": "fast",
             "mode_fast": True,
             "completeness_mode": "novelty-aware",
             "sensitive_mode": True,
@@ -395,6 +402,12 @@ def resolve_tree_method(args, config) -> str:
     if args.tree_method:
         return args.tree_method
     return config["pipeline"].get("tree_method", "iqtree")
+
+
+def resolve_iqtree_mode(args, config) -> str:
+    if getattr(args, "iqtree_mode", None):
+        return args.iqtree_mode
+    return config["pipeline"].get("iqtree_mode", "fast")
 
 
 def resolve_mode_fast(args, config) -> bool:
@@ -808,6 +821,8 @@ def build_pipeline_command(
             str(context.workers.threads_per_worker),
             "--tree-method",
             context.tree_method,
+            "--iqtree-mode",
+            context.iqtree_mode,
             "--cluster-type",
             args.cluster_type,
         ]
@@ -989,6 +1004,7 @@ def resolve_pipeline_context(
     database = resolve_database_path(args, config, repo_dir)
     threads = args.threads if args.threads else config["pipeline"].get("threads", 16)
     tree_method = resolve_tree_method(args, config)
+    iqtree_mode = resolve_iqtree_mode(args, config)
     mode_fast = resolve_mode_fast(args, config)
     completeness_mode = resolve_completeness_mode(args, config)
     sensitive_mode = resolve_sensitive_mode(args, config)
@@ -1020,6 +1036,7 @@ def resolve_pipeline_context(
         database=database,
         threads=threads,
         tree_method=tree_method,
+        iqtree_mode=iqtree_mode,
         mode_fast=mode_fast,
         completeness_mode=completeness_mode,
         sensitive_mode=sensitive_mode,

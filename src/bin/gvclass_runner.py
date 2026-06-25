@@ -42,6 +42,7 @@ def print_run_configuration(
     threads_per_worker: int | None,
     cluster_type: str,
     tree_method: str,
+    iqtree_mode: str,
     mode_fast: bool,
     completeness_mode: str,
     sensitive: bool,
@@ -61,6 +62,7 @@ def print_run_configuration(
         click.echo("Worker distribution: Auto-calculated")
     click.echo(f"Cluster type: {cluster_type}")
     click.echo(f"Tree method: {tree_method}")
+    click.echo(f"IQ-TREE mode: {iqtree_mode}")
     click.echo(f"Fast mode: {mode_fast}")
     click.echo(f"Completeness mode: {completeness_mode}")
     click.echo(f"Sensitive mode: {sensitive}")
@@ -75,6 +77,7 @@ def run_flow(
     max_workers: int | None,
     threads_per_worker: int | None,
     tree_method: str,
+    iqtree_mode: str,
     mode_fast: bool,
     completeness_mode: str,
     sensitive: bool,
@@ -94,6 +97,7 @@ def run_flow(
         max_workers=max_workers,
         threads_per_worker=threads_per_worker,
         tree_method=tree_method,
+        iqtree_mode=iqtree_mode,
         mode_fast=mode_fast,
         completeness_mode=completeness_mode,
         sensitive_mode=sensitive,
@@ -119,6 +123,7 @@ def prepare_cli_context(
     threads_per_worker: int | None,
     cluster_type: str,
     tree_method: str,
+    iqtree_mode: str,
     mode_fast: bool,
     completeness_mode: str,
     sensitive: bool,
@@ -139,6 +144,7 @@ def prepare_cli_context(
         threads_per_worker=threads_per_worker,
         cluster_type=cluster_type,
         tree_method=tree_method,
+        iqtree_mode=iqtree_mode,
         mode_fast=mode_fast,
         completeness_mode=completeness_mode,
         sensitive=sensitive,
@@ -154,6 +160,7 @@ def execute_cli_flow(
     max_workers: int | None,
     threads_per_worker: int | None,
     tree_method: str,
+    iqtree_mode: str,
     mode_fast: bool,
     completeness_mode: str,
     sensitive: bool,
@@ -173,6 +180,7 @@ def execute_cli_flow(
         max_workers=max_workers,
         threads_per_worker=threads_per_worker,
         tree_method=tree_method,
+        iqtree_mode=iqtree_mode,
         mode_fast=mode_fast,
         completeness_mode=completeness_mode,
         sensitive=sensitive,
@@ -210,6 +218,12 @@ def execute_cli_flow(
     default="fasttree",
     type=click.Choice(["fasttree", "iqtree"]),
     help="Tree building method",
+)
+@click.option(
+    "--iqtree-mode",
+    default="fast",
+    type=click.Choice(["fast", "ufboot"]),
+    help="IQ-TREE species-tree search: fast (--fast) or ufboot (ultrafast bootstrap)",
 )
 @click.option(
     "--mode-fast/--extended",
@@ -279,7 +293,7 @@ def execute_cli_flow(
     show_default=True,
     help="Supermatrix column trimming for --species-tree: witchi (rigorous), pytrimal (fast), or none.",
 )
-def main(querydir, output_dir, database, threads, max_workers, threads_per_worker, tree_method, mode_fast, completeness_mode, sensitive, cluster_type, cluster_queue, cluster_project, cluster_walltime, verbose, resume, allow_short, species_tree, species_tree_combined, species_tree_trim):
+def main(querydir, output_dir, database, threads, max_workers, threads_per_worker, tree_method, iqtree_mode, mode_fast, completeness_mode, sensitive, cluster_type, cluster_queue, cluster_project, cluster_walltime, verbose, resume, allow_short, species_tree, species_tree_combined, species_tree_trim):
     log_level = "DEBUG" if verbose else "INFO"
     logger = setup_logging("gvclass_runner", level=log_level)
 
@@ -296,11 +310,12 @@ def main(querydir, output_dir, database, threads, max_workers, threads_per_worke
             threads_per_worker=threads_per_worker,
             cluster_type=cluster_type,
             tree_method=tree_method,
+            iqtree_mode=iqtree_mode,
             mode_fast=mode_fast,
             completeness_mode=completeness_mode,
             sensitive=sensitive,
         )
-        execute_cli_flow(query_path, output_path, db_path, threads, max_workers, threads_per_worker, tree_method, mode_fast, completeness_mode, sensitive, cluster_type, cluster_config, resume, allow_short=allow_short, species_tree=species_tree, species_tree_combined=species_tree_combined, species_tree_trim=species_tree_trim)
+        execute_cli_flow(query_path, output_path, db_path, threads, max_workers, threads_per_worker, tree_method, iqtree_mode, mode_fast, completeness_mode, sensitive, cluster_type, cluster_config, resume, allow_short=allow_short, species_tree=species_tree, species_tree_combined=species_tree_combined, species_tree_trim=species_tree_trim)
     except FileNotFoundError as exc:
         click.echo(f"Error: {exc}", err=True)
         sys.exit(1)

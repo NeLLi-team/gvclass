@@ -21,6 +21,11 @@ Capscan / Preplasmiviricota augmentation (in progress; ships with a new resource
   accurate placement. VeryFastTree is kept as an option: `--tree-method fasttree`
   (or `pipeline.tree_method: fasttree`). IQ-TREE is pinned to 3.1.2 (latest on
   bioconda; 3.1.3 is GitHub-only). Trade-off: noticeably slower than VeryFastTree.
+- **New `--iqtree-mode` / `pipeline.iqtree_mode`** for the species tree:
+  `fast` (default, `--fast`) or `ufboot` (ultrafast bootstrap `-B 1000 -bnni`, which
+  adds branch-support values and writes a `.contree` consensus tree). UFBoot is much
+  slower, so it is scoped to the species tree; per-marker gene trees always use
+  `--fast`.
 
 ### Changed — final summary schema overhaul (breaking)
 

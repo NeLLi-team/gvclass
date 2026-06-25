@@ -86,6 +86,32 @@ def run_veryfasttree(alignment_path: Union[str, Path], threads: int = 4) -> str:
 #: Default IQ-TREE model for the per-marker gene trees and the species tree.
 IQTREE_MODEL = "Q.pfam+R10+F"
 
+#: IQ-TREE search mode for the SPECIES tree, set once per run via
+#: ``configure_iqtree()`` (the pipeline is a single-process ThreadPoolExecutor so
+#: all worker threads share it). Per-marker gene trees always use ``--fast``.
+_IQTREE_MODE = "fast"
+
+
+def configure_iqtree(mode: str) -> None:
+    """Set the species-tree IQ-TREE search mode for this run.
+
+    ``"fast"`` (default) or ``"ufboot"``; any other value falls back to ``"fast"``.
+    """
+    global _IQTREE_MODE
+    _IQTREE_MODE = mode if mode in ("fast", "ufboot") else "fast"
+
+
+def iqtree_search_args() -> List[str]:
+    """IQ-TREE search args for the configured species-tree mode.
+
+    ``fast``   -> ``--fast`` (quick FastTree-like search; default)
+    ``ufboot`` -> ``-B 1000 -bnni`` (ultrafast bootstrap, 1000 replicates; IQ-TREE
+    also writes a ``<prefix>.contree`` consensus tree with branch support).
+    """
+    if _IQTREE_MODE == "ufboot":
+        return ["-B", "1000", "-bnni"]
+    return ["--fast"]
+
 
 def run_iqtree(
     alignment_path: Union[str, Path],
@@ -106,7 +132,7 @@ def run_iqtree(
     prefix = out_tree.with_suffix("")
     cmd = [
         "iqtree",
-        "--fast",
+        *iqtree_search_args(),
         "-s",
         str(alignment_path),
         "-m",
@@ -117,6 +143,9 @@ def run_iqtree(
         str(prefix),
         "-quiet",
     ]
-    subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=1800)
+    # Ultrafast bootstrap (-B 1000 -bnni) is far heavier than --fast; give it a
+    # much larger ceiling so a real species-tree supermatrix can finish.
+    timeout = 14400 if _IQTREE_MODE == "ufboot" else 1800
+    subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=timeout)
     treefile = prefix.with_suffix(".treefile")
     return treefile.read_text() if treefile.exists() else ""
