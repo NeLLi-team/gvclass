@@ -47,31 +47,19 @@ def test_failed_queries_are_reported_separately_from_final_summary(
     assert (tmp_path / "gvclass_failed_queries.csv").exists()
 
 
-def test_r2_holdout_formats_four_decimals() -> None:
-    from src.pipeline.summary_writer import _format_final_summary_value
+def test_species_tree_sentinel_when_no_tree(tmp_path: Path) -> None:
+    from src.pipeline.summary_writer import write_final_summary_files
 
-    assert (
-        _format_final_summary_value("estimated_completeness_r2_holdout", 0.8734)
-        == "0.8734"
+    summary_file = write_final_summary_files(
+        [{"query": "q1", "status": "complete", "summary_data": {"query": "q1"}}],
+        tmp_path,
     )
-    assert (
-        _format_final_summary_value("estimated_completeness_r2_holdout", 0.0)
-        == "0.0000"
-    )
+    with open(summary_file, newline="") as handle:
+        row = next(csv.DictReader(handle, delimiter="\t"))
+    assert row["species_tree_nn_taxonomy"] == "no-species-tree-calculated"
 
 
-def test_r2_holdout_empty_and_string_passthrough() -> None:
-    from src.pipeline.summary_writer import _format_final_summary_value
-
-    assert _format_final_summary_value("estimated_completeness_r2_holdout", "") == ""
-    # Resume reads the value back as a string; must be idempotent.
-    assert (
-        _format_final_summary_value("estimated_completeness_r2_holdout", "0.8734")
-        == "0.8734"
-    )
-
-
-def test_write_final_summary_files_r2_end_to_end(tmp_path: Path) -> None:
+def test_species_tree_taxonomy_value_passthrough(tmp_path: Path) -> None:
     from src.pipeline.summary_writer import write_final_summary_files
 
     summary_file = write_final_summary_files(
@@ -81,15 +69,35 @@ def test_write_final_summary_files_r2_end_to_end(tmp_path: Path) -> None:
                 "status": "complete",
                 "summary_data": {
                     "query": "q1",
-                    "estimated_completeness_r2_holdout": 0.8734,
+                    "species_tree_nn_taxonomy": "d_NCLDV;p_Nucleocytoviricota",
                 },
             }
         ],
         tmp_path,
     )
-
     with open(summary_file, newline="") as handle:
         row = next(csv.DictReader(handle, delimiter="\t"))
+    assert row["species_tree_nn_taxonomy"] == "d_NCLDV;p_Nucleocytoviricota"
 
-    # Must NOT be truncated to "1" by the .0f fallback.
-    assert row["estimated_completeness_r2_holdout"] == "0.8734"
+
+def test_extended_summary_written(tmp_path: Path) -> None:
+    from src.pipeline.summary_writer import write_final_summary_extended_files
+
+    extended = write_final_summary_extended_files(
+        [
+            {
+                "query": "q1",
+                "status": "complete",
+                "summary_data": {
+                    "query": "q1",
+                    "cellular_coherent_contig_count": 0,
+                    "contig_attribution_mode": "fna_gene_calling",
+                },
+            }
+        ],
+        tmp_path,
+    )
+    with open(extended, newline="") as handle:
+        row = next(csv.DictReader(handle, delimiter="\t"))
+    assert row["contig_attribution_mode"] == "fna_gene_calling"
+    assert row["cellular_coherent_contig_count"] == "0"

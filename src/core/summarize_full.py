@@ -171,10 +171,42 @@ class FullSummarizer:
             tax_parts.append("")
         return genome_id, tax_parts
 
+    def _plv_count_tree_aware(
+        self,
+        marker_hits: Optional[Dict[str, Set[str]]],
+        tree_nn_results: Optional[Dict[str, Dict[str, Dict[str, float]]]],
+    ) -> int:
+        """Count A32/PLV-marker proteins ONLY when they genuinely place with PPV
+        references in the marker tree.
+
+        ``PLV_PC_054`` (the sole PLV marker) is the A32 packaging ATPase shared
+        by NCLDV and PPV, so a plain NCLDV A32 hits the HMM too and the raw HMM
+        count over-flags every giant virus. With the marker tree available we
+        keep only proteins whose nearest reference is PPV; we fall back to the
+        raw HMM count only when no tree is available (counts-only resume).
+        """
+        if not tree_nn_results:
+            return count_unique_proteins_for_prefixes(marker_hits, [PLV_PREFIX])
+        plv_proteins: Set[str] = set()
+        for marker, proteins in (marker_hits or {}).items():
+            if not marker.startswith(PLV_PREFIX):
+                continue
+            nn = tree_nn_results.get(marker, {})
+            for protein in proteins:
+                neighbors = nn.get(protein)
+                if not neighbors:
+                    continue
+                nearest, _dist = min(neighbors.items(), key=lambda kv: kv[1])
+                tax = self.labels_dict.get(self._extract_genome_id(nearest))
+                if tax and tax[0] == "PPV":
+                    plv_proteins.add(protein)
+        return len(plv_proteins)
+
     def calculate_vp_metrics(
         self,
         marker_counts: Dict[str, int],
         marker_hits: Optional[Dict[str, Set[str]]] = None,
+        tree_nn_results: Optional[Dict[str, Dict[str, Dict[str, float]]]] = None,
     ) -> Tuple[str, int, int, float]:
         """Calculate VP (Virophage) completeness metrics.
 
@@ -197,7 +229,7 @@ class FullSummarizer:
             }
             vp_mcp_count = category_counts.get("MCP", 0)
             total_vp_hits = sum(category_counts.values())
-            plv_count = count_unique_proteins_for_prefixes(marker_hits, [PLV_PREFIX])
+            plv_count = self._plv_count_tree_aware(marker_hits, tree_nn_results)
             completeness = len(categories_present)
             vp_df = total_vp_hits / 4.0 if total_vp_hits > 0 else 0.0
             return f"{completeness}/4", vp_mcp_count, plv_count, vp_df
@@ -687,24 +719,42 @@ class FullSummarizer:
         )
         distances: List[float] = []
 
+        # One physical query protein can hit several overlapping marker models
+        # (e.g. a genome-packaging ATPase matching the NCLDV ATPase markers AND
+        # the PPV A32 marker PLV_PC_054). Count each protein ONCE, for its single
+        # nearest (minimum patristic distance) placement, so a shared core gene
+        # cannot cast multiple or cross-domain votes. Deterministic tie-break on
+        # (distance, marker, neighbor).
+        placements_by_protein: Dict[str, List[Tuple[float, str, str]]] = defaultdict(
+            list
+        )
         for marker, query_neighbors in tree_nn_results.items():
-            for neighbors in query_neighbors.values():
+            for query_protein, neighbors in query_neighbors.items():
                 for neighbor, distance in neighbors.items():
-                    genome_id = self._extract_genome_id(neighbor)
-                    tax_info = self.labels_dict.get(genome_id)
-                    if not tax_info:
-                        continue
+                    placements_by_protein[query_protein].append(
+                        (distance, marker, neighbor)
+                    )
 
-                    self._add_taxonomy_counts_for_neighbor(
-                        genome_id, tax_info, tax_counters
-                    )
-                    self._add_taxonomy_counts_for_marker(
-                        genome_id, tax_info, per_marker_counters, marker
-                    )
-                    lineage = self._build_taxonomy_lineage(genome_id, tax_info)
-                    if any(lineage):
-                        per_marker_lineage_counters[marker][lineage] += 1
-                    distances.append(distance)
+        for placements in placements_by_protein.values():
+            resolved = []
+            for distance, marker, neighbor in placements:
+                genome_id = self._extract_genome_id(neighbor)
+                tax_info = self.labels_dict.get(genome_id)
+                if tax_info:
+                    resolved.append((distance, marker, neighbor, genome_id, tax_info))
+            if not resolved:
+                continue
+            distance, marker, neighbor, genome_id, tax_info = min(
+                resolved, key=lambda r: (r[0], r[1], r[2])
+            )
+            self._add_taxonomy_counts_for_neighbor(genome_id, tax_info, tax_counters)
+            self._add_taxonomy_counts_for_marker(
+                genome_id, tax_info, per_marker_counters, marker
+            )
+            lineage = self._build_taxonomy_lineage(genome_id, tax_info)
+            if any(lineage):
+                per_marker_lineage_counters[marker][lineage] += 1
+            distances.append(distance)
 
         return tax_counters, per_marker_counters, per_marker_lineage_counters, distances
 
@@ -1145,7 +1195,7 @@ class FullSummarizer:
             )
 
         result["avgdist"] = sum(distances) / len(distances) if distances else 0.0
-        taxonomy_majority, taxonomy_strict, taxonomy_confidence = (
+        taxonomy_majority, _taxonomy_strict, taxonomy_confidence = (
             self._build_consensus_taxonomies(
                 tax_counters,
                 per_marker_counters,
@@ -1154,7 +1204,6 @@ class FullSummarizer:
             )
         )
         result["taxonomy_majority"] = taxonomy_majority
-        result["taxonomy_strict"] = taxonomy_strict
         result["taxonomy_confidence"] = taxonomy_confidence
 
     def _caps_group_from_tree(self, tree_nn_results) -> str:
@@ -1192,6 +1241,51 @@ class FullSummarizer:
             fam for fam, _dist in per_protein.values() if fam is not None
         )
         return _dominant(groups)
+
+    def _capsid_group_counter(self, tree_nn_results) -> str:
+        """Unified capsid-type tally across all MCP panels.
+
+        For each query protein placed in an MCP group tree (mcp_ncldv / mcp_mirus
+        / mcp_plv), read its single nearest neighbour and map it to a capsid-type
+        label: a Bellas&Sommaruga caps family when the neighbour's family rank is
+        in CAPS_GROUPS, otherwise the neighbour's phylum (Nucleocytoviricota /
+        Mirusviricota). One vote per physical protein — a protein cross-placed in
+        several MCP trees is resolved to its closest placement; an equal-distance
+        cross-type tie is dropped. Returns "label:count" pairs comma-joined,
+        sorted by count desc then label (e.g. "Nucleocytoviricota:4,Gossevirus:1").
+        """
+        fam_idx = self.TAX_LEVEL_MAPPING["family"]
+        phy_idx = self.TAX_LEVEL_MAPPING["phylum"]
+        capsid_phyla = {"Nucleocytoviricota", "Mirusviricota"}
+        per_protein: Dict[str, Tuple[Optional[str], float]] = {}
+        for marker in ("mcp_ncldv", "mcp_mirus", "mcp_plv"):
+            for protein, neighbors in tree_nn_results.get(marker, {}).items():
+                if not neighbors:
+                    continue
+                nearest, dist = min(neighbors.items(), key=lambda kv: kv[1])
+                tax = self.labels_dict.get(self._extract_genome_id(nearest))
+                if not tax:
+                    continue
+                label: Optional[str] = None
+                if len(tax) > fam_idx and tax[fam_idx].strip() in CAPS_GROUPS:
+                    label = tax[fam_idx].strip()
+                elif len(tax) > phy_idx and tax[phy_idx].strip() in capsid_phyla:
+                    label = tax[phy_idx].strip()
+                if label is None:
+                    continue
+                prev = per_protein.get(protein)
+                if prev is None or dist < prev[1]:
+                    per_protein[protein] = (label, dist)
+                elif dist == prev[1] and label != prev[0]:
+                    # equal-distance placements of different capsid types -> drop
+                    per_protein[protein] = (None, dist)
+        counts: Counter = Counter(
+            lbl for lbl, _dist in per_protein.values() if lbl is not None
+        )
+        return ",".join(
+            f"{lbl}:{n}"
+            for lbl, n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+        )
 
     def _add_marker_metrics(
         self,
@@ -1239,7 +1333,7 @@ class FullSummarizer:
             cellular_total = sum(marker_counts.get(m, 0) for m in cellular_models)
 
         vp_completeness, vp_mcp, plv_count, vp_df = self.calculate_vp_metrics(
-            marker_counts, marker_hits
+            marker_counts, marker_hits, tree_nn_results
         )
         result["vp_completeness"] = vp_completeness
         result["vp_mcp"] = vp_mcp
@@ -1255,17 +1349,15 @@ class FullSummarizer:
         mrya_unique = sum(1 for m in MRYA_MODELS if marker_counts.get(m, 0) > 0)
         result["mrya_unique"] = mrya_unique
 
-        # capscan group from the caps MCP tree-NN placement: the query's MCP places next
-        # to its Bellas group's references, so the nearest neighbour's family rank IS the
-        # group. Authoritative when an MCP group tree was built (incl "" = placed among
-        # non-caps refs). Falls back to the best-HMM-hit heuristic only when no MCP tree
-        # is available (counts-only resume, or a partial run that skipped the MCP trees).
+        # Unified capsid-type tally across the MCP panels (NCLDV/Mirus/PPV caps
+        # groups), e.g. "Nucleocytoviricota:4,Gossevirus:1". Needs the MCP tree-NN
+        # placements; blank on a counts-only resume that skipped the MCP trees.
         if tree_nn_results and any(
-            m in tree_nn_results for m in ("mcp_plv", "mcp_ncldv")
+            m in tree_nn_results for m in ("mcp_ncldv", "mcp_mirus", "mcp_plv")
         ):
-            result["capscan_group"] = self._caps_group_from_tree(tree_nn_results)
+            result["capsid_group"] = self._capsid_group_counter(tree_nn_results)
         else:
-            result["capscan_group"] = derive_capscan_group(marker_hits, marker_counts)
+            result["capsid_group"] = ""
 
         phage_unique = sum(1 for m in PHAGE_MODELS if marker_counts.get(m, 0) > 0)
         result["phage_unique"] = phage_unique

@@ -230,23 +230,23 @@ def _write_resume_summary(output_path: Path, query_name: str, taxonomy: str) -> 
 
 
 def _write_resume_final_summary(
-    output_path: Path, query_name: str, taxonomy: str, taxonomy_strict: str
+    output_path: Path, query_name: str, taxonomy: str, taxonomy_confidence: str
 ) -> None:
     with open(output_path / f"{query_name}.final_summary.tsv", "w", newline="") as handle:
         writer = csv.writer(handle, delimiter="\t")
-        writer.writerow(["query", "taxonomy_majority", "taxonomy_strict"])
-        writer.writerow([query_name, taxonomy, taxonomy_strict])
+        writer.writerow(["query", "taxonomy_majority", "taxonomy_confidence"])
+        writer.writerow([query_name, taxonomy, taxonomy_confidence])
 
 
 def _seed_resume_complete_query(
     output_path: Path,
     query_name: str,
     taxonomy: str,
-    taxonomy_strict: str | None = None,
+    taxonomy_confidence: str | None = None,
 ) -> None:
     _write_resume_summary(output_path, query_name, taxonomy)
-    if taxonomy_strict is not None:
-        _write_resume_final_summary(output_path, query_name, taxonomy, taxonomy_strict)
+    if taxonomy_confidence is not None:
+        _write_resume_final_summary(output_path, query_name, taxonomy, taxonomy_confidence)
     (output_path / f"{query_name}.SUCCESS").write_text("{}")
 
 
@@ -318,9 +318,9 @@ def test_gvclass_flow_resume_summary_includes_skipped_queries(
 
     assert [row["query"] for row in rows] == ["q1", "q2", "q3", "q4"]
     assert rows[0]["taxonomy_majority"] == "skipped_q1"
-    assert rows[0]["taxonomy_strict"] == "strict_q1"
+    assert rows[0]["taxonomy_confidence"] == "strict_q1"
     assert rows[1]["taxonomy_majority"] == "skipped_q2"
-    assert rows[1]["taxonomy_strict"] == ""
+    assert rows[1]["taxonomy_confidence"] == ""
     assert rows[2]["taxonomy_majority"] == "processed_q3"
     assert rows[3]["taxonomy_majority"] == "processed_q4"
 
@@ -399,7 +399,7 @@ def test_gvclass_flow_resume_summary_includes_skipped_fna_queries(
 
     assert [row["query"] for row in rows] == ["fna_q1", "fna_q2"]
     assert rows[0]["taxonomy_majority"] == "skipped_fna_q1"
-    assert rows[0]["taxonomy_strict"] == "strict_fna_q1"
+    assert rows[0]["taxonomy_confidence"] == "strict_fna_q1"
     assert rows[1]["taxonomy_majority"] == "processed_fna_q2"
 
 
@@ -450,7 +450,7 @@ def test_gvclass_flow_resume_summary_includes_skipped_split_contigs(
 
     assert [row["query"] for row in rows] == query_names
     assert rows[0]["taxonomy_majority"] == "skipped_contig_one"
-    assert rows[0]["taxonomy_strict"] == "strict_contig_one"
+    assert rows[0]["taxonomy_confidence"] == "strict_contig_one"
     assert rows[1]["taxonomy_majority"] == "processed_source__contig_two"
 
 

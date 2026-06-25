@@ -82,7 +82,7 @@ def test_r2_gate_fires_for_low_r2_order():
     )
     assert result["estimated_completeness_strategy"] == "strategy2_r2_below_gate"
     assert "r2_below_gate" in result["order_completeness_v2_ood_flag"]
-    assert result["estimated_completeness_quality"] == "advisory_only"
+    assert result["completeness_model_reliability"] == "advisory_only"
 
 
 def test_r2_gate_high_quality_above_floor():
@@ -90,7 +90,7 @@ def test_r2_gate_high_quality_above_floor():
     result = scorer.calculate(
         {"OG1": 1, "OG2": 1}, "Algavirales", "", 50.0, 50.0, selected_mode="novelty-aware"
     )
-    assert result["estimated_completeness_quality"] == "high"
+    assert result["completeness_model_reliability"] == "high"
     assert result["estimated_completeness_strategy"] == "novelty_aware_v1"
 
 

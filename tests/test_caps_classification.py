@@ -122,3 +122,77 @@ def test_caps_from_tree_equal_distance_cross_marker_is_ambiguous():
 
 def test_caps_from_tree_empty():
     assert _summarizer()._caps_group_from_tree({}) == ""
+
+
+# --- unified capsid_group counter --------------------------------------------
+_LBL["MIRUS__mir"] = ["MIRUS", "Mirusviricota", "c", "o", "f", "g", "s"]
+
+
+def test_capsid_group_phylum_fallback_ncldv():
+    # generic NCLDV (family not a caps group) -> phylum label
+    assert _summarizer()._capsid_group_counter(
+        {"mcp_ncldv": {"q1": {"NCLDV__realncldv|p": 0.1}}}
+    ) == "Nucleocytoviricota:1"
+
+
+def test_capsid_group_mirus_phylum():
+    assert _summarizer()._capsid_group_counter(
+        {"mcp_mirus": {"q1": {"MIRUS__mir|p": 0.1}}}
+    ) == "Mirusviricota:1"
+
+
+def test_capsid_group_caps_family_preferred_over_phylum():
+    # NCLDV__zeph carries caps family Zephyrvirus AND phylum Nucleocytoviricota;
+    # the caps family wins.
+    assert _summarizer()._capsid_group_counter(
+        {"mcp_ncldv": {"q1": {"NCLDV__zeph|p": 0.1}}}
+    ) == "Zephyrvirus:1"
+
+
+def test_capsid_group_generic_ppv_skipped():
+    # PLV_unclassified family + Preplasmiviricota phylum (not a capsid phylum) -> no label
+    assert _summarizer()._capsid_group_counter(
+        {"mcp_plv": {"q1": {"PPV__generic|p": 0.1}}}
+    ) == ""
+
+
+def test_capsid_group_counts_sorted_by_count_then_label():
+    tnn = {
+        "mcp_ncldv": {"a": {"NCLDV__realncldv|p": 0.1}, "b": {"NCLDV__realncldv|p": 0.1}},
+        "mcp_plv": {"c": {"PPV__pgvv|p": 0.1}},
+    }
+    assert _summarizer()._capsid_group_counter(tnn) == "Nucleocytoviricota:2,PgVV:1"
+
+
+def test_capsid_group_cross_panel_closest_wins():
+    # same protein in two MCP trees -> one vote for the closest placement
+    tnn = {"mcp_plv": {"q1": {"PPV__pgvv|p": 0.2}}, "mcp_ncldv": {"q1": {"NCLDV__realncldv|p": 0.5}}}
+    assert _summarizer()._capsid_group_counter(tnn) == "PgVV:1"
+
+
+def test_capsid_group_equal_distance_cross_type_dropped():
+    tnn = {"mcp_plv": {"q1": {"PPV__pgvv|p": 0.3}}, "mcp_ncldv": {"q1": {"NCLDV__realncldv|p": 0.3}}}
+    assert _summarizer()._capsid_group_counter(tnn) == ""
+
+
+def test_capsid_group_empty():
+    assert _summarizer()._capsid_group_counter({}) == ""
+
+
+# --- tree-aware plv count (shared A32 must not flag NCLDV) --------------------
+def test_plv_count_tree_aware_ppv_placement_counted():
+    mh = {"PLV_PC_054": {"q1"}}
+    tnn = {"PLV_PC_054": {"q1": {"PPV__pgvv|p": 0.1}}}
+    assert _summarizer()._plv_count_tree_aware(mh, tnn) == 1
+
+
+def test_plv_count_tree_aware_ncldv_placement_not_counted():
+    # the A32 case: hits the PLV HMM but places with an NCLDV reference -> not PLV
+    mh = {"PLV_PC_054": {"q1"}}
+    tnn = {"PLV_PC_054": {"q1": {"NCLDV__realncldv|p": 0.1}}}
+    assert _summarizer()._plv_count_tree_aware(mh, tnn) == 0
+
+
+def test_plv_count_tree_aware_fallback_to_hmm_without_tree():
+    mh = {"PLV_PC_054": {"q1", "q2"}}
+    assert _summarizer()._plv_count_tree_aware(mh, None) == 2

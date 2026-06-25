@@ -37,16 +37,16 @@ git rev-parse --abbrev-ref HEAD
 On first run (or `pixi run setup-db`) gvclass downloads and verifies the pinned
 bundle into `./resources/`:
 
-- URL: `https://dl.newlineages.com/gvclass/resources_v1_7_0.tar.gz`
-- Version: `v1.7.0` (capscan/PPV-unified models)
-- Size: ~2.0 GB &nbsp;·&nbsp; SHA-256 `4827ce937e2071f321f6ab0b130d681af5f4fd73099c962133cc5220f1a3a786`
+- URL: `https://dl.newlineages.com/gvclass/resources_v1_7_1.tar.gz`
+- Version: `v1.7.1` (capscan/PPV-unified models + protist-A32 PPV-reference re-curation)
+- Size: ~2.0 GB &nbsp;·&nbsp; SHA-256 `6f8ca4e0f61e094a7d05669e4024e07db9e3c1813fc07172e25113d362512c14`
 
 The URL/version/sha256 are pinned in `config/gvclass_config.yaml`; the download is
 checksum-verified before it is installed. Nothing else to configure.
 
 > Already have a released `resources/` (v1.6.0)? gvclass treats an existing,
 > complete database as up to date and will **not** auto-upgrade. To pull the
-> v1.7.0 bundle, point gvclass at a fresh location:
+> v1.7.1 bundle, point gvclass at a fresh location:
 > `export GVCLASS_DB=/path/to/empty/dir` (or move your old `resources/` aside),
 > then run `pixi run setup-db`.
 

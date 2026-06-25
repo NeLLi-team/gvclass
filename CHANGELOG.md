@@ -15,6 +15,35 @@ compatible bundle is noted per release.
 
 Capscan / Preplasmiviricota augmentation (in progress; ships with a new resource bundle).
 
+### Changed — final summary schema overhaul (breaking)
+
+The `gvclass_summary.tsv` columns changed:
+- Removed `taxonomy_strict`. Promoted `species_tree_nn_taxonomy` next to
+  `taxonomy_majority` (value `no-species-tree-calculated` without `--species-tree`).
+- Renamed `estimated_completeness_quality` → `completeness_model_reliability`;
+  dropped `estimated_completeness_advisory` and `estimated_completeness_r2_holdout`.
+- Replaced the Bellas-only `capscan_group` with a unified `capsid_group`
+  (`label:count` across the NCLDV/Mirus phyla + caps groups, e.g.
+  `Nucleocytoviricota:4,Gossevirus:1`).
+- Retired `vp_df` / `mirus_df`; dropped `cellular_dup`; added `cellular_unique` /
+  `cellular_total`.
+- Moved the per-contig contamination diagnostics (`cellular_coherent_*`,
+  `cellular_lineage_purity_median`, `cellular_hit_identity_median`,
+  `viral_bearing_contig_count`, `contig_attribution_mode`) to a new always-on
+  supplementary table `gvclass_summary.extended.tsv`.
+
+Stale per-query `.final_summary.tsv` resume files lose renamed/removed columns
+gracefully on re-read (name-keyed; no crash).
+
+### Fixed — spurious single-gene PPV hits on NCLDV genomes
+- Taxonomy now casts **one vote per physical query protein** (its nearest tree
+  placement across markers), so a shared core gene — e.g. the A32 packaging
+  ATPase, marker `PLV_PC_054` — can no longer cast multiple/cross-domain votes.
+- Re-curated the PPV reference set: 254 protist-derived proteins (mostly
+  NCLDV-like A32 carved out of EUK-co-labeled P10K/GCA/EP assemblies and
+  mislabeled PPV) were reassigned to their true domain by blast against
+  non-protist viral references. Ships with the new resource bundle.
+
 ### Added
 - **`--species-tree`: opt-in NCLDV GVOG8 supermatrix species tree + tree-placement
   taxonomy.** For genomes gvclass calls NCLDV, the run gathers each query's nearest
@@ -61,10 +90,10 @@ Capscan / Preplasmiviricota augmentation (in progress; ships with a new resource
   groups. References are curated anti-circularly (external, not GVClass's own homologs);
   the PgVV group is held out for validation (held-out PgVV proteins place to the PgVV
   group 43/43).
-- **`capscan_group` summary column** reports the Bellas capsid group from the MCP-tree
-  nearest-neighbour placement (the neighbour's family rank), replacing a best-HMM-hit
-  heuristic. It is an advisory field next to the taxonomy consensus; non-capsid genomes
-  report an empty group.
+- **`capsid_group` summary column** (superseding the earlier Bellas-only `capscan_group`;
+  see *Changed* above) reports a unified capsid-type tally from the MCP-tree
+  nearest-neighbour placements — caps families plus the Nucleocytoviricota/Mirusviricota
+  phyla — as `label:count` (e.g. `Nucleocytoviricota:4,Gossevirus:1`).
 
 ## [1.6.1] - 2026-05-31
 

@@ -7,11 +7,12 @@ database:
   # If not found, will be downloaded automatically
   path: resources
   # Release asset used for first-time setup.
-  # gvclass-dev: points at the alpha-test resources (v1.7.0, capscan/PPV models)
-  # served over the Cloudflare tunnel. Main/release uses the Zenodo asset.
-  download_url: https://dl.newlineages.com/gvclass/resources_v1_7_0.tar.gz
-  download_version: v1.7.0
-  download_sha256: 4827ce937e2071f321f6ab0b130d681af5f4fd73099c962133cc5220f1a3a786
+  # gvclass-dev: points at the alpha-test resources (v1.7.1, capscan/PPV models +
+  # protist-derived-A32 PPV-reference re-curation) served over the Cloudflare
+  # tunnel. Main/release uses the Zenodo asset.
+  download_url: https://dl.newlineages.com/gvclass/resources_v1_7_1.tar.gz
+  download_version: v1.7.1
+  download_sha256: 6f8ca4e0f61e094a7d05669e4024e07db9e3c1813fc07172e25113d362512c14
   # Expected size for validation (in MB)
   expected_size: 2005
 

@@ -4,11 +4,11 @@
 # Database configuration
 database:
   path: resources
-  # gvclass-dev alpha-test resources (v1.7.0) via the Cloudflare tunnel.
-  download_url: https://dl.newlineages.com/gvclass/resources_v1_7_0.tar.gz
-  download_version: v1.7.0
-  download_sha256: 4827ce937e2071f321f6ab0b130d681af5f4fd73099c962133cc5220f1a3a786
-  expected_size: 1752
+  # gvclass-dev alpha-test resources (v1.7.1) via the Cloudflare tunnel.
+  download_url: https://dl.newlineages.com/gvclass/resources_v1_7_1.tar.gz
+  download_version: v1.7.1
+  download_sha256: 6f8ca4e0f61e094a7d05669e4024e07db9e3c1813fc07172e25113d362512c14
+  expected_size: 2005
 
 # Pipeline settings - optimized for testing
 pipeline:

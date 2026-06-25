@@ -9,6 +9,7 @@ from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from src.pipeline.query_processor import run_query_processing
 from src.pipeline.summary_writer import (
     read_individual_summary_results,
+    write_final_summary_extended_files,
     write_final_summary_files,
 )
 from src.utils import InputValidator
@@ -87,8 +88,10 @@ def create_final_summary_task(results: List[Dict[str, Any]], output_dir: Path) -
     logger.info(f"Creating final summary for {len(results)} queries")
     summary_tsv = write_final_summary_files(results, output_dir)
     summary_csv = output_dir / "gvclass_summary.csv"
+    extended_tsv = write_final_summary_extended_files(results, output_dir)
     logger.info(f"Summary written to: {summary_tsv}")
     logger.info(f"CSV summary written to: {summary_csv}")
+    logger.info(f"Extended diagnostics written to: {extended_tsv}")
     logger.info("All query processing complete")
     logger.info("Post-processing complete")
     return summary_tsv

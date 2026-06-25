@@ -152,9 +152,14 @@ LEGACY_SUMMARY_KEY_MAPPING: Dict[str, str] = {
 FINAL_SUMMARY_COLUMNS: List[str] = [
     "query",
     "taxonomy_majority",
-    "taxonomy_strict",
+    # Concatenated-marker species-tree placement — a strong phylogenomic signal,
+    # so it sits up front next to the single-gene-consensus taxonomy_majority.
+    # Value is "no-species-tree-calculated" when the run built no species tree.
+    "species_tree_nn_taxonomy",
     "taxonomy_confidence",
-    "capscan_group",
+    # Unified capsid-type tally across all MCP panels (NCLDV/Mirus/PPV caps
+    # groups), e.g. "Nucleocytoviricota:4,Gossevirus:1".
+    "capsid_group",
     "species",
     "genus",
     "family",
@@ -165,19 +170,9 @@ FINAL_SUMMARY_COLUMNS: List[str] = [
     "avgdist",
     "order_dup",
     "estimated_completeness",
-    "estimated_completeness_quality",
-    "estimated_completeness_advisory",
-    "estimated_completeness_r2_holdout",
+    "completeness_model_reliability",
     "estimated_contamination",
     "contamination_type",
-    # Per-contig taxonomic-purity features (v1.4.3 Phase 2).
-    "cellular_coherent_contig_count",
-    "cellular_coherent_protein_fraction",
-    "cellular_coherent_bp_fraction",
-    "cellular_lineage_purity_median",
-    "cellular_hit_identity_median",
-    "viral_bearing_contig_count",
-    "contig_attribution_mode",
     "gvog4_unique",
     "gvog8_unique",
     "gvog8_total",
@@ -187,26 +182,38 @@ FINAL_SUMMARY_COLUMNS: List[str] = [
     "vp_completeness",
     "vp_mcp",
     "plv",
-    "vp_df",
     "mirus_completeness",
-    "mirus_df",
     "mrya_unique",
     "mrya_total",
     "phage_unique",
     "phage_total",
-    "cellular_dup",
+    "cellular_unique",
+    "cellular_total",
     "contigs",
     "LENbp",
     "GCperc",
     "genecount",
     "CODINGperc",
     "ttable",
-    # Opt-in --species-tree placement columns (blank unless the run built a
-    # species tree and the query is NCLDV/PPV/MIRUS and passed the marker floor).
-    "species_tree_nn_taxonomy",
+    # --species-tree placement detail (blank unless a species tree was built).
     "species_tree_nn_genome",
     "species_tree_nn_distance",
     "species_tree_clade_id",
+]
+
+
+# Always-on supplementary table (gvclass_summary.extended.tsv): per-contig
+# taxonomic-purity / contamination diagnostics that are 0 for clean single-virus
+# genomes and only meaningful under cellular contamination.
+EXTENDED_SUMMARY_COLUMNS: List[str] = [
+    "query",
+    "cellular_coherent_contig_count",
+    "cellular_coherent_protein_fraction",
+    "cellular_coherent_bp_fraction",
+    "cellular_lineage_purity_median",
+    "cellular_hit_identity_median",
+    "viral_bearing_contig_count",
+    "contig_attribution_mode",
 ]
 
 FAILED_QUERY_COLUMNS: List[str] = ["query", "status", "error"]
@@ -215,11 +222,7 @@ TWO_DECIMAL_COLUMNS = {
     "avgdist",
     "order_dup",
     "gvog8_dup",
-    "vp_df",
-    "mirus_df",
-    "cellular_dup",
     "estimated_completeness",
-    "estimated_completeness_advisory",
     "estimated_contamination",
     "GCperc",
     "CODINGperc",
@@ -233,9 +236,7 @@ TWO_DECIMAL_COLUMNS = {
 }
 
 # Quality metrics that must keep higher precision than the default .0f fallback.
-FOUR_DECIMAL_COLUMNS = {
-    "estimated_completeness_r2_holdout",
-}
+FOUR_DECIMAL_COLUMNS: set = set()
 
 LEGACY_TWO_DECIMAL_COLUMNS = {
     "avgdist",
@@ -355,6 +356,34 @@ def write_final_summary_files(results: List[Dict[str, Any]], output_dir: Path) -
     return summary_tsv
 
 
+def write_final_summary_extended_files(
+    results: List[Dict[str, Any]], output_dir: Path
+) -> Path:
+    """Write the always-on supplementary diagnostics table.
+
+    gvclass_summary.extended.tsv / .csv carries the per-contig contamination
+    features that are 0 for clean single-virus genomes (kept out of the main
+    table for readability).
+    """
+    extended_tsv = output_dir / "gvclass_summary.extended.tsv"
+    extended_csv = output_dir / "gvclass_summary.extended.csv"
+    summary_results, _ = _partition_summary_results(results)
+    with open(extended_tsv, "w") as tsv_file, open(
+        extended_csv, "w", newline=""
+    ) as csv_file:
+        csv_writer = csv.writer(csv_file)
+        tsv_file.write("\t".join(EXTENDED_SUMMARY_COLUMNS) + "\n")
+        csv_writer.writerow(EXTENDED_SUMMARY_COLUMNS)
+        for result in sorted(summary_results, key=lambda item: item["query"]):
+            row = [
+                _format_final_summary_value(column, result["summary_data"].get(column, ""))
+                for column in EXTENDED_SUMMARY_COLUMNS
+            ]
+            tsv_file.write("\t".join(row) + "\n")
+            csv_writer.writerow(row)
+    return extended_tsv
+
+
 def _partition_summary_results(
     results: List[Dict[str, Any]]
 ) -> tuple[List[Dict[str, Any]], List[Dict[str, str]]]:
@@ -455,10 +484,13 @@ def _build_final_summary_row(result: Dict[str, Any]) -> List[str]:
         return [result["query"]] + [""] * (len(FINAL_SUMMARY_COLUMNS) - 1)
 
     summary_data = result["summary_data"]
-    return [
-        _format_final_summary_value(column, summary_data.get(column, ""))
-        for column in FINAL_SUMMARY_COLUMNS
-    ]
+    row: List[str] = []
+    for column in FINAL_SUMMARY_COLUMNS:
+        value = summary_data.get(column, "")
+        if column == "species_tree_nn_taxonomy" and value in ("", None):
+            value = "no-species-tree-calculated"
+        row.append(_format_final_summary_value(column, value))
+    return row
 
 
 def _format_final_summary_value(column: str, value: Any) -> str:
