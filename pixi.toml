@@ -1,6 +1,6 @@
 [workspace]
 name = "gvclass"
-version = "1.6.1"
+version = "2.0.0"
 description = "Giant virus classification tool using phylogenetic analysis"
 authors = ["fschulz@lbl.gov"]
 channels = ["conda-forge", "bioconda"]

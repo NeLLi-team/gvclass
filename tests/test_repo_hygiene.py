@@ -23,14 +23,9 @@ def _git_ls_files(path: str) -> str:
 
 
 def _software_version() -> str:
-    version_file = REPO_ROOT / "src" / "__version__.py"
-    match = re.search(
-        r'^__version__\s*=\s*"([^"]+)"',
-        version_file.read_text(),
-        flags=re.MULTILINE,
-    )
-    assert match is not None
-    return match.group(1)
+    # pyproject.toml is the single version provenance (see src/__version__.py).
+    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())
+    return str(pyproject["project"]["version"])
 
 
 def test_readme_local_links_resolve_to_tracked_files() -> None:
