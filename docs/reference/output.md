@@ -14,6 +14,8 @@ Written to the root of the output directory.
 | `gvclass_summary.csv` | Same content as `gvclass_summary.tsv`, comma-separated. |
 | `gvclass_summary.extended.tsv` | Always-on per-contig contamination diagnostics, one row per query, tab-separated. |
 | `gvclass_summary.extended.csv` | Same content as the extended TSV, comma-separated. |
+| `gvclass_failed_queries.tsv` | Written only when one or more queries fail; one row per failed query with its error. Tab-separated. |
+| `gvclass_failed_queries.csv` | Same content as the failed-queries TSV, comma-separated. |
 
 ### Per-query files
 

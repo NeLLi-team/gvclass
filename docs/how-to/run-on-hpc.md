@@ -24,7 +24,7 @@ The positional order is query then results. This differs from the pixi CLI, wher
 On first use the wrapper pulls `library://nelligroup-jgi/gvclass/gvclass:2.0.0` from the public Sylabs library (no access token) and caches the SIF under `~/.cache/gvclass/images/`. Later runs reuse the cached image. The image carries the database (about 700 MB) and all tools, so you skip database setup entirely.
 
 !!! note
-    The wrapper calls `apptainer`, which must be on your `PATH`. Many clusters expose it through a module, for example `module load apptainer` or `module load singularity`.
+    The wrapper calls `apptainer`, which must be on your `PATH`. Many clusters expose it through a module, for example `module load apptainer`. The wrapper invokes `apptainer` by name, so a `singularity`-only module will not satisfy it.
 
 ## Wrapper options
 
@@ -79,7 +79,7 @@ gvclass-a /scratch/$USER/bins /scratch/$USER/gvclass_results -t "$SLURM_CPUS_PER
 Save it as `gvclass.sbatch` and submit with `sbatch gvclass.sbatch`. Using `$SLURM_CPUS_PER_TASK` for `-t` keeps the thread count tied to `--cpus-per-task`, so editing one value updates both.
 
 !!! note
-    The `--cluster-type slurm`, `--cluster-queue`, `--cluster-project`, and `--cluster-walltime` flags belong to the pixi CLI (`./gvclass`), not the `gvclass-a` wrapper. Use them when GVClass itself submits work to the scheduler. See the [CLI reference](../reference/cli.md).
+    The `--cluster-type`, `--cluster-queue`, `--cluster-project`, and `--cluster-walltime` flags are accepted by the pixi CLI (`./gvclass`) but currently have no effect. GVClass parallelizes across the cores of its allocation, so submit the whole run as one batch job (above) rather than relying on these flags. See the [CLI reference](../reference/cli.md).
 
 ## Run the image yourself
 

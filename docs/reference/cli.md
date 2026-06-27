@@ -6,7 +6,7 @@ GVClass runs from the repository through pixi, or from the `gvclass-a` Apptainer
 pixi run gvclass QUERY_DIR -o OUTPUT_DIR -t THREADS [options]
 ```
 
-Run this from the repository directory so the `./gvclass` launcher can resolve `src/`. The `gvclass-a` Apptainer wrapper takes positional arguments in the order `query_dir` then `results_dir` (no `-o`) and exposes a subset of these flags: `-t`, `--tree-method`, `--mode-fast`, `-j`/`--max-workers`, `--sensitive`, `--contigs`.
+Run this from the repository directory so the `./gvclass` launcher can resolve `src/`. The `gvclass-a` Apptainer wrapper takes the input as the first positional argument and the output directory either as an optional second positional argument or with `-o`/`--output-dir` (default `<query>_results`). It exposes `-t`/`--threads`, `--tree-method`, `--mode-fast`, `-e`/`--extended`, `-j`/`--max-workers`, `--sensitive`, `--contigs`, and `--image` (override the bundled SIF).
 
 CLI arguments override config keys, which override built-in defaults.
 
@@ -65,9 +65,12 @@ See [build a species tree](../how-to/build-a-species-tree.md) and [the species t
 
 See [run on HPC](../how-to/run-on-hpc.md).
 
+!!! note
+    These flags are accepted but currently have no effect: GVClass runs locally and parallelizes across the cores of the machine or allocation it is launched on. To use a scheduler, submit a GVClass run as a single batch job, as shown in [run on HPC](../how-to/run-on-hpc.md).
+
 | Option | Argument/Default | Description |
 | --- | --- | --- |
-| `--cluster-type` | `{local,slurm,pbs,sge}`; default `local` | Cluster scheduler. |
+| `--cluster-type` | `{local,slurm,pbs,sge}`; default `local` | Intended scheduler; parsed but currently inert. |
 | `--cluster-queue` | string | Queue/partition for cluster jobs. |
 | `--cluster-project` | string | Project/account for cluster billing. |
 | `--cluster-walltime` | string; default `04:00:00` | Walltime for cluster jobs. |

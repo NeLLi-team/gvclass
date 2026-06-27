@@ -38,7 +38,7 @@ Apptainer (HPC):
 ```bash
 wget https://raw.githubusercontent.com/NeLLi-team/gvclass/gvclass-dev/gvclass-a
 chmod +x gvclass-a
-./gvclass-a query results -t 32
+./gvclass-a QUERY_DIR RESULTS_DIR -t 32
 ```
 
 The Apptainer image bundles the database and dependencies. See [Getting started](https://NeLLi-team.github.io/gvclass/tutorials/getting-started/) for the full walkthrough.
@@ -67,4 +67,4 @@ The GVClass runtime resources include genomes and models derived from:
 
 ## License and contact
 
-BSD 3-Clause (see `LICENSE`). Report issues at https://github.com/NeLLi-team/gvclass/issues or contact fschulz@lbl.gov.
+BSD 3-Clause (see `LICENCE`). Report issues at https://github.com/NeLLi-team/gvclass/issues or contact fschulz@lbl.gov.

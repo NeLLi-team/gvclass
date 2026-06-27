@@ -28,7 +28,7 @@ Each genome returns a majority-vote taxonomy with a [confidence flag](reference/
     ```bash
     wget https://raw.githubusercontent.com/NeLLi-team/gvclass/gvclass-dev/gvclass-a
     chmod +x gvclass-a
-    ./gvclass-a query results -t 32
+    ./gvclass-a QUERY_DIR RESULTS_DIR -t 32
     ```
 
 For the full walkthrough, see [Getting started](tutorials/getting-started.md).

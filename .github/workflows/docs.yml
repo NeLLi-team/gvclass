@@ -5,11 +5,10 @@ on:
     branches: [main]
   pull_request:
 
-# Least privilege: build needs only read; deploy needs pages + id-token (OIDC).
+# Least privilege: the whole workflow is read-only by default; only the deploy job
+# is granted Pages + OIDC write (below), so PR builds cannot deploy or mint tokens.
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: pages
@@ -35,6 +34,10 @@ jobs:
     needs: build
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
