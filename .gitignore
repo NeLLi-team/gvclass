@@ -16,7 +16,10 @@ update
 resources/
 CLAUDE.md
 AGENTS.md
-docs/
+# Internal working docs stay out of git; the published MkDocs site under docs/ is tracked.
+docs/handoffs/
+docs/plans/
+docs/quality_metrics.md
 tasks/
 release_notes/
 scripts/rotate_contamination_model.py
@@ -68,3 +71,11 @@ memory.md
 scripts/relabel_issue17_vp_to_plv.py
 scripts/resolve_collisions_by_blast.py
 scripts/build_caps_refs_figshare.py
+
+# MkDocs build artifacts (not committed)
+site/
+.venv-docs/
+# Cloudflare Wrangler/Pages cache from private-repo doc preview
+.wrangler/
+# docs/reference/output.md is a real docs page; exempt it from the broad out* rule above
+!docs/reference/output.md
