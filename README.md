@@ -63,7 +63,7 @@ The GVClass runtime resources include genomes and models derived from:
 
 > Vasquez YM, Nardi T, Terasaki GM, et al. (2025): Genome-resolved expansion of Nucleocytoviricota and Mirusviricota reveals new diversity, functional potential, and biotechnological applications. bioRxiv 2025.09.26.678796. https://doi.org/10.1101/2025.09.26.678796
 
-> Bellas CM, Sommaruga R (2021): Polinton-like viruses are abundant in aquatic ecosystems. Microbiome 9:13. https://doi.org/10.1186/s40168-020-00956-0
+> Bellas CM, Sommaruga R (2026): A framework for Polinton-like virus diversity across aquatic microbiomes reveals links to multiple viral classes and Nucleocytoviricota. bioRxiv 2026.06.19.733378. https://doi.org/10.64898/2026.06.19.733378
 
 ## License and contact
 
