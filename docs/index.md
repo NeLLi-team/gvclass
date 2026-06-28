@@ -1,8 +1,8 @@
 # GVClass
 
-GVClass assigns taxonomy to giant virus contigs and metagenome-assembled genomes (GVMAGs) by phylogenetic placement against [giant virus orthologous groups (GVOGs)](reference/markers.md). It covers Nucleocytoviricota (NCLDV), Mirusviricota, and Preplasmiviricota (PPV). Calls from domain through family are reliable. [Genus and species are a nearest-reference label](explanation/taxonomy.md), not an ICTV assignment.
+GVClass assigns taxonomy to giant virus genomes and metagenome-assembled genomes by phylogenetic placement against a comprehensive reference genome database. It covers Nucleocytoviricota (NCLDV), Mirusviricota, and Preplasmiviricota (PPV). It predicts taxonomy from domain down to genus and species level, assigning a [nearest-reference label](explanation/taxonomy.md).
 
-Each genome returns a majority-vote taxonomy with a [confidence flag](reference/output.md), plus [completeness and contamination metrics](explanation/quality-metrics.md) tuned for giant viruses. The taxonomy comes from a per-marker tree nearest-neighbor vote across the GVOG panels. The contamination estimate is calibrated so the eukaryote-like genes giant viruses acquire by horizontal transfer do not count against a clean bin.
+Each genome returns a majority-vote taxonomy with a [confidence flag](reference/output.md), plus [completeness and contamination metrics](explanation/quality-metrics.md) tuned for giant viruses. The taxonomy comes from a per-marker tree nearest-neighbor vote across the GVOG panels.
 
 ## Where to go
 
@@ -39,6 +39,6 @@ For the full walkthrough, see [Getting started](tutorials/getting-started.md).
 
 ## Citation, license, contact
 
-Cite Pitot et al. (2024), *Conservative taxonomy and quality assessment of giant virus genomes with GVClass*, npj Viruses, https://www.nature.com/articles/s44298-024-00069-7.
+Cite Pitot et al. (2024), [*Conservative taxonomy and quality assessment of giant virus genomes with GVClass*](https://www.nature.com/articles/s44298-024-00069-7), npj Viruses.
 
 Licensed under BSD-3-Clause. Questions and bugs go to [GitHub Issues](https://github.com/NeLLi-team/gvclass/issues) or fschulz@lbl.gov.

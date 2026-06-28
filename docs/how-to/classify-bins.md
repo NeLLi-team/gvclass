@@ -6,11 +6,13 @@ Metagenomic binning gives you one FASTA per putative genome. GVClass takes a dir
 
 Put one FASTA file per putative genome in a single directory. A file may hold several contigs that belong to the same genome; GVClass treats the whole file as one query. Use nucleotide FASTA (`.fna`) or protein FASTA (`.faa`).
 
-For reliable giant-virus calls, mind the assembled length:
+For reliable giant-virus calls, mind the assembled length and gene content:
 
-- Minimum supported: about 20 kb.
+- Minimum: 20 kb of total assembled sequence per file. GVClass rejects shorter nucleotide inputs unless you pass `--allow-short`; the 20 kb floor is fixed and has no lower setting, so `--allow-short` turns the check off rather than lowering it.
 - Better reliability: at or above 30 kb.
 - Preferred: at or above 50 kb.
+
+Length is really a proxy for gene content. GVClass infers taxonomy by placing marker genes in reference trees, so a query needs to carry several genes for the method to work. A short fragment with only one or two predicted proteins rarely hits enough markers, and GVClass cannot assign a taxonomy when no markers are found.
 
 Keep filenames clean. The filename becomes the query name, so avoid `.`, `;`, and `:`. Use `_` or `-` instead. For protein input, write headers as `filename|proteinid`.
 

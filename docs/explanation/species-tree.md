@@ -23,6 +23,10 @@ Before inference the concatenated columns are trimmed, and the trimmer is a deli
 
 For routine placement the default is the safe choice. On large batches where wall-clock matters, `pytrimal` trims the same alignment in a fraction of the time. See [Tune speed and accuracy](../how-to/tune-speed-and-accuracy.md) for the broader speed picture.
 
+## Inference and the substitution model
+
+The trimmed supermatrix goes to VeryFastTree by default, the same speed-first inference used for the per-marker gene trees. For a more accurate, fully model-based placement, pass `--tree-method iqtree`: GVClass then builds the species tree with IQ-TREE under `Q.pfam+R10+F`, the empirical Q.pfam amino-acid exchange matrix paired with a ten-category FreeRate model of among-site rate variation (`+R10`) and empirical amino-acid frequencies (`+F`). This model was not arbitrary. Across the GVMAGs V2 framework several substitution models were tested for Nucleocytoviricota species-tree inference, and `Q.pfam+R10+F` gave the most robust topologies across different datasets and marker-gene sets ([Vasquez et al. 2025](https://doi.org/10.1101/2025.09.26.678796)). The `--iqtree-mode` flag then chooses a quick `--fast` search or an ultrafast-bootstrap search; see [Tune speed and accuracy](../how-to/tune-speed-and-accuracy.md).
+
 ## What is reproducible, and what is not
 
 The numbers around a placement are not deterministic, and it helps to be precise about which parts move. Tree inference runs multithreaded, and with more than one thread the topology, the exact set of reference genomes that end up in the supermatrix, and the six-decimal distances can all differ from one run to the next on identical input. The placement itself is stable to this. The nearest-reference taxonomy in `species_tree_nn_taxonomy` does not drift, even when the distance in `species_tree_nn_distance` changes in its trailing digits. When you need byte-identical output, for a regression test or a figure you have to reproduce exactly, run with `--threads 1`.

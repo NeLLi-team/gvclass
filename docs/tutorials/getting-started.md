@@ -102,17 +102,19 @@ Notice that an `example_results/` directory now exists. The combined table you w
 
 Open `example_results/gvclass_summary.tsv`. It has one row per query and 44 columns. A few of those columns tell you most of what you want at a glance.
 
-| query | order | taxonomy_confidence | estimated_completeness | estimated_contamination | contamination_type | ttable |
-|-------|-------|---------------------|------------------------|-------------------------|--------------------|--------|
-| AC3300027503___Ga0255182_1000024 | Imitervirales | high | 100.00 | 0.00 | clean | codemeta |
-| GVMAG-S-1096109-37 | Pimascovirales | high | 82.86 | 0.08 | clean | codemeta |
-| PkV-RF01 | Imitervirales | high | 100.00 | 0.00 | clean | no_fna |
+| query | taxonomy_majority | taxonomy_confidence | estimated_completeness | estimated_contamination | contamination_type | ttable |
+|-------|-------------------|---------------------|------------------------|-------------------------|--------------------|--------|
+| AC3300027503___Ga0255182_1000024 | d_NCLDV;p_Nucleocytoviricota;c_Megaviricetes;o_Imitervirales;f_IM_01;g_g2284;s_S392 | high | 100.00 | 0.00 | clean | codemeta |
+| GVMAG-S-1096109-37 | d_NCLDV;p_Nucleocytoviricota;c_Megaviricetes;o_Pimascovirales;f_PM_01;g_g94;s_S679 | high | 82.86 | 0.08 | clean | codemeta |
+| PkV-RF01 | d_NCLDV;p_Nucleocytoviricota;c_Megaviricetes;o_Imitervirales;f_IM_19;g_g1787;s_singleton | high | 100.00 | 0.00 | clean | no_fna |
 
-The `order` value comes from `taxonomy_majority`, the per-marker tree majority vote. All three queries classify with `high` confidence and a `clean` contamination type, which is what a high-quality giant virus genome looks like. For what completeness and contamination mean, see [Completeness and contamination](../explanation/quality-metrics.md).
+`taxonomy_majority` is the full lineage, from domain (`d_`) through species (`s_`), produced by the per-marker single-gene-tree nearest-neighbor majority vote. All three queries classify with `high` confidence and a `clean` contamination type, which is what a high-quality giant virus genome looks like. For what completeness and contamination mean, see [Completeness and contamination](../explanation/quality-metrics.md).
+
+The summary also reports one column per rank (`domain`, `phylum`, `class`, `order`, `family`, `genus`, `species`), but these do not simply repeat the lineage. Each holds the vote behind that rank as a distribution of single-protein-tree calls with counts and percentages. For `AC3300027503___Ga0255182_1000024` the `order` column reads `NCLDV__Imitervirales:19(95.00%),PLV_other:1(5.00%)`: nineteen of the twenty single-protein trees placed the query in Imitervirales and one landed elsewhere, so Imitervirales becomes the order in `taxonomy_majority`. See [Output files and columns](../reference/output.md) for every column.
 
 `PkV-RF01` was a protein (`.faa`) input, so GVClass skipped gene calling: its genetic code shows `no_fna`, and the GC content and coding-density columns are not computed for it. The two `.fna` bins were gene-called, so they report a real genetic code (`codemeta`) and nucleotide statistics.
 
-That is a full GVClass run. The output should match the table above, and `example_results/` now holds the per-query files alongside the combined summary.
+That is a full GVClass run. `example_results/` now holds the per-query files alongside the combined summary; exact vote counts and distances can shift slightly from run to run because tree inference is multithreaded.
 
 ## Next steps
 

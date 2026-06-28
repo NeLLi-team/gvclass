@@ -10,7 +10,7 @@
 
 # GVClass — Giant Virus Classification
 
-GVClass assigns taxonomy to giant virus contigs and metagenome-assembled genomes (GVMAGs) by phylogenetic placement against giant virus orthologous groups (GVOGs). It covers Nucleocytoviricota (NCLDV), Mirusviricota, and Preplasmiviricota (PPV). Calls from domain through family are reliable; genus and species are a nearest-reference label, not an ICTV assignment. Each genome returns a majority-vote taxonomy with a confidence flag, plus completeness and contamination metrics tuned for giant viruses.
+GVClass assigns taxonomy to giant virus genomes and metagenome-assembled genomes by phylogenetic placement against a comprehensive reference genome database. It covers Nucleocytoviricota (NCLDV), Mirusviricota, and Preplasmiviricota (PPV). It predicts taxonomy from domain down to genus and species level, assigning a nearest-reference label. Each genome returns a majority-vote taxonomy with a confidence flag, plus completeness and contamination metrics tuned for giant viruses.
 
 ## Documentation
 
