@@ -37,15 +37,15 @@ Each `{panel}_dup` column is a duplication factor, total marker hits divided by 
 
 ## Check for cellular carry-over
 
-Giant viruses obligately lack the single-copy markers that cellular genomes carry, so any of those markers signals sequence from a host or a co-binned cell. Watch two panels and their duplication factors:
+Giant viruses obligately lack the conserved cellular markers that cellular genomes carry, so any of those markers signals sequence from a host or a co-binned cell. Watch two panels and their duplication factors:
 
-- `busco_completeness` (`n/255`) with `busco_dup`: eukaryotic BUSCO single-copy markers
-- `cog_completeness` (`n/56`) with `cog_dup`: universal prokaryotic COG (UNI56) single-copy markers
+- `busco_completeness` (`n/255`) with `busco_dup`: eukaryotic BUSCO markers
+- `cog_completeness` (`n/56`) with `cog_dup`: universal cellular COG (UNI56) markers
 
 A non-zero `busco_completeness` or `cog_completeness`, especially with an elevated `_dup`, points to cellular carry-over. See [the markers reference](../reference/markers.md) for every panel.
 
 !!! warning
-    Giant viruses carry many eukaryote-like genes acquired by horizontal gene transfer. GVClass does NOT count those as contamination; the cellular signal is restricted to conserved translation-machinery HMMs (BUSCO eukaryotic plus UNI56 prokaryotic) that giant viruses lack. `mixed_viral` likewise means several viral orders mixed in one bin, not host genes. See [quality metrics](../explanation/quality-metrics.md) for the reasoning.
+    Giant viruses carry many eukaryote-like genes acquired by horizontal gene transfer. GVClass does NOT count those as contamination; the cellular signal is restricted to conserved cellular HMMs (BUSCO eukaryotic plus UNI56 universal cellular) that giant viruses lack. `mixed_viral` likewise means several viral orders mixed in one bin, not host genes. See [quality metrics](../explanation/quality-metrics.md) for the reasoning.
 
 ## Look deeper
 

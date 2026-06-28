@@ -1,6 +1,6 @@
 # Completeness and contamination
 
-Standard genome quality checks assume a tidy single-copy core and treat anything host-like as contamination. Neither assumption survives contact with a giant virus genome. Nucleocytoviricota genomes are gene-rich, and they routinely carry genes that look eukaryotic, so a checker built for bacterial or eukaryotic MAGs would flag almost every real giant virus as contaminated. GVClass measures quality with metrics tuned to that biology. Each bin gets two headline numbers, `estimated_completeness` and `estimated_contamination`, plus supporting columns that say how far to trust them.
+Standard genome quality checks assume a tidy single-copy core and treat anything host-like as contamination. This does not apply to giant virus genomes. Nucleocytoviricota genomes are gene-rich, and they routinely carry genes that look eukaryotic, so a checker built for bacterial or eukaryotic MAGs would flag almost every real giant virus as contaminated. GVClass measures quality with metrics tuned to that biology. Each bin gets two headline numbers, `estimated_completeness` and `estimated_contamination`, plus supporting columns that say how far to trust them.
 
 ## How complete is the genome
 
@@ -14,13 +14,13 @@ The companion column `completeness_model_reliability` is easy to misread. It tak
 
 ## What contamination means for a giant virus
 
-Here the giant virus case departs sharply from cellular genome QC. Nucleocytoviricota genomes carry hundreds of eukaryote-like genes acquired by horizontal gene transfer from their hosts and prey, spanning metabolism, cytoskeletal proteins, nutrient transport, and DNA repair. A contamination checker built for cellular MAGs would read those host-like genes as foreign DNA and condemn the genome. GVClass does not count them. The HGT-derived gene content is a genuine feature of giant virus biology, and penalizing it would reject nearly every legitimate genome.
+Here the giant virus case departs sharply from cellular genome QC. Some Nucleocytoviricota genomes carry hundreds of eukaryote-like genes acquired by horizontal gene transfer from their hosts and prey, spanning metabolism, cytoskeletal proteins, nutrient transport, and DNA repair. A contamination checker built for cellular MAGs would read those host-like genes as foreign DNA and condemn the genome. GVClass does not count them. The HGT-derived gene content is a genuine feature of giant virus biology, and penalizing it would reject nearly every legitimate genome.
 
-To separate real cellular contamination from this HGT background, GVClass restricts the cellular signal to conserved single-copy markers of the translation machinery that giant viruses obligately lack: the eukaryotic BUSCO set (255 markers) and the prokaryotic UNI56 set (56 markers). Giant viruses depend on the host ribosome and do not encode a complete translation apparatus, so a clean giant virus bin carries essentially none of these markers. When they do appear, they point to cellular DNA that co-binned with the virus rather than to viral HGT. That is the contamination GVClass is built to catch. The [marker reference](../reference/markers.md) lists each panel and its size.
+To separate real cellular contamination from this HGT background, GVClass restricts the cellular signal to conserved cellular marker genes that giant viruses obligately lack: the eukaryotic BUSCO set (255 markers) and the universal cellular UNI56 set (56 markers). Giant viruses lack a complete cellular housekeeping repertoire and depend on the host for it, so a clean giant virus bin carries essentially none of these markers. When they do appear, they point to cellular DNA that co-binned with the virus rather than to viral HGT. That is the contamination GVClass is built to catch. The [marker reference](../reference/markers.md) lists each panel and its size.
 
 !!! note
 
-    GVClass does not penalize the eukaryote-like genes that giant viruses acquire by HGT. Only the conserved translation-machinery markers (BUSCO and UNI56) that a virus cannot legitimately carry feed `estimated_contamination`.
+    GVClass does not penalize the eukaryote-like genes that giant viruses acquire by HGT. Only the conserved cellular markers (BUSCO and UNI56) that a virus cannot legitimately carry feed `estimated_contamination`.
 
 ## The contamination estimate
 
@@ -28,7 +28,7 @@ To separate real cellular contamination from this HGT background, GVClass restri
 
 ## Naming the source of contamination
 
-When `estimated_contamination` reaches 10 or higher, GVClass fills in `contamination_type` to suggest where the extra DNA came from. The categories are `clean`, `cellular`, `mixed_viral`, `phage`, `duplication`, and `uncertain`. Two of them carry the conceptual weight of this page. `cellular` means the bin picked up host or co-occurring microbial DNA, evidenced by those BUSCO or UNI56 single-copy markers a virus should not have. `mixed_viral` means two or more viral orders are mixed on one bin; it is multi-order viral mixing, not host gene content, and not the HGT genes described above. The remaining two are narrower: `phage` flags bacteriophage markers (the geNomad panel) on the bin, and `duplication` flags inflated marker copy numbers.
+When `estimated_contamination` reaches 10 or higher, GVClass fills in `contamination_type` to suggest where the extra DNA came from. The categories are `clean`, `cellular`, `mixed_viral`, `phage`, `duplication`, and `uncertain`. Two of them carry the conceptual weight of this page. `cellular` means the bin picked up host or co-occurring microbial DNA, evidenced by those mainly single-copy BUSCO or UNI56 markers a virus should not have. `mixed_viral` means two or more viral orders are mixed on one bin; it is multi-order viral mixing, not host gene content, and not the HGT genes described above. The remaining two are narrower: `phage` flags bacteriophage markers (the geNomad panel) on the bin, and `duplication` flags inflated marker copy numbers.
 
 One refinement protects novel lineages from a false `mixed_viral` call. When a bin shows no coherent cellular contigs, three or more viral-bearing contigs, and a `viral_mixture` signature, that pattern can equally mean a genuinely novel virus whose markers do not yet match a single reference order. GVClass downgrades that case from `mixed_viral` to `uncertain`, which routes it to manual review rather than rejection. Notably, the per-contig evidence behind these calls (`cellular_coherent_*`, `cellular_lineage_purity_median`, `viral_bearing_contig_count`, `contig_attribution_mode`) is written to the extended summary tables, keeping the main table readable.
 

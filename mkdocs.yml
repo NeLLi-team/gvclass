@@ -59,6 +59,7 @@ nav:
       - Configuration file: reference/configuration.md
       - Output files and columns: reference/output.md
       - Marker panels and genetic codes: reference/markers.md
+      - Marker annotations: reference/marker-annotations.md
   - Explanation:
       - explanation/index.md
       - How GVClass works: explanation/how-it-works.md
@@ -74,6 +75,9 @@ exclude_docs: |
 
 plugins:
   - search
+
+extra_javascript:
+  - javascripts/marker-annotations.js
 
 markdown_extensions:
   - admonition

@@ -72,10 +72,10 @@ Written only with `--species-tree`. See [Build a species tree](../how-to/build-a
 | `gvog4_dup` | GVOG4 duplication factor (total marker hits / distinct markers present). |
 | `gvog8_completeness` | Distinct core NCLDV GVOG8 markers present, as `n/8`. |
 | `gvog8_dup` | GVOG8 duplication factor. |
-| `busco_completeness` | Eukaryotic BUSCO single-copy markers present, as `n/255`. |
+| `busco_completeness` | Eukaryotic BUSCO markers present, as `n/255`. |
 | `busco_dup` | BUSCO duplication factor; elevated values indicate cellular (eukaryote) carry-over. |
-| `cog_completeness` | Universal COG (UNI56) single-copy markers present, as `n/56`. |
-| `cog_dup` | COG duplication factor; elevated values indicate cellular (prokaryote) carry-over. |
+| `cog_completeness` | Universal COG (UNI56) markers present, as `n/56`. |
+| `cog_dup` | COG duplication factor; elevated values indicate cellular carry-over. |
 | `mrya_completeness` | Mryavirus markers present, as `n/6`. |
 | `mrya_dup` | Mryavirus duplication factor. |
 | `phage_completeness` | Phage (geNomad) markers present, as `n/20`. |

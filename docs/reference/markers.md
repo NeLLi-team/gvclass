@@ -8,8 +8,8 @@ Every query is scored against a fixed set of HMM marker panels. Each panel contr
 | --- | --- | --- | --- |
 | GVOG4 | `gvog4` | n/4 | Core NCLDV single-copy orthologs |
 | GVOG8 | `gvog8` | n/8 | Core NCLDV single-copy orthologs |
-| BUSCO eukaryotic single-copy | `busco` | n/255 | Eukaryotic carry-over flag |
-| Universal COG (UNI56) | `cog` | n/56 | Prokaryotic carry-over flag |
+| BUSCO eukaryotic | `busco` | n/255 | Eukaryotic carry-over flag |
+| Universal COG (UNI56) | `cog` | n/56 | Universal cellular carry-over flag |
 | Mryavirus | `mrya` | n/6 | Mryavirus markers |
 | Phage (geNomad) | `phage` | n/20 | Phage contamination flag |
 | Virophage core | `vp` | n/4 | MCP, Penton, ATPase, Protease |
@@ -21,6 +21,8 @@ For each panel, `{panel}_completeness` reports distinct marker models present ov
 
 !!! note
     Two panels deviate from the `{panel}_dup` convention. The virophage panel emits `vp_completeness` and `vp_mcp` (count of VP MCP hits), not `vp_dup`. The Mirusviricota panel emits `mirus_completeness` only. `capsid_group` is a `label:count` tally across the Nucleocytoviricota and Mirusviricota phyla and the Bellas & Sommaruga capsid groups; `ncldv_mcp_total` is the NCLDV-specific MCP count; `plv` counts A32 proteins (`PLV_PC_054`) that place with PPV references and flags Polinton-like viruses and virophages within the PPV (Preplasmiviricota) domain. It is `0` for ordinary NCLDV.
+
+Each marker model carries a majority functional annotation derived from its member proteins. The full per-model table is in [Marker annotations](marker-annotations.md).
 
 Order-level markers are a separate panel of 576 order-conserved orthologous groups, built only when fast mode is off (`-e`/`--extended`). The default fast mode skips them. See [Tune speed and accuracy](../how-to/tune-speed-and-accuracy.md) for the speed and resolution trade-off.
 
@@ -39,8 +41,8 @@ Nine genetic codes are tested during gene calling:
 | 11 | NCBI bacterial, archaeal, plant plastid |
 | 15 | NCBI Blepharisma nuclear |
 | 29 | NCBI Mesodinium nuclear |
-| 106 | Added by the pyrodigal fork |
-| 129 | Added by the pyrodigal fork |
+| 106 | Genetic code similar to code 6, found in some novel giant virus genomes |
+| 129 | Genetic code similar to code 29, found in some novel giant virus genomes |
 
 The codes tested and the selection margin are set in config (`genetic_codes.codes`, `genetic_codes.improvement_threshold`); see [Configuration reference](configuration.md).
 
