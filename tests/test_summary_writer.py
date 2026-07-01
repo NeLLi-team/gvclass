@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import tarfile
 from pathlib import Path
 
 
@@ -127,3 +128,44 @@ def test_extended_summary_written(tmp_path: Path) -> None:
         row = next(csv.DictReader(handle, delimiter="\t"))
     assert row["contig_attribution_mode"] == "fna_gene_calling"
     assert row["cellular_coherent_contig_count"] == "0"
+
+
+def test_extended_summary_archive_removes_loose_files(tmp_path: Path) -> None:
+    from src.pipeline.summary_writer import (
+        archive_final_summary_extended_files,
+        write_final_summary_extended_files,
+    )
+
+    write_final_summary_extended_files(
+        [{"query": "q1", "status": "complete", "summary_data": {"query": "q1"}}],
+        tmp_path,
+    )
+
+    archive = archive_final_summary_extended_files(tmp_path)
+
+    assert archive == tmp_path / "gvclass_summary.extended.tar.gz"
+    assert archive.exists()
+    assert not (tmp_path / "gvclass_summary.extended.tsv").exists()
+    assert not (tmp_path / "gvclass_summary.extended.csv").exists()
+    with tarfile.open(archive, "r:gz") as tar_handle:
+        assert {
+            "gvclass_summary.extended.tsv",
+            "gvclass_summary.extended.csv",
+        }.issubset(set(tar_handle.getnames()))
+
+
+def test_read_individual_summary_results_from_query_archive(tmp_path: Path) -> None:
+    from src.pipeline.summary_writer import read_individual_summary_results
+
+    work = tmp_path / "q1"
+    work.mkdir()
+    (work / "q1.summary.tab").write_text("query\ttaxonomy_majority\nq1\tlegacy\n")
+    (work / "q1.final_summary.tsv").write_text("query\ttaxonomy_majority\nq1\tfinal\n")
+    with tarfile.open(tmp_path / "q1.tar.gz", "w:gz") as tar_handle:
+        tar_handle.add(work, arcname="q1")
+
+    results = read_individual_summary_results(tmp_path, ["q1"])
+
+    assert len(results) == 1
+    assert results[0]["query"] == "q1"
+    assert results[0]["summary_data"]["taxonomy_majority"] == "final"

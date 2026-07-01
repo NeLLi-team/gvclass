@@ -15,6 +15,18 @@ compatible bundle is noted per release.
 
 Capscan / Preplasmiviricota augmentation (in progress; ships with a new resource bundle).
 
+### Changed — cleaner output directory layout
+- The CLI now renders one event-driven progress bar across all queries instead
+  of polling loose summary files.
+- New runs write one `run_status.json` manifest plus `run.log` for run metadata
+  and resume state, replacing new per-query `.SUCCESS` files.
+- Per-query `summary.tab`, `final_summary.tsv`, and contamination-candidate
+  diagnostics are kept inside each `<query>.tar.gz` instead of being duplicated
+  at the output-directory root.
+- The extended combined diagnostics are archived as
+  `gvclass_summary.extended.tar.gz` containing `gvclass_summary.extended.tsv`
+  and `.csv`.
+
 ### Changed — standardized marker-panel columns in the final summary table
 - Marker panels are now reported uniformly as `{panel}_completeness` (`n/N`:
   distinct models present out of the panel size) plus `{panel}_dup` (duplication

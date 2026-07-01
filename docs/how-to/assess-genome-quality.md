@@ -49,10 +49,10 @@ A non-zero `busco_completeness` or `cog_completeness`, especially with an elevat
 
 ## Look deeper
 
-Two extra outputs explain a flagged genome.
+Two extra archived outputs explain a flagged genome.
 
-- `gvclass_summary.extended.tsv` is always written. It holds the per-contig diagnostics (`cellular_coherent_*`, `cellular_lineage_purity_median`, `viral_bearing_contig_count`, `contig_attribution_mode`) that the main table omits to stay readable.
-- `<query>.contamination_candidates.tsv` is written per query when `estimated_contamination` reaches 10, the type is interpretable, and suspicious contigs are found. It names the specific contigs to drop or check.
+- `gvclass_summary.extended.tar.gz` contains `gvclass_summary.extended.tsv` and `.csv`. These hold the per-contig diagnostics (`cellular_coherent_*`, `cellular_lineage_purity_median`, `viral_bearing_contig_count`, `contig_attribution_mode`) that the main table omits to stay readable.
+- `<query>.tar.gz` contains `stats/<query>.contamination_candidates.tsv` when `estimated_contamination` reaches 10, the type is interpretable, and suspicious contigs are found. It names the specific contigs to drop or check.
 
 ## The verdict
 

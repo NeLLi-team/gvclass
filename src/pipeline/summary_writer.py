@@ -1,11 +1,13 @@
 """Summary file writers for query and pipeline outputs."""
 
 import csv
+import io
 import math
+import os
+import tarfile
 import traceback
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
-
 
 LEGACY_SUMMARY_HEADERS: List[str] = [
     "query",
@@ -203,9 +205,9 @@ FINAL_SUMMARY_COLUMNS: List[str] = [
 ]
 
 
-# Always-on supplementary table (gvclass_summary.extended.tsv): per-contig
-# taxonomic-purity / contamination diagnostics that are 0 for clean single-virus
-# genomes and only meaningful under cellular contamination.
+# Always-on supplementary table archived in gvclass_summary.extended.tar.gz:
+# per-contig taxonomic-purity / contamination diagnostics that are 0 for clean
+# single-virus genomes and only meaningful under cellular contamination.
 EXTENDED_SUMMARY_COLUMNS: List[str] = [
     "query",
     "cellular_coherent_contig_count",
@@ -315,7 +317,9 @@ def write_individual_final_summary_file(
             handle.write("\t".join(row_data) + "\n")
         logger.info(f"Final-schema summary file written successfully: {summary_file}")
     except Exception as exc:
-        logger.error(f"Failed to write final-schema summary file for {query_name}: {exc}")
+        logger.error(
+            f"Failed to write final-schema summary file for {query_name}: {exc}"
+        )
         logger.error(traceback.format_exc())
     return summary_file
 
@@ -353,9 +357,10 @@ def write_final_summary_files(results: List[Dict[str, Any]], output_dir: Path) -
     summary_csv = output_dir / "gvclass_summary.csv"
     summary_results, failed_results = _partition_summary_results(results)
     _write_failed_query_report(failed_results, output_dir)
-    with open(summary_tsv, "w") as tsv_file, open(
-        summary_csv, "w", newline=""
-    ) as csv_file:
+    with (
+        open(summary_tsv, "w") as tsv_file,
+        open(summary_csv, "w", newline="") as csv_file,
+    ):
         csv_writer = csv.writer(csv_file)
         tsv_file.write("\t".join(FINAL_SUMMARY_COLUMNS) + "\n")
         csv_writer.writerow(FINAL_SUMMARY_COLUMNS)
@@ -378,15 +383,18 @@ def write_final_summary_extended_files(
     extended_tsv = output_dir / "gvclass_summary.extended.tsv"
     extended_csv = output_dir / "gvclass_summary.extended.csv"
     summary_results, _ = _partition_summary_results(results)
-    with open(extended_tsv, "w") as tsv_file, open(
-        extended_csv, "w", newline=""
-    ) as csv_file:
+    with (
+        open(extended_tsv, "w") as tsv_file,
+        open(extended_csv, "w", newline="") as csv_file,
+    ):
         csv_writer = csv.writer(csv_file)
         tsv_file.write("\t".join(EXTENDED_SUMMARY_COLUMNS) + "\n")
         csv_writer.writerow(EXTENDED_SUMMARY_COLUMNS)
         for result in sorted(summary_results, key=lambda item: item["query"]):
             row = [
-                _format_final_summary_value(column, result["summary_data"].get(column, ""))
+                _format_final_summary_value(
+                    column, result["summary_data"].get(column, "")
+                )
                 for column in EXTENDED_SUMMARY_COLUMNS
             ]
             tsv_file.write("\t".join(row) + "\n")
@@ -394,8 +402,35 @@ def write_final_summary_extended_files(
     return extended_tsv
 
 
+def archive_final_summary_extended_files(output_dir: Path) -> Optional[Path]:
+    """Archive extended combined tables and remove the loose copies."""
+    extended_paths = [
+        output_dir / "gvclass_summary.extended.tsv",
+        output_dir / "gvclass_summary.extended.csv",
+    ]
+    existing_paths = [path for path in extended_paths if path.exists()]
+    if not existing_paths:
+        return None
+
+    archive_path = output_dir / "gvclass_summary.extended.tar.gz"
+    tmp_path = output_dir / "gvclass_summary.extended.tar.gz.part"
+    tmp_path.unlink(missing_ok=True)
+    with tarfile.open(tmp_path, "w:gz") as tar_handle:
+        for path in existing_paths:
+            tar_handle.add(path, arcname=path.name)
+    with open(tmp_path, "rb") as handle:
+        os.fsync(handle.fileno())
+    if not tarfile.is_tarfile(tmp_path):
+        tmp_path.unlink(missing_ok=True)
+        raise RuntimeError(f"Archive verification failed for {tmp_path}")
+    os.replace(tmp_path, archive_path)
+    for path in existing_paths:
+        path.unlink(missing_ok=True)
+    return archive_path
+
+
 def _partition_summary_results(
-    results: List[Dict[str, Any]]
+    results: List[Dict[str, Any]],
 ) -> tuple[List[Dict[str, Any]], List[Dict[str, str]]]:
     summary_results = []
     failed_results = []
@@ -429,9 +464,10 @@ def _write_failed_query_report(
         failed_csv.unlink(missing_ok=True)
         return
 
-    with open(failed_tsv, "w", newline="") as tsv_handle, open(
-        failed_csv, "w", newline=""
-    ) as csv_handle:
+    with (
+        open(failed_tsv, "w", newline="") as tsv_handle,
+        open(failed_csv, "w", newline="") as csv_handle,
+    ):
         tsv_writer = csv.DictWriter(
             tsv_handle, fieldnames=FAILED_QUERY_COLUMNS, delimiter="\t"
         )
@@ -450,29 +486,53 @@ def read_individual_summary_results(
     wanted_names = (
         set(query_names)
         if query_names is not None
-        else {
-            path.name.removesuffix(".summary.tab")
-            for path in output_dir.glob("*.summary.tab")
-        }
+        else _discover_individual_summary_names(output_dir)
     )
     results: List[Dict[str, Any]] = []
     for query_name in sorted(wanted_names):
-        summary_file = _find_best_individual_summary_file(output_dir, query_name)
-        if summary_file is None:
-            continue
-        result = _read_individual_summary_result(summary_file, query_name)
+        result = _read_best_individual_summary_result(output_dir, query_name)
         if result is not None:
             results.append(result)
     return results
 
 
-def _find_best_individual_summary_file(output_dir: Path, query_name: str) -> Optional[Path]:
+def _discover_individual_summary_names(output_dir: Path) -> set[str]:
+    names = {
+        path.name.removesuffix(".summary.tab")
+        for path in output_dir.glob("*.summary.tab")
+    }
+    names.update(
+        path.name.removesuffix(".final_summary.tsv")
+        for path in output_dir.glob("*.final_summary.tsv")
+    )
+    names.update(
+        path.name.removesuffix(".tar.gz")
+        for path in output_dir.glob("*.tar.gz")
+        if not path.name.startswith("gvclass_summary.")
+    )
+    return names
+
+
+def _read_best_individual_summary_result(
+    output_dir: Path, query_name: str
+) -> Optional[Dict[str, Any]]:
     final_summary = output_dir / f"{query_name}.final_summary.tsv"
     if final_summary.exists():
-        return final_summary
+        return _read_individual_summary_result(final_summary, query_name)
     legacy_summary = output_dir / f"{query_name}.summary.tab"
     if legacy_summary.exists():
-        return legacy_summary
+        return _read_individual_summary_result(legacy_summary, query_name)
+    for member_name in (
+        f"{query_name}/{query_name}.final_summary.tsv",
+        f"{query_name}/{query_name}.summary.tab",
+    ):
+        result = _read_individual_summary_result_from_archive(
+            output_dir / f"{query_name}.tar.gz",
+            member_name,
+            query_name,
+        )
+        if result is not None:
+            return result
     return None
 
 
@@ -482,6 +542,32 @@ def _read_individual_summary_result(
     with open(summary_file, "r", newline="") as handle:
         reader = csv.DictReader(handle, delimiter="\t")
         row = next(reader, None)
+    if row is None:
+        return None
+    summary_data = {key: value for key, value in row.items() if key is not None}
+    summary_data["query"] = query_name
+    return {"query": query_name, "status": "complete", "summary_data": summary_data}
+
+
+def _read_individual_summary_result_from_archive(
+    archive_path: Path,
+    member_name: str,
+    query_name: str,
+) -> Optional[Dict[str, Any]]:
+    if not archive_path.exists():
+        return None
+    try:
+        with tarfile.open(archive_path, "r:gz") as tar_handle:
+            member = tar_handle.getmember(member_name)
+            member_file = tar_handle.extractfile(member)
+            if member_file is None:
+                return None
+            text = member_file.read().decode()
+    except (KeyError, OSError, tarfile.TarError, UnicodeDecodeError):
+        return None
+
+    reader = csv.DictReader(io.StringIO(text), delimiter="\t")
+    row = next(reader, None)
     if row is None:
         return None
     summary_data = {key: value for key, value in row.items() if key is not None}

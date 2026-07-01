@@ -84,9 +84,7 @@ Total queries: 3
 ============================================================
 Completeness mode: novelty-aware
 
-Progress: [ 33%] Query 1/3 | Memory: 540MB (peak: 612MB)
-Progress: [ 67%] Query 2/3 | Memory: 690MB (peak: 720MB)
-Progress: [100%] Query 3/3 | Memory: 705MB (peak: 800MB)
+Progress: [##############################] 100% | 3/3 queries | complete
 
 Pipeline completed successfully!
 Validating pipeline outputs...
@@ -114,7 +112,7 @@ The summary also reports one column per rank (`domain`, `phylum`, `class`, `orde
 
 `PkV-RF01` was a protein (`.faa`) input, so GVClass skipped gene calling: its genetic code shows `no_fna`, and the GC content and coding-density columns are not computed for it. The two `.fna` bins were gene-called, so they report a real genetic code (`codemeta`) and nucleotide statistics.
 
-That is a full GVClass run. `example_results/` now holds the per-query files alongside the combined summary; exact vote counts and distances can shift slightly from run to run because tree inference is multithreaded.
+That is a full GVClass run. `example_results/` now holds the combined summaries, run metadata, and per-query tarballs; exact vote counts and distances can shift slightly from run to run because tree inference is multithreaded.
 
 ## Next steps
 

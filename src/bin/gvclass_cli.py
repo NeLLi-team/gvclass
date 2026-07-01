@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import csv
 import os
+import queue
 import re
 import shutil
 import subprocess
@@ -353,11 +354,7 @@ def _deep_merge_config(base: dict, overlay: dict) -> dict:
     """
     merged = dict(base)
     for key, value in overlay.items():
-        if (
-            key in merged
-            and isinstance(merged[key], dict)
-            and isinstance(value, dict)
-        ):
+        if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
             merged[key] = _deep_merge_config(merged[key], value)
         else:
             merged[key] = value
@@ -667,25 +664,33 @@ def check_and_setup_database(db_path: Path, config, output: CliOutput) -> bool:
 def count_resume_skips(output_dir: Path) -> int:
     """Count queries that resume will skip.
 
-    The v1.4.3 SUCCESS sentinel is the primary marker; pre-1.4.3 runs
-    still count via the legacy summary+tar intersection so the CLI's pre-run
-    preview matches the actual resume behavior in
-    :func:`src.pipeline.parallel_runner._query_is_resume_complete`.
+    The consolidated ``run_status.json`` manifest is the primary marker. Old
+    ``.SUCCESS`` files and the legacy summary+tar intersection are still counted
+    so the CLI preview matches the runner's backward-compatible resume behavior.
     """
+    from src.pipeline.run_status import load_run_status, query_is_complete_in_run_status
+
+    run_status = load_run_status(output_dir) or {}
+    manifest_names = {
+        name
+        for name, entry in run_status.get("queries", {}).items()
+        if entry.get("status") == "complete"
+        and query_is_complete_in_run_status(output_dir, name)
+    }
     sentinel_names = {
-        path.name.removesuffix(".SUCCESS")
-        for path in output_dir.glob("*.SUCCESS")
+        path.name.removesuffix(".SUCCESS") for path in output_dir.glob("*.SUCCESS")
     }
     summary_names = {
         path.name.removesuffix(".summary.tab")
         for path in output_dir.glob("*.summary.tab")
     }
     tar_names = {
-        path.name.removesuffix(".tar.gz")
-        for path in output_dir.glob("*.tar.gz")
+        path.name.removesuffix(".tar.gz") for path in output_dir.glob("*.tar.gz")
     }
-    legacy_names = (summary_names & tar_names) - sentinel_names
-    return len(sentinel_names) + len(legacy_names)
+    legacy_names = (summary_names & tar_names) - sentinel_names - manifest_names
+    return (
+        len(manifest_names) + len(sentinel_names - manifest_names) + len(legacy_names)
+    )
 
 
 def calculate_worker_plan(args, n_queries: int, threads: int) -> WorkerPlan:
@@ -918,9 +923,10 @@ def combine_summary_files(output_dir: Path, output: CliOutput):
         output.line("No summary data found to combine", key="warning")
         return
 
-    with open(combined_tsv, "w") as tsv_handle, open(
-        combined_csv, "w", newline=""
-    ) as csv_handle:
+    with (
+        open(combined_tsv, "w") as tsv_handle,
+        open(combined_csv, "w", newline="") as csv_handle,
+    ):
         writer = csv.writer(csv_handle)
         tsv_handle.write("\t".join(headers) + "\n")
         writer.writerow(headers)
@@ -949,6 +955,66 @@ def cleanup_temp_dir(temp_dir: Optional[Path]):
         shutil.rmtree(temp_dir)
 
 
+def _stream_subprocess_pipe(pipe, source: str, output_queue: queue.Queue) -> None:
+    try:
+        for line in iter(pipe.readline, ""):
+            output_queue.put((source, line))
+    finally:
+        pipe.close()
+
+
+def _drain_pipeline_output(
+    process: subprocess.Popen,
+    monitor: ResourceMonitor,
+) -> tuple[bytes, bytes]:
+    output_queue: queue.Queue = queue.Queue()
+    stdout_lines: list[str] = []
+    stderr_lines: list[str] = []
+    readers = [
+        threading.Thread(
+            target=_stream_subprocess_pipe,
+            args=(process.stdout, "stdout", output_queue),
+            daemon=True,
+        ),
+        threading.Thread(
+            target=_stream_subprocess_pipe,
+            args=(process.stderr, "stderr", output_queue),
+            daemon=True,
+        ),
+    ]
+    for reader in readers:
+        reader.start()
+
+    while process.poll() is None or any(reader.is_alive() for reader in readers):
+        try:
+            source, line = output_queue.get(timeout=0.2)
+        except queue.Empty:
+            monitor.update_memory()
+            continue
+
+        monitor.update_memory()
+        if monitor.handle_progress_line(line):
+            continue
+        if source == "stdout":
+            stdout_lines.append(line)
+        else:
+            stderr_lines.append(line)
+
+    while not output_queue.empty():
+        source, line = output_queue.get()
+        if monitor.handle_progress_line(line):
+            continue
+        if source == "stdout":
+            stdout_lines.append(line)
+        else:
+            stderr_lines.append(line)
+
+    for reader in readers:
+        reader.join(timeout=1)
+
+    return "".join(stdout_lines).encode(), "".join(stderr_lines).encode()
+
+
 def run_pipeline(
     cmd,
     env,
@@ -959,26 +1025,30 @@ def run_pipeline(
 ):
     if verbose:
         process = subprocess.Popen(cmd, env=env, cwd=repo_dir)
+        monitor = ResourceMonitor(output_dir, queries_to_process, process.pid)
+        monitor_thread = threading.Thread(target=monitor.monitor_memory)
+        monitor_thread.start()
+        stdout_data, stderr_data = process.communicate()
+        return_code = process.returncode
+        monitor.stop()
+        monitor_thread.join()
+        return return_code, stdout_data, stderr_data, monitor
     else:
+        env = {**env, "GVCLASS_PROGRESS_EVENTS": "1"}
         process = subprocess.Popen(
             cmd,
             env=env,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             cwd=repo_dir,
+            text=True,
+            bufsize=1,
         )
 
-    existing_completed = len(list(output_dir.glob("*.summary.tab")))
     monitor = ResourceMonitor(output_dir, queries_to_process, process.pid)
-    monitor.current_query = existing_completed
-    monitor_thread = threading.Thread(target=monitor.monitor)
-    monitor_thread.start()
-
-    stdout_data, stderr_data = process.communicate()
+    stdout_data, stderr_data = _drain_pipeline_output(process, monitor)
     return_code = process.returncode
-    monitor.stop()
-    monitor_thread.join()
-    print("\r" + " " * 80 + "\r", end="")
+    monitor.finish(return_code == 0)
     return return_code, stdout_data, stderr_data, monitor
 
 

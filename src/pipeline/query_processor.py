@@ -1,9 +1,10 @@
 """Compatibility wrapper for query-level GVClass processing."""
 
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 from src.pipeline.query_processing_engine import process_single_query
+from src.pipeline.run_status import RunStatusRecorder
 
 
 def run_query_processing(
@@ -18,6 +19,7 @@ def run_query_processing(
     threads: int = 4,
     species_tree: bool = False,
     species_tree_trim: str = "witchi",
+    run_status: Optional[RunStatusRecorder] = None,
 ) -> Dict[str, Any]:
     """Process a single query through the entire pipeline."""
     return process_single_query(
@@ -32,4 +34,5 @@ def run_query_processing(
         threads=threads,
         species_tree=species_tree,
         species_tree_trim=species_tree_trim,
+        run_status=run_status,
     )

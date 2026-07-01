@@ -12,22 +12,22 @@ Written to the root of the output directory.
 | --- | --- |
 | `gvclass_summary.tsv` | Main summary table, one row per query, tab-separated. |
 | `gvclass_summary.csv` | Same content as `gvclass_summary.tsv`, comma-separated. |
-| `gvclass_summary.extended.tsv` | Always-on per-contig contamination diagnostics, one row per query, tab-separated. |
-| `gvclass_summary.extended.csv` | Same content as the extended TSV, comma-separated. |
+| `gvclass_summary.extended.tar.gz` | Archive containing `gvclass_summary.extended.tsv` and `gvclass_summary.extended.csv`, the per-contig contamination diagnostics. |
 | `gvclass_failed_queries.tsv` | Written only when one or more queries fail; one row per failed query with its error. Tab-separated. |
 | `gvclass_failed_queries.csv` | Same content as the failed-queries TSV, comma-separated. |
+| `run_status.json` | Run manifest used by `--resume`; records software version, database version/path, settings, per-query status, timestamps, artifact names, sizes, and checksums for newly completed queries. |
+| `run.log` | Human-readable chronological run log with run start, query start, query completion/failure, and run completion lines. |
 
 ### Per-query files
 
-Written for each input query.
+Written for each input query. The top-level file is the archive; the summary and diagnostic files listed below are members inside `<query>.tar.gz`.
 
 | File | Contents |
 | --- | --- |
-| `<query>.final_summary.tsv` | Single-query row in the 44-column main schema, used to rebuild the run summary on `--resume`. |
-| `<query>.summary.tab` | Per-query summary table, tab-delimited. |
 | `<query>.tar.gz` | Bundled per-query artifacts. |
-| `<query>.SUCCESS` | Resume sentinel; its presence marks the query complete for `--resume`. |
-| `<query>.contamination_candidates.tsv` | Suspicious contigs; written only when `estimated_contamination` is at least 10, `contamination_type` is interpretable, and suspicious contigs are found. |
+| `<query>/<query>.final_summary.tsv` | Single-query row in the 44-column main schema, used to rebuild the run summary on `--resume`. |
+| `<query>/<query>.summary.tab` | Per-query summary table, tab-delimited. |
+| `<query>/stats/<query>.contamination_candidates.tsv` | Suspicious contigs; written only when `estimated_contamination` is at least 10, `contamination_type` is interpretable, and suspicious contigs are found. |
 
 ### Species-tree files
 
@@ -95,6 +95,6 @@ Written only with `--species-tree`. See [Build a species tree](../how-to/build-a
 | `species_tree_nn_distance` | Distance to the nearest reference in the species tree; `nd` without `--species-tree`. |
 | `species_tree_clade_id` | Clade id of the nearest reference in the species tree; `nd` without `--species-tree`. |
 
-The per-contig diagnostic columns (`cellular_coherent_*`, `cellular_lineage_purity_median`, `viral_bearing_contig_count`, `contig_attribution_mode`) appear only in the extended table.
+The per-contig diagnostic columns (`cellular_coherent_*`, `cellular_lineage_purity_median`, `viral_bearing_contig_count`, `contig_attribution_mode`) appear only in the extended table inside `gvclass_summary.extended.tar.gz`.
 
 For how to read completeness, contamination, and duplication, see [Quality metrics](../explanation/quality-metrics.md). For the marker panels behind the completeness columns, see [Markers](markers.md).

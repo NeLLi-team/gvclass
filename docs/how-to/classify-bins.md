@@ -46,6 +46,7 @@ For a directory of many small bins, more workers help; for a few large genomes, 
 GVClass writes a combined table for the whole run plus per-query files:
 
 - `gvclass_summary.tsv` and `gvclass_summary.csv`: one row per bin with the taxonomy call and quality metrics.
-- per-query files such as `<query>.final_summary.tsv` and `<query>.tar.gz` inside the output directory.
+- `<query>.tar.gz`: per-query artifacts, including the per-query summary rows.
+- `gvclass_summary.extended.tar.gz`: archived extended diagnostics.
 
 See [Output files and columns](../reference/output.md) for every file and the full column layout. To turn the table into a curation decision, read [Assess genome quality](assess-genome-quality.md). For what happens between FASTA and taxonomy, see [How GVClass works](../explanation/how-it-works.md).

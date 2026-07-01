@@ -58,7 +58,7 @@ See [build a species tree](../how-to/build-a-species-tree.md) and [the species t
 | --- | --- | --- |
 | `-C`, `--contigs` | flag | Split FNA into per-contig queries. Accepts a file or a directory. |
 | `--allow-short` | flag | Accept FNA shorter than the 20 kb minimum. |
-| `--resume` | flag | Skip completed queries (uses a `.SUCCESS` sentinel). |
+| `--resume` | flag | Skip completed queries recorded in `run_status.json`. Older `.SUCCESS` sentinels and summary+archive pairs are still accepted for existing output directories. |
 | `--plain-output` | flag | Disable emojis and ANSI colors. Also env `GVCLASS_PLAIN_OUTPUT=1`. |
 
 ## Cluster
