@@ -41,10 +41,10 @@ RUN chmod -R a+rX /opt/gvclass && \
 # Set environment variables
 ENV PATH="/usr/local/bin:/opt/gvclass/.pixi/envs/default/bin:${PATH}"
 ENV PYTHONPATH="/opt/gvclass"
-ENV GVCLASS_RESOURCE_CACHE="/tmp/gvclass-resource-cache"
+ENV GVCLASS_RESOURCE_CACHE="/resource-cache"
 
 # Create mount points for input/output with proper permissions
-RUN mkdir -p /data /results /tmp/gvclass-resource-cache && chmod 777 /data /results /tmp/gvclass-resource-cache
+RUN mkdir -p /data /results /resource-cache && chmod 777 /data /results /resource-cache
 
 # Create an entrypoint script
 RUN printf '%s\n' \
@@ -67,5 +67,5 @@ LABEL description="GVClass - Giant Virus Classification Tool with pre-installed 
 LABEL version="${GVCLASS_VERSION}"
 LABEL database.included="true"
 LABEL database.version="v2.0.0"
-LABEL resource.cache="/tmp/gvclass-resource-cache"
+LABEL resource.cache="/resource-cache"
 LABEL usage.docker="docker run -v /path/to/data:/data gvclass:${GVCLASS_VERSION} '/data -t 32'"

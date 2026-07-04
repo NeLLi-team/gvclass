@@ -38,7 +38,7 @@ echo "Container build complete!"
 echo ""
 echo "Usage examples:"
 echo "Docker:"
-echo "  docker run -v /path/to/data:/data -v /path/to/results:/results -v /path/to/cache:/tmp/gvclass-resource-cache gvclass:v2.0-dev /data -o /results"
+echo "  docker run -v /path/to/data:/data -v /path/to/results:/results -v /path/to/cache:/resource-cache gvclass:v2.0-dev /data -o /results"
 echo ""
 if [ -f gvclass.sif ]; then
     echo "Apptainer/Singularity:"

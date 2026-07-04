@@ -18,7 +18,7 @@ From: ghcr.io/prefix-dev/pixi:latest
 %environment
     export PATH=/usr/local/bin:/opt/gvclass/.pixi/envs/default/bin:$PATH
     export PYTHONPATH=/opt/gvclass:$PYTHONPATH
-    export GVCLASS_RESOURCE_CACHE="${GVCLASS_RESOURCE_CACHE:-/tmp/gvclass-resource-cache}"
+    export GVCLASS_RESOURCE_CACHE="${GVCLASS_RESOURCE_CACHE:-/resource-cache}"
 
 %post
     # Install system dependencies
@@ -72,7 +72,7 @@ From: ghcr.io/prefix-dev/pixi:latest
     fi
     
     cd /opt/gvclass
-    mkdir -p "${GVCLASS_RESOURCE_CACHE:-/tmp/gvclass-resource-cache}" 2>/dev/null || true
+    mkdir -p "${GVCLASS_RESOURCE_CACHE:-/resource-cache}" 2>/dev/null || true
     exec ./gvclass "$@"
 
 %labels
@@ -80,7 +80,7 @@ From: ghcr.io/prefix-dev/pixi:latest
     Version v2.0-dev
     Description GVClass - Giant Virus Classification Pipeline with Pixi
     Database v2.0.0
-    ResourceCache /tmp/gvclass-resource-cache
+    ResourceCache /resource-cache
 
 %help
     GVClass Pipeline v2.0-dev
@@ -92,7 +92,7 @@ From: ghcr.io/prefix-dev/pixi:latest
     
     Examples:
         # Run on example directory
-        singularity run -B $(pwd):/data -B $HOME/.cache/gvclass/resource-cache/v2.0-dev:/tmp/gvclass-resource-cache gvclass.sif /data/example -t 8
+        singularity run -B $(pwd):/data -B $HOME/.cache/gvclass/resource-cache/v2.0-dev:/resource-cache gvclass.sif /data/example -t 8
         
         # Run on any query directory
         singularity run -B /home/user/genomes:/input gvclass.sif /input/my_queries -t 32
@@ -104,5 +104,5 @@ From: ghcr.io/prefix-dev/pixi:latest
     
     NOTE: The resources database is included in the container at /opt/gvclass/resources.
     NOTE: Compact Parquet resources materialize needed TSV/FASTA views under
-    GVCLASS_RESOURCE_CACHE. Bind a host directory to /tmp/gvclass-resource-cache
+    GVCLASS_RESOURCE_CACHE. Bind a host directory to /resource-cache
     for a persistent warm cache across runs.

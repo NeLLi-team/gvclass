@@ -23,7 +23,7 @@ The positional order is query then results. This differs from the pixi CLI, wher
 
 On first use the wrapper pulls the temporary v2.0-dev SIF from `https://dl.newlineages.com/gvclass/gvclass_v2.0-dev.sif` and caches it under `~/.cache/gvclass/images/`. Later runs reuse the cached image. The image carries the v2.0.0 database and all tools, so you skip database setup entirely.
 
-The v2.0.0 database is compact: labels and marker proteins are stored as Parquet inside the read-only SIF. GVClass materializes only the TSV and FASTA files needed for a run into a writable cache. The wrapper creates that cache on the host at `~/.cache/gvclass/resource-cache/v2.0-dev` and bind-mounts it into the container at `/tmp/gvclass-resource-cache`, so the SIF stays read-only and later runs reuse the warm cache. Use `--resource-cache-dir /path/to/cache` to place it on a scratch filesystem.
+The v2.0.0 database is compact: labels and marker proteins are stored as Parquet inside the read-only SIF. GVClass materializes only the TSV and FASTA files needed for a run into a writable cache. The wrapper creates that cache on the host at `~/.cache/gvclass/resource-cache/v2.0-dev` and bind-mounts it into the container at `/resource-cache`, so the SIF stays read-only and later runs reuse the warm cache. Use `--resource-cache-dir /path/to/cache` to place it on a scratch filesystem.
 
 !!! note
     The wrapper calls `apptainer`, which must be on your `PATH`. Many clusters expose it through a module, for example `module load apptainer`. The wrapper invokes `apptainer` by name, so a `singularity`-only module will not satisfy it.
@@ -94,8 +94,8 @@ apptainer pull -F gvclass_v2.0-dev.sif \
   https://dl.newlineages.com/gvclass/gvclass_v2.0-dev.sif
 
 apptainer run -B /path/to/bins:/input -B /path/to/results:/output \
-  -B /path/to/cache:/tmp/gvclass-resource-cache \
-  --env GVCLASS_RESOURCE_CACHE=/tmp/gvclass-resource-cache \
+  -B /path/to/cache:/resource-cache \
+  --env GVCLASS_RESOURCE_CACHE=/resource-cache \
   gvclass_v2.0-dev.sif /input -o /output -t 32
 ```
 

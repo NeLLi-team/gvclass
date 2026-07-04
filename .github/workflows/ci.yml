@@ -142,7 +142,7 @@ jobs:
           resolved="$(apptainer exec gvclass.sif sh -c 'command -v gvclass')"
           echo "gvclass resolves to: ${resolved}"
           test "${resolved}" = "/usr/local/bin/gvclass"
-          apptainer exec gvclass.sif sh -c 'test "$GVCLASS_RESOURCE_CACHE" = "/tmp/gvclass-resource-cache"'
+          apptainer exec gvclass.sif sh -c 'test "$GVCLASS_RESOURCE_CACHE" = "/resource-cache"'
 
       - name: Generate SBOM
         uses: anchore/sbom-action@v0

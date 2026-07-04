@@ -91,7 +91,7 @@ See [run on HPC](../how-to/run-on-hpc.md).
     The database path resolves in this order: `--database`, then the `GVCLASS_DB` environment variable, then `database.path` in the config, then the default `<repo>/resources`.
 
 !!! note "Compact Parquet resources"
-    Compact bundles can store labels and reference proteins under `parquet/`. GVClass materializes the needed TSV and marker FASTA views into `<database.path>/.gvclass_cache/` by default. Set `database.cache_path` or `GVCLASS_RESOURCE_CACHE` to choose another cache directory; the environment variable has precedence. The Apptainer wrapper sets `GVCLASS_RESOURCE_CACHE=/tmp/gvclass-resource-cache` inside the container and bind-mounts that path from a host cache directory.
+    Compact bundles can store labels and reference proteins under `parquet/`. GVClass materializes the needed TSV and marker FASTA views into `<database.path>/.gvclass_cache/` by default. Set `database.cache_path` or `GVCLASS_RESOURCE_CACHE` to choose another cache directory; the environment variable has precedence. The Apptainer wrapper sets `GVCLASS_RESOURCE_CACHE=/resource-cache` inside the container and bind-mounts that path from a host cache directory.
 
 ## Version output
 

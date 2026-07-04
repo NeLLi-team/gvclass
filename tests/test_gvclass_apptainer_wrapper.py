@@ -90,6 +90,6 @@ def test_apptainer_wrapper_binds_resource_cache(
     assert calls
     command = calls[0]
     assert f"{query.resolve()}:/input:ro" in command
-    assert f"{cache.resolve()}:/tmp/gvclass-resource-cache" in command
-    assert "GVCLASS_RESOURCE_CACHE=/tmp/gvclass-resource-cache" in command
+    assert f"{cache.resolve()}:/resource-cache" in command
+    assert "GVCLASS_RESOURCE_CACHE=/resource-cache" in command
     assert gvclass_apptainer.DEFAULT_IMAGE in command

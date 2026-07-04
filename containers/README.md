@@ -52,15 +52,15 @@ singularity run -B /data:/data -B /results:/results \
 singularity run \
     -B /path/to/queries:/input \
     -B /path/to/database:/opt/gvclass/resources \
-    -B /path/to/cache:/tmp/gvclass-resource-cache \
-    --env GVCLASS_RESOURCE_CACHE=/tmp/gvclass-resource-cache \
+    -B /path/to/cache:/resource-cache \
+    --env GVCLASS_RESOURCE_CACHE=/resource-cache \
     gvclass.sif /input -t 16
 ```
 
 The v2.0.0 resource bundle stores labels and marker proteins as Parquet inside
 the read-only SIF. GVClass materializes the TSV/FASTA views it needs under
 `GVCLASS_RESOURCE_CACHE`. Bind a host cache directory to
-`/tmp/gvclass-resource-cache` for a persistent warm cache; otherwise the cache
+`/resource-cache` for a persistent warm cache; otherwise the cache
 falls back to container `/tmp` and is rebuilt on later runs.
 
 ### Temporary Published SIF
