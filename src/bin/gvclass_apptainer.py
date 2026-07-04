@@ -164,9 +164,9 @@ def _add_base_args(parser: argparse.ArgumentParser) -> None:
 def _add_mode_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--tree-method",
-        choices=["fasttree", "iqtree"],
+        choices=["veryfasttree", "iqtree", "fasttree"],
         default=None,
-        help="Tree building method (default: fasttree)",
+        help="Tree building method (default: veryfasttree)",
     )
     parser.add_argument(
         "--mode-fast",
