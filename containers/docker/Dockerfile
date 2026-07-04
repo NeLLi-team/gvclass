@@ -1,7 +1,7 @@
 # Use the official Pixi base image (includes Pixi pre-installed)
 FROM ghcr.io/prefix-dev/pixi:latest
 
-ARG GVCLASS_VERSION=1.6.1
+ARG GVCLASS_VERSION=v2.0-dev
 
 # Install build dependencies needed for pyrodigal compilation
 USER root
@@ -17,7 +17,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /opt/gvclass
 
 # Copy the tracked project files; runtime resources are downloaded during build.
-COPY . /opt/gvclass/
+COPY LICENCE README.md pixi.lock pixi.toml pyproject.toml gvclass gvclass-a /opt/gvclass/
+COPY config /opt/gvclass/config
+COPY containers /opt/gvclass/containers
+COPY example /opt/gvclass/example
+COPY images /opt/gvclass/images
+COPY src /opt/gvclass/src
 
 # Install GVClass dependencies using pixi
 RUN pixi install && pixi run setup-db
@@ -35,10 +40,11 @@ RUN chmod -R a+rX /opt/gvclass && \
 
 # Set environment variables
 ENV PATH="/usr/local/bin:/opt/gvclass/.pixi/envs/default/bin:${PATH}"
-ENV PYTHONPATH="/opt/gvclass:${PYTHONPATH}"
+ENV PYTHONPATH="/opt/gvclass"
+ENV GVCLASS_RESOURCE_CACHE="/tmp/gvclass-resource-cache"
 
 # Create mount points for input/output with proper permissions
-RUN mkdir -p /data /results && chmod 777 /data /results
+RUN mkdir -p /data /results /tmp/gvclass-resource-cache && chmod 777 /data /results /tmp/gvclass-resource-cache
 
 # Create an entrypoint script
 RUN printf '%s\n' \
@@ -60,5 +66,6 @@ LABEL maintainer="fschulz@lbl.gov"
 LABEL description="GVClass - Giant Virus Classification Tool with pre-installed database"
 LABEL version="${GVCLASS_VERSION}"
 LABEL database.included="true"
-LABEL database.size="~850MB"
+LABEL database.version="v2.0.0"
+LABEL resource.cache="/tmp/gvclass-resource-cache"
 LABEL usage.docker="docker run -v /path/to/data:/data gvclass:${GVCLASS_VERSION} '/data -t 32'"

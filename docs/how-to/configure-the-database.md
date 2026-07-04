@@ -1,6 +1,6 @@
 # Configure the database
 
-GVClass reads its reference markers, HMMs, and tree references from one database directory. You control where that directory lives, point several runs at a single shared copy, and let GVClass keep it current. The bundle is versioned separately from the software. The repo-local `resources/` tree is currently `DB_VERSION` v2.0.0; the public setup-download block remains pinned to v1.7.1 until a v2.0.0 archive and checksum are published.
+GVClass reads its reference markers, HMMs, and tree references from one database directory. You control where that directory lives, point several runs at a single shared copy, and let GVClass keep it current. The bundle is versioned separately from the software. The public setup-download block currently installs `DB_VERSION` v2.0.0.
 
 ## Where GVClass looks for the database
 
@@ -23,7 +23,7 @@ Run the setup task once per database location. It downloads the bundle, verifies
 pixi run setup-db
 ```
 
-The download is about 2 GB. Once it finishes, a normal run finds the database under `<repo>/resources` with no extra flags. For a full first run, follow the [getting-started tutorial](../tutorials/getting-started.md).
+The download is about 1.5 GB. Once it finishes, a normal run finds the database under `<repo>/resources` with no extra flags. For a full first run, follow the [getting-started tutorial](../tutorials/getting-started.md).
 
 ## Share one database across runs
 
@@ -35,7 +35,7 @@ pixi run setup-db
 pixi run gvclass <input_dir> -o <output_dir> -t 16
 ```
 
-Every shell that exports the same `GVCLASS_DB` reuses that copy, which avoids a per-user 2 GB download. This is the pattern to use on an HPC scratch or project filesystem; see [Run on HPC](run-on-hpc.md).
+Every shell that exports the same `GVCLASS_DB` reuses that copy, which avoids a per-user 1.5 GB download. This is the pattern to use on an HPC scratch or project filesystem; see [Run on HPC](run-on-hpc.md).
 
 !!! tip
     Put the `export GVCLASS_DB=...` line in your shell profile or job script so every run picks it up automatically.
@@ -48,16 +48,16 @@ The `database` block of `config/gvclass_config.yaml` controls the path and the b
 database:
   path: resources
   cache_path:
-  download_url: https://dl.newlineages.com/gvclass/resources_v1_7_1.tar.gz
-  download_version: v1.7.1
-  download_sha256: 6f8ca4e0f61e094a7d05669e4024e07db9e3c1813fc07172e25113d362512c14
-  expected_size: 2005
+  download_url: https://dl.newlineages.com/gvclass/resources_v2_0_0.tar.gz
+  download_version: v2.0.0
+  download_sha256: 2d238fbccef3e37fdf6cae0cd5dd24157cc5a57ed81af24c1edfbe42e4dd92f5
+  expected_size: 1497
 ```
 
-Each key is defined in the [configuration reference](../reference/configuration.md); the values above are the current public setup-download pin. The keys you are most likely to change are `path` (where the database lives), `cache_path` (where compact-resource views are materialized), and `download_version` (the pinned download bundle, currently `v1.7.1`).
+Each key is defined in the [configuration reference](../reference/configuration.md); the values above are the current public setup-download pin. The keys you are most likely to change are `path` (where the database lives), `cache_path` (where compact-resource views are materialized), and `download_version` (the pinned download bundle, currently `v2.0.0`).
 
 !!! note
-    On the `gvclass-dev` branch, `download_url` points at the Cloudflare tunnel bundle (`dl.newlineages.com`, v1.7.1). The `main` branch points at the Zenodo asset instead. Both serve the same v1.7.1 contents. Do not change this block to v2.0.0 until the matching tarball and SHA-256 are available.
+    On the `gvclass-dev` branch, `download_url` points at the Cloudflare tunnel bundle (`dl.newlineages.com`, v2.0.0). Release branches may point at a Zenodo asset instead.
 
 ## Label namespaces in the database
 

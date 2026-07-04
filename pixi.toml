@@ -61,8 +61,8 @@ monitor-performance = "python src/test/monitor_performance.py"
 
 # Container building
 build-containers = "bash containers/build.sh"
-build-docker = "docker build -t gvclass:1.6.1 -f containers/docker/Dockerfile ."
-build-apptainer = "apptainer build gvclass.sif docker-daemon://gvclass:1.6.1"
+build-docker = "docker build -t gvclass:v2.0-dev -f containers/docker/Dockerfile ."
+build-apptainer = "apptainer build --force gvclass_v2.0-dev.sif docker-daemon://gvclass:v2.0-dev"
 analyze-parallel = "python src/test/analyze_parallelization.py"
 
 test = "python -m pytest"

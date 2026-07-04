@@ -65,31 +65,19 @@ echo "Query directory: $QUERYDIR"
 echo "Number of processes: $PROCESSES"
 echo "Valid input files found: $VALID_FILES"
 
-# Check if local SIF file exists, otherwise use Docker Hub
-if [ -f "gvclass.sif" ]; then
-    echo "Using local Apptainer image: gvclass.sif"
-    IMAGE="gvclass.sif"
-else
-    echo "Using Docker Hub image: gvclass:2.0.0"
-    IMAGE="docker://gvclass:2.0.0"
-    # If Docker Hub image doesn't exist, build it locally
-    if ! apptainer inspect "$IMAGE" &> /dev/null; then
-        echo "Building Apptainer image from Dockerfile..."
-        bash containers/build.sh
-        IMAGE="gvclass.sif"
-    fi
-fi
-
 # Create output directory name
 OUTPUT_DIR="${QUERYDIR}_results"
 
 # Create output directory if it doesn't exist
 mkdir -p "$OUTPUT_DIR"
 
-# Run GVClass pipeline
-apptainer run --containall \
-  --bind "$(pwd)/$QUERYDIR:/data:ro" \
-  --bind "$(pwd)/$OUTPUT_DIR:/results" \
-  --pwd /app \
-  "$IMAGE" \
-  pixi run gvclass /data -o /results -t "$PROCESSES"
+if command -v gvclass-a &> /dev/null; then
+    exec gvclass-a "$QUERYDIR" "$OUTPUT_DIR" -t "$PROCESSES"
+elif [ -x "./gvclass-a" ]; then
+    exec ./gvclass-a "$QUERYDIR" "$OUTPUT_DIR" -t "$PROCESSES"
+elif [ -x "$(dirname "$0")/../../gvclass-a" ]; then
+    exec "$(dirname "$0")/../../gvclass-a" "$QUERYDIR" "$OUTPUT_DIR" -t "$PROCESSES"
+else
+    echo "Error: gvclass-a wrapper not found on PATH or in the repository root"
+    exit 1
+fi

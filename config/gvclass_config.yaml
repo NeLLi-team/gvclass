@@ -10,17 +10,14 @@ database:
   # GVClass uses <database.path>/.gvclass_cache; GVCLASS_RESOURCE_CACHE overrides
   # this key. Relative paths resolve inside the selected database directory.
   cache_path:
-  # Release asset used for first-time setup. The repo-local resources/ tree can
-  # be newer than this public archive; keep the URL/checksum pinned until a
-  # v2.0.0 resource tarball is generated and published.
-  # gvclass-dev: points at the alpha-test resources (v1.7.1, capscan/PPV models +
-  # protist-derived-A32 PPV-reference re-curation) served over the Cloudflare
-  # tunnel. Main/release uses the Zenodo asset.
-  download_url: https://dl.newlineages.com/gvclass/resources_v1_7_1.tar.gz
-  download_version: v1.7.1
-  download_sha256: 6f8ca4e0f61e094a7d05669e4024e07db9e3c1813fc07172e25113d362512c14
+  # Release asset used for first-time setup. gvclass-dev points at the
+  # v2.0.0 alpha-test resources served over the Cloudflare tunnel.
+  # Main/release uses the Zenodo asset.
+  download_url: https://dl.newlineages.com/gvclass/resources_v2_0_0.tar.gz
+  download_version: v2.0.0
+  download_sha256: 2d238fbccef3e37fdf6cae0cd5dd24157cc5a57ed81af24c1edfbe42e4dd92f5
   # Expected size for validation (in MB)
-  expected_size: 2005
+  expected_size: 1497
 
 # Pipeline settings
 pipeline:

@@ -5,42 +5,50 @@ import argparse
 import re
 import subprocess
 from pathlib import Path
+from urllib.parse import urlparse
 
-DEFAULT_IMAGE = "library://nelligroup-jgi/gvclass/gvclass:2.0.0"
+DEFAULT_IMAGE = "https://dl.newlineages.com/gvclass/gvclass_v2.0-dev.sif"
+SYLABS_IMAGE = "library://nelligroup-jgi/gvclass/gvclass:v2.0-dev"
 PUBLIC_LIBRARY_URL = "https://library.sylabs.io"
 IMAGE_CACHE_DIR = Path.home() / ".cache" / "gvclass" / "images"
+DEFAULT_RESOURCE_CACHE_DIR = Path.home() / ".cache" / "gvclass" / "resource-cache" / "v2.0-dev"
+CONTAINER_RESOURCE_CACHE_DIR = "/tmp/gvclass-resource-cache"
 
 
 def is_library_uri(image: str) -> bool:
     return image.startswith("library://")
 
 
-def cache_filename_for_library_image(image: str) -> str:
-    slug = image.split("://", 1)[1]
+def is_remote_image_uri(image: str) -> bool:
+    return image.startswith(("library://", "http://", "https://"))
+
+
+def cache_filename_for_image(image: str) -> str:
+    if image.startswith(("http://", "https://")):
+        slug = Path(urlparse(image).path).name
+    else:
+        slug = image.split("://", 1)[1]
     slug = re.sub(r"[^A-Za-z0-9._-]+", "_", slug).strip("_")
     if not slug:
         slug = "gvclass_image"
-    return f"{slug}.sif"
+    if not slug.endswith(".sif"):
+        slug = f"{slug}.sif"
+    return slug
 
 
 def ensure_local_image(image: str) -> str:
-    if not is_library_uri(image):
+    if not is_remote_image_uri(image):
         return image
 
     IMAGE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    local_image = IMAGE_CACHE_DIR / cache_filename_for_library_image(image)
+    local_image = IMAGE_CACHE_DIR / cache_filename_for_image(image)
     if local_image.exists():
         return str(local_image)
 
-    pull_cmd = [
-        "apptainer",
-        "pull",
-        "--library",
-        PUBLIC_LIBRARY_URL,
-        "-F",
-        str(local_image),
-        image,
-    ]
+    pull_cmd = ["apptainer", "pull", "-F", str(local_image)]
+    if is_library_uri(image):
+        pull_cmd.extend(["--library", PUBLIC_LIBRARY_URL])
+    pull_cmd.append(image)
     if subprocess.call(pull_cmd) != 0:
         raise SystemExit(f"Failed to pull Apptainer image: {image}")
     return str(local_image)
@@ -51,6 +59,7 @@ def run_container(
     output: Path,
     threads: int,
     image: str,
+    resource_cache: Path,
     tree_method: str = None,
     mode_fast: bool = None,
     max_workers: int = None,
@@ -73,6 +82,8 @@ def run_container(
             )
 
     output_abs.mkdir(parents=True, exist_ok=True)
+    resource_cache_abs = resource_cache.expanduser().resolve()
+    resource_cache_abs.mkdir(parents=True, exist_ok=True)
     resolved_image = ensure_local_image(image)
 
     if query_abs.is_file():
@@ -86,9 +97,13 @@ def run_container(
         "apptainer",
         "run",
         "-B",
-        f"{bind_source}:/input",
+        f"{bind_source}:/input:ro",
         "-B",
         f"{output_abs}:/output",
+        "-B",
+        f"{resource_cache_abs}:{CONTAINER_RESOURCE_CACHE_DIR}",
+        "--env",
+        f"GVCLASS_RESOURCE_CACHE={CONTAINER_RESOURCE_CACHE_DIR}",
         resolved_image,
         query_in_container,
         "-o",
@@ -181,8 +196,17 @@ def _add_mode_args(parser: argparse.ArgumentParser) -> None:
         "--image",
         default=DEFAULT_IMAGE,
         help=(
-            "Apptainer image URI or path. library:// URIs are auto-pulled via "
-            f"{PUBLIC_LIBRARY_URL} (default: %(default)s)"
+            "Apptainer image URI or path. HTTPS and library:// URIs are cached "
+            f"locally; library:// pulls use {PUBLIC_LIBRARY_URL} "
+            "(default: %(default)s)"
+        ),
+    )
+    parser.add_argument(
+        "--resource-cache-dir",
+        default=str(DEFAULT_RESOURCE_CACHE_DIR),
+        help=(
+            "Host directory for Parquet materialization cache "
+            "(default: %(default)s)"
         ),
     )
 
@@ -226,6 +250,7 @@ def main() -> None:
         output_path,
         args.threads,
         args.image,
+        Path(args.resource_cache_dir),
         tree_method=args.tree_method,
         mode_fast=args.mode_fast,
         max_workers=args.max_workers,

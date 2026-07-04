@@ -43,6 +43,11 @@ chmod +x gvclass-a
 
 The Apptainer image bundles the database and dependencies. See [Getting started](https://NeLLi-team.github.io/gvclass/tutorials/getting-started/) for the full walkthrough.
 
+The `gvclass-dev` wrapper currently pulls the temporary v2.0-dev SIF from
+`https://dl.newlineages.com/gvclass/gvclass_v2.0-dev.sif`. The image embeds
+the compact v2.0.0 database and writes its Parquet materialization cache to a
+host directory under `~/.cache/gvclass/resource-cache/v2.0-dev`.
+
 ## Input
 
 GVClass works best on bins after metagenomic binning: a directory of one or more FASTA files (`.fna` or `.faa`), one file per putative genome. For giant virus discovery, filter contigs to >=30 kb (>=50 kb preferred). Use `--contigs` to classify each contig in a multi-contig `.fna` independently. Details are in [the how-to guides](https://NeLLi-team.github.io/gvclass/how-to/).
@@ -52,6 +57,9 @@ GVClass works best on bins after metagenomic binning: a directory of one or more
 > Pitot et al. (2024): Conservative taxonomy and quality assessment of giant virus genomes with GVClass. npj Viruses. https://www.nature.com/articles/s44298-024-00069-7
 
 ## Database sources
+
+The trained contamination model is shipped in the runtime resource bundle at
+`resources/contamination/model.joblib`.
 
 The GVClass runtime resources include genomes and models derived from:
 

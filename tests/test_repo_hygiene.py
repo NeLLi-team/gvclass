@@ -58,6 +58,9 @@ def test_release_version_matches_user_facing_wrappers() -> None:
     expected_image_ref = re.compile(
         rf"(?:gvclass/)?gvclass:{re.escape(version)}"
     )
+    expected_apptainer_dev_ref = re.compile(
+        r"gvclass_v2\.0-dev\.sif|gvclass:v2\.0-dev"
+    )
     stale_image_ref = re.compile(
         rf"(?:gvclass/)?gvclass:(?!{re.escape(version)}\b)\d+\.\d+\.\d+"
     )
@@ -67,9 +70,12 @@ def test_release_version_matches_user_facing_wrappers() -> None:
         "gvclass-a",
         "src/bin/gvclass_apptainer.py",
         "src/bin/gvclass_apptainer.sh",
-        "src/bin/gvclass_docker.sh",
-        "src/bin/gvclass_shifter.sh",
     ]:
+        text = (REPO_ROOT / path).read_text()
+        assert expected_apptainer_dev_ref.search(text) or "gvclass-a" in text, path
+        assert not stale_image_ref.search(text), path
+
+    for path in ["src/bin/gvclass_docker.sh", "src/bin/gvclass_shifter.sh"]:
         text = (REPO_ROOT / path).read_text()
         assert expected_image_ref.search(text), path
         assert not stale_image_ref.search(text), path
@@ -131,7 +137,9 @@ def test_private_and_runtime_workspaces_stay_ignored() -> None:
 
     for pattern in [
         "resources/",
-        "docs/",
+        "docs/handoffs/",
+        "docs/plans/",
+        "docs/quality_metrics.md",
         "tasks/",
         ".codexloop/",
         ".codex",

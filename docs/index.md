@@ -31,11 +31,13 @@ Each genome returns a majority-vote taxonomy with a [confidence flag](reference/
     ./gvclass-a QUERY_DIR RESULTS_DIR -t 32
     ```
 
+    The `gvclass-dev` wrapper pulls the temporary `v2.0-dev` Apptainer image and keeps the compact-resource warm cache under `~/.cache/gvclass/resource-cache/v2.0-dev`.
+
 For the full walkthrough, see [Getting started](tutorials/getting-started.md).
 
 !!! note "Versions on this branch"
 
-    Software 2.0.0. The repo-local `resources/` tree is database `DB_VERSION` v2.0.0. `pixi run setup-db` still downloads the public v1.7.1 archive until a v2.0.0 tarball and checksum are published. Downloads and changelogs are on the [GitHub Releases](https://github.com/NeLLi-team/gvclass/releases) page.
+    Software 2.0.0. `pixi run setup-db` downloads the public v2.0.0 resource archive and installs database `DB_VERSION` v2.0.0. Downloads and changelogs are on the [GitHub Releases](https://github.com/NeLLi-team/gvclass/releases) page.
 
 ## Citation, license, contact
 

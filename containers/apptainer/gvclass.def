@@ -2,12 +2,23 @@ Bootstrap: docker
 From: ghcr.io/prefix-dev/pixi:latest
 
 %files
-    # Stage repo contents; selective copy happens in %post.
-    . /opt/gvclass_staging
+    LICENCE /opt/gvclass/LICENCE
+    README.md /opt/gvclass/README.md
+    config /opt/gvclass/config
+    containers /opt/gvclass/containers
+    example /opt/gvclass/example
+    gvclass /opt/gvclass/gvclass
+    gvclass-a /opt/gvclass/gvclass-a
+    images /opt/gvclass/images
+    pixi.lock /opt/gvclass/pixi.lock
+    pixi.toml /opt/gvclass/pixi.toml
+    pyproject.toml /opt/gvclass/pyproject.toml
+    src /opt/gvclass/src
 
 %environment
     export PATH=/usr/local/bin:/opt/gvclass/.pixi/envs/default/bin:$PATH
     export PYTHONPATH=/opt/gvclass:$PYTHONPATH
+    export GVCLASS_RESOURCE_CACHE="${GVCLASS_RESOURCE_CACHE:-/tmp/gvclass-resource-cache}"
 
 %post
     # Install system dependencies
@@ -20,29 +31,6 @@ From: ghcr.io/prefix-dev/pixi:latest
         && apt-get clean \
         && rm -rf /var/lib/apt/lists/*
     
-    # Move only the tracked project files from staging to final location.
-    # Runtime resources are downloaded into the image during the build.
-    mkdir -p /opt/gvclass
-    cd /opt/gvclass_staging
-
-    for item in \
-        LICENCE \
-        README.md \
-        config \
-        containers \
-        example \
-        gvclass \
-        gvclass-a \
-        images \
-        pixi.lock \
-        pixi.toml \
-        pyproject.toml \
-        src
-    do
-        [ -e "$item" ] || continue
-        cp -r "$item" /opt/gvclass/
-    done
-    
     cd /opt/gvclass
     
     # Install the environment using pixi
@@ -51,15 +39,16 @@ From: ghcr.io/prefix-dev/pixi:latest
     # Download the database if it doesn't exist
     if [ ! -d "/opt/gvclass/resources/database" ] || [ ! -f "/opt/gvclass/resources/hmm/combined.hmm" ]; then
         echo "Downloading GVClass database..."
-        pixi run python -c 'from src.utils.database_manager import DatabaseManager; DatabaseManager.setup_database("/opt/gvclass/resources")' || {
+        pixi run setup-db || {
             echo "Failed to download database during build"
             exit 1
         }
     fi
 
     # Fix permissions on database files to make them readable
+    chmod -R a+rX /opt/gvclass/resources/ 2>/dev/null || true
     chmod -R 755 /opt/gvclass/resources/database/ 2>/dev/null || true
-    chmod 644 /opt/gvclass/resources/labels.tsv 2>/dev/null || true
+    chmod 644 /opt/gvclass/resources/labels.tsv /opt/gvclass/resources/parquet/*.parquet /opt/gvclass/resources/parquet/labels/*.parquet 2>/dev/null || true
     chmod 644 /opt/gvclass/resources/markers/*.tsv /opt/gvclass/resources/markers/*.tab 2>/dev/null || true
     chmod 644 /opt/gvclass/resources/completeness/*.tsv /opt/gvclass/resources/completeness/*.json 2>/dev/null || true
     chmod 644 /opt/gvclass/resources/contamination/*.joblib /opt/gvclass/resources/contamination/*.yaml 2>/dev/null || true
@@ -74,9 +63,6 @@ From: ghcr.io/prefix-dev/pixi:latest
     chmod -R a+rX /opt/gvclass
     chmod a+rx /opt/gvclass/gvclass /opt/gvclass/gvclass-a
     ln -sf /opt/gvclass/gvclass /usr/local/bin/gvclass
-
-    rm -rf /opt/gvclass_staging
-
 %runscript
     # Check if first argument looks like a path
     if [ -z "$1" ] || [ "$(echo "$1" | cut -c1)" = "-" ]; then
@@ -86,15 +72,18 @@ From: ghcr.io/prefix-dev/pixi:latest
     fi
     
     cd /opt/gvclass
+    mkdir -p "${GVCLASS_RESOURCE_CACHE:-/tmp/gvclass-resource-cache}" 2>/dev/null || true
     exec ./gvclass "$@"
 
 %labels
     Author fschulz
-    Version 1.6.1
+    Version v2.0-dev
     Description GVClass - Giant Virus Classification Pipeline with Pixi
+    Database v2.0.0
+    ResourceCache /tmp/gvclass-resource-cache
 
 %help
-    GVClass Pipeline v1.6.1
+    GVClass Pipeline v2.0-dev
     
     IMPORTANT: Input data must be bind-mounted!
     
@@ -103,7 +92,7 @@ From: ghcr.io/prefix-dev/pixi:latest
     
     Examples:
         # Run on example directory
-        singularity run -B $(pwd):/data gvclass.sif /data/example -t 8
+        singularity run -B $(pwd):/data -B $HOME/.cache/gvclass/resource-cache/v2.0-dev:/tmp/gvclass-resource-cache gvclass.sif /data/example -t 8
         
         # Run on any query directory
         singularity run -B /home/user/genomes:/input gvclass.sif /input/my_queries -t 32
@@ -114,3 +103,6 @@ From: ghcr.io/prefix-dev/pixi:latest
     The pipeline will process ALL .fna and .faa files found in the input directory.
     
     NOTE: The resources database is included in the container at /opt/gvclass/resources.
+    NOTE: Compact Parquet resources materialize needed TSV/FASTA views under
+    GVCLASS_RESOURCE_CACHE. Bind a host directory to /tmp/gvclass-resource-cache
+    for a persistent warm cache across runs.

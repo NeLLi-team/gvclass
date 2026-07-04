@@ -6,7 +6,7 @@ GVClass runs from the repository through pixi, or from the `gvclass-a` Apptainer
 pixi run gvclass QUERY_DIR -o OUTPUT_DIR -t THREADS [options]
 ```
 
-Run this from the repository directory so the `./gvclass` launcher can resolve `src/`. The `gvclass-a` Apptainer wrapper takes the input as the first positional argument and the output directory either as an optional second positional argument or with `-o`/`--output-dir` (default `<query>_results`). It exposes `-t`/`--threads`, `--tree-method`, `--mode-fast`, `-e`/`--extended`, `-j`/`--max-workers`, `--sensitive`, `--contigs`, and `--image` (override the bundled SIF).
+Run this from the repository directory so the `./gvclass` launcher can resolve `src/`. The `gvclass-a` Apptainer wrapper takes the input as the first positional argument and the output directory either as an optional second positional argument or with `-o`/`--output-dir` (default `<query>_results`). It exposes `-t`/`--threads`, `--tree-method`, `--mode-fast`, `-e`/`--extended`, `-j`/`--max-workers`, `--sensitive`, `--contigs`, `--image` (override the default published SIF), and `--resource-cache-dir` (host cache for compact Parquet materialization).
 
 CLI arguments override config keys, which override built-in defaults.
 
@@ -91,19 +91,18 @@ See [run on HPC](../how-to/run-on-hpc.md).
     The database path resolves in this order: `--database`, then the `GVCLASS_DB` environment variable, then `database.path` in the config, then the default `<repo>/resources`.
 
 !!! note "Compact Parquet resources"
-    Compact bundles can store labels and reference proteins under `parquet/`. GVClass materializes the needed TSV and marker FASTA views into `<database.path>/.gvclass_cache/` by default. Set `database.cache_path` or `GVCLASS_RESOURCE_CACHE` to choose another cache directory; the environment variable has precedence.
+    Compact bundles can store labels and reference proteins under `parquet/`. GVClass materializes the needed TSV and marker FASTA views into `<database.path>/.gvclass_cache/` by default. Set `database.cache_path` or `GVCLASS_RESOURCE_CACHE` to choose another cache directory; the environment variable has precedence. The Apptainer wrapper sets `GVCLASS_RESOURCE_CACHE=/tmp/gvclass-resource-cache` inside the container and bind-mounts that path from a host cache directory.
 
 ## Version output
 
 ```text
 GVClass Pipeline
   Software version: v2.0.0
-  Database version: v1.7.1
+  Database version: v2.0.0
 ```
 
-The database version is read from the installed bundle. It is `v2.0.0` for the
-current repo-local `resources/` tree and `v1.7.1` for the public setup-download
-archive until the v2.0.0 archive is published.
+The database version is read from the installed bundle. The current public
+setup-download archive installs `v2.0.0`.
 
 ## See also
 

@@ -21,7 +21,9 @@ Pass the query directory first and the results directory second, then set the th
 
 The positional order is query then results. This differs from the pixi CLI, where the output is the `-o` flag (see the [CLI reference](../reference/cli.md)). `QUERY_DIR` holds your `.fna` or `.faa` bins; `RESULTS_DIR` is created if it does not exist.
 
-On first use the wrapper pulls `library://nelligroup-jgi/gvclass/gvclass:2.0.0` from the public Sylabs library (no access token) and caches the SIF under `~/.cache/gvclass/images/`. Later runs reuse the cached image. The image carries the database (about 700 MB) and all tools, so you skip database setup entirely.
+On first use the wrapper pulls the temporary v2.0-dev SIF from `https://dl.newlineages.com/gvclass/gvclass_v2.0-dev.sif` and caches it under `~/.cache/gvclass/images/`. Later runs reuse the cached image. The image carries the v2.0.0 database and all tools, so you skip database setup entirely.
+
+The v2.0.0 database is compact: labels and marker proteins are stored as Parquet inside the read-only SIF. GVClass materializes only the TSV and FASTA files needed for a run into a writable cache. The wrapper creates that cache on the host at `~/.cache/gvclass/resource-cache/v2.0-dev` and bind-mounts it into the container at `/tmp/gvclass-resource-cache`, so the SIF stays read-only and later runs reuse the warm cache. Use `--resource-cache-dir /path/to/cache` to place it on a scratch filesystem.
 
 !!! note
     The wrapper calls `apptainer`, which must be on your `PATH`. Many clusters expose it through a module, for example `module load apptainer`. The wrapper invokes `apptainer` by name, so a `singularity`-only module will not satisfy it.
@@ -38,6 +40,8 @@ The wrapper exposes the flags most runs need.
 | `--tree-method iqtree` | Use IQ-TREE instead of the default VeryFastTree (slower, more accurate). |
 | `--sensitive` | Loosen the HMM search to `E=1e-5` and skip GA cutoffs. |
 | `--contigs` | Treat each contig in an FNA as an independent genome. |
+| `--image URI_OR_PATH` | Override the default HTTPS SIF, for example with a local SIF path or a Sylabs `library://` URI after that mirror is published. |
+| `--resource-cache-dir PATH` | Host directory for the Parquet materialization cache. Default `~/.cache/gvclass/resource-cache/v2.0-dev`; put this on scratch for cluster runs. |
 
 !!! tip
     Split your threads across genomes for a directory of many bins. `-t 32 -j 4` runs 4 genomes at once with 8 threads each. The [speed and accuracy guide](../how-to/tune-speed-and-accuracy.md) covers the tradeoffs.
@@ -83,17 +87,21 @@ Save it as `gvclass.sbatch` and submit with `sbatch gvclass.sbatch`. Using `$SLU
 
 ## Run the image yourself
 
-For full control, pull the SIF and run it without the wrapper. Pull once from the public library, then bind your input and output directories into the container.
+For full control, pull the SIF and run it without the wrapper. Pull once from the temporary HTTPS URL, then bind your input and output directories into the container.
 
 ```bash
-apptainer pull --library https://library.sylabs.io \
-  gvclass_2.0.0.sif library://nelligroup-jgi/gvclass/gvclass:2.0.0
+apptainer pull -F gvclass_v2.0-dev.sif \
+  https://dl.newlineages.com/gvclass/gvclass_v2.0-dev.sif
 
 apptainer run -B /path/to/bins:/input -B /path/to/results:/output \
-  gvclass_2.0.0.sif /input -o /output -t 32
+  -B /path/to/cache:/tmp/gvclass-resource-cache \
+  --env GVCLASS_RESOURCE_CACHE=/tmp/gvclass-resource-cache \
+  gvclass_v2.0-dev.sif /input -o /output -t 32
 ```
 
-Inside the container the query path is positional (`/input`) and the output uses `-o`, matching the pixi CLI. The wrapper does this for you and is the simpler path for most runs.
+Inside the container the query path is positional (`/input`) and the output uses `-o`, matching the pixi CLI. The explicit cache bind is required for a persistent warm cache when you bypass the wrapper. The wrapper does this for you and is the simpler path for most runs.
+
+If the same image is mirrored to Sylabs, the wrapper can use it with `--image library://nelligroup-jgi/gvclass/gvclass:v2.0-dev`; `gvclass-a` pulls `library://` images through `https://library.sylabs.io`.
 
 ## See also
 

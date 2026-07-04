@@ -40,16 +40,16 @@ git rev-parse --abbrev-ref HEAD
 On first run (or `pixi run setup-db`) gvclass downloads and verifies the pinned
 bundle into `./resources/`:
 
-- URL: `https://dl.newlineages.com/gvclass/resources_v1_7_1.tar.gz`
-- Version: `v1.7.1` (capscan/PPV-unified models + protist-A32 PPV-reference re-curation)
-- Size: ~2.0 GB &nbsp;·&nbsp; SHA-256 `6f8ca4e0f61e094a7d05669e4024e07db9e3c1813fc07172e25113d362512c14`
+- URL: `https://dl.newlineages.com/gvclass/resources_v2_0_0.tar.gz`
+- Version: `v2.0.0` (compact Parquet resources with EUK80 keep-pEVE references)
+- Size: ~1.5 GB &nbsp;·&nbsp; SHA-256 `2d238fbccef3e37fdf6cae0cd5dd24157cc5a57ed81af24c1edfbe42e4dd92f5`
 
 The URL/version/sha256 are pinned in `config/gvclass_config.yaml`; the download is
 checksum-verified before it is installed. Nothing else to configure.
 
 > gvclass now auto-updates the database when the installed `DB_VERSION` is older
-> than the version pinned in the config, so an existing `resources/` (v1.6.0 or
-> v1.7.0) is refreshed to v1.7.1 on the next run (interactive: prompted;
+> than the version pinned in the config, so an existing `resources/` (v1.6.0,
+> v1.7.0, or v1.7.1) is refreshed to v2.0.0 on the next run (interactive: prompted;
 > non-interactive: automatic). To force a clean re-download, point gvclass at a
 > fresh location:
 > `export GVCLASS_DB=/path/to/empty/dir` (or move your old `resources/` aside),
