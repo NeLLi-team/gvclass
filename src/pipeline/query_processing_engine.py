@@ -29,6 +29,7 @@ from src.pipeline.summary_writer import (
 )
 from src.utils.error_handling import ProcessingError
 from src.utils.input_validation import InputValidator
+from src.utils.resource_store import ResourceStore
 
 from Bio import SeqIO
 
@@ -777,7 +778,7 @@ def _log_tree_files(tree_files: List[Path], logger) -> None:
 def _run_tree_analysis(
     query_name: str, query_output_dir: Path, database_path: Path, tree_dir: Path, logger
 ) -> Dict[str, Any]:
-    labels_file = database_path / "labels.tsv"
+    labels_file = ResourceStore(database_path).label_path("labels.tsv")
     logger.info(f"Labels file: {labels_file}, exists: {labels_file.exists()}")
     stats_dir = query_output_dir / "stats"
     stats_dir.mkdir(exist_ok=True, parents=True)

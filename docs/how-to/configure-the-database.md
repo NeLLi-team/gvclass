@@ -1,6 +1,6 @@
 # Configure the database
 
-GVClass reads its reference markers, HMMs, and tree references from one database directory. You control where that directory lives, point several runs at a single shared copy, and let GVClass keep it current. The bundle is versioned separately from the software; this page covers the v1.7.1 bundle that ships with GVClass 2.0.0.
+GVClass reads its reference markers, HMMs, and tree references from one database directory. You control where that directory lives, point several runs at a single shared copy, and let GVClass keep it current. The bundle is versioned separately from the software. The repo-local `resources/` tree is currently `DB_VERSION` v2.0.0; the public setup-download block remains pinned to v1.7.1 until a v2.0.0 archive and checksum are published.
 
 ## Where GVClass looks for the database
 
@@ -42,21 +42,39 @@ Every shell that exports the same `GVCLASS_DB` reuses that copy, which avoids a 
 
 ## The database config block
 
-The `database` block of `config/gvclass_config.yaml` controls the path and the bundle that setup downloads.
+The `database` block of `config/gvclass_config.yaml` controls the path and the bundle that setup downloads. These values describe the public download archive, not necessarily the already-installed repo-local `resources/` tree.
 
 ```yaml
 database:
   path: resources
+  cache_path:
   download_url: https://dl.newlineages.com/gvclass/resources_v1_7_1.tar.gz
   download_version: v1.7.1
   download_sha256: 6f8ca4e0f61e094a7d05669e4024e07db9e3c1813fc07172e25113d362512c14
   expected_size: 2005
 ```
 
-Each key is defined in the [configuration reference](../reference/configuration.md); the values above are what ships on the `gvclass-dev` branch. The two you are most likely to change are `path` (where the database lives) and `download_version` (the pinned bundle, currently `v1.7.1`).
+Each key is defined in the [configuration reference](../reference/configuration.md); the values above are the current public setup-download pin. The keys you are most likely to change are `path` (where the database lives), `cache_path` (where compact-resource views are materialized), and `download_version` (the pinned download bundle, currently `v1.7.1`).
 
 !!! note
-    On the `gvclass-dev` branch, `download_url` points at the Cloudflare tunnel bundle (`dl.newlineages.com`, v1.7.1). The `main` branch points at the Zenodo asset instead. Both serve the same v1.7.1 contents.
+    On the `gvclass-dev` branch, `download_url` points at the Cloudflare tunnel bundle (`dl.newlineages.com`, v1.7.1). The `main` branch points at the Zenodo asset instead. Both serve the same v1.7.1 contents. Do not change this block to v2.0.0 until the matching tarball and SHA-256 are available.
+
+## Label namespaces in the database
+
+The selected database bundle controls the reference labels that GVClass can emit. The v2.0.0 repo-local resources include putative endogenous viral element references as `EUK-pEVE__...` FASTA and label IDs, with taxonomy strings that carry `-pEVE` at every rank. No command-line flag is required to activate that namespace; point GVClass at the bundle with `--database`, `GVCLASS_DB`, or the `database.path` config key. In species-tree runs, `EUK-pEVE__...` references are eligible auxiliary leaves for the NCLDV, PPV, and MIRUS panels, but ordinary `EUK__...` references are not.
+
+For interpretation of `EUK-pEVE` outputs, see [Taxonomy and classification](../explanation/taxonomy.md#putative-eve-references).
+
+## Compact Parquet resources
+
+GVClass supports two on-disk layouts for labels and reference proteins:
+
+- Legacy bundles store active labels in `labels.tsv` and marker reference proteins in `database/faa/<marker>.faa`.
+- Compact bundles may instead store active labels in `parquet/labels/labels.parquet` and all marker proteins in `parquet/faa.parquet`.
+
+The compact EUK80 keep-pEVE projection collapses ordinary `EUK__...` reference proteins to 80% amino-acid identity representatives while keeping all `EUK-pEVE__...` proteins. The taxonomy namespace does not change: ordinary eukaryotic labels remain `EUK__...`, and pEVE labels remain `EUK-pEVE__...`.
+
+When a compact bundle is used, GVClass materializes only the label table and marker FASTA files needed for the current run into `.gvclass_cache/` inside the database directory. The archive does not ship cache contents; a copied resource directory warms its cache beside the bundle on first use. Set `database.cache_path` or `GVCLASS_RESOURCE_CACHE=/path/to/cache` if the database directory is read-only or if you want the materialized files elsewhere; the environment variable takes precedence over the config key.
 
 ## Keep the database current
 

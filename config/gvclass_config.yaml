@@ -6,7 +6,13 @@ database:
   # Path to GVClass database (relative paths resolve from the GVClass repo)
   # If not found, will be downloaded automatically
   path: resources
-  # Release asset used for first-time setup.
+  # Optional materialization cache for compact Parquet resources. When unset,
+  # GVClass uses <database.path>/.gvclass_cache; GVCLASS_RESOURCE_CACHE overrides
+  # this key. Relative paths resolve inside the selected database directory.
+  cache_path:
+  # Release asset used for first-time setup. The repo-local resources/ tree can
+  # be newer than this public archive; keep the URL/checksum pinned until a
+  # v2.0.0 resource tarball is generated and published.
   # gvclass-dev: points at the alpha-test resources (v1.7.1, capscan/PPV models +
   # protist-derived-A32 PPV-reference re-curation) served over the Cloudflare
   # tunnel. Main/release uses the Zenodo asset.

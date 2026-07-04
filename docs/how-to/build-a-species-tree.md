@@ -12,6 +12,8 @@ pixi run gvclass my_bins -o my_results -t 32 --species-tree
 
 For each query, GVClass concatenates the classified domain's panel markers into a per-query supermatrix and builds that query's tree. For an NCLDV query, that panel is the eight GVOG8 markers. The placement is the nearest reference genome in the resulting tree.
 
+If the database bundle includes `EUK-pEVE__...` references, those references can enter the NCLDV, PPV, and MIRUS species-tree candidate pools as auxiliary leaves. They are kept only when they carry enough markers for that panel, and they retain `EUK-pEVE` taxonomy if they become the nearest reference.
+
 The artifacts land in `my_results/species_tree/<query>/`:
 
 | File | Contents |

@@ -90,6 +90,9 @@ See [run on HPC](../how-to/run-on-hpc.md).
 !!! note "Database path precedence"
     The database path resolves in this order: `--database`, then the `GVCLASS_DB` environment variable, then `database.path` in the config, then the default `<repo>/resources`.
 
+!!! note "Compact Parquet resources"
+    Compact bundles can store labels and reference proteins under `parquet/`. GVClass materializes the needed TSV and marker FASTA views into `<database.path>/.gvclass_cache/` by default. Set `database.cache_path` or `GVCLASS_RESOURCE_CACHE` to choose another cache directory; the environment variable has precedence.
+
 ## Version output
 
 ```text
@@ -97,6 +100,10 @@ GVClass Pipeline
   Software version: v2.0.0
   Database version: v1.7.1
 ```
+
+The database version is read from the installed bundle. It is `v2.0.0` for the
+current repo-local `resources/` tree and `v1.7.1` for the public setup-download
+archive until the v2.0.0 archive is published.
 
 ## See also
 

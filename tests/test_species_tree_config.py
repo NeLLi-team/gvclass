@@ -17,6 +17,7 @@ from src.core.species_tree.config import (
     NEIGHBORS_PER_COMBINED_TREE,
     NEIGHBORS_PER_QUERY_TREE,
     PANELS,
+    PEVE_PREFIX,
     PPV_PANEL,
     groups_for_models,
     neighbors_to_store,
@@ -50,8 +51,15 @@ def test_select_panel_routes_by_domain_token() -> None:
     # Non-registered domains and empty/low-support are a no-op.
     assert select_panel("d_BAC;p_Pseudomonadota") is None
     assert select_panel("d_EUK;p_Chordata") is None
+    assert select_panel("d_EUK-pEVE;p_Discosea-pEVE") is None
     assert select_panel("") is None
     assert select_panel("low_support") is None
+
+
+def test_peve_is_auxiliary_reference_prefix_not_routing_panel() -> None:
+    assert set(PANELS) == {"NCLDV", "PPV", "MIRUS"}
+    for panel in PANELS.values():
+        assert panel.reference_prefixes == (panel.domain_prefix, PEVE_PREFIX)
 
 
 def test_gvog8_resolves_to_eight_distinct_groups() -> None:
@@ -71,11 +79,17 @@ def test_mirus_resolves_to_six_groups() -> None:
     assert len(MIRUS_PANEL.groups) == 6
     assert "mcp_mirus" in MIRUS_PANEL.groups
     assert "terminase" in MIRUS_PANEL.groups  # ATPase + merged collapse to one
+    assert MIRUS_PANEL.min_markers == 3
 
 
 def test_ppv_core_groups() -> None:
     assert PPV_PANEL.groups == ("mcp_vp", "mcp_plv", "penton_vp", "atpase_vp")
     assert PPV_PANEL.min_markers == 2
+
+
+def test_ppv_and_mirus_thresholds_are_half_panel() -> None:
+    assert PPV_PANEL.min_markers * 2 == len(PPV_PANEL.groups)
+    assert MIRUS_PANEL.min_markers * 2 == len(MIRUS_PANEL.groups)
 
 
 def test_groups_for_models_dedupes_preserving_order() -> None:
@@ -104,6 +118,6 @@ def test_panel_groups_resolve_to_faa_with_domain_refs(panel) -> None:
         faa = FAA_DIR / f"{group}.faa"
         assert faa.exists(), f"{panel.name} group {group} has no reference faa"
         n_refs = _count_prefixed_headers(faa, panel.domain_prefix)
-        assert n_refs >= panel.min_markers * 50, (
-            f"{panel.name}/{group}: only {n_refs} {panel.domain_prefix} refs"
-        )
+        assert (
+            n_refs >= panel.min_markers * 50
+        ), f"{panel.name}/{group}: only {n_refs} {panel.domain_prefix} refs"

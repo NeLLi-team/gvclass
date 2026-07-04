@@ -12,6 +12,7 @@ python = "3.11.*"
 # Core scientific libraries used in the code
 pandas = "==2.3.3"        # Used for data manipulation
 biopython = "==1.85"      # Used for sequence I/O
+pyarrow = ">=22,<23"      # Used for compact Parquet resource bundles
 
 # Phylogenetic analysis
 ete3 = "==3.1.2"          # Used for tree parsing and analysis

@@ -24,6 +24,7 @@ from src.bin.progress_monitor import ResourceMonitor
 SOFTWARE_VERSION = f"v{_GVCLASS_VERSION}"
 PLAIN_OUTPUT_ENV = "GVCLASS_PLAIN_OUTPUT"
 DATABASE_PATH_ENV = "GVCLASS_DB"
+RESOURCE_CACHE_ENV = "GVCLASS_RESOURCE_CACHE"
 TWO_DECIMAL_SUMMARY_COLUMNS = {
     "avgdist",
     "order_dup",
@@ -303,6 +304,7 @@ def load_config(config_file: str, repo_dir: Path, output: CliOutput):
     default_config = {
         "database": {
             "path": str(repo_dir / "resources"),
+            "cache_path": None,
             "download_url": "https://zenodo.org/records/20479524/files/resources_v1_6_0.tar.gz?download=1",
             "download_version": "v1.6.0",
             "download_sha256": "f744f7144ea69d6c3ccffe56e7721d6fd598685853005e0fb90d04e699d9b23f",
@@ -377,6 +379,33 @@ def resolve_database_path(args, config, repo_dir: Path) -> Path:
     if not database.is_absolute():
         database = repo_dir / database
     return database.resolve()
+
+
+def resolve_resource_cache_path(config, database: Path) -> Optional[Path]:
+    """Return configured resource cache path, or None for ResourceStore default."""
+    env_cache = os.environ.get(RESOURCE_CACHE_ENV, "").strip()
+    if env_cache:
+        return None
+
+    cache_setting = config.get("database", {}).get("cache_path")
+    if cache_setting is None:
+        return None
+
+    cache_setting = str(cache_setting).strip()
+    if not cache_setting:
+        return None
+
+    cache_path = Path(cache_setting).expanduser()
+    if not cache_path.is_absolute():
+        cache_path = database / cache_path
+    return cache_path.resolve()
+
+
+def configure_resource_cache(config, database: Path) -> None:
+    """Expose config-file cache setting to ResourceStore via its env hook."""
+    cache_path = resolve_resource_cache_path(config, database)
+    if cache_path is not None:
+        os.environ[RESOURCE_CACHE_ENV] = str(cache_path)
 
 
 def resolve_database_download_source(config) -> Optional[dict]:
@@ -1084,6 +1113,7 @@ def resolve_pipeline_context(
 
     contigs = resolve_contigs_input(query_dir, args.contigs)
     database = resolve_database_path(args, config, repo_dir)
+    configure_resource_cache(config, database)
     threads = args.threads if args.threads else config["pipeline"].get("threads", 16)
     tree_method = resolve_tree_method(args, config)
     iqtree_mode = resolve_iqtree_mode(args, config)

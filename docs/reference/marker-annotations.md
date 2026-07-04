@@ -1,6 +1,6 @@
 # Marker annotations
 
-Majority functional annotation for each of the 1671 HMM marker models in GVClass, derived from the consensus annotation of the member proteins in each model. This is a snapshot of database bundle **v1.7.1**.
+Majority functional annotation for each of the 1671 HMM marker models in GVClass, derived from the consensus annotation of the member proteins in each model. This table is included with the repo-local **v2.0.0** resources. The v2.0.0 update adds marker-specific reference FASTA records, not new HMM model names, so the marker annotation snapshot itself is unchanged from the v1.7.1 public download bundle.
 
 Download the full table, including per-annotation support counts (`majority_count`, `total_proteins`), here: [marker-annotations.tsv](marker-annotations.tsv). Regenerate it with `python scripts/gen_marker_annotations_doc.py` after a database update. For the marker panels that feed the summary table and the genetic codes, see [Marker panels and genetic codes](markers.md).
 

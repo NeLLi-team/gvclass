@@ -4,11 +4,19 @@ Tree analysis module for extracting nearest neighbors from phylogenetic trees.
 
 import logging
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, Sequence, Union
 from collections import Counter
 from ete3 import Tree
 
 logger = logging.getLogger(__name__)
+
+PrefixFilter = Union[str, Sequence[str]]
+
+
+def _prefix_tuple(keep_prefix: PrefixFilter) -> Tuple[str, ...]:
+    if isinstance(keep_prefix, str):
+        return (keep_prefix,)
+    return tuple(keep_prefix)
 
 
 class TreeAnalyzer:
@@ -154,13 +162,14 @@ class TreeAnalyzer:
         tree_file: Path,
         query_id: str,
         k: int = 50,
-        keep_prefix: str = "NCLDV__",
+        keep_prefix: PrefixFilter = "NCLDV__",
     ) -> List[Tuple[str, str, float]]:
         """Return up to ``k`` nearest reference genomes to the query in a gene tree.
 
         Generalises :meth:`_find_nearest_neighbor` (single global minimum) to the
         top ``k`` nearest reference leaves whose name starts with ``keep_prefix``
-        (e.g. ``"NCLDV__"``). The prefix filter is applied **before** any patristic
+        (e.g. ``"NCLDV__"`` or ``("NCLDV__", "EUK-pEVE__")``). The prefix filter
+        is applied **before** any patristic
         distance is computed, so only candidate references incur a distance call.
 
         Distances are aggregated to the genome level: for each reference genome
@@ -175,8 +184,9 @@ class TreeAnalyzer:
                 query and are never returned as neighbors (even if, pathologically,
                 a query stem itself starts with ``keep_prefix``).
             k: Maximum number of reference genomes to return.
-            keep_prefix: Only leaves whose name starts with this prefix are
-                eligible neighbors (the reference-domain gate, e.g. ``"NCLDV__"``).
+            keep_prefix: Leaves whose name starts with this prefix or one of
+                these prefixes are eligible neighbors (the reference-domain gate,
+                e.g. ``"NCLDV__"`` or ``("NCLDV__", "EUK-pEVE__")``).
 
         Returns:
             ``[(protein_id, genome_id, distance), ...]`` sorted by ascending
@@ -197,14 +207,14 @@ class TreeAnalyzer:
             logger.error(f"Error loading tree {tree_file}: {exc}")
             return []
 
+        prefixes = _prefix_tuple(keep_prefix)
         query_nodes = [
             leaf for leaf in tree.iter_leaves() if leaf.name.startswith(query_id)
         ]
         candidates = [
             leaf
             for leaf in tree.iter_leaves()
-            if leaf.name.startswith(keep_prefix)
-            and not leaf.name.startswith(query_id)
+            if leaf.name.startswith(prefixes) and not leaf.name.startswith(query_id)
         ]
         if not query_nodes or not candidates:
             return []

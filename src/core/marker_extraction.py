@@ -10,6 +10,7 @@ from typing import Any, Dict, Iterable, Set, List, Tuple
 from Bio import SeqIO
 
 from src.utils import setup_logging
+from src.utils.resource_store import ResourceStore
 from src.config.marker_sets import GROUP_TO_MODELS, MODEL_TO_GROUP
 
 logger = setup_logging(__name__)
@@ -189,20 +190,7 @@ def get_marker_database_path(marker: str, database_path: Path) -> Path:
     Returns:
         Path to marker-specific FASTA file
     """
-    faa_path = database_path / "database" / "faa" / f"{marker}.faa"
-
-    # Check if file exists
-    if not faa_path.exists():
-        # Try alternative location
-        alt_path = database_path / "faa" / f"{marker}.faa"
-        if alt_path.exists():
-            return alt_path
-        else:
-            raise FileNotFoundError(
-                f"Database file not found for marker {marker}: {faa_path}"
-            )
-
-    return faa_path
+    return ResourceStore(database_path).marker_faa_path(marker)
 
 
 def count_marker_hits(hmm_output: Path) -> Dict[str, int]:

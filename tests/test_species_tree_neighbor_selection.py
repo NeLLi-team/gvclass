@@ -29,6 +29,7 @@ def _labels_file(tmp_path: Path) -> Path:
         lines.append(
             f"NCLDV__{g}\tNCLDV|Nucleocytoviricota|Imitervirales|fam|gen|sp_{g}"
         )
+    lines.append("EUK-pEVE__E1\t" "EUK-pEVE|Discosea-pEVE|Flabellinia-pEVE|o|f|g|s")
     lines.append("BAC__B1\tBAC|Pseudomonadota|Gamma|Ent|Esc|coli")
     path.write_text("\n".join(lines) + "\n")
     return path
@@ -75,6 +76,27 @@ def test_top_k_truncates_to_k(tmp_path: Path) -> None:
 
     hits = analyzer.get_top_k_neighbors(tree, "QUERY", k=2, keep_prefix="NCLDV__")
     assert [g for _, g, _ in hits] == ["NCLDV__G1", "NCLDV__G2"]
+
+
+def test_top_k_accepts_auxiliary_peve_prefix(tmp_path: Path) -> None:
+    analyzer = _analyzer(tmp_path)
+    tree = _write_tree(
+        tmp_path,
+        "peve.treefile",
+        "((QUERY_1:0.1,EUK-pEVE__E1|p_1:0.1):0.1,"
+        "(NCLDV__G1_1:0.3,EUK__ORDINARY|p_1:0.1):0.1);",
+    )
+
+    hits = analyzer.get_top_k_neighbors(
+        tree,
+        "QUERY",
+        k=50,
+        keep_prefix=("NCLDV__", "EUK-pEVE__"),
+    )
+
+    genomes = [genome_id for _, genome_id, _ in hits]
+    assert genomes == ["EUK-pEVE__E1", "NCLDV__G1"]
+    assert "EUK__ORDINARY" not in genomes
 
 
 def test_fewer_than_k_returns_all(tmp_path: Path) -> None:
@@ -173,17 +195,13 @@ def test_top_k_resolves_genome_from_pipe_headers(tmp_path: Path) -> None:
         "(NCLDV__IMGM3300009076_BIN259|Ga0115550_1009924_9:0.6,"
         "NCLDV__bin_6581|Ga0590176_00006195_36:0.3):0.1);",
     )
-    hits = analyzer.get_top_k_neighbors(
-        tree, "PkV-RF01", k=50, keep_prefix="NCLDV__"
-    )
+    hits = analyzer.get_top_k_neighbors(tree, "PkV-RF01", k=50, keep_prefix="NCLDV__")
     genomes = [g for _, g, _ in hits]
     # Both BIN259 paralogs collapse to one genome; bin_6581 distinct.
     assert genomes.count("NCLDV__IMGM3300009076_BIN259") == 1
     assert set(genomes) == {"NCLDV__IMGM3300009076_BIN259", "NCLDV__bin_6581"}
     # The nearer BIN259 paralog (the _4 protein at dist 0.3) is kept.
-    bin259_protein = next(
-        p for p, g, _ in hits if g == "NCLDV__IMGM3300009076_BIN259"
-    )
+    bin259_protein = next(p for p, g, _ in hits if g == "NCLDV__IMGM3300009076_BIN259")
     assert bin259_protein.endswith("_4")
 
 
@@ -198,9 +216,34 @@ def test_build_ncldv_reference_subset_filters_prefix(tmp_path: Path) -> None:
     out = tmp_path / "grp.ncldv.faa"
     n = build_ncldv_reference_subset(group_faa, out)
     assert n == 2
-    headers = [ln[1:].strip() for ln in out.read_text().splitlines() if ln.startswith(">")]
+    headers = [
+        ln[1:].strip() for ln in out.read_text().splitlines() if ln.startswith(">")
+    ]
     assert all(h.startswith("NCLDV__") for h in headers)
     assert len(headers) == 2
+
+
+def test_build_reference_subset_filters_multiple_prefixes(tmp_path: Path) -> None:
+    group_faa = tmp_path / "grp.faa"
+    group_faa.write_text(
+        ">NCLDV__G1|c_1\nMKTAYIAK\n"
+        ">EUK-pEVE__E1|c_1\nMKQAYIAK\n"
+        ">EUK__ORDINARY|c_1\nMKTAYIWK\n"
+        ">PPV__P1|c_1\nMKTAYIAR\n"
+    )
+    out = tmp_path / "grp.panel.faa"
+
+    n = build_ncldv_reference_subset(
+        group_faa,
+        out,
+        prefix=("NCLDV__", "EUK-pEVE__"),
+    )
+
+    assert n == 2
+    headers = [
+        ln[1:].strip() for ln in out.read_text().splitlines() if ln.startswith(">")
+    ]
+    assert headers == ["NCLDV__G1|c_1", "EUK-pEVE__E1|c_1"]
 
 
 def test_dedicated_search_and_tree_build(tmp_path: Path) -> None:
@@ -270,7 +313,9 @@ _FAM_B = "MSEQNNTSGFLGKKVDLSSLTGKKVAVDASHALYQFLIAVRQEGGQLTNEAGETTSHLMGM"
 _FAM_B2 = "MSEQNNTSGFLGKKVDLSSLTGKKVAVDASHALYQFLIAVRQEGGQLTNEAGDTTSHLLGM"
 
 
-def test_build_query_group_trees_and_select_orchestration(tmp_path, monkeypatch) -> None:
+def test_build_query_group_trees_and_select_orchestration(
+    tmp_path, monkeypatch
+) -> None:
     """End-to-end: subset -> dedicated search -> tree -> top-K across two groups,
     with shared subset_cache reuse and skip handling for empty/missing groups.
     Exercises the live primitives the per-query hook composes."""
@@ -321,28 +366,44 @@ def test_build_query_group_trees_and_select_orchestration(tmp_path, monkeypatch)
     work = tmp_path / "work"
 
     group_to_tree = ns.build_query_group_trees(
-        query_hits, ref_dir, groups, "QUERYGENOME", work,
-        threads=1, subset_cache=cache,
+        query_hits,
+        ref_dir,
+        groups,
+        "QUERYGENOME",
+        work,
+        threads=1,
+        subset_cache=cache,
     )
     hits = ns.select_ncldv_neighbors_from_trees(
-        group_to_tree, analyzer, "QUERYGENOME", k=50,
+        group_to_tree,
+        analyzer,
+        "QUERYGENOME",
+        k=50,
     )
 
     # Aggregated across the two viable groups; grpC (no ref) and grpEmpty skipped.
     assert {h.group for h in hits} == {"grpA", "grpB"}
     assert {h.genome_id for h in hits} >= {"NCLDV__A1", "NCLDV__B1"}
     # Subset built once per viable group; cache populated.
-    assert set(cache) == {"grpA", "grpB"}
+    assert {key[0] for key in cache} == {"grpA", "grpB"}
     assert calls["n"] == 2
 
     # Second query reuses the cached subsets -> no extra subset builds.
     (query_hits / "grpA.faa").write_text(f">QUERYGENOME2_1\n{_FAM_A2}\n")
     group_to_tree2 = ns.build_query_group_trees(
-        query_hits, ref_dir, groups, "QUERYGENOME2", work,
-        threads=1, subset_cache=cache,
+        query_hits,
+        ref_dir,
+        groups,
+        "QUERYGENOME2",
+        work,
+        threads=1,
+        subset_cache=cache,
     )
     hits2 = ns.select_ncldv_neighbors_from_trees(
-        group_to_tree2, analyzer, "QUERYGENOME2", k=50,
+        group_to_tree2,
+        analyzer,
+        "QUERYGENOME2",
+        k=50,
     )
     assert calls["n"] == 2  # unchanged: subsets reused from cache
     assert any(h.group == "grpA" for h in hits2)

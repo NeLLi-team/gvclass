@@ -27,6 +27,7 @@ def _labels(tmp_path: Path) -> Path:
             f"NCLDV__{g}\tNCLDV|Nucleocytoviricota|Imitervirales|f|g|s_{g}"
             for g in ("G1", "G2", "G3")
         )
+        + "\nEUK-pEVE__E1\tEUK-pEVE|Discosea-pEVE|c|o|f|g|s"
         + "\n"
     )
     return path
@@ -90,7 +91,29 @@ def test_query_rep_picks_ref_closest_paralog(tmp_path: Path) -> None:
         "((PkV-RF01|p_1:0.1,NCLDV__G1_1:0.1):0.1,"
         "(PkV-RF01|p_2:0.5,NCLDV__G2_1:0.1):0.1);",
     )
-    chosen = select_query_representative_from_tree(tree, "PkV-RF01", keep_prefix="NCLDV__")
+    chosen = select_query_representative_from_tree(
+        tree, "PkV-RF01", keep_prefix="NCLDV__"
+    )
+    assert chosen is not None
+    protein, dist = chosen
+    assert protein == "PkV-RF01|p_1"
+    assert dist == 0.2
+
+
+def test_query_rep_accepts_auxiliary_peve_prefix(tmp_path: Path) -> None:
+    tree = _write_tree(
+        tmp_path,
+        "peve.treefile",
+        "((PkV-RF01|p_1:0.1,EUK-pEVE__E1|c_1:0.1):0.1,"
+        "(PkV-RF01|p_2:0.5,NCLDV__G1_1:0.1):0.1);",
+    )
+
+    chosen = select_query_representative_from_tree(
+        tree,
+        "PkV-RF01",
+        keep_prefix=("NCLDV__", "EUK-pEVE__"),
+    )
+
     assert chosen is not None
     protein, dist = chosen
     assert protein == "PkV-RF01|p_1"
@@ -114,7 +137,9 @@ def test_query_rep_tie_breaks_by_length_then_id(tmp_path: Path) -> None:
     assert chosen is not None and chosen[0] == "PkV-RF01|p_2"
 
     # No lengths -> deterministic id tie-break (p_1 < p_2).
-    chosen_id = select_query_representative_from_tree(tree, "PkV-RF01", keep_prefix="NCLDV__")
+    chosen_id = select_query_representative_from_tree(
+        tree, "PkV-RF01", keep_prefix="NCLDV__"
+    )
     assert chosen_id is not None and chosen_id[0] == "PkV-RF01|p_1"
 
 
@@ -144,6 +169,42 @@ def test_gather_query_representatives_min_markers(tmp_path: Path) -> None:
     assert gather_query_representatives(two, "PkV-RF01", min_markers=3) is None
 
 
+def test_gather_query_representatives_accepts_auxiliary_peve_prefix(
+    tmp_path: Path,
+) -> None:
+    trees = {
+        "grpA": _write_tree(
+            tmp_path,
+            "grpA.treefile",
+            "((PkV-RF01|grpA_1:0.1,EUK-pEVE__E1|cA_1:0.1):0.1," "BAC__B1|cA_1:0.3);",
+        ),
+        "grpB": _write_tree(
+            tmp_path,
+            "grpB.treefile",
+            "((PkV-RF01|grpB_1:0.1,NCLDV__G1_1:0.1):0.1," "BAC__B1|cB_1:0.3);",
+        ),
+    }
+
+    reps = gather_query_representatives(
+        trees,
+        "PkV-RF01",
+        min_markers=2,
+        keep_prefix=("NCLDV__", "EUK-pEVE__"),
+    )
+
+    assert reps is not None
+    assert set(reps) == {"grpA", "grpB"}
+    assert (
+        gather_query_representatives(
+            trees,
+            "PkV-RF01",
+            min_markers=2,
+            keep_prefix="NCLDV__",
+        )
+        is None
+    )
+
+
 # ---------------------------------------------------------------------------
 # Reference representative gathering + >= min_markers filter
 # ---------------------------------------------------------------------------
@@ -168,7 +229,9 @@ def _ref_indexes(tmp_path: Path, analyzer: TreeAnalyzer):
     }
 
 
-def test_reference_rep_preserves_placed_paralog_and_fills_longest(tmp_path: Path) -> None:
+def test_reference_rep_preserves_placed_paralog_and_fills_longest(
+    tmp_path: Path,
+) -> None:
     analyzer = TreeAnalyzer(_labels(tmp_path))
     indexes = _ref_indexes(tmp_path, analyzer)
     groups = ["grpA", "grpB", "grpC", "grpD"]
@@ -178,7 +241,9 @@ def test_reference_rep_preserves_placed_paralog_and_fills_longest(tmp_path: Path
         NeighborHit("NCLDV__G1", "NCLDV__G1|cA_1", "grpA", 0.2),
         NeighborHit("NCLDV__G2", "NCLDV__G2|cD_1", "grpD", 0.3),
     ]
-    kept, dropped = gather_reference_representatives(hits, indexes, groups, min_markers=3)
+    kept, dropped = gather_reference_representatives(
+        hits, indexes, groups, min_markers=3
+    )
 
     # G1 kept (grpA placed + grpB/grpC filled = 3 markers); G2 dropped (1 marker).
     assert set(kept) == {"NCLDV__G1"}
@@ -203,13 +268,17 @@ def test_reference_rep_genome_with_two_markers_dropped(tmp_path: Path) -> None:
     groups = ["grpA", "grpB", "grpC", "grpD"]
     # G3 present in grpA, grpB, grpC (3 markers) but only ever a neighbor in grpA.
     hits = [NeighborHit("NCLDV__G3", "NCLDV__G3|cA_1", "grpA", 0.2)]
-    kept, dropped = gather_reference_representatives(hits, indexes, groups, min_markers=3)
+    kept, dropped = gather_reference_representatives(
+        hits, indexes, groups, min_markers=3
+    )
     assert set(kept) == {"NCLDV__G3"}  # filled grpB+grpC -> 3/8 kept
     assert kept["NCLDV__G3"]["grpA"] == "NCLDV__G3|cA_1"
     assert len(kept["NCLDV__G3"]) == 3
 
     # Raise the floor to 4 -> now G3 (3 markers) is dropped.
-    kept4, dropped4 = gather_reference_representatives(hits, indexes, groups, min_markers=4)
+    kept4, dropped4 = gather_reference_representatives(
+        hits, indexes, groups, min_markers=4
+    )
     assert kept4 == {}
     assert "NCLDV__G3" in dropped4
 
@@ -217,7 +286,45 @@ def test_reference_rep_genome_with_two_markers_dropped(tmp_path: Path) -> None:
         index.close()
 
 
-def test_reference_rep_duplicate_hit_picks_nearest_order_independent(tmp_path: Path) -> None:
+def test_peve_reference_rep_uses_same_marker_threshold(tmp_path: Path) -> None:
+    analyzer = TreeAnalyzer(_labels(tmp_path))
+    (tmp_path / "grpA.faa").write_text(f">EUK-pEVE__E1|cA_1\n{_seq(10)}\n")
+    (tmp_path / "grpB.faa").write_text(f">EUK-pEVE__E1|cB_1\n{_seq(12)}\n")
+    (tmp_path / "grpC.faa").write_text(f">EUK-pEVE__E1|cC_1\n{_seq(14)}\n")
+    (tmp_path / "grpD.faa").write_text(f">NCLDV__G1|cD_1\n{_seq(16)}\n")
+    indexes = {
+        g: ReferenceProteinIndex(tmp_path / f"{g}.faa", analyzer)
+        for g in ("grpA", "grpB", "grpC", "grpD")
+    }
+    groups = ["grpA", "grpB", "grpC", "grpD"]
+    hits = [NeighborHit("EUK-pEVE__E1", "EUK-pEVE__E1|cA_1", "grpA", 0.2)]
+
+    kept, dropped = gather_reference_representatives(
+        hits,
+        indexes,
+        groups,
+        min_markers=3,
+    )
+    assert set(kept) == {"EUK-pEVE__E1"}
+    assert dropped == []
+    assert set(kept["EUK-pEVE__E1"]) == {"grpA", "grpB", "grpC"}
+
+    kept4, dropped4 = gather_reference_representatives(
+        hits,
+        indexes,
+        groups,
+        min_markers=4,
+    )
+    assert kept4 == {}
+    assert dropped4 == ["EUK-pEVE__E1"]
+
+    for index in indexes.values():
+        index.close()
+
+
+def test_reference_rep_duplicate_hit_picks_nearest_order_independent(
+    tmp_path: Path,
+) -> None:
     """Combined mode: the same (genome, group) placed by two queries resolves to
     the NEAREST paralog regardless of hit order (no first-query-wins)."""
     analyzer = TreeAnalyzer(_labels(tmp_path))
@@ -227,8 +334,12 @@ def test_reference_rep_duplicate_hit_picks_nearest_order_independent(tmp_path: P
     far = NeighborHit("NCLDV__G1", "NCLDV__G1|cA_2", "grpA", 0.9)
     near = NeighborHit("NCLDV__G1", "NCLDV__G1|cA_1", "grpA", 0.2)
 
-    kept_fwd, _ = gather_reference_representatives([far, near], indexes, groups, min_markers=3)
-    kept_rev, _ = gather_reference_representatives([near, far], indexes, groups, min_markers=3)
+    kept_fwd, _ = gather_reference_representatives(
+        [far, near], indexes, groups, min_markers=3
+    )
+    kept_rev, _ = gather_reference_representatives(
+        [near, far], indexes, groups, min_markers=3
+    )
 
     # Nearest placement (cA_1 @ 0.2) wins both ways — order independent.
     assert kept_fwd["NCLDV__G1"]["grpA"] == "NCLDV__G1|cA_1"

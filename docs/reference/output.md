@@ -97,4 +97,10 @@ Written only with `--species-tree`. See [Build a species tree](../how-to/build-a
 
 The per-contig diagnostic columns (`cellular_coherent_*`, `cellular_lineage_purity_median`, `viral_bearing_contig_count`, `contig_attribution_mode`) appear only in the extended table inside `gvclass_summary.extended.tar.gz`.
 
+## Taxonomy label namespaces
+
+The selected database bundle defines the taxonomy label namespace that appears in `taxonomy_majority` and the per-rank count columns. Bundles with putative endogenous viral element references can emit `d_EUK-pEVE` at domain rank and lower-rank names ending in `-pEVE`, such as `p_Discosea-pEVE` or `g_Vannella-pEVE`.
+
+`EUK-pEVE` labels mark eukaryotic source-lineage references with pEVE evidence. They remain separate from ordinary `EUK` labels at every rank and are not NCLDV, PPV, or MIRUS assignments. With `--species-tree`, these references can appear as auxiliary nearest-reference leaves inside the NCLDV, PPV, or MIRUS species-tree panels if they pass that panel's marker threshold; the reported taxonomy remains `EUK-pEVE`. See [Taxonomy and classification](../explanation/taxonomy.md#putative-eve-references) for interpretation.
+
 For how to read completeness, contamination, and duplication, see [Quality metrics](../explanation/quality-metrics.md). For the marker panels behind the completeness columns, see [Markers](markers.md).

@@ -34,6 +34,18 @@ GVClass classifies into three registered viral domains, each with its own marker
 
 A genome that falls in none of these is left unclassified rather than forced into a domain.
 
+## Putative EVE references
+
+Some database bundles include eukaryotic marker proteins with viral signal in their nearest-neighbor evidence as putative endogenous viral element (pEVE) references. These references are not assigned to NCLDV, PPV, or MIRUS. They keep the eukaryotic source lineage in a separate namespace so the signal remains visible without pooling with ordinary eukaryotic reference labels.
+
+Reference FASTA and label IDs use `EUK-pEVE__<source>` for pEVE proteins. Their taxonomy strings carry the namespace at every rank, for example `EUK-pEVE|Discosea-pEVE|Flabellinia-pEVE|EUK_unclassified-pEVE|Vannellidae-pEVE|Vannella-pEVE|Vannella sp.-pEVE`.
+
+A source genome can contribute both ordinary `EUK__...` reference proteins and `EUK-pEVE__...` reference proteins. The distinction is made per protein marker hit, not per source genome.
+
+When marker trees point to these references, output taxa carry `-pEVE` and the domain is `EUK-pEVE`. Read that as a eukaryotic source-lineage pEVE signal, not as a formal viral lineage assignment.
+
+With `--species-tree`, pEVE references can also enter the NCLDV, PPV, and MIRUS species-tree candidate sets as auxiliary references. They are not routed as their own species-tree panel and ordinary `EUK__...` references stay excluded. A pEVE reference is kept only if it carries enough markers for that viral panel: three GVOG8 markers for NCLDV, two of four PPV groups, or three of six MIRUS groups. If it becomes the nearest species-tree reference, the `species_tree_nn_taxonomy` field reports its `EUK-pEVE` lineage rather than converting it into an NCLDV, PPV, or MIRUS assignment.
+
 ## Capsid typing
 
 Two columns describe the major capsid protein (MCP) signal. `capsid_group` is a `label:count` tally across the MCP panels, for example `Nucleocytoviricota:4,Gossevirus:1`, spanning the Nucleocytoviricota and Mirusviricota phyla and the Bellas & Sommaruga capsid groups.

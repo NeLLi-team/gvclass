@@ -2,8 +2,7 @@
 
 A :class:`SpeciesTreePanel` parameterizes the whole route by
 ``(domain_prefix, marker_panel, min_markers, gate_token)`` so adding PPV / MIRUS
-in Section 7 is a config addition, not new pipeline code. The default route
-registers only NCLDV (GVOG8).
+in Section 7 is a config addition, not new pipeline code.
 """
 
 from __future__ import annotations
@@ -25,6 +24,7 @@ from src.config.marker_sets import (
 # with no other code change.
 NEIGHBORS_PER_QUERY_TREE = 30
 NEIGHBORS_PER_COMBINED_TREE = 20
+PEVE_PREFIX = "EUK-pEVE__"
 
 
 def neighbors_to_store() -> int:
@@ -44,12 +44,13 @@ class SpeciesTreePanel:
 
     Attributes:
         name: Human-readable panel name (e.g. ``"NCLDV"``).
-        domain_prefix: Reference-leaf domain gate (e.g. ``"NCLDV__"``) — only
-            references with this prefix are eligible neighbors.
+        domain_prefix: Primary reference-leaf domain gate (e.g. ``"NCLDV__"``).
         gate_token: ``taxonomy_majority`` prefix that routes a query to this panel
             (e.g. ``"d_NCLDV"``).
         groups: Ordered marker-group names (the supermatrix partitions).
         min_markers: Minimum groups a taxon must have to enter the supermatrix.
+        auxiliary_prefixes: Additional reference prefixes allowed into this
+            panel's species-tree candidate set. These are not routing tokens.
     """
 
     name: str
@@ -57,6 +58,12 @@ class SpeciesTreePanel:
     gate_token: str
     groups: Tuple[str, ...]
     min_markers: int = 3
+    auxiliary_prefixes: Tuple[str, ...] = ()
+
+    @property
+    def reference_prefixes(self) -> Tuple[str, ...]:
+        """Reference leaf prefixes eligible for this panel's species tree."""
+        return (self.domain_prefix, *self.auxiliary_prefixes)
 
 
 def groups_for_models(models: Sequence[str]) -> Tuple[str, ...]:
@@ -80,6 +87,7 @@ NCLDV_PANEL = SpeciesTreePanel(
     gate_token="d_NCLDV",
     groups=groups_for_models(GVOG8M_MODELS),
     min_markers=3,
+    auxiliary_prefixes=(PEVE_PREFIX,),
 )
 
 # PPV (Preplasmiviricota) has no GVOG-style panel. Its core structural markers are
@@ -92,6 +100,7 @@ PPV_PANEL = SpeciesTreePanel(
     gate_token="d_PPV",
     groups=("mcp_vp", "mcp_plv", "penton_vp", "atpase_vp"),
     min_markers=2,
+    auxiliary_prefixes=(PEVE_PREFIX,),
 )
 
 # MIRUS (Mirusviricota) core = the four marker categories, grouped (MCP, terminase
@@ -103,6 +112,7 @@ MIRUS_PANEL = SpeciesTreePanel(
     gate_token="d_MIRUS",
     groups=groups_for_models(_MIRUS_MODELS),
     min_markers=3,
+    auxiliary_prefixes=(PEVE_PREFIX,),
 )
 
 # Registry of all domain panels routed by select_panel().

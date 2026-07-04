@@ -47,7 +47,7 @@ pixi run setup-db
 ```
 
 !!! note "One download per database location"
-    This fetches the v1.7.1 resource bundle (about 2 GB) and verifies its checksum before unpacking. It runs once per database location; later runs reuse the files in `resources/`. To point GVClass at a shared copy, see [Configure the database](../how-to/configure-the-database.md).
+    This fetches the public v1.7.1 resource bundle (about 2 GB) and verifies its checksum before unpacking. The current repo-local `resources/` tree is v2.0.0; the setup download block remains pinned to v1.7.1 until the v2.0.0 archive is published. It runs once per database location; later runs reuse the files in `resources/`. To point GVClass at a shared copy, see [Configure the database](../how-to/configure-the-database.md).
 
 When the download and checksum verification finish, a `resources/` directory holds the database.
 

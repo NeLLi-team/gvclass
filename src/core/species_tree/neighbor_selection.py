@@ -24,9 +24,10 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 from Bio import SeqIO
 
@@ -37,6 +38,25 @@ from src.core.tree_analysis import TreeAnalyzer
 logger = logging.getLogger(__name__)
 
 NCLDV_PREFIX = "NCLDV__"
+PrefixFilter = Union[str, Sequence[str]]
+
+
+def _prefix_tuple(keep_prefix: PrefixFilter) -> Tuple[str, ...]:
+    if isinstance(keep_prefix, str):
+        return (keep_prefix,)
+    return tuple(keep_prefix)
+
+
+def _prefix_label(keep_prefix: PrefixFilter) -> str:
+    return ",".join(_prefix_tuple(keep_prefix))
+
+
+def _prefix_slug(keep_prefix: PrefixFilter) -> str:
+    parts = []
+    for prefix in _prefix_tuple(keep_prefix):
+        clean = prefix.strip("_").replace("-", "_").lower()
+        parts.append(re.sub(r"[^a-z0-9_]+", "_", clean).strip("_"))
+    return "_".join(part for part in parts if part) or "refs"
 
 
 @dataclass(frozen=True)
@@ -65,7 +85,7 @@ def select_ncldv_neighbors_from_trees(
     analyzer: TreeAnalyzer,
     query_id: str,
     k: int = 50,
-    keep_prefix: str = NCLDV_PREFIX,
+    keep_prefix: PrefixFilter = NCLDV_PREFIX,
 ) -> List[NeighborHit]:
     """Top-``k`` reference neighbors per group, flattened to one list of hits.
 
@@ -75,7 +95,8 @@ def select_ncldv_neighbors_from_trees(
             genome-id resolution against the taxonomy labels).
         query_id: Query genome identifier (query leaves start with it).
         k: Max neighbor genomes per group.
-        keep_prefix: Reference-domain gate applied to leaf names.
+        keep_prefix: Reference-prefix gate applied to leaf names. A tuple allows
+            auxiliary references, for example ``("NCLDV__", "EUK-pEVE__")``.
 
     Returns:
         A flat list of :class:`NeighborHit`; groups whose tree is missing/empty
@@ -104,13 +125,13 @@ def select_ncldv_neighbors_from_trees(
 
 
 def build_ncldv_reference_subset(
-    group_faa: Path, out_faa: Path, prefix: str = NCLDV_PREFIX
+    group_faa: Path, out_faa: Path, prefix: PrefixFilter = NCLDV_PREFIX
 ) -> int:
-    """Write the ``prefix``-filtered (NCLDV-only) subset of a group reference faa.
+    """Write the ``prefix``-filtered subset of a group reference faa.
 
-    This is the dedicated NCLDV-only search *target*; building it once per group
-    (and sharing it across queries in combined mode) is what makes ``>= k`` NCLDV
-    neighbors reachable for even the sparsest GVOG8 group.
+    This is the dedicated panel-specific search *target*; building it once per
+    group (and sharing it across queries in combined mode) is what makes ``>= k``
+    eligible neighbors reachable for sparse groups.
 
     Returns the number of sequences written.
     """
@@ -120,14 +141,14 @@ def build_ncldv_reference_subset(
     # prefix, so ``startswith(">" + prefix)`` is exactly the id-token test. Written
     # atomically (tmp -> os.replace) so one subset file can be shared across the
     # parallel per-query workers without a torn read.
-    token = ">" + prefix
+    tokens = tuple(">" + p for p in _prefix_tuple(prefix))
     count = 0
     tmp = out_faa.with_name(out_faa.name + ".tmp")
     with open(group_faa) as in_handle, open(tmp, "w") as out_handle:
         keep = False
         for line in in_handle:
             if line.startswith(">"):
-                keep = line.startswith(token)
+                keep = line.startswith(tokens)
                 if keep:
                     count += 1
             if keep:
@@ -269,15 +290,16 @@ def build_query_group_trees(
     work_dir: Path,
     max_candidates: int = 300,
     threads: int = 4,
-    keep_prefix: str = NCLDV_PREFIX,
-    subset_cache: Optional[Dict[str, Path]] = None,
+    keep_prefix: PrefixFilter = NCLDV_PREFIX,
+    subset_cache: Optional[Dict[Tuple[str, Tuple[str, ...]], Path]] = None,
 ) -> Dict[str, Path]:
     """Build the dedicated per-group gene trees for one query.
 
     For each group with query hits: build (or reuse, via ``subset_cache``) the
-    NCLDV-only reference subset, gather candidate neighbor proteins by similarity,
-    and build a dedicated gene tree. Groups with no query hits, no reference faa,
-    no NCLDV references, no candidates, or too few sequences are skipped.
+    prefix-filtered reference subset, gather candidate neighbor proteins by
+    similarity, and build a dedicated gene tree. Groups with no query hits, no
+    reference faa, no eligible references, no candidates, or too few sequences
+    are skipped.
 
     These trees are the shared substrate for **both** neighbor selection (Section
     2) and query-representative selection (Section 3), so the Section 6 hook builds
@@ -332,21 +354,25 @@ def _resolve_ncldv_subset(
     group: str,
     group_ref: Path,
     work_dir: Path,
-    keep_prefix: str,
-    subset_cache: Optional[Dict[str, Path]],
+    keep_prefix: PrefixFilter,
+    subset_cache: Optional[Dict[Tuple[str, Tuple[str, ...]], Path]],
 ) -> Optional[Path]:
-    """Return the NCLDV-only subset faa for ``group``, building it once and reusing
+    """Return the prefix-filtered subset faa for ``group``, building it once and reusing
     a cached path across queries (combined mode) when ``subset_cache`` is given."""
-    if subset_cache is not None and group in subset_cache:
-        return subset_cache[group]
+    prefixes = _prefix_tuple(keep_prefix)
+    cache_key = (group, prefixes)
+    if subset_cache is not None and cache_key in subset_cache:
+        return subset_cache[cache_key]
 
-    ncldv_subset = work_dir / f"{group}.ncldv.faa"
+    ncldv_subset = work_dir / f"{group}.{_prefix_slug(prefixes)}.faa"
     if not ncldv_subset.exists():
-        n_refs = build_ncldv_reference_subset(group_ref, ncldv_subset, prefix=keep_prefix)
+        n_refs = build_ncldv_reference_subset(
+            group_ref, ncldv_subset, prefix=keep_prefix
+        )
         if n_refs == 0:
-            logger.warning("No %s references in %s", keep_prefix, group_ref)
+            logger.warning("No %s references in %s", _prefix_label(prefixes), group_ref)
             return None
 
     if subset_cache is not None:
-        subset_cache[group] = ncldv_subset
+        subset_cache[cache_key] = ncldv_subset
     return ncldv_subset

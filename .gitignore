@@ -14,6 +14,8 @@ example/results
 update
 # Runtime resources are downloaded locally during setup and must stay out of git.
 resources/
+resources_pre_*/
+.gvclass_cache/
 CLAUDE.md
 AGENTS.md
 # Internal working docs stay out of git; the published MkDocs site under docs/ is tracked.
@@ -30,6 +32,8 @@ out*
 *_results
 results*
 logs/
+cavebins/
+slurm/
 test/
 test_input/
 __pycache__/

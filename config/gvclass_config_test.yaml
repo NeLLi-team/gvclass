@@ -4,7 +4,12 @@
 # Database configuration
 database:
   path: resources
+  # Optional compact-resource cache. When unset, GVClass uses
+  # <database.path>/.gvclass_cache; GVCLASS_RESOURCE_CACHE overrides this key.
+  cache_path:
   # gvclass-dev alpha-test resources (v1.7.1) via the Cloudflare tunnel.
+  # The repo-local resources/ tree may be newer; update this block only after
+  # a matching public archive and checksum exist.
   download_url: https://dl.newlineages.com/gvclass/resources_v1_7_1.tar.gz
   download_version: v1.7.1
   download_sha256: 6f8ca4e0f61e094a7d05669e4024e07db9e3c1813fc07172e25113d362512c14

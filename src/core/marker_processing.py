@@ -13,6 +13,7 @@ import pytrimal
 from src.core.alignment import IQTREE_MODEL, align_sequences_pyfamsa, run_veryfasttree
 from src.core.blast import run_blastp, parse_blastp
 from src.utils import setup_logging
+from src.utils.resource_store import ResourceStore
 
 logger = setup_logging(__name__)
 
@@ -49,15 +50,10 @@ class MarkerProcessor:
 
     def get_database_path(self) -> Path:
         """Get the path to the marker-specific database."""
-        faa_path = self.database_path / "database" / "faa" / f"{self.marker}.faa"
-
-        if not faa_path.exists():
-            # Try alternative location
-            alt_path = self.database_path / "faa" / f"{self.marker}.faa"
-            if alt_path.exists():
-                return alt_path
-
-        return faa_path
+        try:
+            return ResourceStore(self.database_path).marker_faa_path(self.marker)
+        except FileNotFoundError:
+            return self.database_path / "database" / "faa" / f"{self.marker}.faa"
 
     def blast_and_merge(
         self, query_hits_faa: Path, max_hits: int = 100, threads: int = 4

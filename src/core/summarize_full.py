@@ -34,6 +34,7 @@ from src.core.marker_extraction import (
 from src.core.weighted_completeness import create_weighted_calculator
 from src.core.novelty_completeness import create_novelty_completeness_scorer
 from src.core.contamination_scoring import create_contamination_scorer
+from src.utils.resource_store import ResourceStore
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +122,7 @@ class FullSummarizer:
         self.database_path = database_path
         self.completeness_mode = completeness_mode
         self.sensitive_mode = sensitive_mode
-        self.labels_file = database_path / "labels.tsv"
+        self.labels_file = ResourceStore(database_path).label_path("labels.tsv")
         self.completeness_table = database_path / "markers" / "order_completeness.tab"
         self.order_stats_df = self._load_order_stats()
         self.labels_dict = self.load_labels()

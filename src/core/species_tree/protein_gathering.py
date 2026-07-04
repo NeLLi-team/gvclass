@@ -20,7 +20,7 @@ from __future__ import annotations
 import logging
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 from Bio import SeqIO
 from ete3 import Tree
@@ -29,6 +29,14 @@ from src.core.species_tree.neighbor_selection import NCLDV_PREFIX, NeighborHit
 from src.core.tree_analysis import TreeAnalyzer
 
 logger = logging.getLogger(__name__)
+
+PrefixFilter = Union[str, Sequence[str]]
+
+
+def _prefix_tuple(keep_prefix: PrefixFilter) -> Tuple[str, ...]:
+    if isinstance(keep_prefix, str):
+        return (keep_prefix,)
+    return tuple(keep_prefix)
 
 
 class ReferenceProteinIndex:
@@ -103,11 +111,11 @@ def query_protein_lengths(query_faa: Path) -> Dict[str, int]:
 def select_query_representative_from_tree(
     tree_file: Path,
     query_id: str,
-    keep_prefix: str = NCLDV_PREFIX,
+    keep_prefix: PrefixFilter = NCLDV_PREFIX,
     query_lengths: Optional[Dict[str, int]] = None,
 ) -> Optional[Tuple[str, float]]:
     """Return ``(query_protein_id, min_distance)`` for the query protein placed
-    nearest any ``keep_prefix`` reference leaf in the tree, or ``None``.
+    nearest any allowed reference leaf in the tree, or ``None``.
 
     Primary key is the minimum patristic distance to any reference leaf; equal
     distances (rare for real branch lengths) break on length (desc) then id (asc),
@@ -124,10 +132,11 @@ def select_query_representative_from_tree(
     query_nodes = [
         leaf for leaf in tree.iter_leaves() if leaf.name.startswith(query_id)
     ]
+    prefixes = _prefix_tuple(keep_prefix)
     ref_nodes = [
         leaf
         for leaf in tree.iter_leaves()
-        if leaf.name.startswith(keep_prefix) and not leaf.name.startswith(query_id)
+        if leaf.name.startswith(prefixes) and not leaf.name.startswith(query_id)
     ]
     if not query_nodes or not ref_nodes:
         return None
@@ -168,7 +177,7 @@ def gather_query_representatives(
     query_id: str,
     query_hits_dir: Optional[Path] = None,
     min_markers: int = 3,
-    keep_prefix: str = NCLDV_PREFIX,
+    keep_prefix: PrefixFilter = NCLDV_PREFIX,
 ) -> Optional[Dict[str, str]]:
     """Per-group query representative proteins, or ``None`` if ``< min_markers``.
 

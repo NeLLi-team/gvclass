@@ -58,15 +58,9 @@ from src.core.species_tree.taxonomy_placement import (
 )
 from src.core.species_tree.tree_inference import infer_species_tree
 from src.core.tree_analysis import TreeAnalyzer
+from src.utils.resource_store import ResourceStore
 
 logger = logging.getLogger(__name__)
-
-
-def _ref_faa_dir(database_path: Path) -> Path:
-    for candidate in (database_path / "database" / "faa", database_path / "faa"):
-        if candidate.exists():
-            return candidate
-    return database_path / "database" / "faa"
 
 
 def _fetch_sequence(faa: Path, protein_id: str) -> Optional[str]:
@@ -133,8 +127,15 @@ def _run_per_query(
     if not query_hits_dir.exists():
         return
 
-    ref_faa_dir = _ref_faa_dir(database_path)
-    analyzer = TreeAnalyzer(database_path / "labels.tsv")
+    resources = ResourceStore(database_path)
+    query_groups = [
+        group
+        for group in panel.groups
+        if (query_hits_dir / f"{group}.faa").exists()
+        and (query_hits_dir / f"{group}.faa").stat().st_size > 0
+    ]
+    ref_faa_dir = resources.materialized_faa_dir(query_groups, strict=False)
+    analyzer = TreeAnalyzer(resources.label_path("labels.tsv"))
     scratch = scratch_dir_for(output_base)
     work = scratch / query_id / "work"
 
@@ -145,7 +146,7 @@ def _run_per_query(
         query_id,
         work,
         threads=threads,
-        keep_prefix=panel.domain_prefix,
+        keep_prefix=panel.reference_prefixes,
     )
     if not group_to_tree:
         logger.info("No species-tree gene trees built for %s", query_id)
@@ -156,18 +157,20 @@ def _run_per_query(
         analyzer,
         query_id,
         k=neighbors_to_store(),
-        keep_prefix=panel.domain_prefix,
+        keep_prefix=panel.reference_prefixes,
     )
     query_reps = gather_query_representatives(
         group_to_tree,
         query_id,
         query_hits_dir,
         min_markers=panel.min_markers,
-        keep_prefix=panel.domain_prefix,
+        keep_prefix=panel.reference_prefixes,
     )
     if query_reps is None:
         logger.info(
-            "Query %s has < %d species-tree markers; excluded", query_id, panel.min_markers
+            "Query %s has < %d species-tree markers; excluded",
+            query_id,
+            panel.min_markers,
         )
         return
 
@@ -231,7 +234,9 @@ def run_combined_species_tree(
 ) -> None:
     """Combined species-tree step over this run's sidecars (one tree per panel)."""
     try:
-        _run_combined(output_base, database_path, results, threads, trim_method, tree_method)
+        _run_combined(
+            output_base, database_path, results, threads, trim_method, tree_method
+        )
     except Exception as exc:  # never block the final summary
         logger.warning("Combined species-tree step failed: %s", exc)
 
@@ -255,7 +260,9 @@ def _run_combined(
         if query_id in completed
     }
     if not sidecars:
-        logger.info("No completed species-tree sidecars for this run; skipping combined tree")
+        logger.info(
+            "No completed species-tree sidecars for this run; skipping combined tree"
+        )
         return
 
     by_panel: Dict[str, Dict[str, Dict]] = defaultdict(dict)
@@ -263,12 +270,15 @@ def _run_combined(
         panel_name = sidecar.get("panel")
         if panel_name not in PANELS:
             logger.warning(
-                "Species-tree sidecar %s has unknown panel %r; skipping", query_id, panel_name
+                "Species-tree sidecar %s has unknown panel %r; skipping",
+                query_id,
+                panel_name,
             )
             continue
         by_panel[panel_name][query_id] = sidecar
 
-    analyzer = TreeAnalyzer(database_path / "labels.tsv")
+    resources = ResourceStore(database_path)
+    analyzer = TreeAnalyzer(resources.label_path("labels.tsv"))
 
     multi = len(by_panel) > 1
     for panel_name, panel_sidecars in by_panel.items():
@@ -305,7 +315,9 @@ def _run_combined(
 # ---------------------------------------------------------------------------
 
 
-def _truncate_neighbors(sidecars: Dict[str, Dict], k_neighbors: int) -> List[NeighborHit]:
+def _truncate_neighbors(
+    sidecars: Dict[str, Dict], k_neighbors: int
+) -> List[NeighborHit]:
     """Flatten sidecar neighbors, keeping each query's top-k per group by distance.
 
     Sidecars store up to ``neighbors_to_store()`` neighbors so both the per-query
@@ -346,7 +358,8 @@ def _build_and_place(
     k_neighbors: int = NEIGHBORS_PER_COMBINED_TREE,
     basename: str = "combined",
 ) -> None:
-    ref_faa_dir = _ref_faa_dir(database_path)
+    resources = ResourceStore(database_path)
+    ref_faa_dir = resources.materialized_faa_dir(panel.groups, strict=False)
     all_neighbors = _truncate_neighbors(sidecars, k_neighbors)
 
     with ExitStack() as stack:
@@ -397,8 +410,10 @@ def _build_and_place(
         logger.warning("Species-tree supermatrix empty for panel %s", panel.name)
         return
 
-    tree = infer_species_tree(result.supermatrix_faa, out_dir / f"{basename}.treefile", threads, tree_method)
-    classifier = SpeciesTreeClassifier(database_path / "labels.tsv")
+    tree = infer_species_tree(
+        result.supermatrix_faa, out_dir / f"{basename}.treefile", threads, tree_method
+    )
+    classifier = SpeciesTreeClassifier(resources.label_path("labels.tsv"))
     rows = classifier.classify(tree)
     write_species_tree_taxonomy(rows, out_dir / "species_tree_taxonomy.tsv")
 

@@ -35,7 +35,7 @@ For the full walkthrough, see [Getting started](tutorials/getting-started.md).
 
 !!! note "Versions on this branch"
 
-    Software 2.0.0, database bundle v1.7.1. Downloads and changelogs are on the [GitHub Releases](https://github.com/NeLLi-team/gvclass/releases) page.
+    Software 2.0.0. The repo-local `resources/` tree is database `DB_VERSION` v2.0.0. `pixi run setup-db` still downloads the public v1.7.1 archive until a v2.0.0 tarball and checksum are published. Downloads and changelogs are on the [GitHub Releases](https://github.com/NeLLi-team/gvclass/releases) page.
 
 ## Citation, license, contact
 

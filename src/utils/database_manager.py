@@ -140,6 +140,9 @@ class DatabaseManager:
         "contamination/model.joblib",
         "contamination/model.yaml",
     ]
+    REQUIRED_FILE_ALTERNATIVES = {
+        "labels.tsv": ("labels.tsv", "parquet/labels/labels.parquet"),
+    }
 
     DEFAULT_DATABASE_SOURCE = {
         "version": "v1.6.0",
@@ -350,6 +353,13 @@ class DatabaseManager:
         """Check for missing required files."""
         missing = []
         for file_path in cls.REQUIRED_FILES:
+            alternatives = cls.REQUIRED_FILE_ALTERNATIVES.get(file_path)
+            if alternatives:
+                if not any(
+                    (db_path / candidate).exists() for candidate in alternatives
+                ):
+                    missing.append(file_path)
+                continue
             if not (db_path / file_path).exists():
                 missing.append(file_path)
         return missing

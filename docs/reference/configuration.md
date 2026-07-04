@@ -20,10 +20,16 @@ Effective values are merged with this precedence:
 
 ## Shipped configuration (gvclass-dev)
 
+The block below is the public setup-download pin. The checked repo-local
+`resources/` tree can be newer; current local resources are `DB_VERSION`
+v2.0.0, while this download block stays on v1.7.1 until a matching v2.0.0
+archive and checksum are published.
+
 ```yaml
 # Database configuration
 database:
   path: resources
+  cache_path:
   download_url: https://dl.newlineages.com/gvclass/resources_v1_7_1.tar.gz
   download_version: v1.7.1
   download_sha256: 6f8ca4e0f61e094a7d05669e4024e07db9e3c1813fc07172e25113d362512c14
@@ -72,12 +78,15 @@ logging:
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `path` | `resources` | Database bundle location. Relative paths resolve from the repo root. |
-| `download_url` | `https://dl.newlineages.com/gvclass/resources_v1_7_1.tar.gz` | Archive fetched for first-time setup and auto-update. |
-| `download_version` | `v1.7.1` | Pinned database version. An older installed `DB_VERSION` triggers a re-download. |
+| `cache_path` | unset | Optional materialization cache for compact Parquet resources. Relative paths resolve inside the selected database directory. `GVCLASS_RESOURCE_CACHE` overrides this key. When unset, GVClass uses `<database.path>/.gvclass_cache` and falls back to a hashed system-temp cache only if the database directory is not writable. |
+| `download_url` | `https://dl.newlineages.com/gvclass/resources_v1_7_1.tar.gz` | Archive fetched for first-time setup and auto-update; intentionally left at v1.7.1 until the v2.0.0 archive exists. |
+| `download_version` | `v1.7.1` | Pinned public download version. An older installed `DB_VERSION` triggers a re-download. |
 | `download_sha256` | `6f8ca4e0...362512c14` | Checksum verified after download. |
 | `expected_size` | `2005` | Expected archive size in MB, used for validation. |
 
 The full checksum is `6f8ca4e0f61e094a7d05669e4024e07db9e3c1813fc07172e25113d362512c14`. Override the database location with `-d` / `--database` or the `GVCLASS_DB` environment variable. See [configure the database](../how-to/configure-the-database.md).
+
+Compact resource bundles can store labels and reference proteins as Parquet (`parquet/labels/labels.parquet` and `parquet/faa.parquet`) instead of `labels.tsv` and `database/faa/*.faa`. GVClass materializes the legacy views it needs into `<database.path>/.gvclass_cache/` by default. Set `database.cache_path` or `GVCLASS_RESOURCE_CACHE` to move that cache outside the database directory; the environment variable has precedence.
 
 ### pipeline
 

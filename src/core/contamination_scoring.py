@@ -27,6 +27,7 @@ from src.core.marker_extraction import (
     count_unique_proteins_for_markers,
     parse_hmm_output,
 )
+from src.utils.resource_store import ResourceStore
 
 logger = logging.getLogger(__name__)
 
@@ -150,7 +151,7 @@ class ContaminationScorer:
         """
         self.database_path = database_path
         self.sensitive_mode = sensitive_mode
-        self.labels_file = database_path / "labels.tsv"
+        self.labels_file = ResourceStore(database_path).label_path("labels.tsv")
         self.labels = self._load_labels()
         self.ml_model = None
         self.ml_model_name = "hist_gbm"
