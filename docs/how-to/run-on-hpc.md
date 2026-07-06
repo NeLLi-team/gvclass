@@ -21,7 +21,7 @@ Pass the query directory first and the results directory second, then set the th
 
 The positional order is query then results. This differs from the pixi CLI, where the output is the `-o` flag (see the [CLI reference](../reference/cli.md)). `QUERY_DIR` holds your `.fna` or `.faa` bins; `RESULTS_DIR` is created if it does not exist.
 
-On first use the wrapper pulls `library://nelliteam-jgi/gvclass/gvclass:2.0.0` from the public Sylabs library and caches it under `~/.cache/gvclass/images/`. Later runs reuse the cached image. The image carries the v2.0.0 database and all tools, so you skip database setup entirely.
+On first use the wrapper pulls `library://nelligroup-jgi/gvclass/gvclass:2.0.0` from the public Sylabs library and caches it under `~/.cache/gvclass/images/`. Later runs reuse the cached image. The image carries the v2.0.0 database and all tools, so you skip database setup entirely.
 
 The v2.0.0 database is compact: labels and marker proteins are stored as Parquet inside the read-only SIF. GVClass materializes only the TSV and FASTA files needed for a run into a writable cache. The wrapper creates that cache on the host at `~/.cache/gvclass/resource-cache/v2.0.0` and bind-mounts it into the container at `/resource-cache`, so the SIF stays read-only and later runs reuse the warm cache. Use `--resource-cache-dir /path/to/cache` to place it on a scratch filesystem.
 
@@ -91,7 +91,7 @@ For full control, pull the SIF and run it without the wrapper. Pull once from Sy
 
 ```bash
 apptainer pull --library https://library.sylabs.io \
-  gvclass_2.0.0.sif library://nelliteam-jgi/gvclass/gvclass:2.0.0
+  gvclass_2.0.0.sif library://nelligroup-jgi/gvclass/gvclass:2.0.0
 
 apptainer run -B /path/to/bins:/input -B /path/to/results:/output \
   -B /path/to/cache:/resource-cache \

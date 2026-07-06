@@ -6,7 +6,7 @@ from src.bin import gvclass_apptainer
 def test_apptainer_wrapper_uses_release_sylabs_image_by_default() -> None:
     assert (
         gvclass_apptainer.DEFAULT_IMAGE
-        == "library://nelliteam-jgi/gvclass/gvclass:2.0.0"
+        == "library://nelligroup-jgi/gvclass/gvclass:2.0.0"
     )
 
 
