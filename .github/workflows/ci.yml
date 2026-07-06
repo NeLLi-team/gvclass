@@ -151,12 +151,11 @@ jobs:
           format: spdx-json
           output-file: gvclass.sbom.json
 
-      - name: Upload artifacts
+      - name: Upload SBOM artifact
         uses: actions/upload-artifact@v4
         with:
-          name: gvclass-container-${{ github.ref_name }}
+          name: gvclass-container-sbom-${{ github.ref_name }}
           path: |
-            gvclass.sif
             gvclass.sbom.json
 
       # Mirror release SIFs to the Sylabs library. The `gvclass-a` wrapper pulls
@@ -172,12 +171,12 @@ jobs:
           printf '%s' "${SYLABS_TOKEN}" > "${token_file}"
           apptainer remote login --tokenfile "${token_file}" SylabsCloud
           rm -f "${token_file}"
-          apptainer push -U --library https://library.sylabs.io gvclass.sif \
+          apptainer push -U gvclass.sif \
             "library://nelligroup-jgi/gvclass/gvclass:${version}"
           # Re-tag release images as :latest so consumers can pull
           # library://nelligroup-jgi/gvclass/gvclass without pinning a version.
           # The library is content-addressed, so this reuses the blob just
           # uploaded and completes near-instantly.
-          apptainer push -U --library https://library.sylabs.io gvclass.sif \
+          apptainer push -U gvclass.sif \
             "library://nelligroup-jgi/gvclass/gvclass:latest"
           echo "Published library://nelligroup-jgi/gvclass/gvclass:${version} and :latest"
