@@ -31,7 +31,7 @@ Each genome returns a majority-vote taxonomy with a [confidence flag](reference/
     ./gvclass-a QUERY_DIR RESULTS_DIR -t 32
     ```
 
-    The wrapper pulls the `library://nelligroup-jgi/gvclass/gvclass:2.0.0` Apptainer image and keeps the compact-resource warm cache under `~/.cache/gvclass/resource-cache/v2.0.0`.
+    The wrapper pulls the `library://nelliteam-jgi/gvclass/gvclass:2.0.0` Apptainer image and keeps the compact-resource warm cache under `~/.cache/gvclass/resource-cache/v2.0.0`.
 
 For the full walkthrough, see [Getting started](tutorials/getting-started.md).
 
