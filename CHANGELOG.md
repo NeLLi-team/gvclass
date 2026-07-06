@@ -200,7 +200,7 @@ Compatible resource bundle: v1.6.0 (Zenodo DOI 10.5281/zenodo.20479524).
   path. A regression of the container command-publishing fix now fails CI. The
   container-build job is tag-gated (`refs/tags/v*`), so this guards each release tag.
 - Added a tag-gated, secret-guarded step that auto-publishes the SIF to the Sylabs
-  library (`library://nelligroup-jgi/gvclass/gvclass:<version>`) after the artifact
+  library (`library://nelliteam-jgi/gvclass/gvclass:<version>`) after the artifact
   upload (a publish failure never loses the SIF) and self-skips when the `SYLABS_TOKEN`
   repo secret is absent (e.g. forks).
 

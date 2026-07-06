@@ -68,7 +68,7 @@ falls back to container `/tmp` and is rebuilt on later runs.
 The release image is published in the Sylabs library:
 
 ```text
-library://nelligroup-jgi/gvclass/gvclass:2.0.0
+library://nelliteam-jgi/gvclass/gvclass:2.0.0
 ```
 
 It embeds the v2.0.0 database. The `gvclass-a` wrapper downloads this URI into
@@ -90,7 +90,7 @@ apptainer remote login SylabsCloud
 
 # Push the image
 apptainer push -U --library https://library.sylabs.io \
-    gvclass.sif library://nelligroup-jgi/gvclass/gvclass:2.0.0
+    gvclass.sif library://nelliteam-jgi/gvclass/gvclass:2.0.0
 ```
 
 ## Alternative: Docker
