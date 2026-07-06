@@ -371,6 +371,9 @@ class NoveltyAwareCompletenessScorer:
             "order_completeness_v2_informative_fraction": 0.0,
             "estimated_completeness": 0.0,
             "estimated_completeness_strategy": "novelty_aware_v1",
+            # No usable per-order model on the degraded/no-order path -> the
+            # completeness estimate is never model-backed here.
+            "completeness_model_reliability": "advisory_only",
         }
 
     def calculate(
@@ -483,7 +486,6 @@ class NoveltyAwareCompletenessScorer:
             primary_score = float(strategy2_norm)
             primary_strategy = "strategy2_no_ml_profile"
             quality = "advisory_only"
-            advisory_score = None
             ood_augmented = str(support_metrics["ood_flag"])
         elif r2_holdout is None:
             # Model present but no metadata — trust the ML score but flag
@@ -491,22 +493,12 @@ class NoveltyAwareCompletenessScorer:
             primary_score = novelty_score
             primary_strategy = "novelty_aware_v1"
             quality = "advisory_only"
-            advisory_score = (
-                round(float(ml_prediction_raw), 2)
-                if ml_prediction_raw is not None
-                else None
-            )
             ood_augmented = str(support_metrics["ood_flag"])
         elif r2_holdout < R2_ADVISORY_FLOOR:
             # Below the hard gate — ML is worse than strategy-2 in holdout.
             primary_score = float(strategy2_norm)
             primary_strategy = "strategy2_r2_below_gate"
             quality = "advisory_only"
-            advisory_score = (
-                round(float(ml_prediction_raw), 2)
-                if ml_prediction_raw is not None
-                else None
-            )
             ood_augmented = self._augment_ood_flag(
                 support_metrics["ood_flag"], "r2_below_gate"
             )
@@ -514,21 +506,11 @@ class NoveltyAwareCompletenessScorer:
             primary_score = novelty_score
             primary_strategy = "novelty_aware_v1"
             quality = "moderate"
-            advisory_score = (
-                round(float(ml_prediction_raw), 2)
-                if ml_prediction_raw is not None
-                else None
-            )
             ood_augmented = str(support_metrics["ood_flag"])
         else:
             primary_score = novelty_score
             primary_strategy = "novelty_aware_v1"
             quality = "high"
-            advisory_score = (
-                round(float(ml_prediction_raw), 2)
-                if ml_prediction_raw is not None
-                else None
-            )
             ood_augmented = str(support_metrics["ood_flag"])
 
         estimated_score = (
@@ -550,13 +532,7 @@ class NoveltyAwareCompletenessScorer:
             "order_completeness_v2_informative_fraction": round(float(support_metrics["informative_fraction"]), 2),
             "estimated_completeness": round(float(estimated_score), 2),
             "estimated_completeness_strategy": estimated_strategy,
-            "estimated_completeness_quality": quality,
-            "estimated_completeness_r2_holdout": (
-                round(r2_holdout, 4) if r2_holdout is not None else ""
-            ),
-            "estimated_completeness_advisory": (
-                advisory_score if advisory_score is not None else ""
-            ),
+            "completeness_model_reliability": quality,
         }
         return result
 

@@ -455,3 +455,101 @@ MRYA_MODELS = [
     "ATPase",  # ATPase
     "gamadvirusMCP",  # NCLDV major capsid protein (Gamadvirus)
 ]
+
+# capscan caps marker (plv_mcp_caps_*) -> Bellas&Sommaruga 2026 group, for the
+# best-hit capscan_group field (avoids shared-MCP tree-vote fragmentation).
+CAPS_MARKER_GROUP = {
+    "plv_mcp_caps_Dino_Aquinto": "Dino_cluster",
+    "plv_mcp_caps_GKS1_Gossevirus_Mavpol": "Gossevirus",
+    "plv_mcp_caps_GKS2_Alpenseevirus_NCV_like": "Alpenseevirus",
+    "plv_mcp_caps_GKS3_CHI_Aquinto": "GKS3",
+    "plv_mcp_caps_Mavpol2": "Maverick-Polinton",
+    "plv_mcp_caps_MMM_PC12_NA": "Metamonada_PLV",
+    "plv_mcp_caps_MMM_PC40_NA": "Metamonada_PLV",
+    "plv_mcp_caps_MMM_PC40b_NA": "Metamonada_PLV",
+    "plv_mcp_caps_MMM_PC4_NA": "unclassified",
+    "plv_mcp_caps_Trimcap_A4_Aquinto": "Trimcap_cluster_1",
+    "plv_mcp_caps_Trimcap_B1_Aquinto": "Trimcap_cluster_2",
+    "plv_mcp_caps_Trimcap_B2_Aquinto": "Trimcap_cluster_2",
+    "plv_mcp_caps_Trimcap_B3_Aquinto": "Trimcap_cluster_2",
+    "plv_mcp_caps_Zephyrvirus4_NCV_like": "Zephyrvirus",
+    "plv_mcp_caps_Zephyrvirus5_NCV_like": "Zephyrvirus",
+    "plv_mcp_caps_Nova6_VC35_Mavpol2": "Maverick-Polinton_2",
+    "plv_mcp_caps_Nova7_Aquinto": "unclassified",
+    "plv_mcp_caps_Nova8_NCV_like": "unclassified",
+    "plv_mcp_caps_Nova9_Aquinto_Trimcap_related": "Trimcap_cluster_1",
+    "plv_mcp_caps_PaM1_Aquinto": "Pam1",
+    "plv_mcp_caps_PaM2_NCV_like": "Pam2",
+    "plv_mcp_caps_VC124_VC134_NCV_like": "VC124-134",
+    "plv_mcp_caps_PC6_20_Aquinto": "unclassified",
+    "plv_mcp_caps_PgVV_Aquinto": "PgVV",
+    "plv_mcp_caps_SP67_Aquinto": "SP67",
+    "plv_mcp_caps_SP70_Aquinto": "SP70",
+    "plv_mcp_caps_SP71_Aquinto": "SP71",
+    "plv_mcp_caps_SP_Aquinto": "SP",
+    "plv_mcp_caps_Trimcap_A1_Aquinto": "Trimcap_cluster_1",
+    "plv_mcp_caps_Trimcap_A2_Aquinto": "Trimcap_cluster_1",
+    "plv_mcp_caps_Trimcap_A3_74_Aquinto": "Trimcap_cluster_1",
+    "plv_mcp_caps_Trimcap_A3_Aquinto": "Trimcap_cluster_1",
+    "plv_mcp_caps_VC40_NCV_like": "VC40",
+    "plv_mcp_caps_VC224_NA": "Mavpol2",
+    "plv_mcp_caps_VC100_Mavpol1_like": "VC100-Mavpol1-like",
+    "plv_mcp_caps_VC147_GKS3_Aquinto": "GKS3-CHI",
+    "plv_mcp_caps_Cluster_187_Aquinto": "unclassified",
+    "plv_mcp_caps_VC104_Aquinto": "Animal_PLV_group",
+    "plv_mcp_caps_Cluster_276_NA": "unclassified",
+    "plv_mcp_caps_Cluster_217_NA": "unclassified",
+    "gamadvirusmcp_caps_VC289_Mriyavirus_NCV_like": "Mriyavirus",
+    "plv_mcp_caps_VC218_Pam2_NCV_like": "unclassified",
+    "plv_mcp_caps_Cluster_261_NA": "unclassified",
+    "plv_mcp_caps_Cluster_152_Aquinto": "Trimcap_cluster_2",
+    "plv_mcp_caps_Cluster_280_NA": "unclassified",
+    "plv_mcp_caps_Zoravirus_VC102_NCV_like": "Zoravirus_VC102",
+    "gamadvirusmcp_caps_Mriya_Nova10_NCV_like": "Mriyavirus",
+    "gamadvirusmcp_caps_gamadvirus_MCP_NCV_like": "Mriyavirus",
+    "gamadvirusmcp_caps_yaravirus_MCP_NCV_like": "Mriyavirus",
+}
+
+
+# =============================================================================
+# Marker groups (data-driven gene families sharing reference proteins).
+# scripts/build_marker_groups.py builds the lookup src/config/marker_groups.tsv.
+# Grouped models are combined into one {group}.faa -> one alignment -> one tree
+# -> one nearest-neighbour vote, removing the per-model vote over-counting that
+# otherwise fragments classification (e.g. an MCP cross-hitting 8 profiles -> 8 votes).
+# =============================================================================
+import os
+
+_MARKER_GROUPS_TSV = os.path.join(os.path.dirname(__file__), "marker_groups.tsv")
+# Flags whose groups are safe to combine into a shared tree. REVIEW_mixed groups
+# (possible over-merge) are excluded so their members stay one-model-per-tree.
+_COMBINE_FLAGS = frozenset({"ok", "no_annotation"})
+
+
+def load_marker_groups(path=_MARKER_GROUPS_TSV, combine_flags=_COMBINE_FLAGS):
+    """Return (group_to_models, model_to_group) for groups that are safe to combine.
+
+    Reads the lookup written by ``scripts/build_marker_groups.py``. Only groups whose
+    flag is in ``combine_flags`` are returned; REVIEW_mixed groups are skipped.
+    """
+    group_to_models, model_to_group = {}, {}
+    if not os.path.exists(path):
+        return group_to_models, model_to_group
+    with open(path) as handle:
+        for line in handle:
+            if line.startswith("#") or line.startswith("group_name\t"):
+                continue
+            parts = line.rstrip("\n").split("\t")
+            if len(parts) < 8:
+                continue
+            name, flag = parts[0], parts[6]
+            members = [m for m in parts[7].split(";") if m]
+            if flag not in combine_flags or len(members) < 2:
+                continue
+            group_to_models[name] = members
+            for model in members:
+                model_to_group[model] = name
+    return group_to_models, model_to_group
+
+
+GROUP_TO_MODELS, MODEL_TO_GROUP = load_marker_groups()

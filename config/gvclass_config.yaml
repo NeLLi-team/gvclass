@@ -6,24 +6,32 @@ database:
   # Path to GVClass database (relative paths resolve from the GVClass repo)
   # If not found, will be downloaded automatically
   path: resources
-  # Release asset used for first-time setup
-  download_url: https://zenodo.org/records/20479524/files/resources_v1_6_0.tar.gz?download=1
-  download_version: v1.6.0
-  download_sha256: f744f7144ea69d6c3ccffe56e7721d6fd598685853005e0fb90d04e699d9b23f
+  # Optional materialization cache for compact Parquet resources. When unset,
+  # GVClass uses <database.path>/.gvclass_cache; GVCLASS_RESOURCE_CACHE overrides
+  # this key. Relative paths resolve inside the selected database directory.
+  cache_path:
+  # Release asset used for first-time setup.
+  download_url: https://zenodo.org/records/21225457/files/resources_v2_0_0.tar.gz?download=1
+  download_version: v2.0.0
+  download_sha256: df1c3a9d15a90307775f42f57e2a7c89436ed523883025f6fc94013035f5e066
   # Expected size for validation (in MB)
-  expected_size: 1752
+  expected_size: 1497
 
 # Pipeline settings
 pipeline:
-  # Tree building method: fasttree or iqtree
-  tree_method: fasttree
+  # Tree building method: veryfasttree (default, fast) or iqtree (slower, more accurate)
+  tree_method: veryfasttree
+  # Species-tree IQ-TREE search: 'fast' (--fast, default) or 'ufboot' (ultrafast
+  # bootstrap -B 1000 -bnni; slower, writes a .contree). Per-marker trees stay --fast.
+  iqtree_mode: fast
   # Fast mode - skip order-level marker trees when True
   mode_fast: true
   # Completeness estimate to surface in the summary tables
   completeness_mode: novelty-aware
   # Sensitive mode - enabled by default, uses E-value 1e-5 instead of GA cutoffs
   sensitive_mode: true
-  # Minimum contig length (bp) used in --contigs mode when splitting files
+  # Minimum contig length (bp) used in --contigs mode when splitting files.
+  # Override per run with --contigs-min-length.
   contigs_min_length: 10000
   # Number of threads for computation
   threads: 4
@@ -42,7 +50,8 @@ genetic_codes:
 quality:
   # Minimum number of markers required
   min_markers: 3
-  # Minimum contig length (bp)
+  # Minimum total nucleotide length (bp) for each input FNA in bin/MAG mode.
+  # Override per run with --min-length.
   min_length: 20000
   # Recommended minimum length (bp)
   recommended_length: 50000

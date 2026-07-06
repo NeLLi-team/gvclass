@@ -17,19 +17,45 @@ from Bio import SeqIO
 
 import numpy as np
 
-from src.config.marker_sets import BUSCO_MODELS, PHAGE_MODELS, UNI56_MODELS
+from src.config.marker_sets import (
+    BUSCO_MODELS,
+    PHAGE_MODELS,
+    UNI56_MODELS,
+    GROUP_TO_MODELS,
+)
 from src.core.marker_extraction import (
     count_unique_proteins_for_markers,
     parse_hmm_output,
 )
+from src.utils.resource_store import ResourceStore
 
 logger = logging.getLogger(__name__)
 
 CELLULAR_PREFIXES = {"BAC", "ARC", "EUK", "MITO", "PLASTID"}
-PHAGE_PREFIXES = {"PHAGE", "VP", "PLV"}
+# PPV = Preplasmiviricota, the unified small-virus domain (former PLV + VP, both
+# Preplasmiviricota classes) produced by scripts/relabel_ppv_preplasmiviricota.py.
+# PLV/VP are kept transitionally so an older (pre-PPV) resource bundle still scores
+# correctly under this code; drop them once the PPV bundle is the minimum supported.
+PHAGE_PREFIXES = {"PHAGE", "PPV", "PLV", "VP"}
 GIANT_VIRUS_PREFIXES = {"NCLDV", "MIRUS", "MRYA"}
 CELLULAR_MODELS = set(BUSCO_MODELS + UNI56_MODELS)
 PHAGE_MODELS_SET = set(PHAGE_MODELS)
+
+
+def _category_group_names(base_models):
+    """Collapsed group markers whose members belong to ``base_models``. A group is a
+    single gene family, so it inherits its members' category — this lets the name-based
+    cellular/phage checks recognise group names (e.g. a grouped BUSCO family) and not
+    misread them as viral after the model->group collapse."""
+    return {
+        group
+        for group, members in GROUP_TO_MODELS.items()
+        if any(m in base_models for m in members)
+    }
+
+
+CELLULAR_MODELS |= _category_group_names(CELLULAR_MODELS)
+PHAGE_MODELS_SET |= _category_group_names(PHAGE_MODELS_SET)
 
 CONTAMINATION_MODEL_FILE = "contamination/model.joblib"
 
@@ -125,7 +151,7 @@ class ContaminationScorer:
         """
         self.database_path = database_path
         self.sensitive_mode = sensitive_mode
-        self.labels_file = database_path / "labels.tsv"
+        self.labels_file = ResourceStore(database_path).label_path("labels.tsv")
         self.labels = self._load_labels()
         self.ml_model = None
         self.ml_model_name = "hist_gbm"

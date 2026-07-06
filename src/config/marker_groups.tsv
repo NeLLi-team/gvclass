@@ -1,0 +1,84 @@
+# marker groups (same-family models sharing reference proteins) — built by scripts/build_marker_groups.py
+# overlap_coef>=0.5, shared>=30; 74 groups, 241 grouped models, 548 singletons (singletons used as-is)
+# flag: ok | no_annotation (clean but unannotated) | REVIEW_mixed (>=3 annotated members disagree -> check for over-merge)
+# curation: an adversarial 4-agent group audit (2026-06-21) confirmed every combinable group is a true single
+# gene family; CURATION in this builder applies its corrections (drop spurious bridge members e.g. OG5938 from
+# mcp_ncldv; split over-merges grp_OG1357/grp_OG503; dissolve grp_OG5478; force-combine audit-cleared families).
+# caps models (plv_mcp_caps_*, gamadvirusmcp_caps_*) are not yet in resources/database/faa; once their FAAs are
+# built from the combined proteome they join (validated 2026-06-21, caps-HMM vs gvclass refs): PLV-class -> mcp_plv,
+# NCV-like/Mriyavirus -> mcp_ncldv; ~15 novel caps groups (Alpenseevirus/Zephyrvirus/VC124-134/Pam2/Metamonada/...) add new refs.
+group_name	n_members	total_refs	annotation_coverage	coherence	dom_annotation	flag	members
+grp_OG1357	3	1420015	0.00	0.00		no_annotation	OG1357;OG130;OG14872
+grp_OG503	4	258070	0.75	1.00	P-loop containing nucleoside triphosphate hydr	ok	OG503;OG1590;OG1164;OG3263
+grp_OG8381	3	141825	0.33	1.00	Zinc finger, RING-type [PFAM:Ring finger domai	ok	OG8381;OG527;OG2605
+grp_OG37	3	130400	0.67	0.50	Papain-like cysteine peptidase superfamily [PF	ok	OG37;OG1684;OG348
+grp_COG0086	4	116296	1.00	0.50	consensus disorder prediction	ok	COG0086;GVOGm0023;OG5942;OG48359
+grp_OG314	3	112713	1.00	0.67	P-loop containing nucleoside triphosphate hydr	ok	OG314;OG2284;OG5966
+grp_COG0085	3	101190	1.00	0.67	consensus disorder prediction	ok	COG0085;GVOGm0022;OG5937
+grp_OG68	2	95371	1.00	0.50	Peptidase C1A, papain C-terminal [PFAM:Catheps	ok	OG68;OG975
+atpase_ncldv_mrya	5	77034	1.00	1.00	P-loop containing nucleoside triphosphate hydr	ok	ATPase;GVOGm0760;OG5944;OG5945;OG1242
+grp_OG960	2	70175	0.50	1.00	Protein-tyrosine phosphatase-like [PFAM:Dual s	ok	OG960;OG9378
+polb	4	58937	0.75	1.00	DNA-directed DNA polymerase, family B [PFAM:DN	ok	GVOGm0054;OG5943;OG48357;OG25875
+vltf3	7	53648	0.86	1.00	Poxvirus VLTF3, late transcription factor [PFA	ok	VLTF3;GVOGm0890;OG1614;OG448;OG25876;OG5947;OG5208
+grp_OG1063	3	52269	1.00	1.00	Thioredoxin domain [PFAM:Thioredoxin]	ok	OG1063;OG5095;OG482
+grp_OG17782	2	51466	0.00	0.00		no_annotation	OG17782;OG15424
+grp_OG10	6	46702	0.67	0.75	Zinc finger, TFIIS-type [PFAM:Transcription fa	ok	OG10;OG3700;OG500;OG742;OG6561;OG6948
+mcp_ncldv	12	13949	0.67	1.00	Group II dsDNA virus coat/capsid protein [PFAM	ok	GVOGm0003;OG484;OG1352;gamadvirusMCP;OG3587;OG771;plv_mcp_caps_GKS2_Alpenseevirus_NCV_like;plv_mcp_caps_Zephyrvirus4_NCV_like;plv_mcp_caps_Zephyrvirus5_NCV_like;plv_mcp_caps_VC124_VC134_NCV_like;plv_mcp_caps_VC40_NCV_like;plv_mcp_caps_Zoravirus_VC102_NCV_like
+grp_OG33	2	44751	0.00	0.00		no_annotation	OG33;OG36
+tfiib_cyclin	6	40941	1.00	0.33	Transcription factor TFIIB [PFAM:Transcription	ok	GVOGm0172;OG3;OG436;OG1710;OG612;OG4201
+grp_OG1190	5	40287	1.00	0.40	mRNA (guanine-N(7))-methyltransferase domain [	ok	OG1190;OG206;OG1;OG376;OG5950
+grp_OG5821	5	29633	0.80	0.75	PD-(D/E)XK endonuclease-like domain superfamil	ok	OG5821;OG201;OG1983;OG1616;OG41908
+grp_OG1419	6	28860	0.67	0.50	TBP domain superfamily [PFAM:Transcription fac	ok	OG1419;OG295;OG581;OG4899;OG34;OG1821
+grp_OG203	6	26206	0.67	0.25	Holliday junction resolvase, A22 [PFAM:Poxviru	ok	OG203;OG3465;OG526;OG2196;OG1943;OG6099
+vltf2	6	26175	1.00	0.83	consensus disorder prediction	ok	OG4379;VLTF2;OG1709;OG5198;OG541;OG389
+grp_OG48358	4	25967	1.00	1.00	P-loop containing nucleoside triphosphate hydr	ok	OG48358;OG1395;OG5941;OG5940
+grp_OG276	5	25066	1.00	0.40	Protein kinase-like domain superfamily	REVIEW_mixed	OG276;OG4821;OG787;OG1645;OG5907
+grp_OG13	4	24113	0.75	0.67	Ulp1 protease family, C-terminal catalytic dom	ok	OG13;OG5951;OG1707;OG6674
+grp_OG634	3	23537	1.00	0.67	DNA clamp superfamily [PFAM:Proliferating cell	ok	OG634;OG5977;OG1657
+grp_OG1086	4	21600	0.50	0.50	ERV/ALR sulfhydryl oxidase domain [PFAM:Erv1 /	ok	OG1086;OG17;OG3490;OG28775
+grp_GVOGm0013	2	20061	1.00	1.00	P-loop containing nucleoside triphosphate hydr	ok	GVOGm0013;OG5958
+mcp_vp	7	19335	1.00	1.00	consensus disorder prediction	ok	VP_MCP_1;VP_MCP_5;VP_MCP_3;VP_MCP_7;VP_MCP_2;VP_MCP_4;VP_MCP_6
+grp_OG475	6	18229	0.67	0.50	Protein of unknown function DUF5871 [PFAM:Fami	ok	OG475;OG876;OG4547;OG365;OG658;OG4799
+grp_OG800	3	16415	0.67	0.50	DNA-directed RNA polymerase subunit Rpo5/Rpb5 	ok	OG800;OG30;OG2350
+grp_1488436at2759	2	15548	1.00	0.50	RPB6/omega subunit-like superfamily [PFAM:RNA 	ok	1488436at2759;OG3084
+grp_OG1831	3	15092	1.00	0.67	DNA ligase, ATP-dependent, central [PFAM:ATP d	ok	OG1831;OG4124;OG48360
+grp_OG6034	4	14757	0.50	0.50	Protein of unknown function DUF5832 [PFAM:Fami	ok	OG6034;OG186;OG5849;OG25874
+atpase_vp	4	14199	1.00	1.00	P-loop containing nucleoside triphosphate hydr	ok	VP_ATPase_1;VP_ATPase_2;VP_ATPase_3;VP_ATPase_4
+grp_OG1026	2	13273	1.00	0.50	RNA polymerase Rpb7-like, N-terminal domain su	ok	OG1026;1430056at2759
+grp_1380409at2759	2	11417	0.50	1.00	NFACT, RNA-binding domain [PFAM:NFACT N-termin	ok	1380409at2759;OG5880
+grp_OG299	2	11350	0.50	1.00	ERCC4 domain [PFAM:ERCC4 domain]	ok	OG299;OG2166
+grp_OG2081	5	11098	0.40	0.50	consensus disorder prediction	ok	OG2081;OG27;OG965;OG303;OG21616
+grp_OG4640	2	9972	0.50	1.00	UDP-glucose/GDP-mannose dehydrogenase, N-termi	ok	OG4640;OG6142
+grp_OG1046	2	9639	0.00	0.00		no_annotation	OG1046;OG12902
+grp_1275837at2759	2	9402	1.00	1.00	consensus disorder prediction	ok	1275837at2759;1038775at2759
+grp_OG1676	3	7841	1.00	0.67	Poly(A) polymerase catalytic subunit [PFAM:Pol	ok	OG1676;OG12;OG1758
+penton_vp	4	7220	1.00	1.00	Minor capsid protein V18/19-like, jelly roll d	ok	VP_Penton_1;VP_Penton_3;VP_Penton_2;VP_Penton_4
+grp_OG1859	2	7128	0.00	0.00		no_annotation	OG1859;OG26
+grp_OG310	3	6785	0.67	1.00	consensus disorder prediction	ok	OG310;OG5703;OG6117
+grp_OG4797	2	6781	1.00	1.00	consensus disorder prediction	ok	OG4797;OG421
+grp_OG4181	3	6164	0.00	0.00		no_annotation	OG4181;OG267;OG270
+grp_OG2843	3	5931	1.00	0.67	ATP synthase subunit alpha, N-terminal domain-	ok	OG2843;OG4001;OG34261
+terminase	3	4989	0.67	1.00	P-loop containing nucleoside triphosphate hydr	ok	Mirus_Terminase_merged;OG1608;Mirus_Terminase_ATPase
+grp_OG23	2	4735	0.00	0.00		no_annotation	OG23;OG6097
+grp_OG1094	2	4665	1.00	1.00	consensus disorder prediction	ok	OG1094;OG1804
+mcp_plv	32	5581	0.00	0.00		no_annotation	PLV_MCP_3;PLV_MCP_10;PLV_MCP_8;PLV_MCP_2;PLV_MCP_5;PLV_MCP_6;PLV_MCP_1;PLV_MCP_4;PLV_MCP_9;plv_mcp_caps_Dino_Aquinto;plv_mcp_caps_GKS1_Gossevirus_Mavpol;plv_mcp_caps_GKS3_CHI_Aquinto;plv_mcp_caps_Mavpol2;plv_mcp_caps_Trimcap_A4_Aquinto;plv_mcp_caps_Trimcap_B1_Aquinto;plv_mcp_caps_Trimcap_B2_Aquinto;plv_mcp_caps_Trimcap_B3_Aquinto;plv_mcp_caps_Nova6_VC35_Mavpol2;plv_mcp_caps_Nova9_Aquinto_Trimcap_related;plv_mcp_caps_PaM2_NCV_like;plv_mcp_caps_PgVV_Aquinto;plv_mcp_caps_SP67_Aquinto;plv_mcp_caps_SP70_Aquinto;plv_mcp_caps_SP71_Aquinto;plv_mcp_caps_SP_Aquinto;plv_mcp_caps_Trimcap_A1_Aquinto;plv_mcp_caps_Trimcap_A2_Aquinto;plv_mcp_caps_Trimcap_A3_74_Aquinto;plv_mcp_caps_Trimcap_A3_Aquinto;plv_mcp_caps_VC224_NA;plv_mcp_caps_VC147_GKS3_Aquinto;plv_mcp_caps_VC104_Aquinto
+grp_OG3859	2	4472	0.00	0.00		no_annotation	OG3859;OG6330
+grp_OG15	2	4077	0.00	0.00		no_annotation	OG15;OG6520
+grp_OG5005	2	3399	1.00	1.00	PD-(D/E)XK endonuclease-like domain superfamil	ok	OG5005;OG440
+grp_GENOMAD.000023.VV	2	3387	1.00	1.00	consensus disorder prediction	ok	GENOMAD.000023.VV;GENOMAD.000026.VV
+grp_OG114	2	3251	0.50	1.00	P-loop containing nucleoside triphosphate hydr	ok	OG114;GENOMAD.029205.VV
+grp_OG516	3	3188	0.33	1.00	consensus disorder prediction	ok	OG516;OG586;OG667
+mcp_mirus	2	2874	0.50	1.00	consensus disorder prediction	ok	OG1421;Mirus_MCP
+grp_Mirus_Portal	2	2515	0.50	1.00	consensus disorder prediction	ok	Mirus_Portal;OG1515
+grp_OG197	2	2121	1.00	1.00	Nucleotide-diphospho-sugar transferases	ok	OG197;OG282
+grp_OG5935	2	2025	1.00	0.50	Peptidase M4/M1, CTD superfamily	ok	OG5935;OG412
+grp_Mirus_JellyRoll	2	1964	0.50	1.00	consensus disorder prediction	ok	Mirus_JellyRoll;OG1683
+grp_OG19209	2	1797	0.50	1.00	Phospholipase D/Transphosphatidylase [PFAM:PLD	ok	OG19209;OG7105
+grp_Mirus_Triplex2	2	1733	0.50	1.00	consensus disorder prediction	ok	Mirus_Triplex2;OG1688
+grp_OG1490	2	1473	1.00	0.50	consensus disorder prediction	ok	OG1490;OG5401
+grp_Mirus_Triplex1	2	1459	0.50	1.00	consensus disorder prediction	ok	Mirus_Triplex1;OG1552
+grp_OG249	2	1290	0.50	1.00	Protein of unknown function DUF378 [PFAM:Domai	ok	OG249;OG5660
+grp_OG3060	2	1216	1.00	1.00	Coil	ok	OG3060;OG2922
+grp_OG2155	2	1062	0.00	0.00		no_annotation	OG2155;OG806
+grp_OG354	2	894	1.00	0.50	Protein of unknown function DUF5763 [PFAM:Fami	ok	OG354;OG6024
+grp_OG6114	2	546	1.00	1.00	Pox virus entry-fusion-complex G9/A16 [PFAM:Po	ok	OG6114;OG5965

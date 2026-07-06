@@ -114,6 +114,7 @@ class InputValidator:
         filepath: Union[str, Path],
         file_type: Optional[str] = None,
         allow_short: bool = False,
+        min_sequence_length: Optional[int] = None,
     ) -> Path:
         """
         Validate sequence file format and content.
@@ -123,9 +124,11 @@ class InputValidator:
             file_type: Expected file type ('fna' or 'faa')
             allow_short: When False (default) aggregate nucleotide files
                 shorter than ``MIN_SEQUENCE_LENGTH`` raise ``ValidationError``
-                instead of emitting a warning. ``--contigs`` mode passes
-                ``True`` so per-contig inputs are governed by
-                ``pipeline.contigs_min_length`` instead.
+                instead of emitting a warning.
+            min_sequence_length: Minimum aggregate nucleotide length in bp.
+                Defaults to ``MIN_SEQUENCE_LENGTH``. ``--contigs`` mode passes
+                its split filter here so per-contig inputs are governed by
+                ``pipeline.contigs_min_length``.
 
         Returns:
             Validated Path object
@@ -136,6 +139,23 @@ class InputValidator:
         """
         if not filepath:
             raise ValidationError("File path cannot be empty", field="filepath")
+
+        if min_sequence_length is None:
+            min_sequence_length = cls.MIN_SEQUENCE_LENGTH
+        try:
+            min_sequence_length = int(min_sequence_length)
+        except (TypeError, ValueError) as exc:
+            raise ValidationError(
+                f"Minimum sequence length must be an integer: {min_sequence_length!r}",
+                field="min_sequence_length",
+                value=min_sequence_length,
+            ) from exc
+        if min_sequence_length < 0:
+            raise ValidationError(
+                f"Minimum sequence length must be >= 0: {min_sequence_length}",
+                field="min_sequence_length",
+                value=min_sequence_length,
+            )
 
         path = Path(filepath).resolve()
 
@@ -209,19 +229,22 @@ class InputValidator:
         # Validate individual sequences
         for i, record in enumerate(sequences):
             cls._validate_sequence_record(
-                record, i + 1, file_type, allow_short=allow_short
+                record,
+                i + 1,
+                file_type,
+                allow_short=allow_short,
+                min_sequence_length=min_sequence_length,
             )
 
-        # Check total sequence length for nucleotide inputs. Hard-fail the
-        # run unless the caller opted into ``allow_short`` (for example
-        # because ``--contigs`` is supplying per-contig inputs whose
-        # effective floor is controlled by ``pipeline.contigs_min_length``).
+        # Check total sequence length for nucleotide inputs. Hard-fail unless
+        # the caller opted into ``allow_short``. The floor is caller-provided
+        # so ``--contigs`` can use ``pipeline.contigs_min_length``.
         if file_type == "fna":
             total_length = sum(len(seq.seq) for seq in sequences)
-            if total_length < cls.MIN_SEQUENCE_LENGTH:
+            if total_length < min_sequence_length:
                 message = (
                     f"Total sequence length ({total_length} bp) is below the "
-                    f"minimum ({cls.MIN_SEQUENCE_LENGTH} bp) for "
+                    f"minimum ({min_sequence_length} bp) for "
                     f"{filepath}. Pass --allow-short to override this gate."
                 )
                 if allow_short:
@@ -245,6 +268,7 @@ class InputValidator:
         seq_num: int,
         file_type: Optional[str] = None,
         allow_short: bool = False,
+        min_sequence_length: Optional[int] = None,
     ) -> None:
         """
         Validate individual sequence record.
@@ -287,9 +311,14 @@ class InputValidator:
         # multi-contig FNA is normal); the aggregate hard-fail lives in
         # ``validate_sequence_file`` where it can also honour allow_short.
         if file_type == "fna":
-            if seq_length < cls.MIN_SEQUENCE_LENGTH:
+            length_floor = (
+                cls.MIN_SEQUENCE_LENGTH
+                if min_sequence_length is None
+                else int(min_sequence_length)
+            )
+            if seq_length < length_floor:
                 error_handler.log_warning(
-                    f"Sequence {seq_num} ({record.id}) is shorter than recommended minimum ({seq_length} bp < {cls.MIN_SEQUENCE_LENGTH} bp)",
+                    f"Sequence {seq_num} ({record.id}) is shorter than recommended minimum ({seq_length} bp < {length_floor} bp)",
                     context={"sequence_id": record.id, "length": seq_length},
                 )
         elif file_type == "faa":
@@ -626,7 +655,7 @@ class InputValidator:
         Raises:
             ValidationError: If method is invalid
         """
-        valid_methods = {"iqtree", "fasttree"}
+        valid_methods = {"iqtree", "veryfasttree", "fasttree"}
 
         if not isinstance(method, str):
             raise ValidationError(
@@ -649,6 +678,7 @@ class InputValidator:
         cls,
         query_dir: Union[str, Path],
         allow_short: bool = False,
+        min_sequence_length: Optional[int] = None,
     ) -> Path:
         """
         Validate query directory and its contents.
@@ -657,7 +687,9 @@ class InputValidator:
             query_dir: Path to query directory
             allow_short: Forwarded to :meth:`validate_sequence_file` so
                 ``--contigs`` and ``--allow-short`` runs can opt out of the
-                aggregate 20 kb minimum.
+                configured aggregate nucleotide minimum.
+            min_sequence_length: Minimum aggregate nucleotide length in bp.
+                Forwarded to :meth:`validate_sequence_file`.
 
         Returns:
             Validated Path object
@@ -687,7 +719,11 @@ class InputValidator:
         # Validate each file — fail-closed on the first invalid file so
         # bad inputs do not reach the pipeline silently.
         for file_path in sorted(valid_files):
-            cls.validate_sequence_file(file_path, allow_short=allow_short)
+            cls.validate_sequence_file(
+                file_path,
+                allow_short=allow_short,
+                min_sequence_length=min_sequence_length,
+            )
 
         return dir_path
 

@@ -129,8 +129,8 @@ def test_add_contamination_metrics_uses_ml_estimate_and_query_fna_path(
 def test_combine_summary_files_preserves_existing_final_summary(tmp_path: Path) -> None:
     summary_tsv = tmp_path / "gvclass_summary.tsv"
     summary_csv = tmp_path / "gvclass_summary.csv"
-    expected_tsv = "query\ttaxonomy_strict\testimated_contamination\nq1\td_NCLDV\t4.25\n"
-    expected_csv = "query,taxonomy_strict,estimated_contamination\nq1,d_NCLDV,4.25\n"
+    expected_tsv = "query\ttaxonomy_majority\testimated_contamination\nq1\td_NCLDV\t4.25\n"
+    expected_csv = "query,taxonomy_majority,estimated_contamination\nq1,d_NCLDV,4.25\n"
     summary_tsv.write_text(expected_tsv)
     summary_csv.write_text(expected_csv)
     (tmp_path / "q1.summary.tab").write_text(
@@ -161,12 +161,45 @@ def test_final_summary_columns_surface_single_qc_estimates() -> None:
         "estimated_contamination_strategy",
         "suspicious_bp_fraction_v2",
         "suspicious_contig_count_v2",
+        "taxonomy_strict",
+        "estimated_completeness_advisory",
+        "estimated_completeness_r2_holdout",
+        "capscan_group",
+        "vp_df",
+        "mirus_df",
+        "cellular_dup",
+        "mcp_total",
+        "gvog4_unique",
+        "gvog8_unique",
+        "gvog8_total",
+        "mrya_unique",
+        "mrya_total",
+        "phage_unique",
+        "phage_total",
         "cellular_unique",
         "cellular_total",
     ]:
         assert column not in FINAL_SUMMARY_COLUMNS
 
-    for column in ["order_dup", "gvog8_dup", "vp_df", "mirus_df", "cellular_dup"]:
+    for column in [
+        "order_dup",
+        "gvog4_completeness",
+        "gvog4_dup",
+        "gvog8_completeness",
+        "gvog8_dup",
+        "busco_completeness",
+        "busco_dup",
+        "cog_completeness",
+        "cog_dup",
+        "mrya_completeness",
+        "mrya_dup",
+        "phage_completeness",
+        "phage_dup",
+        "ncldv_mcp_total",
+        "capsid_group",
+        "completeness_model_reliability",
+        "species_tree_nn_taxonomy",
+    ]:
         assert column in FINAL_SUMMARY_COLUMNS
 
 
@@ -350,7 +383,7 @@ def test_final_summary_emits_nan_literal_for_skipped_contamination(tmp_path: Pat
                 "estimated_completeness": 73.5,
                 "estimated_contamination": float("nan"),
                 "contamination_type": "uncertain_sensitive_mode",
-                "gvog4_unique": 4,
+                "gvog4_completeness": "4/4",
                 "ncldv_mcp_total": 2,
             },
         }

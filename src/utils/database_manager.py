@@ -140,14 +140,23 @@ class DatabaseManager:
         "contamination/model.joblib",
         "contamination/model.yaml",
     ]
+    REQUIRED_FILE_ALTERNATIVES = {
+        "labels.tsv": ("labels.tsv", "parquet/labels/labels.parquet"),
+    }
 
     DEFAULT_DATABASE_SOURCE = {
-        "version": "v1.6.0",
-        "url": "https://zenodo.org/records/20479524/files/resources_v1_6_0.tar.gz?download=1",
-        "filename": "resources_v1_6_0.tar.gz",
-        "sha256": "f744f7144ea69d6c3ccffe56e7721d6fd598685853005e0fb90d04e699d9b23f",
+        "version": "v2.0.0",
+        "url": "https://zenodo.org/records/21225457/files/resources_v2_0_0.tar.gz?download=1",
+        "filename": "resources_v2_0_0.tar.gz",
+        "sha256": "df1c3a9d15a90307775f42f57e2a7c89436ed523883025f6fc94013035f5e066",
     }
     LEGACY_DATABASE_SOURCES = [
+        {
+            "version": "v1.6.0",
+            "url": "https://zenodo.org/records/20479524/files/resources_v1_6_0.tar.gz?download=1",
+            "filename": "resources_v1_6_0.tar.gz",
+            "sha256": "f744f7144ea69d6c3ccffe56e7721d6fd598685853005e0fb90d04e699d9b23f",
+        },
         {
             "version": "v1.5.0",
             "url": "https://zenodo.org/records/19674504/files/resources_v1_5_0.tar.gz?download=1",
@@ -350,6 +359,13 @@ class DatabaseManager:
         """Check for missing required files."""
         missing = []
         for file_path in cls.REQUIRED_FILES:
+            alternatives = cls.REQUIRED_FILE_ALTERNATIVES.get(file_path)
+            if alternatives:
+                if not any(
+                    (db_path / candidate).exists() for candidate in alternatives
+                ):
+                    missing.append(file_path)
+                continue
             if not (db_path / file_path).exists():
                 missing.append(file_path)
         return missing

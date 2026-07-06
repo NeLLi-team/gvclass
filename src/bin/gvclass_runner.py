@@ -42,9 +42,11 @@ def print_run_configuration(
     threads_per_worker: int | None,
     cluster_type: str,
     tree_method: str,
+    iqtree_mode: str,
     mode_fast: bool,
     completeness_mode: str,
     sensitive: bool,
+    min_sequence_length: int | None,
 ) -> None:
     from src.__version__ import __version__ as _gvclass_version
 
@@ -61,9 +63,12 @@ def print_run_configuration(
         click.echo("Worker distribution: Auto-calculated")
     click.echo(f"Cluster type: {cluster_type}")
     click.echo(f"Tree method: {tree_method}")
+    click.echo(f"IQ-TREE mode: {iqtree_mode}")
     click.echo(f"Fast mode: {mode_fast}")
     click.echo(f"Completeness mode: {completeness_mode}")
     click.echo(f"Sensitive mode: {sensitive}")
+    if min_sequence_length is not None:
+        click.echo(f"Minimum FNA length: {min_sequence_length} bp")
     click.echo("")
 
 
@@ -75,6 +80,7 @@ def run_flow(
     max_workers: int | None,
     threads_per_worker: int | None,
     tree_method: str,
+    iqtree_mode: str,
     mode_fast: bool,
     completeness_mode: str,
     sensitive: bool,
@@ -82,6 +88,10 @@ def run_flow(
     cluster_config: dict,
     resume: bool,
     allow_short: bool = False,
+    min_sequence_length: int | None = None,
+    species_tree: bool = False,
+    species_tree_combined: bool = False,
+    species_tree_trim: str = "witchi",
 ):
     return gvclass_flow(
         query_dir=str(query_path),
@@ -91,6 +101,7 @@ def run_flow(
         max_workers=max_workers,
         threads_per_worker=threads_per_worker,
         tree_method=tree_method,
+        iqtree_mode=iqtree_mode,
         mode_fast=mode_fast,
         completeness_mode=completeness_mode,
         sensitive_mode=sensitive,
@@ -98,6 +109,10 @@ def run_flow(
         cluster_config=cluster_config if cluster_config else None,
         resume=resume,
         allow_short=allow_short,
+        min_sequence_length=min_sequence_length,
+        species_tree=species_tree,
+        species_tree_combined=species_tree_combined,
+        species_tree_trim=species_tree_trim,
     )
 
 
@@ -113,9 +128,11 @@ def prepare_cli_context(
     threads_per_worker: int | None,
     cluster_type: str,
     tree_method: str,
+    iqtree_mode: str,
     mode_fast: bool,
     completeness_mode: str,
     sensitive: bool,
+    min_sequence_length: int | None,
 ) -> tuple[Path, Path, str | None, dict]:
     query_path, output_path = resolve_paths(querydir, output_dir)
     db_path = database if database else None
@@ -133,9 +150,11 @@ def prepare_cli_context(
         threads_per_worker=threads_per_worker,
         cluster_type=cluster_type,
         tree_method=tree_method,
+        iqtree_mode=iqtree_mode,
         mode_fast=mode_fast,
         completeness_mode=completeness_mode,
         sensitive=sensitive,
+        min_sequence_length=min_sequence_length,
     )
     return query_path, output_path, db_path, cluster_config
 
@@ -148,6 +167,7 @@ def execute_cli_flow(
     max_workers: int | None,
     threads_per_worker: int | None,
     tree_method: str,
+    iqtree_mode: str,
     mode_fast: bool,
     completeness_mode: str,
     sensitive: bool,
@@ -155,6 +175,10 @@ def execute_cli_flow(
     cluster_config: dict,
     resume: bool,
     allow_short: bool = False,
+    min_sequence_length: int | None = None,
+    species_tree: bool = False,
+    species_tree_combined: bool = False,
+    species_tree_trim: str = "witchi",
 ):
     result = run_flow(
         query_path=query_path,
@@ -164,6 +188,7 @@ def execute_cli_flow(
         max_workers=max_workers,
         threads_per_worker=threads_per_worker,
         tree_method=tree_method,
+        iqtree_mode=iqtree_mode,
         mode_fast=mode_fast,
         completeness_mode=completeness_mode,
         sensitive=sensitive,
@@ -171,6 +196,10 @@ def execute_cli_flow(
         cluster_config=cluster_config,
         resume=resume,
         allow_short=allow_short,
+        min_sequence_length=min_sequence_length,
+        species_tree=species_tree,
+        species_tree_combined=species_tree_combined,
+        species_tree_trim=species_tree_trim,
     )
     click.echo("\nPipeline completed successfully!")
     click.echo(f"Results written to: {result}")
@@ -195,9 +224,15 @@ def execute_cli_flow(
 )
 @click.option(
     "--tree-method",
-    default="fasttree",
-    type=click.Choice(["fasttree", "iqtree"]),
-    help="Tree building method",
+    default="veryfasttree",
+    type=click.Choice(["veryfasttree", "iqtree", "fasttree"]),
+    help="Tree building method (default veryfasttree; iqtree is slower/more accurate)",
+)
+@click.option(
+    "--iqtree-mode",
+    default="fast",
+    type=click.Choice(["fast", "ufboot"]),
+    help="IQ-TREE species-tree search: fast (--fast) or ufboot (ultrafast bootstrap)",
 )
 @click.option(
     "--mode-fast/--extended",
@@ -238,12 +273,44 @@ def execute_cli_flow(
     "--allow-short",
     is_flag=True,
     help=(
-        "Accept input FNA files shorter than the 20 kb minimum. Use for "
-        "per-contig runs (often paired with --contigs) or for exploratory "
-        "runs on short inputs."
+        "Bypass the nucleotide length floor. Use for exploratory runs on "
+        "short inputs."
     ),
 )
-def main(querydir, output_dir, database, threads, max_workers, threads_per_worker, tree_method, mode_fast, completeness_mode, sensitive, cluster_type, cluster_queue, cluster_project, cluster_walltime, verbose, resume, allow_short):
+@click.option(
+    "--min-length",
+    type=int,
+    default=None,
+    help=(
+        "Minimum total nucleotide length (bp) for each input FNA. "
+        "Use 0 to disable the length floor without disabling other validation."
+    ),
+)
+@click.option(
+    "--species-tree",
+    is_flag=True,
+    help=(
+        "Build one supermatrix species tree per query (NCLDV GVOG8 by default; "
+        "PPV/MIRUS routed by taxonomy) and assign tree-placement taxonomy "
+        "(writes out/species_tree/<query>/ and the summary columns)."
+    ),
+)
+@click.option(
+    "--species-tree-combined",
+    is_flag=True,
+    help=(
+        "Implies --species-tree; additionally build one combined species tree "
+        "over all queries at once (writes out/species_tree/combined.*)."
+    ),
+)
+@click.option(
+    "--species-tree-trim",
+    type=click.Choice(["witchi", "pytrimal", "none"]),
+    default="witchi",
+    show_default=True,
+    help="Supermatrix column trimming for --species-tree: witchi (rigorous), pytrimal (fast), or none.",
+)
+def main(querydir, output_dir, database, threads, max_workers, threads_per_worker, tree_method, iqtree_mode, mode_fast, completeness_mode, sensitive, cluster_type, cluster_queue, cluster_project, cluster_walltime, verbose, resume, allow_short, min_length, species_tree, species_tree_combined, species_tree_trim):
     log_level = "DEBUG" if verbose else "INFO"
     logger = setup_logging("gvclass_runner", level=log_level)
 
@@ -260,11 +327,13 @@ def main(querydir, output_dir, database, threads, max_workers, threads_per_worke
             threads_per_worker=threads_per_worker,
             cluster_type=cluster_type,
             tree_method=tree_method,
+            iqtree_mode=iqtree_mode,
             mode_fast=mode_fast,
             completeness_mode=completeness_mode,
             sensitive=sensitive,
+            min_sequence_length=min_length,
         )
-        execute_cli_flow(query_path, output_path, db_path, threads, max_workers, threads_per_worker, tree_method, mode_fast, completeness_mode, sensitive, cluster_type, cluster_config, resume, allow_short=allow_short)
+        execute_cli_flow(query_path, output_path, db_path, threads, max_workers, threads_per_worker, tree_method, iqtree_mode, mode_fast, completeness_mode, sensitive, cluster_type, cluster_config, resume, allow_short=allow_short, min_sequence_length=min_length, species_tree=species_tree, species_tree_combined=species_tree_combined, species_tree_trim=species_tree_trim)
     except FileNotFoundError as exc:
         click.echo(f"Error: {exc}", err=True)
         sys.exit(1)

@@ -7,17 +7,20 @@ services:
       dockerfile: Dockerfile
       args:
         PIXI_VERSION: 0.40.2
-    image: gvclass:1.6.1
+    image: gvclass:2.0.0
     container_name: gvclass
     volumes:
       # Mount input data directory
       - ${INPUT_DIR:-./example}:/data:ro
       # Mount output results directory
       - ${OUTPUT_DIR:-./results}:/results
+      # Warm cache for compact Parquet resources
+      - ${RESOURCE_CACHE_DIR:-./.gvclass-resource-cache}:/resource-cache
       # Database is already included in the image
     environment:
       # Set number of threads
       - THREADS=${THREADS:-8}
+      - GVCLASS_RESOURCE_CACHE=/resource-cache
     # Override default CMD to run analysis. The image ENTRYPOINT already runs
     # `./gvclass "$@"`, so these are the gvclass CLI arguments (the first must
     # be the input path, not a launcher like `pixi run`). Compose tokenizes the

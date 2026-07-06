@@ -1,11 +1,13 @@
 """Summary file writers for query and pipeline outputs."""
 
 import csv
+import io
 import math
+import os
+import tarfile
 import traceback
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
-
 
 LEGACY_SUMMARY_HEADERS: List[str] = [
     "query",
@@ -49,25 +51,25 @@ LEGACY_SUMMARY_HEADERS: List[str] = [
     "estimated_contamination_strategy",
     "suspicious_bp_fraction_v2",
     "suspicious_contig_count_v2",
-    "gvog4_unique",
-    "gvog8_unique",
-    "gvog8_total",
+    "gvog4_completeness",
+    "gvog4_dup",
+    "gvog8_completeness",
     "gvog8_dup",
     "ncldv_mcp_total",
-    "mcp_total",
     "vp_completeness",
     "vp_mcp",
     "plv",
     "vp_df",
     "mirus_completeness",
     "mirus_df",
-    "mrya_unique",
-    "mrya_total",
-    "phage_unique",
-    "phage_total",
-    "cellular_unique",
-    "cellular_total",
-    "cellular_dup",
+    "mrya_completeness",
+    "mrya_dup",
+    "phage_completeness",
+    "phage_dup",
+    "busco_completeness",
+    "busco_dup",
+    "cog_completeness",
+    "cog_dup",
     "contigs",
     "LENbp",
     "GCperc",
@@ -120,25 +122,25 @@ LEGACY_SUMMARY_KEY_MAPPING: Dict[str, str] = {
     "estimated_contamination_strategy": "estimated_contamination_strategy",
     "suspicious_bp_fraction_v2": "suspicious_bp_fraction_v2",
     "suspicious_contig_count_v2": "suspicious_contig_count_v2",
-    "gvog4_unique": "gvog4_unique",
-    "gvog8_unique": "gvog8_unique",
-    "gvog8_total": "gvog8_total",
+    "gvog4_completeness": "gvog4_completeness",
+    "gvog4_dup": "gvog4_dup",
+    "gvog8_completeness": "gvog8_completeness",
     "gvog8_dup": "gvog8_dup",
     "ncldv_mcp_total": "ncldv_mcp_total",
-    "mcp_total": "mcp_total",
     "vp_completeness": "vp_completeness",
     "vp_mcp": "vp_mcp",
     "plv": "plv",
     "vp_df": "vp_df",
     "mirus_completeness": "mirus_completeness",
     "mirus_df": "mirus_df",
-    "mrya_unique": "mrya_unique",
-    "mrya_total": "mrya_total",
-    "phage_unique": "phage_unique",
-    "phage_total": "phage_total",
-    "cellular_unique": "cellular_unique",
-    "cellular_total": "cellular_total",
-    "cellular_dup": "cellular_dup",
+    "mrya_completeness": "mrya_completeness",
+    "mrya_dup": "mrya_dup",
+    "phage_completeness": "phage_completeness",
+    "phage_dup": "phage_dup",
+    "busco_completeness": "busco_completeness",
+    "busco_dup": "busco_dup",
+    "cog_completeness": "cog_completeness",
+    "cog_dup": "cog_dup",
     "contigs": "contigs",
     "LENbp": "LENbp",
     "GCperc": "GCperc",
@@ -152,8 +154,14 @@ LEGACY_SUMMARY_KEY_MAPPING: Dict[str, str] = {
 FINAL_SUMMARY_COLUMNS: List[str] = [
     "query",
     "taxonomy_majority",
-    "taxonomy_strict",
+    # Concatenated-marker species-tree placement — a strong phylogenomic signal,
+    # so it sits up front next to the single-gene-consensus taxonomy_majority.
+    # Value is "nd" (not determined) when the run built no species tree.
+    "species_tree_nn_taxonomy",
     "taxonomy_confidence",
+    # Unified capsid-type tally across all MCP panels (NCLDV/Mirus/PPV caps
+    # groups), e.g. "Nucleocytoviricota:4,Gossevirus:1".
+    "capsid_group",
     "species",
     "genus",
     "family",
@@ -164,12 +172,44 @@ FINAL_SUMMARY_COLUMNS: List[str] = [
     "avgdist",
     "order_dup",
     "estimated_completeness",
-    "estimated_completeness_quality",
-    "estimated_completeness_advisory",
-    "estimated_completeness_r2_holdout",
+    "completeness_model_reliability",
     "estimated_contamination",
     "contamination_type",
-    # Per-contig taxonomic-purity features (v1.4.3 Phase 2).
+    "gvog4_completeness",
+    "gvog4_dup",
+    "gvog8_completeness",
+    "gvog8_dup",
+    "busco_completeness",
+    "busco_dup",
+    "cog_completeness",
+    "cog_dup",
+    "mrya_completeness",
+    "mrya_dup",
+    "phage_completeness",
+    "phage_dup",
+    "ncldv_mcp_total",
+    "vp_completeness",
+    "vp_mcp",
+    "plv",
+    "mirus_completeness",
+    "contigs",
+    "LENbp",
+    "GCperc",
+    "genecount",
+    "CODINGperc",
+    "ttable",
+    # --species-tree placement detail ("nd" unless a species tree was built).
+    "species_tree_nn_genome",
+    "species_tree_nn_distance",
+    "species_tree_clade_id",
+]
+
+
+# Always-on supplementary table archived in gvclass_summary.extended.tar.gz:
+# per-contig taxonomic-purity / contamination diagnostics that are 0 for clean
+# single-virus genomes and only meaningful under cellular contamination.
+EXTENDED_SUMMARY_COLUMNS: List[str] = [
+    "query",
     "cellular_coherent_contig_count",
     "cellular_coherent_protein_fraction",
     "cellular_coherent_bp_fraction",
@@ -177,29 +217,6 @@ FINAL_SUMMARY_COLUMNS: List[str] = [
     "cellular_hit_identity_median",
     "viral_bearing_contig_count",
     "contig_attribution_mode",
-    "gvog4_unique",
-    "gvog8_unique",
-    "gvog8_total",
-    "gvog8_dup",
-    "ncldv_mcp_total",
-    "mcp_total",
-    "vp_completeness",
-    "vp_mcp",
-    "plv",
-    "vp_df",
-    "mirus_completeness",
-    "mirus_df",
-    "mrya_unique",
-    "mrya_total",
-    "phage_unique",
-    "phage_total",
-    "cellular_dup",
-    "contigs",
-    "LENbp",
-    "GCperc",
-    "genecount",
-    "CODINGperc",
-    "ttable",
 ]
 
 FAILED_QUERY_COLUMNS: List[str] = ["query", "status", "error"]
@@ -207,12 +224,13 @@ FAILED_QUERY_COLUMNS: List[str] = ["query", "status", "error"]
 TWO_DECIMAL_COLUMNS = {
     "avgdist",
     "order_dup",
+    "gvog4_dup",
     "gvog8_dup",
-    "vp_df",
-    "mirus_df",
-    "cellular_dup",
+    "busco_dup",
+    "cog_dup",
+    "mrya_dup",
+    "phage_dup",
     "estimated_completeness",
-    "estimated_completeness_advisory",
     "estimated_contamination",
     "GCperc",
     "CODINGperc",
@@ -221,12 +239,12 @@ TWO_DECIMAL_COLUMNS = {
     "cellular_coherent_bp_fraction",
     "cellular_lineage_purity_median",
     "cellular_hit_identity_median",
+    # Species-tree placement distance (full precision lives in species_tree_taxonomy.tsv).
+    "species_tree_nn_distance",
 }
 
 # Quality metrics that must keep higher precision than the default .0f fallback.
-FOUR_DECIMAL_COLUMNS = {
-    "estimated_completeness_r2_holdout",
-}
+FOUR_DECIMAL_COLUMNS: set = set()
 
 LEGACY_TWO_DECIMAL_COLUMNS = {
     "avgdist",
@@ -249,10 +267,14 @@ LEGACY_TWO_DECIMAL_COLUMNS = {
     "contamination_nonviral_hit_fraction_v1",
     "estimated_contamination",
     "suspicious_bp_fraction_v2",
+    "gvog4_dup",
     "gvog8_dup",
+    "busco_dup",
+    "cog_dup",
+    "mrya_dup",
+    "phage_dup",
     "vp_df",
     "mirus_df",
-    "cellular_dup",
     "GCperc",
     "CODINGperc",
     "weighted_order_completeness",
@@ -295,7 +317,9 @@ def write_individual_final_summary_file(
             handle.write("\t".join(row_data) + "\n")
         logger.info(f"Final-schema summary file written successfully: {summary_file}")
     except Exception as exc:
-        logger.error(f"Failed to write final-schema summary file for {query_name}: {exc}")
+        logger.error(
+            f"Failed to write final-schema summary file for {query_name}: {exc}"
+        )
         logger.error(traceback.format_exc())
     return summary_file
 
@@ -333,9 +357,10 @@ def write_final_summary_files(results: List[Dict[str, Any]], output_dir: Path) -
     summary_csv = output_dir / "gvclass_summary.csv"
     summary_results, failed_results = _partition_summary_results(results)
     _write_failed_query_report(failed_results, output_dir)
-    with open(summary_tsv, "w") as tsv_file, open(
-        summary_csv, "w", newline=""
-    ) as csv_file:
+    with (
+        open(summary_tsv, "w") as tsv_file,
+        open(summary_csv, "w", newline="") as csv_file,
+    ):
         csv_writer = csv.writer(csv_file)
         tsv_file.write("\t".join(FINAL_SUMMARY_COLUMNS) + "\n")
         csv_writer.writerow(FINAL_SUMMARY_COLUMNS)
@@ -346,8 +371,66 @@ def write_final_summary_files(results: List[Dict[str, Any]], output_dir: Path) -
     return summary_tsv
 
 
+def write_final_summary_extended_files(
+    results: List[Dict[str, Any]], output_dir: Path
+) -> Path:
+    """Write the always-on supplementary diagnostics table.
+
+    gvclass_summary.extended.tsv / .csv carries the per-contig contamination
+    features that are 0 for clean single-virus genomes (kept out of the main
+    table for readability).
+    """
+    extended_tsv = output_dir / "gvclass_summary.extended.tsv"
+    extended_csv = output_dir / "gvclass_summary.extended.csv"
+    summary_results, _ = _partition_summary_results(results)
+    with (
+        open(extended_tsv, "w") as tsv_file,
+        open(extended_csv, "w", newline="") as csv_file,
+    ):
+        csv_writer = csv.writer(csv_file)
+        tsv_file.write("\t".join(EXTENDED_SUMMARY_COLUMNS) + "\n")
+        csv_writer.writerow(EXTENDED_SUMMARY_COLUMNS)
+        for result in sorted(summary_results, key=lambda item: item["query"]):
+            row = [
+                _format_final_summary_value(
+                    column, result["summary_data"].get(column, "")
+                )
+                for column in EXTENDED_SUMMARY_COLUMNS
+            ]
+            tsv_file.write("\t".join(row) + "\n")
+            csv_writer.writerow(row)
+    return extended_tsv
+
+
+def archive_final_summary_extended_files(output_dir: Path) -> Optional[Path]:
+    """Archive extended combined tables and remove the loose copies."""
+    extended_paths = [
+        output_dir / "gvclass_summary.extended.tsv",
+        output_dir / "gvclass_summary.extended.csv",
+    ]
+    existing_paths = [path for path in extended_paths if path.exists()]
+    if not existing_paths:
+        return None
+
+    archive_path = output_dir / "gvclass_summary.extended.tar.gz"
+    tmp_path = output_dir / "gvclass_summary.extended.tar.gz.part"
+    tmp_path.unlink(missing_ok=True)
+    with tarfile.open(tmp_path, "w:gz") as tar_handle:
+        for path in existing_paths:
+            tar_handle.add(path, arcname=path.name)
+    with open(tmp_path, "rb") as handle:
+        os.fsync(handle.fileno())
+    if not tarfile.is_tarfile(tmp_path):
+        tmp_path.unlink(missing_ok=True)
+        raise RuntimeError(f"Archive verification failed for {tmp_path}")
+    os.replace(tmp_path, archive_path)
+    for path in existing_paths:
+        path.unlink(missing_ok=True)
+    return archive_path
+
+
 def _partition_summary_results(
-    results: List[Dict[str, Any]]
+    results: List[Dict[str, Any]],
 ) -> tuple[List[Dict[str, Any]], List[Dict[str, str]]]:
     summary_results = []
     failed_results = []
@@ -381,9 +464,10 @@ def _write_failed_query_report(
         failed_csv.unlink(missing_ok=True)
         return
 
-    with open(failed_tsv, "w", newline="") as tsv_handle, open(
-        failed_csv, "w", newline=""
-    ) as csv_handle:
+    with (
+        open(failed_tsv, "w", newline="") as tsv_handle,
+        open(failed_csv, "w", newline="") as csv_handle,
+    ):
         tsv_writer = csv.DictWriter(
             tsv_handle, fieldnames=FAILED_QUERY_COLUMNS, delimiter="\t"
         )
@@ -402,29 +486,53 @@ def read_individual_summary_results(
     wanted_names = (
         set(query_names)
         if query_names is not None
-        else {
-            path.name.removesuffix(".summary.tab")
-            for path in output_dir.glob("*.summary.tab")
-        }
+        else _discover_individual_summary_names(output_dir)
     )
     results: List[Dict[str, Any]] = []
     for query_name in sorted(wanted_names):
-        summary_file = _find_best_individual_summary_file(output_dir, query_name)
-        if summary_file is None:
-            continue
-        result = _read_individual_summary_result(summary_file, query_name)
+        result = _read_best_individual_summary_result(output_dir, query_name)
         if result is not None:
             results.append(result)
     return results
 
 
-def _find_best_individual_summary_file(output_dir: Path, query_name: str) -> Optional[Path]:
+def _discover_individual_summary_names(output_dir: Path) -> set[str]:
+    names = {
+        path.name.removesuffix(".summary.tab")
+        for path in output_dir.glob("*.summary.tab")
+    }
+    names.update(
+        path.name.removesuffix(".final_summary.tsv")
+        for path in output_dir.glob("*.final_summary.tsv")
+    )
+    names.update(
+        path.name.removesuffix(".tar.gz")
+        for path in output_dir.glob("*.tar.gz")
+        if not path.name.startswith("gvclass_summary.")
+    )
+    return names
+
+
+def _read_best_individual_summary_result(
+    output_dir: Path, query_name: str
+) -> Optional[Dict[str, Any]]:
     final_summary = output_dir / f"{query_name}.final_summary.tsv"
     if final_summary.exists():
-        return final_summary
+        return _read_individual_summary_result(final_summary, query_name)
     legacy_summary = output_dir / f"{query_name}.summary.tab"
     if legacy_summary.exists():
-        return legacy_summary
+        return _read_individual_summary_result(legacy_summary, query_name)
+    for member_name in (
+        f"{query_name}/{query_name}.final_summary.tsv",
+        f"{query_name}/{query_name}.summary.tab",
+    ):
+        result = _read_individual_summary_result_from_archive(
+            output_dir / f"{query_name}.tar.gz",
+            member_name,
+            query_name,
+        )
+        if result is not None:
+            return result
     return None
 
 
@@ -441,15 +549,58 @@ def _read_individual_summary_result(
     return {"query": query_name, "status": "complete", "summary_data": summary_data}
 
 
+def _read_individual_summary_result_from_archive(
+    archive_path: Path,
+    member_name: str,
+    query_name: str,
+) -> Optional[Dict[str, Any]]:
+    if not archive_path.exists():
+        return None
+    try:
+        with tarfile.open(archive_path, "r:gz") as tar_handle:
+            member = tar_handle.getmember(member_name)
+            member_file = tar_handle.extractfile(member)
+            if member_file is None:
+                return None
+            text = member_file.read().decode()
+    except (KeyError, OSError, tarfile.TarError, UnicodeDecodeError):
+        return None
+
+    reader = csv.DictReader(io.StringIO(text), delimiter="\t")
+    row = next(reader, None)
+    if row is None:
+        return None
+    summary_data = {key: value for key, value in row.items() if key is not None}
+    summary_data["query"] = query_name
+    return {"query": query_name, "status": "complete", "summary_data": summary_data}
+
+
+# Species-tree placement columns. When a run builds no species tree these are
+# absent from summary_data; emit the "nd" (not determined) sentinel rather than a
+# blank so all four read consistently. ``_SPECIES_TREE_ND_VALUES`` also maps the
+# retired ``no-species-tree-calculated`` literal to ``nd`` so a ``--resume`` over
+# per-query files written by an older gvclass version is migrated, not preserved.
+_SPECIES_TREE_ND_COLUMNS = {
+    "species_tree_nn_taxonomy",
+    "species_tree_nn_genome",
+    "species_tree_nn_distance",
+    "species_tree_clade_id",
+}
+_SPECIES_TREE_ND_VALUES = ("", None, "no-species-tree-calculated")
+
+
 def _build_final_summary_row(result: Dict[str, Any]) -> List[str]:
     if result["status"] != "complete" or "summary_data" not in result:
         return [result["query"]] + [""] * (len(FINAL_SUMMARY_COLUMNS) - 1)
 
     summary_data = result["summary_data"]
-    return [
-        _format_final_summary_value(column, summary_data.get(column, ""))
-        for column in FINAL_SUMMARY_COLUMNS
-    ]
+    row: List[str] = []
+    for column in FINAL_SUMMARY_COLUMNS:
+        value = summary_data.get(column, "")
+        if column in _SPECIES_TREE_ND_COLUMNS and value in _SPECIES_TREE_ND_VALUES:
+            value = "nd"
+        row.append(_format_final_summary_value(column, value))
+    return row
 
 
 def _format_final_summary_value(column: str, value: Any) -> str:

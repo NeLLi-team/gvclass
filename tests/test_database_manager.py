@@ -51,6 +51,17 @@ def test_setup_database_force_reinstalls_complete_database(tmp_path, monkeypatch
     assert called["count"] == 1
 
 
+def test_database_completeness_accepts_parquet_labels(tmp_path):
+    db_path = tmp_path / "resources"
+    _create_complete_database(db_path)
+    (db_path / "labels.tsv").unlink()
+    parquet_labels = db_path / "parquet" / "labels" / "labels.parquet"
+    parquet_labels.parent.mkdir(parents=True)
+    parquet_labels.write_text("placeholder\n")
+
+    assert DatabaseManager._check_missing_files(db_path) == []
+
+
 def test_get_latest_database_source_follows_zenodo_latest_record(monkeypatch):
     preferred_source = {
         "version": "v1.2.2",

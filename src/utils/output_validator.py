@@ -8,6 +8,7 @@ ensuring all expected files are present and properly formatted.
 from pathlib import Path
 from typing import Dict, List, Any
 import logging
+import tarfile
 
 logger = logging.getLogger(__name__)
 
@@ -39,11 +40,18 @@ def validate_pipeline_outputs(
         issues.append(f"Output directory does not exist: {output_dir}")
         return {"success": False, "issues": issues, "warnings": warnings}
 
-    # Check for summary files (*.summary.tab)
+    # Check for legacy loose summary files (*.summary.tab) or archived query outputs.
     summary_files = list(output_dir.glob("*.summary.tab"))
-    if not summary_files:
-        issues.append("No summary.tab files found in output directory")
-    else:
+    archive_files = [
+        path
+        for path in output_dir.glob("*.tar.gz")
+        if not path.name.startswith("gvclass_summary.")
+    ]
+    if not summary_files and not archive_files:
+        issues.append(
+            "No per-query summary files or archives found in output directory"
+        )
+    elif summary_files:
         if verbose:
             logger.info(f"Found {len(summary_files)} summary file(s)")
 
@@ -52,9 +60,10 @@ def validate_pipeline_outputs(
             if not _validate_summary_file(summary_file, issues, warnings, verbose):
                 issues.append(f"Invalid summary file format: {summary_file.name}")
 
-    # Check for compressed result archives (*.tar.gz)
-    archive_files = list(output_dir.glob("*.tar.gz"))
-    if not archive_files and summary_files:
+    if archive_files:
+        for archive_file in archive_files:
+            _validate_query_archive(archive_file, issues, warnings, verbose)
+    elif summary_files:
         warnings.append(
             "No compressed archives (.tar.gz) found - intermediate files may not be archived"
         )
@@ -130,6 +139,31 @@ def _validate_summary_file(
     except Exception as e:
         issues.append(f"Error reading {summary_file.name}: {str(e)}")
         return False
+
+
+def _validate_query_archive(
+    archive_file: Path, issues: List[str], warnings: List[str], verbose: bool
+) -> None:
+    query_name = archive_file.name.removesuffix(".tar.gz")
+    try:
+        with tarfile.open(archive_file, "r:gz") as tar_handle:
+            names = set(tar_handle.getnames())
+    except (OSError, tarfile.TarError) as exc:
+        issues.append(f"Invalid query archive {archive_file.name}: {exc}")
+        return
+
+    expected = {
+        f"{query_name}/{query_name}.summary.tab",
+        f"{query_name}/{query_name}.final_summary.tsv",
+    }
+    missing = sorted(expected - names)
+    if missing:
+        warnings.append(
+            f"Query archive {archive_file.name} is missing expected member(s): "
+            + ", ".join(missing)
+        )
+    elif verbose:
+        logger.debug(f"✓ {archive_file.name} contains per-query summaries")
 
 
 def _validate_combined_summary(

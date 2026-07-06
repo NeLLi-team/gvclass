@@ -72,13 +72,14 @@ echo "Number of processes: $PROCESSES"
 echo "Valid input files found: $VALID_FILES"
 
 # Build the Docker image if it doesn't exist
-if ! docker images | grep -q "gvclass.*1.6.1"; then
+if ! docker images | grep -q "gvclass.*2.0.0"; then
     echo "Building GVClass Docker image..."
-    docker build -t gvclass:1.6.1 .
+    docker build -t gvclass:2.0.0 -f containers/docker/Dockerfile .
 fi
 
 # Create output directory name
 OUTPUT_DIR="${QUERYDIR}_results"
+mkdir -p "$OUTPUT_DIR"
 
 # Run GVClass pipeline
 # Use current user to avoid permission issues
@@ -86,5 +87,5 @@ docker run --rm \
   --user $(id -u):$(id -g) \
   -v "$(pwd)/$QUERYDIR:/data:ro" \
   -v "$(pwd)/$OUTPUT_DIR:/results" \
-  gvclass:1.6.1 \
-  pixi run gvclass /data -o /results -t "$PROCESSES"
+  gvclass:2.0.0 \
+  /data -o /results -t "$PROCESSES"

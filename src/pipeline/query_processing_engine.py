@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import csv
-import json
 import logging
 import os
 import shutil
@@ -12,11 +11,9 @@ import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from src.__version__ import __version__ as _GVCLASS_VERSION
 from src.core.genetic_code_optimizer import GeneticCodeOptimizer
 from src.core.hmm_search import run_pyhmmer_search_with_filtering
 from src.core.marker_extraction import extract_marker_hits, get_marker_database_path
@@ -24,16 +21,15 @@ from src.core.marker_processing import MarkerProcessor
 from src.core.reformat import calculate_stats, reformat_sequences
 from src.core.summarize_full import FullSummarizer
 from src.core.tree_analysis import TreeAnalyzer
+from src.pipeline.progress_events import emit_progress_event
+from src.pipeline.run_status import RunStatusRecorder
 from src.pipeline.summary_writer import (
     write_individual_final_summary_file,
     write_individual_summary_file,
 )
-from src.utils.common import sha256_file
 from src.utils.error_handling import ProcessingError
 from src.utils.input_validation import InputValidator
-
-SUCCESS_SENTINEL_VERSION = 1
-_SOFTWARE_VERSION = f"v{_GVCLASS_VERSION}"
+from src.utils.resource_store import ResourceStore
 
 from Bio import SeqIO
 
@@ -61,6 +57,7 @@ class PreparedQueryInput:
     best_code: Optional[int]
     is_nucleotide: bool = False
 
+
 def process_single_query(
     query_file: Path,
     output_base: Path,
@@ -71,10 +68,16 @@ def process_single_query(
     completeness_mode: str = "legacy",
     sensitive_mode: bool = False,
     threads: int = 4,
+    species_tree: bool = False,
+    species_tree_trim: str = "witchi",
+    run_status: Optional[RunStatusRecorder] = None,
 ) -> Dict[str, Any]:
     """Run the complete pipeline for one query."""
     logger = _pipeline_logger()
     query_name, query_output_dir = _initialize_query(query_file, output_base)
+    if run_status is not None:
+        run_status.record_query_started(query_name)
+    _emit_query_progress(query_name, 0, "started")
     logger.info(
         f"Processing query: {query_name} with {threads} threads (sensitive_mode={sensitive_mode})"
     )
@@ -93,6 +96,33 @@ def process_single_query(
         logger=logger,
     )
 
+    # Species-tree per-query hook (the default product): runs while the per-query
+    # gene trees still exist (before _post_process_query archives + deletes the
+    # dir) and merges this query's tree-placement columns into summary_data before
+    # the per-query summary is written below. Never blocks the standard pipeline.
+    if species_tree:
+        _emit_query_progress(query_name, 93, "species_tree")
+        # Guard the import too, so even a broken species-tree module can never
+        # block the standard per-query pipeline/summary.
+        try:
+            from src.core.species_tree.orchestration import run_per_query_species_tree
+
+            run_per_query_species_tree(
+                query_name,
+                query_output_dir,
+                database_path,
+                summary_data,
+                output_base,
+                threads,
+                species_tree_trim,
+                tree_method,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Species-tree per-query hook failed for %s: %s", query_name, exc
+            )
+    _emit_query_progress(query_name, 95, "writing_outputs")
+
     _create_output_dirs(query_output_dir)
     _copy_final_sequence_outputs(
         query_file,
@@ -104,14 +134,25 @@ def process_single_query(
         prepared_input.is_nucleotide,
         logger,
     )
-    _write_contamination_candidates_file(query_output_dir, query_name, summary_data, logger)
-    logger.info(f"Writing summary file to {query_output_dir / f'{query_name}.summary.tab'}")
+    _write_contamination_candidates_file(
+        query_output_dir, query_name, summary_data, logger
+    )
+    logger.info(
+        f"Writing summary file to {query_output_dir / f'{query_name}.summary.tab'}"
+    )
     write_individual_summary_file(query_output_dir, query_name, summary_data, logger)
     write_individual_final_summary_file(
         query_output_dir, query_name, summary_data, logger
     )
+    _emit_query_progress(query_name, 97, "post_processing")
     _post_process_query(query_name, query_output_dir, output_base, logger)
-    return _build_query_result(query_name, summary_data, prepared_input.best_code, output_base)
+    if run_status is not None:
+        run_status.record_query_complete(query_name)
+    _emit_query_progress(query_name, 100, "complete")
+    return _build_query_result(
+        query_name, summary_data, prepared_input.best_code, output_base
+    )
+
 
 def _run_query_stages(
     query_file: Path,
@@ -129,15 +170,33 @@ def _run_query_stages(
     prepared_input = _prepare_query_input(
         query_file, query_output_dir, database_path, genetic_codes, threads, logger
     )
+    _emit_query_progress(query_name, 15, "input_prepared")
     models_out_filtered = _run_hmm_and_blast(
-        query_name, query_output_dir, prepared_input.protein_file, database_path, threads, sensitive_mode, logger
+        query_name,
+        query_output_dir,
+        prepared_input.protein_file,
+        database_path,
+        threads,
+        sensitive_mode,
+        logger,
     )
+    _emit_query_progress(query_name, 35, "marker_search_complete")
     marker_results = _process_markers(
-        query_name, models_out_filtered, prepared_input.protein_file, query_output_dir, database_path, tree_method, mode_fast, threads, logger
+        query_name,
+        models_out_filtered,
+        prepared_input.protein_file,
+        query_output_dir,
+        database_path,
+        tree_method,
+        mode_fast,
+        threads,
+        logger,
     )
+    _emit_query_progress(query_name, 78, "marker_trees_complete")
     tree_nn_results = _analyze_marker_trees(
         query_name, query_output_dir, database_path, marker_results, logger
     )
+    _emit_query_progress(query_name, 86, "tree_analysis_complete")
     summary_data = _generate_summary_data(
         query_name,
         query_output_dir,
@@ -148,13 +207,33 @@ def _run_query_stages(
         sensitive_mode,
         logger,
     )
+    _emit_query_progress(query_name, 92, "summary_complete")
     return prepared_input, summary_data
+
+
+def _emit_query_progress(
+    query_name: str,
+    progress: float,
+    stage: str,
+    **extra: Any,
+) -> None:
+    emit_progress_event(
+        {
+            "event": "query_progress",
+            "query": query_name,
+            "progress": max(0, min(100, progress)),
+            "stage": stage,
+            **extra,
+        }
+    )
+
 
 def _initialize_query(query_file: Path, output_base: Path) -> Tuple[str, Path]:
     query_name = query_file.stem
     query_output_dir = output_base / query_name
     query_output_dir.mkdir(parents=True, exist_ok=True)
     return query_name, query_output_dir
+
 
 def _prepare_query_input(
     query_file: Path,
@@ -190,6 +269,7 @@ def _is_nucleotide_input(query_file: Path) -> bool:
         return InputValidator._infer_fasta_type_from_content(records) == "fna"
     return False
 
+
 def _prepare_nucleotide_query(
     query_file: Path,
     query_output_dir: Path,
@@ -221,6 +301,7 @@ def _prepare_nucleotide_query(
         is_nucleotide=True,
     )
 
+
 def _prepare_protein_query(
     query_file: Path,
     query_output_dir: Path,
@@ -241,9 +322,13 @@ def _prepare_protein_query(
         is_nucleotide=False,
     )
 
-def _write_reformatted_sequences(records, query_file: Path, reformatted_file: Path) -> None:
+
+def _write_reformatted_sequences(
+    records, query_file: Path, reformatted_file: Path
+) -> None:
     reformatted_records = reformat_sequences(records, str(query_file))
     SeqIO.write(reformatted_records, str(reformatted_file), "fasta")
+
 
 def _write_nucleotide_stats_tsv(
     records, query_file: Path, query_output_dir: Path, query_name: str
@@ -252,6 +337,7 @@ def _write_nucleotide_stats_tsv(
     stats_file.parent.mkdir(exist_ok=True)
     stats_df = calculate_stats(records, str(query_file))
     stats_df.to_csv(str(stats_file), sep="\t", index=False)
+
 
 def _optimize_genetic_code(
     query_name: str,
@@ -264,12 +350,15 @@ def _optimize_genetic_code(
 ) -> Tuple[int, Dict[str, Any], Dict[int, Dict[str, Any]]]:
     logger.info(f"Optimizing genetic code for: {query_name}")
     optimizer = GeneticCodeOptimizer(database_path=database_path, threads=threads)
-    best_code, outputs, _best_metrics, all_code_results = optimizer.optimize_genetic_code(
-        query_file=reformatted_file,
-        output_dir=query_output_dir,
-        genetic_codes=genetic_codes,
+    best_code, outputs, _best_metrics, all_code_results = (
+        optimizer.optimize_genetic_code(
+            query_file=reformatted_file,
+            output_dir=query_output_dir,
+            genetic_codes=genetic_codes,
+        )
     )
     return best_code, outputs, all_code_results
+
 
 def _write_genecalling_tables(
     query_output_dir: Path,
@@ -278,7 +367,10 @@ def _write_genecalling_tables(
     all_code_results: Dict[int, Dict[str, Any]],
 ) -> None:
     _write_genecalling_comparison_table(query_output_dir, query_name, all_code_results)
-    _write_selected_genecode_table(query_output_dir, query_name, best_code, all_code_results)
+    _write_selected_genecode_table(
+        query_output_dir, query_name, best_code, all_code_results
+    )
+
 
 def _write_genecalling_comparison_table(
     query_output_dir: Path,
@@ -297,8 +389,9 @@ def _write_genecalling_comparison_table(
                 f"{row['avg_best_hit_score']:.1f}\n"
             )
 
+
 def _iter_sorted_genecalling_rows(
-    all_code_results: Dict[int, Dict[str, Any]]
+    all_code_results: Dict[int, Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
     rows = []
     for code, metrics in all_code_results.items():
@@ -312,7 +405,10 @@ def _iter_sorted_genecalling_rows(
                 "avg_best_hit_score": metrics.get("avg_score", 0.0),
             }
         )
-    return sorted(rows, key=lambda item: (-item["complete_hits"], -item["avg_best_hit_score"]))
+    return sorted(
+        rows, key=lambda item: (-item["complete_hits"], -item["avg_best_hit_score"])
+    )
+
 
 def _write_selected_genecode_table(
     query_output_dir: Path,
@@ -331,26 +427,40 @@ def _write_selected_genecode_table(
         handle.write(f"bases\t{selected.get('total_bases', 0)}\n")
         handle.write(f"coding_density\t{selected.get('coding_density', 0.0):.3f}\n")
 
-def _write_protein_stats(query_output_dir: Path, query_name: str, reformatted_records) -> None:
+
+def _write_protein_stats(
+    query_output_dir: Path, query_name: str, reformatted_records
+) -> None:
     stats_dir = query_output_dir / "stats"
     stats_dir.mkdir(exist_ok=True)
     protein_count = len(reformatted_records)
     total_aa_length = sum(len(record.seq) for record in reformatted_records)
     estimated_genome_length = int(total_aa_length * 3 * 1.1)
-    _write_protein_stats_tab(stats_dir / f"{query_name}.stats.tab", protein_count, estimated_genome_length)
-    _write_protein_stats_tsv(stats_dir / f"{query_name}_stats.tsv", protein_count, estimated_genome_length)
+    _write_protein_stats_tab(
+        stats_dir / f"{query_name}.stats.tab", protein_count, estimated_genome_length
+    )
+    _write_protein_stats_tsv(
+        stats_dir / f"{query_name}_stats.tsv", protein_count, estimated_genome_length
+    )
 
-def _write_protein_stats_tab(stats_file: Path, protein_count: int, genome_length: int) -> None:
+
+def _write_protein_stats_tab(
+    stats_file: Path, protein_count: int, genome_length: int
+) -> None:
     with open(stats_file, "w") as handle:
         handle.write("ttable\tno_fna\n")
         handle.write(f"genes\t{protein_count}\n")
         handle.write(f"bases\t{genome_length}\n")
         handle.write("coding_density\t0.0\n")
 
-def _write_protein_stats_tsv(stats_file: Path, protein_count: int, genome_length: int) -> None:
+
+def _write_protein_stats_tsv(
+    stats_file: Path, protein_count: int, genome_length: int
+) -> None:
     with open(stats_file, "w") as handle:
         handle.write("contigs\tLENbp\tGCperc\tgenecount\tCODINGperc\tttable\n")
         handle.write(f"0\t{genome_length}\t0.0\t{protein_count}\t0.0\tno_fna\n")
+
 
 def _run_hmm_and_blast(
     query_name: str,
@@ -374,7 +484,9 @@ def _run_hmm_and_blast(
     hmmout_dir = query_output_dir / "hmmout"
     hmmout_dir.mkdir(exist_ok=True)
     hmm_files = _resolve_hmm_files(database_path)
-    models_out, models_out_filtered, models_counts, models_score = _get_hmm_output_paths(hmmout_dir)
+    models_out, models_out_filtered, models_counts, models_score = (
+        _get_hmm_output_paths(hmmout_dir)
+    )
     _run_hmm_search(
         protein_file,
         hmm_files,
@@ -386,6 +498,7 @@ def _run_hmm_and_blast(
         sensitive_mode,
     )
     return models_out_filtered
+
 
 def _resolve_hmm_files(database_path: Path) -> List[str]:
     model_dir = database_path / "hmm"
@@ -399,12 +512,14 @@ def _resolve_hmm_files(database_path: Path) -> List[str]:
         return [str(combined_hmm)]
     raise ProcessingError("No HMM model files found", step="hmm_search")
 
+
 def _get_hmm_output_paths(hmmout_dir: Path) -> Tuple[Path, Path, Path, Path]:
     models_out = hmmout_dir / "models.out"
     models_out_filtered = hmmout_dir / "models.out.filtered"
     models_counts = hmmout_dir / "models.counts"
     models_score = hmmout_dir / "models.score"
     return models_out, models_out_filtered, models_counts, models_score
+
 
 def _run_hmm_search(
     protein_file: Path,
@@ -450,12 +565,14 @@ def _run_hmm_search(
         sensitive_mode=sensitive_mode,
     )
 
+
 # Removed in v1.4.3: a former ``_run_blast_search`` helper ran a per-marker
 # BLAST pass that emitted ``<query>.<marker>.blastpout`` files. Those files
 # were never read — contamination scoring reads ``<marker>.m8`` files
 # produced by :class:`MarkerProcessor` (see ``src/core/marker_processing.py``)
 # which also feeds the tree-building pipeline. Removing the duplicate pass
 # halves the per-query BLAST cost.
+
 
 def _process_markers(
     query_name: str,
@@ -469,14 +586,28 @@ def _process_markers(
     logger,
 ) -> Dict[str, Dict[str, Any]]:
     logger.info(f"Extracting and processing markers: {query_name}")
-    marker_files = _extract_marker_files(models_out_filtered, protein_file, query_output_dir, mode_fast)
+    _emit_query_progress(query_name, 40, "extracting_markers")
+    marker_files = _extract_marker_files(
+        models_out_filtered, protein_file, query_output_dir, mode_fast
+    )
     if not marker_files:
+        _emit_query_progress(query_name, 75, "no_markers_found")
         return {}
-    max_parallel, threads_per_marker = _calculate_marker_threading(marker_files, threads)
+    max_parallel, threads_per_marker = _calculate_marker_threading(
+        marker_files, threads
+    )
     logger.info(
         f"Processing {len(marker_files)} markers: {max_parallel} parallel × {threads_per_marker} threads each"
     )
+    _emit_query_progress(
+        query_name,
+        45,
+        "building_marker_trees",
+        completed_markers=0,
+        total_markers=len(marker_files),
+    )
     return _run_marker_tasks(
+        query_name,
         marker_files,
         database_path,
         query_output_dir,
@@ -486,8 +617,12 @@ def _process_markers(
         logger,
     )
 
+
 def _extract_marker_files(
-    models_out_filtered: Path, protein_file: Path, query_output_dir: Path, mode_fast: bool
+    models_out_filtered: Path,
+    protein_file: Path,
+    query_output_dir: Path,
+    mode_fast: bool,
 ) -> List[Tuple[str, Path]]:
     query_hits_dir = query_output_dir / "query_hits_faa"
     query_hits_dir.mkdir(exist_ok=True)
@@ -500,6 +635,7 @@ def _extract_marker_files(
         mode_fast=mode_fast,
     )
 
+
 def _calculate_marker_threading(
     marker_files: List[Tuple[str, Path]], threads: int
 ) -> Tuple[int, int]:
@@ -508,7 +644,9 @@ def _calculate_marker_threading(
         return num_markers, min(threads // num_markers, 4)
     return min(threads, num_markers), 1
 
+
 def _run_marker_tasks(
+    query_name: str,
     marker_files: List[Tuple[str, Path]],
     database_path: Path,
     query_output_dir: Path,
@@ -518,6 +656,8 @@ def _run_marker_tasks(
     logger,
 ) -> Dict[str, Dict[str, Any]]:
     marker_results: Dict[str, Dict[str, Any]] = {}
+    total_markers = len(marker_files)
+    completed_markers = 0
     with ThreadPoolExecutor(max_workers=max_parallel) as executor:
         futures = [
             executor.submit(
@@ -532,14 +672,31 @@ def _run_marker_tasks(
             for marker_data in marker_files
         ]
         for future in as_completed(futures):
+            completed_markers += 1
             try:
                 marker, result = future.result()
                 if marker and result:
                     marker_results[marker] = result
                     logger.info(f"Completed marker: {marker}")
+                _emit_query_progress(
+                    query_name,
+                    45 + (30 * completed_markers / total_markers),
+                    "building_marker_trees",
+                    marker=marker,
+                    completed_markers=completed_markers,
+                    total_markers=total_markers,
+                )
             except Exception as exc:
                 logger.error(f"Error processing marker: {exc}")
+                _emit_query_progress(
+                    query_name,
+                    45 + (30 * completed_markers / total_markers),
+                    "building_marker_trees",
+                    completed_markers=completed_markers,
+                    total_markers=total_markers,
+                )
     return marker_results
+
 
 def _process_single_marker(
     marker_data: Tuple[str, Path],
@@ -566,10 +723,13 @@ def _process_single_marker(
     )
     logger.debug(f"Marker {marker} processing result: {result is not None}")
     if result and result.get("tree"):
-        logger.info(f"Successfully processed marker {marker} with tree file: {result['tree']}")
+        logger.info(
+            f"Successfully processed marker {marker} with tree file: {result['tree']}"
+        )
         return marker, result
     logger.warning(f"Marker {marker} processing did not produce a tree file")
     return None, None
+
 
 def _marker_database_exists(marker: str, database_path: Path, logger) -> bool:
     try:
@@ -581,6 +741,7 @@ def _marker_database_exists(marker: str, database_path: Path, logger) -> bool:
     except FileNotFoundError:
         logger.warning(f"Marker database not found for {marker}")
         return False
+
 
 def _analyze_marker_trees(
     query_name: str,
@@ -604,16 +765,20 @@ def _analyze_marker_trees(
         logger.warning("Tree directory exists but no .treefile files found")
         return {}
     _log_tree_files(tree_files, logger)
-    return _run_tree_analysis(query_name, query_output_dir, database_path, tree_dir, logger)
+    return _run_tree_analysis(
+        query_name, query_output_dir, database_path, tree_dir, logger
+    )
+
 
 def _log_tree_files(tree_files: List[Path], logger) -> None:
     for index, tree_file in enumerate(tree_files[:5]):
         logger.info(f"  Tree file {index + 1}: {tree_file.name}")
 
+
 def _run_tree_analysis(
     query_name: str, query_output_dir: Path, database_path: Path, tree_dir: Path, logger
 ) -> Dict[str, Any]:
-    labels_file = database_path / "labels.tsv"
+    labels_file = ResourceStore(database_path).label_path("labels.tsv")
     logger.info(f"Labels file: {labels_file}, exists: {labels_file.exists()}")
     stats_dir = query_output_dir / "stats"
     stats_dir.mkdir(exist_ok=True, parents=True)
@@ -623,7 +788,9 @@ def _run_tree_analysis(
         logger.info(f"TreeAnalyzer initialized with labels file: {labels_file}")
         logger.info(f"Created stats directory: {stats_dir}")
         logger.info(f"Will write tree_nn results to {tree_nn_file}")
-        tree_nn_results = analyzer.process_marker_trees(tree_dir, query_name, tree_nn_file)
+        tree_nn_results = analyzer.process_marker_trees(
+            tree_dir, query_name, tree_nn_file
+        )
         logger.info(f"Tree analysis complete. Results: {len(tree_nn_results)} markers")
     except Exception as exc:
         logger.error(f"Tree analysis failed: {exc}")
@@ -632,12 +799,14 @@ def _run_tree_analysis(
     _log_tree_nn_output(tree_nn_file, logger)
     return tree_nn_results
 
+
 def _log_tree_nn_output(tree_nn_file: Path, logger) -> None:
     if tree_nn_file.exists():
         logger.info(f"Tree_nn file created successfully: {tree_nn_file}")
         logger.info(f"Tree_nn file size: {tree_nn_file.stat().st_size} bytes")
         return
     logger.error(f"Tree_nn file was NOT created: {tree_nn_file}")
+
 
 def _generate_summary_data(
     query_name: str,
@@ -669,6 +838,7 @@ def _generate_summary_data(
         logger.error(traceback.format_exc())
         return _fallback_summary_data(query_name)
 
+
 def _fallback_summary_data(query_name: str) -> Dict[str, Any]:
     return {
         "query": query_name,
@@ -678,6 +848,7 @@ def _fallback_summary_data(query_name: str) -> Dict[str, Any]:
         "ttable": "",
         "classification": "Error during classification",
     }
+
 
 def _create_output_dirs(query_output_dir: Path) -> None:
     for dir_name in ["query_faa", "query_fna", "query_gff"]:
@@ -750,7 +921,9 @@ def _write_contamination_candidates_file(
                 {
                     "query": query_name,
                     "contamination_type": summary_data.get("contamination_type", ""),
-                    "estimated_contamination": summary_data.get("estimated_contamination", ""),
+                    "estimated_contamination": summary_data.get(
+                        "estimated_contamination", ""
+                    ),
                     "contig_id": candidate.get("contig_id", ""),
                     "candidate_type": candidate.get("candidate_type", ""),
                     "reason": candidate.get("reason", ""),
@@ -759,11 +932,14 @@ def _write_contamination_candidates_file(
                     "phage_marker_count": candidate.get("phage_marker_count", ""),
                     "viral_marker_count": candidate.get("viral_marker_count", ""),
                     "nonviral_fraction": candidate.get("nonviral_fraction", ""),
-                    "foreign_viral_fraction": candidate.get("foreign_viral_fraction", ""),
+                    "foreign_viral_fraction": candidate.get(
+                        "foreign_viral_fraction", ""
+                    ),
                 }
             )
     logger.info("Contamination candidate file written: %s", candidate_file)
     return candidate_file
+
 
 def _copy_final_sequence_outputs(
     query_file: Path,
@@ -793,6 +969,7 @@ def _copy_final_sequence_outputs(
     else:
         logger.warning(f"No GFF file found for {query_name}")
 
+
 def _find_query_gff_file(query_output_dir: Path, query_name: str) -> Optional[Path]:
     gff_candidates = [
         query_output_dir
@@ -808,6 +985,7 @@ def _find_query_gff_file(query_output_dir: Path, query_name: str) -> Optional[Pa
         return gff_file
     return None
 
+
 def _post_process_query(
     query_name: str, query_output_dir: Path, output_base: Path, logger
 ) -> None:
@@ -821,15 +999,9 @@ def _post_process_query(
     _clear_prior_outputs(query_name, output_base, logger)
     post_process_start = time.time()
     try:
-        _copy_query_summary_tab(query_name, query_output_dir, output_base, logger)
-        _copy_query_final_summary_tab(query_name, query_output_dir, output_base, logger)
-        _copy_query_contamination_candidates(query_name, query_output_dir, output_base, logger)
         _log_tree_nn_file(query_name, query_output_dir, logger)
         _archive_query_output(query_name, query_output_dir, output_base, logger)
         _remove_reformatted_file(query_name, output_base, logger)
-        # Sentinel is the last write: resume trusts it only after the tar and
-        # summary have landed atomically on disk.
-        _write_success_sentinel(query_name, output_base, logger)
         shutil.rmtree(query_output_dir)
         logger.info(f"✓ Removed original directory: {query_output_dir}")
         elapsed = time.time() - post_process_start
@@ -843,56 +1015,13 @@ def _post_process_query(
         _log_partial_outputs(query_name, query_output_dir, output_base, logger)
         raise RuntimeError(f"Post-processing failed for {query_name}: {exc}") from exc
 
-def _copy_query_summary_tab(
-    query_name: str, query_output_dir: Path, output_base: Path, logger
-) -> None:
-    summary_tab_file = query_output_dir / f"{query_name}.summary.tab"
-    logger.debug(f"Looking for summary file: {summary_tab_file}")
-    if summary_tab_file.exists():
-        file_size = summary_tab_file.stat().st_size
-        logger.debug(f"Found summary file, size: {file_size} bytes")
-        destination = output_base / f"{query_name}.summary.tab"
-        shutil.copy2(summary_tab_file, destination)
-        logger.info(f"✓ Copied summary.tab to {destination} ({file_size} bytes)")
-        return
-    summary_tab_file_stats = query_output_dir / "stats" / f"{query_name}.summary.tab"
-    if summary_tab_file_stats.exists():
-        destination = output_base / f"{query_name}.summary.tab"
-        shutil.copy2(summary_tab_file_stats, destination)
-        logger.info(f"Copied summary.tab from stats dir to {destination}")
-        return
-    logger.warning(
-        f"Summary tab file not found in {summary_tab_file} or {summary_tab_file_stats}"
-    )
-
-
-def _copy_query_final_summary_tab(
-    query_name: str, query_output_dir: Path, output_base: Path, logger
-) -> None:
-    summary_file = query_output_dir / f"{query_name}.final_summary.tsv"
-    if not summary_file.exists():
-        logger.debug(f"Final-schema summary file not found: {summary_file}")
-        return
-    destination = output_base / f"{query_name}.final_summary.tsv"
-    shutil.copy2(summary_file, destination)
-    logger.info(f"Copied final-schema summary to {destination}")
-
-
-def _copy_query_contamination_candidates(
-    query_name: str, query_output_dir: Path, output_base: Path, logger
-) -> None:
-    candidate_file = query_output_dir / "stats" / f"{query_name}.contamination_candidates.tsv"
-    if not candidate_file.exists():
-        return
-    destination = output_base / f"{query_name}.contamination_candidates.tsv"
-    shutil.copy2(candidate_file, destination)
-    logger.info("✓ Copied contamination candidates to %s", destination)
 
 def _log_tree_nn_file(query_name: str, query_output_dir: Path, logger) -> None:
     tree_nn_file = query_output_dir / "stats" / f"{query_name}.tree_nn"
     if tree_nn_file.exists():
         file_size = tree_nn_file.stat().st_size
         logger.debug(f"Found tree_nn file in stats directory: {file_size} bytes")
+
 
 def _archive_query_output(
     query_name: str, query_output_dir: Path, output_base: Path, logger
@@ -906,8 +1035,7 @@ def _archive_query_output(
     and (e) the parent directory is fsynced. A crash or SIGKILL at any
     point leaves either the previous final archive untouched or a
     ``.tar.gz.part`` that resume correctly ignores — never a truncated
-    ``<query_name>.tar.gz`` that the SUCCESS-sentinel / legacy resume
-    fallback would wrongly accept.
+    ``<query_name>.tar.gz`` that resume would wrongly accept.
     """
     tar_file = output_base / f"{query_name}.tar.gz"
     tar_tmp = output_base / f"{query_name}.tar.gz.part"
@@ -916,7 +1044,9 @@ def _archive_query_output(
         # writer at the same path.
         tar_tmp.unlink()
     logger.debug(f"Creating archive: {tar_file} (via {tar_tmp})")
-    file_count = sum(1 for file_path in query_output_dir.rglob("*") if file_path.is_file())
+    file_count = sum(
+        1 for file_path in query_output_dir.rglob("*") if file_path.is_file()
+    )
     logger.debug(f"Archiving {file_count} files from {query_output_dir}")
     with tarfile.open(tar_tmp, "w:gz") as tar_handle:
         tar_handle.add(query_output_dir, arcname=query_name)
@@ -940,7 +1070,9 @@ def _archive_query_output(
         finally:
             os.close(dir_fd)
     archive_size = tar_file.stat().st_size
-    logger.info(f"✓ Created archive: {tar_file} ({archive_size:,} bytes, {file_count} files)")
+    logger.info(
+        f"✓ Created archive: {tar_file} ({archive_size:,} bytes, {file_count} files)"
+    )
 
 
 def _success_sentinel_path(query_name: str, output_base: Path) -> Path:
@@ -961,8 +1093,8 @@ def _clear_prior_outputs(query_name: str, output_base: Path, logger) -> None:
     """Remove every per-query artefact the resume filter can see.
 
     Called at the start of post-processing for a rerun. Drops the sentinel,
-    the summary TSV, the archive (and any leftover ``.tar.gz.part``), and
-    the contamination-candidates sidecar. If the rerun crashes mid-way the
+    old loose summary TSVs, the archive (and any leftover ``.tar.gz.part``),
+    and the contamination-candidates sidecar. If the rerun crashes mid-way the
     query is left with only the ``query_output_dir`` working tree, which
     resume correctly ignores.
     """
@@ -983,50 +1115,12 @@ def _clear_prior_outputs(query_name: str, output_base: Path, logger) -> None:
                 logger.warning(f"Could not remove stale {victim}: {exc}")
 
 
-def _write_success_sentinel(
-    query_name: str, output_base: Path, logger
-) -> Optional[Path]:
-    """Write a JSON SUCCESS sentinel once the summary + tarball are durable.
-
-    The sentinel is the v1.4.3 signal that a query fully completed and is
-    safe to skip under ``--resume``. It records the software version,
-    completion timestamp, and SHA-256 checksums of the two artefacts
-    resume previously gated on (``summary.tab`` + ``tar.gz``). Reruns that
-    regenerate those artefacts clear the old sentinel before any new write
-    via :func:`_clear_success_sentinel`.
-    """
-    summary_file = output_base / f"{query_name}.summary.tab"
-    tar_file = output_base / f"{query_name}.tar.gz"
-    missing = [p.name for p in (summary_file, tar_file) if not p.exists()]
-    if missing:
-        logger.warning(
-            f"Not writing SUCCESS sentinel for {query_name}: missing {missing}"
-        )
-        return None
-
-    sentinel = _success_sentinel_path(query_name, output_base)
-    payload = {
-        "sentinel_version": SUCCESS_SENTINEL_VERSION,
-        "query": query_name,
-        "software_version": _SOFTWARE_VERSION,
-        "completed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "tar_filename": tar_file.name,
-        "tar_sha256": sha256_file(tar_file),
-        "tar_bytes": tar_file.stat().st_size,
-        "summary_filename": summary_file.name,
-        "summary_sha256": sha256_file(summary_file),
-    }
-    tmp_sentinel = sentinel.with_suffix(".SUCCESS.part")
-    tmp_sentinel.write_text(json.dumps(payload, indent=2) + "\n")
-    os.replace(tmp_sentinel, sentinel)
-    logger.info(f"✓ Wrote SUCCESS sentinel: {sentinel}")
-    return sentinel
-
 def _remove_reformatted_file(query_name: str, output_base: Path, logger) -> None:
     reformatted_file = output_base / f"{query_name}_reformatted.fna"
     if reformatted_file.exists():
         reformatted_file.unlink()
         logger.info(f"✓ Removed reformatted file: {reformatted_file}")
+
 
 def _log_partial_outputs(
     query_name: str, query_output_dir: Path, output_base: Path, logger
@@ -1038,6 +1132,7 @@ def _log_partial_outputs(
         logger.debug("  - Archive was created")
     if query_output_dir.exists():
         logger.debug("  - Original directory still exists")
+
 
 def _build_query_result(
     query_name: str,
