@@ -172,11 +172,11 @@ jobs:
           apptainer remote login --tokenfile "${token_file}" SylabsCloud
           rm -f "${token_file}"
           apptainer push -U gvclass.sif \
-            "library://nelliteam-jgi/gvclass/gvclass:${version}"
+            "library://nelligroup-jgi/gvclass/gvclass:${version}"
           # Re-tag release images as :latest so consumers can pull
-          # library://nelliteam-jgi/gvclass/gvclass without pinning a version.
+          # library://nelligroup-jgi/gvclass/gvclass without pinning a version.
           # The library is content-addressed, so this reuses the blob just
           # uploaded and completes near-instantly.
           apptainer push -U gvclass.sif \
-            "library://nelliteam-jgi/gvclass/gvclass:latest"
-          echo "Published library://nelliteam-jgi/gvclass/gvclass:${version} and :latest"
+            "library://nelligroup-jgi/gvclass/gvclass:latest"
+          echo "Published library://nelligroup-jgi/gvclass/gvclass:${version} and :latest"

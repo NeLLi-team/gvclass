@@ -43,7 +43,7 @@ chmod +x gvclass-a
 
 The Apptainer image bundles the database and dependencies. See [Getting started](https://NeLLi-team.github.io/gvclass/tutorials/getting-started/) for the full walkthrough.
 
-The wrapper pulls the `library://nelliteam-jgi/gvclass/gvclass:2.0.0` SIF
+The wrapper pulls the `library://nelligroup-jgi/gvclass/gvclass:2.0.0` SIF
 from the public Sylabs library. The image embeds the compact v2.0.0 database
 and writes its Parquet materialization cache to a host directory under
 `~/.cache/gvclass/resource-cache/v2.0.0`.
