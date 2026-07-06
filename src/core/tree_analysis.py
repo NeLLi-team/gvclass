@@ -4,11 +4,19 @@ Tree analysis module for extracting nearest neighbors from phylogenetic trees.
 
 import logging
 from pathlib import Path
-from typing import Dict, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, Sequence, Union
 from collections import Counter
 from ete3 import Tree
 
 logger = logging.getLogger(__name__)
+
+PrefixFilter = Union[str, Sequence[str]]
+
+
+def _prefix_tuple(keep_prefix: PrefixFilter) -> Tuple[str, ...]:
+    if isinstance(keep_prefix, str):
+        return (keep_prefix,)
+    return tuple(keep_prefix)
 
 
 class TreeAnalyzer:
@@ -149,12 +157,106 @@ class TreeAnalyzer:
 
         return nearest_neighbor, min_distance
 
+    def get_top_k_neighbors(
+        self,
+        tree_file: Path,
+        query_id: str,
+        k: int = 50,
+        keep_prefix: PrefixFilter = "NCLDV__",
+    ) -> List[Tuple[str, str, float]]:
+        """Return up to ``k`` nearest reference genomes to the query in a gene tree.
+
+        Generalises :meth:`_find_nearest_neighbor` (single global minimum) to the
+        top ``k`` nearest reference leaves whose name starts with ``keep_prefix``
+        (e.g. ``"NCLDV__"`` or ``("NCLDV__", "EUK-pEVE__")``). The prefix filter
+        is applied **before** any patristic
+        distance is computed, so only candidate references incur a distance call.
+
+        Distances are aggregated to the genome level: for each reference genome
+        (resolved via :meth:`_extract_genome_id`) the nearest protein to any query
+        leaf is kept, so the returned ``protein_id`` is the specific placed paralog
+        that Section 3 preserves as that genome's representative.
+
+        Args:
+            tree_file: Newick gene tree for one GVOG8 group. Missing or
+                ``.SKIPPED`` trees yield an empty list.
+            query_id: Query genome identifier; leaves starting with it are the
+                query and are never returned as neighbors (even if, pathologically,
+                a query stem itself starts with ``keep_prefix``).
+            k: Maximum number of reference genomes to return.
+            keep_prefix: Leaves whose name starts with this prefix or one of
+                these prefixes are eligible neighbors (the reference-domain gate,
+                e.g. ``"NCLDV__"`` or ``("NCLDV__", "EUK-pEVE__")``).
+
+        Returns:
+            ``[(protein_id, genome_id, distance), ...]`` sorted by ascending
+            distance then ``genome_id`` (deterministic tie-break), length ``<= k``.
+            Empty if the tree is absent/skipped, has no query leaf, or has no
+            eligible reference leaf.
+
+        Complexity is ``O(|query leaves| * |eligible references|)`` distance
+        calls; the species-tree route runs this on small per-group trees
+        (query paralogs + the dedicated NCLDV neighbor set), so it stays bounded.
+        """
+        if not tree_file.exists() or tree_file.with_suffix(".SKIPPED").exists():
+            return []
+
+        try:
+            tree = Tree(str(tree_file))
+        except Exception as exc:  # pragma: no cover - malformed newick guard
+            logger.error(f"Error loading tree {tree_file}: {exc}")
+            return []
+
+        prefixes = _prefix_tuple(keep_prefix)
+        query_nodes = [
+            leaf for leaf in tree.iter_leaves() if leaf.name.startswith(query_id)
+        ]
+        candidates = [
+            leaf
+            for leaf in tree.iter_leaves()
+            if leaf.name.startswith(prefixes) and not leaf.name.startswith(query_id)
+        ]
+        if not query_nodes or not candidates:
+            return []
+
+        # Nearest protein (and its distance) per reference genome.
+        best_per_genome: Dict[str, Tuple[str, float]] = {}
+        for candidate in candidates:
+            min_dist = float("inf")
+            for query_node in query_nodes:
+                try:
+                    dist = tree.get_distance(query_node, candidate)
+                except Exception:
+                    continue
+                if dist < min_dist:
+                    min_dist = dist
+            if min_dist == float("inf"):
+                continue
+
+            genome_id = self._extract_genome_id(candidate.name)
+            current = best_per_genome.get(genome_id)
+            if (
+                current is None
+                or min_dist < current[1]
+                or (min_dist == current[1] and candidate.name < current[0])
+            ):
+                best_per_genome[genome_id] = (candidate.name, min_dist)
+
+        ranked = sorted(
+            (
+                (protein_id, genome_id, dist)
+                for genome_id, (protein_id, dist) in best_per_genome.items()
+            ),
+            key=lambda hit: (hit[2], hit[1]),
+        )
+        return ranked[:k]
+
     def _extract_genome_id(self, protein_id: str) -> str:
         """
         Extract genome ID from a protein ID for labels lookup.
 
         Protein IDs can have formats like:
-        - VP__IMGVR_UViG_3300044959|000235_9 -> VP__IMGVR_UViG_3300044959|000235
+        - PPV__IMGVR_UViG_3300044959|000235_9 -> PPV__IMGVR_UViG_3300044959|000235
         - NCLDV__GCA_000123456|contig_1_42 -> NCLDV__GCA_000123456|contig_1
         - simple_genome_id -> simple_genome_id
 
@@ -169,7 +271,7 @@ class TreeAnalyzer:
         import re
 
         # First try: check if the full ID (minus trailing _digits) is in labels
-        # This handles: VP__IMGVR_UViG_3300044959|000235_9 -> VP__IMGVR_UViG_3300044959|000235
+        # This handles: PPV__IMGVR_UViG_3300044959|000235_9 -> PPV__IMGVR_UViG_3300044959|000235
         stripped = re.sub(r"_\d+$", "", protein_id)
         if stripped in self.labels_dict:
             return stripped
@@ -316,8 +418,8 @@ class TreeAnalyzer:
                         for neighbor, distance in neighbors.items():
                             # Extract genome ID from protein ID
                             # Protein IDs have format: genome_id|contig_protein
-                            # e.g., VP__IMGVR_UViG_3300044959|000235_9
-                            # Labels use: VP__IMGVR_UViG_3300044959|000235
+                            # e.g., PPV__IMGVR_UViG_3300044959|000235_9
+                            # Labels use: PPV__IMGVR_UViG_3300044959|000235
                             # Need to strip protein suffix (_N) from the end
                             genome_id = self._extract_genome_id(neighbor)
                             tax_str = "unknown"

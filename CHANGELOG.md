@@ -13,6 +13,157 @@ compatible bundle is noted per release.
 
 ## [Unreleased]
 
+No unreleased changes.
+
+## [2.0.0] - 2026-07-06
+
+Compatible resource bundle: v2.0.0 (Zenodo DOI 10.5281/zenodo.21225457).
+
+Capscan / Preplasmiviricota augmentation with the v2.0.0 resource bundle.
+
+### Added — configurable minimum-length gates
+- `--min-length` and `quality.min_length` set the total nucleotide length floor
+  for bin/MAG `.fna` inputs. `--min-length 0` removes that length floor while
+  keeping normal FASTA validation.
+- `--contigs-min-length` overrides `pipeline.contigs_min_length` for `--contigs`
+  runs. The same contig-mode floor is used when validating the split contig
+  files, so retained contigs are governed by one threshold.
+
+### Changed — cleaner output directory layout
+- The CLI now renders one event-driven progress bar across all queries instead
+  of polling loose summary files.
+- New runs write one `run_status.json` manifest plus `run.log` for run metadata
+  and resume state, replacing new per-query `.SUCCESS` files.
+- Per-query `summary.tab`, `final_summary.tsv`, and contamination-candidate
+  diagnostics are kept inside each `<query>.tar.gz` instead of being duplicated
+  at the output-directory root.
+- The extended combined diagnostics are archived as
+  `gvclass_summary.extended.tar.gz` containing `gvclass_summary.extended.tsv`
+  and `.csv`.
+
+### Changed — standardized marker-panel columns in the final summary table
+- Marker panels are now reported uniformly as `{panel}_completeness` (`n/N`:
+  distinct models present out of the panel size) plus `{panel}_dup` (duplication
+  factor = total marker hits / distinct markers present), matching the existing
+  `vp_completeness`/`mirus_completeness` convention.
+- `gvog4_unique` → `gvog4_completeness` (n/4) + `gvog4_dup`;
+  `gvog8_unique`/`gvog8_total` → `gvog8_completeness` (n/8) (`gvog8_dup` kept);
+  `mrya_unique`/`mrya_total` → `mrya_completeness` (n/6) + `mrya_dup`;
+  `phage_unique`/`phage_total` → `phage_completeness` (n/20) + `phage_dup`.
+- The combined `cellular_unique`/`cellular_total` columns are split into
+  `busco_completeness` (n/255) + `busco_dup` and `cog_completeness` (n/56) +
+  `cog_dup`.
+- Removed `mcp_total` (all-MCP count). `ncldv_mcp_total` is retained, and
+  `capsid_group` continues to report capsid typing.
+- `vp_completeness`/`mirus_completeness` denominators are now derived from the
+  number of core categories (still `n/4`) so they cannot go stale if the
+  category definitions change.
+- All four `species_tree_*` columns report `nd` (not determined) when no species
+  tree was built, replacing the empty cells and the prior
+  `no-species-tree-calculated` sentinel on `species_tree_nn_taxonomy`.
+- Internal cellular/phage marker features consumed by the trained contamination
+  model are unchanged; only the summary-table presentation changed.
+
+### Added — IQ-TREE as an opt-in tree builder
+- **VeryFastTree remains the default** (`tree_method: veryfasttree`). IQ-TREE
+  (`--fast`, model `Q.pfam+R10+F`) is now selectable via `--tree-method iqtree`
+  (or `pipeline.tree_method: iqtree`) for more accurate placement at a much higher
+  runtime cost. IQ-TREE is pinned to 3.1.2 (latest on bioconda; 3.1.3 is GitHub-only).
+  `fasttree` is accepted as an alias for `veryfasttree`.
+- **New `--iqtree-mode` / `pipeline.iqtree_mode`** for the species tree:
+  `fast` (default, `--fast`) or `ufboot` (ultrafast bootstrap `-B 1000 -bnni`, which
+  adds branch-support values and writes a `.contree` consensus tree). UFBoot is much
+  slower, so it is scoped to the species tree; per-marker gene trees always use
+  `--fast`.
+
+### Fixed — database auto-update on a configured version bump
+- gvclass now re-downloads the database when the installed `DB_VERSION` is older
+  than the version pinned in `config/gvclass_config.yaml`, even when the configured
+  source is not Zenodo (e.g. the gvclass-dev tunnel bundle). Previously a config
+  bump (v1.7.0 -> v1.7.1) on a non-Zenodo source left testers on the stale bundle.
+  Interactive runs prompt; non-interactive runs update automatically.
+
+### Changed — final summary schema overhaul (breaking)
+
+The `gvclass_summary.tsv` columns changed:
+- Removed `taxonomy_strict`. Promoted `species_tree_nn_taxonomy` next to
+  `taxonomy_majority` (all four `species_tree_*` columns are `nd` without
+  `--species-tree`).
+- Renamed `estimated_completeness_quality` → `completeness_model_reliability`;
+  dropped `estimated_completeness_advisory` and `estimated_completeness_r2_holdout`.
+- Replaced the Bellas-only `capscan_group` with a unified `capsid_group`
+  (`label:count` across the NCLDV/Mirus phyla + caps groups, e.g.
+  `Nucleocytoviricota:4,Gossevirus:1`).
+- Retired `vp_df` / `mirus_df`; dropped `cellular_dup`. (The marker-panel columns
+  were then standardized — see the marker-panel entry above.)
+- Moved the per-contig contamination diagnostics (`cellular_coherent_*`,
+  `cellular_lineage_purity_median`, `cellular_hit_identity_median`,
+  `viral_bearing_contig_count`, `contig_attribution_mode`) to a new always-on
+  supplementary table `gvclass_summary.extended.tsv`.
+
+Stale per-query `.final_summary.tsv` resume files lose renamed/removed columns
+gracefully on re-read (name-keyed; no crash).
+
+### Fixed — spurious single-gene PPV hits on NCLDV genomes
+- Taxonomy now casts **one vote per physical query protein** (its nearest tree
+  placement across markers), so a shared core gene — e.g. the A32 packaging
+  ATPase, marker `PLV_PC_054` — can no longer cast multiple/cross-domain votes.
+- Re-curated the PPV reference set: 254 protist-derived proteins (mostly
+  NCLDV-like A32 carved out of EUK-co-labeled P10K/GCA/EP assemblies and
+  mislabeled PPV) were reassigned to their true domain by blast against
+  non-protist viral references. Ships with the new resource bundle.
+
+### Added
+- **`--species-tree`: opt-in NCLDV GVOG8 supermatrix species tree + tree-placement
+  taxonomy.** For genomes gvclass calls NCLDV, the run gathers each query's nearest
+  NCLDV references per GVOG8 marker (dedicated NCLDV-only search → per-group gene
+  tree), concatenates one representative protein per marker into a supermatrix
+  (pyfamsa alignment → `witchi` chi-squared column pruning, with pytrimal/unpruned
+  fallbacks → VeryFastTree), and assigns each query a **root-invariant**
+  nearest-reference lineage. By default it builds **one species tree per query**
+  (`NEIGHBORS_PER_QUERY_TREE=30` reference genomes/marker), writing
+  `out/species_tree/<query>/` (`<query>.treefile`, `<query>.partitions.txt`,
+  `species_tree_taxonomy.tsv`) and adding `species_tree_nn_taxonomy`,
+  `species_tree_nn_genome`, `species_tree_nn_distance`, and `species_tree_clade_id`
+  to `gvclass_summary.tsv` (the per-query placement owns these columns).
+  `--species-tree-combined` additionally builds one combined tree over all queries
+  (`NEIGHBORS_PER_COMBINED_TREE=20`), writing `out/species_tree/combined.*` (or
+  `out/species_tree/_combined/<panel>/` for multi-domain batches) as an extra
+  artifact. Both neighbor counts are adjustable in
+  `src/core/species_tree/config.py`. The supermatrix column trimmer is selectable via
+  `--species-tree-trim {witchi,pytrimal,none}` (default `witchi`, sped up to 20
+  permutations / 10 columns per pruning step). The route is fully isolated from
+  standard per-marker classification — a run without the flag, or a non-NCLDV genome,
+  is byte-for-byte unchanged. PPV and MIRUS domains are registered as additional
+  panels. Adds the pure-python `witchi` dependency.
+
+### Changed
+- **Preplasmiviricota domain renamed `PLV`/`VP` → `PPV`.** The unified
+  Preplasmiviricota domain (Polinton-like viruses + virophages, merged in the
+  v1.7.0 bundle) now reports as `PPV` in the `domain` column and lineage strings,
+  replacing the class-level misnomer `PLV`. Marker names (`PLV_MCP_*`, `VP_MCP_*`,
+  `plv_mcp_caps_*`, …) and the `plv` / `vp_*` summary columns are unchanged. This is
+  a label-only rename (tree topology and vote counts are identical); it requires the
+  matching `PPV` resource bundle.
+- **Same-family marker models are consolidated into grouped trees.** Models that
+  share reference proteins (e.g. the MCP / PolB / ATPase families) are merged into a
+  single alignment → tree → nearest-neighbour vote, removing the per-model
+  vote over-counting that previously fragmented classification. Raw per-marker count
+  columns (`*_total`, `*_unique`) are unaffected; contamination scoring is group-aware.
+
+### Added
+- **Bellas & Sommaruga capscan MCP markers are now first-class tree markers.** The
+  caps major-capsid-protein HMMs feed the `mcp_plv` / `mcp_ncldv` group trees, with
+  external (figshare `annotated_PLVs`) reference proteins labelled by Bellas group so
+  nearest-neighbour placement can resolve Polinton-like / virophage / NCV-like capsid
+  groups. References are curated anti-circularly (external, not GVClass's own homologs);
+  the PgVV group is held out for validation (held-out PgVV proteins place to the PgVV
+  group 43/43).
+- **`capsid_group` summary column** (superseding the earlier Bellas-only `capscan_group`;
+  see *Changed* above) reports a unified capsid-type tally from the MCP-tree
+  nearest-neighbour placements — caps families plus the Nucleocytoviricota/Mirusviricota
+  phyla — as `label:count` (e.g. `Nucleocytoviricota:4,Gossevirus:1`).
+
 ## [1.6.1] - 2026-05-31
 
 Compatible resource bundle: v1.6.0 (Zenodo DOI 10.5281/zenodo.20479524).

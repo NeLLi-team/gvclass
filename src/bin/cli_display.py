@@ -59,7 +59,9 @@ def print_configuration(
     threads: int,
     workers: "WorkerPlan",
     contigs: "ContigInput",
+    input_min_length: int,
     contigs_min_length: int,
+    validation_min_length: int,
 ) -> None:
     print()
     print("=" * 60)
@@ -70,12 +72,15 @@ def print_configuration(
         print(f"Input file: {contigs.input_file}")
         print(f"Contigs mode: ENABLED ({n_queries} contigs from 1 file)")
         print(f"Contigs min length filter: {contigs_min_length} bp")
+        print(f"Validation min length: {validation_min_length} bp")
     elif contigs.enabled and contigs.input_dir:
         print(f"Input directory: {contigs.input_dir}")
         print(f"Contigs mode: ENABLED ({n_queries} contigs from {n_input_files} files)")
         print(f"Contigs min length filter: {contigs_min_length} bp")
+        print(f"Validation min length: {validation_min_length} bp")
     else:
         print(f"Query directory: {query_dir_abs}")
+        print(f"Input min length: {input_min_length} bp")
 
     threads_used = workers.workers * workers.threads_per_worker
     print(f"Output directory: {output_dir}")
@@ -84,7 +89,7 @@ def print_configuration(
         f"Threads: {threads_used} used / {threads} requested "
         f"(Workers: {workers.workers} × {workers.threads_per_worker} threads)"
     )
-    print(f"Tree method: {args.tree_method if args.tree_method else 'fasttree'}")
+    print(f"Tree method: {args.tree_method if args.tree_method else 'veryfasttree'}")
     print(f"Fast mode: {mode_fast}")
     print(f"Sensitive mode: {sensitive_mode}")
     if args.resume:

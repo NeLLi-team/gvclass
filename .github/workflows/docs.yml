@@ -1,0 +1,46 @@
+name: docs
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Least privilege: the whole workflow is read-only by default; only the deploy job
+# is granted Pages + OIDC write (below), so PR builds cannot deploy or mint tokens.
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/configure-pages@v5
+      - run: pip install -r docs/requirements.txt
+      - name: Build (strict; broken links and orphan pages fail the build)
+        run: mkdocs build --strict
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

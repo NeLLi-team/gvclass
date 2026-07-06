@@ -8,6 +8,7 @@ import json
 import random
 import shutil
 import subprocess
+import sys
 import tarfile
 import tempfile
 from pathlib import Path
@@ -20,7 +21,8 @@ from sklearn.ensemble import ExtraTreesRegressor, HistGradientBoostingRegressor,
 from sklearn.metrics import average_precision_score, mean_absolute_error, roc_auc_score
 from sklearn.model_selection import GroupKFold
 
-from src.core.contamination_scoring import create_contamination_scorer
+from src.bin._contamination_features import compute_query_features
+from src.core.summarize_full import FullSummarizer
 
 RANDOM_SEED = 42
 BASE_FAMILIES = [
@@ -287,39 +289,38 @@ def parse_float(value: Any) -> float:
         return 0.0
 
 
-def extract_primary_token(value: str) -> str:
-    if not value:
-        return ''
-    token = value.split(',')[0].split(':')[0]
-    return token.split('__', 1)[1] if '__' in token else token
+def recompute_query_features(
+    results_dir: Path, summary_rows: Dict[str, Dict[str, Any]], database: Path
+) -> Dict[str, Dict[str, Any]]:
+    """Recompute the full contamination feature dict per sample from its cached
+    per-query tarball using the runtime summarizer (the model's source of truth).
 
-
-def compute_method2_features(results_dir: Path, summary_rows: Dict[str, Dict[str, Any]], database: Path) -> Dict[str, Dict[str, Any]]:
-    scorer = create_contamination_scorer(database)
+    Replaces scraping ``gvclass_summary.tsv``, which no longer carries the v1
+    rule-based signals or the cellular/phage marker counts, so a retrained model
+    would otherwise be fed silently-zeroed features.
+    """
+    summarizer = FullSummarizer(database, sensitive_mode=True)
+    wanted = ('/hmmout/', '/stats/', '/blastp_out/', '/query_fna/', '/query_faa/')
     outputs: Dict[str, Dict[str, Any]] = {}
-    for sample_id, row in summary_rows.items():
+    for sample_id in summary_rows:
         tar_path = results_dir / f"{sample_id}.tar.gz"
         if not tar_path.exists():
-            outputs[sample_id] = {"suspicious_bp_fraction_v2": 0.0, "suspicious_contig_count_v2": 0}
             continue
-        primary_order = extract_primary_token(row.get('order', ''))
-        primary_family = extract_primary_token(row.get('family', ''))
-        with tempfile.TemporaryDirectory(prefix='gvclass_contam_') as tmpdir:
-            tmpdir = Path(tmpdir)
-            with tarfile.open(tar_path, 'r:gz') as tf:
-                targets = [m for m in tf.getmembers() if '/query_fna/' in m.name or '/query_faa/' in m.name or '/blastp_out/' in m.name]
-                tf.extractall(path=tmpdir, members=targets)
-            sample_root = next(tmpdir.iterdir())
-            query_fna_dir = sample_root / 'query_fna'
-            query_faa_dir = sample_root / 'query_faa'
-            blast_dir = sample_root / 'blastp_out'
-            query_fna = next(query_fna_dir.glob('*.fna')) if query_fna_dir.exists() else Path()
-            query_faa = next(query_faa_dir.glob('*.faa')) if query_faa_dir.exists() else Path()
-            features = scorer.collect_contig_features(query_fna, query_faa, blast_dir, primary_order, primary_family)
-            outputs[sample_id] = {
-                'suspicious_bp_fraction_v2': features['suspicious_bp_fraction'],
-                'suspicious_contig_count_v2': features['suspicious_contig_count'],
-            }
+        try:
+            with tempfile.TemporaryDirectory(prefix='gvclass_contam_') as tmpdir:
+                tmpdir = Path(tmpdir)
+                with tarfile.open(tar_path, 'r:gz') as tf:
+                    members = [m for m in tf.getmembers() if any(s in m.name for s in wanted)]
+                    tf.extractall(path=tmpdir, members=members)
+                sample_root = next(tmpdir.iterdir())
+                outputs[sample_id] = compute_query_features(
+                    sample_id, sample_root, database, summarizer=summarizer
+                )
+        except Exception as exc:  # a bad sample must not abort the whole batch
+            print(
+                f"WARNING: feature recompute failed for {sample_id}: {exc}",
+                file=sys.stderr,
+            )
     return outputs
 
 
@@ -407,18 +408,17 @@ def build_feature_table(manifest_path: Path, results_dir: Path, database: Path) 
     manifest_df = pd.read_csv(manifest_path, sep='\t')
     summary_df = pd.read_csv(results_dir / 'gvclass_summary.tsv', sep='\t')
     summary_rows = {row['query']: row.to_dict() for _, row in summary_df.iterrows()}
-    method2 = compute_method2_features(results_dir, summary_rows, database)
+    feature_rows = recompute_query_features(results_dir, summary_rows, database)
 
     rows = []
     for _, manifest_row in manifest_df.iterrows():
         sample_id = manifest_row['sample_id']
-        summary = summary_rows.get(sample_id)
-        if summary is None:
+        features = feature_rows.get(sample_id)
+        if features is None:
             continue
         row = dict(manifest_row)
-        row.update(method2.get(sample_id, {'suspicious_bp_fraction_v2': 0.0, 'suspicious_contig_count_v2': 0}))
-        for key in ['contamination_score_v1','contamination_cellular_signal_v1','contamination_phage_signal_v1','contamination_duplication_signal_v1','contamination_viral_mixture_signal_v1','contamination_nonviral_hit_fraction_v1','order_dup','gvog8_dup','cellular_unique','cellular_total','phage_unique','phage_total','contigs','estimated_completeness']:
-            row[key] = parse_float(summary.get(key, 0.0))
+        for key in METHOD3_FEATURES:
+            row[key] = parse_float(features.get(key, 0.0))
         row['contamination_present'] = 1 if row['true_contamination_pct'] > 0 else 0
         rows.append(row)
     return pd.DataFrame(rows)

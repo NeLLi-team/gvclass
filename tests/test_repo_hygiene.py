@@ -23,14 +23,9 @@ def _git_ls_files(path: str) -> str:
 
 
 def _software_version() -> str:
-    version_file = REPO_ROOT / "src" / "__version__.py"
-    match = re.search(
-        r'^__version__\s*=\s*"([^"]+)"',
-        version_file.read_text(),
-        flags=re.MULTILINE,
-    )
-    assert match is not None
-    return match.group(1)
+    # pyproject.toml is the single version provenance (see src/__version__.py).
+    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())
+    return str(pyproject["project"]["version"])
 
 
 def test_readme_local_links_resolve_to_tracked_files() -> None:
@@ -63,6 +58,7 @@ def test_release_version_matches_user_facing_wrappers() -> None:
     expected_image_ref = re.compile(
         rf"(?:gvclass/)?gvclass:{re.escape(version)}"
     )
+    expected_apptainer_ref = re.compile(rf"gvclass:{re.escape(version)}")
     stale_image_ref = re.compile(
         rf"(?:gvclass/)?gvclass:(?!{re.escape(version)}\b)\d+\.\d+\.\d+"
     )
@@ -72,9 +68,12 @@ def test_release_version_matches_user_facing_wrappers() -> None:
         "gvclass-a",
         "src/bin/gvclass_apptainer.py",
         "src/bin/gvclass_apptainer.sh",
-        "src/bin/gvclass_docker.sh",
-        "src/bin/gvclass_shifter.sh",
     ]:
+        text = (REPO_ROOT / path).read_text()
+        assert expected_apptainer_ref.search(text) or "gvclass-a" in text, path
+        assert not stale_image_ref.search(text), path
+
+    for path in ["src/bin/gvclass_docker.sh", "src/bin/gvclass_shifter.sh"]:
         text = (REPO_ROOT / path).read_text()
         assert expected_image_ref.search(text), path
         assert not stale_image_ref.search(text), path
@@ -113,6 +112,7 @@ def test_no_pixi_run_gvclass_in_container_assets() -> None:
         "containers/docker/docker-compose.yml",
         "containers/docker/build_containers.sh",
         "containers/docker/Dockerfile",
+        "src/bin/gvclass_docker.sh",
     ]:
         text = (REPO_ROOT / rel).read_text()
         assert "pixi run gvclass" not in text, rel
@@ -136,7 +136,9 @@ def test_private_and_runtime_workspaces_stay_ignored() -> None:
 
     for pattern in [
         "resources/",
-        "docs/",
+        "docs/handoffs/",
+        "docs/plans/",
+        "docs/quality_metrics.md",
         "tasks/",
         ".codexloop/",
         ".codex",

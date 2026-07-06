@@ -1,0 +1,101 @@
+site_name: GVClass
+site_description: Conservative taxonomy and quality assessment of giant virus genomes (NCLDV, Mirusviricota, and Preplasmiviricota).
+site_author: Frederik Schulz (NeLLi Group, DOE Joint Genome Institute)
+# RTD injects READTHEDOCS_CANONICAL_URL at build; the default keeps GitHub Pages correct.
+site_url: !ENV [READTHEDOCS_CANONICAL_URL, "https://NeLLi-team.github.io/gvclass/"]
+repo_url: https://github.com/NeLLi-team/gvclass
+repo_name: NeLLi-team/gvclass
+edit_uri: edit/gvclass-dev/docs/
+copyright: Copyright &copy; NeLLi Group, DOE Joint Genome Institute, BSD-3-Clause
+
+theme:
+  name: material
+  logo: assets/logo.png
+  favicon: assets/logo.png
+  icon:
+    repo: fontawesome/brands/github
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.top
+    - navigation.indexes
+    - navigation.footer
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      accent: teal
+      toggle: {icon: material/weather-night, name: Switch to dark mode}
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: teal
+      accent: teal
+      toggle: {icon: material/weather-sunny, name: Switch to light mode}
+
+nav:
+  - Home: index.md
+  - Tutorials:
+      - tutorials/index.md
+      - Getting started: tutorials/getting-started.md
+  - How-to guides:
+      - how-to/index.md
+      - Classify a directory of bins: how-to/classify-bins.md
+      - Run on an HPC cluster: how-to/run-on-hpc.md
+      - Classify individual contigs: how-to/classify-contigs.md
+      - Build a species tree: how-to/build-a-species-tree.md
+      - Tune speed and accuracy: how-to/tune-speed-and-accuracy.md
+      - Configure the database: how-to/configure-the-database.md
+      - Assess genome quality: how-to/assess-genome-quality.md
+  - Reference:
+      - reference/index.md
+      - Command-line interface: reference/cli.md
+      - Configuration file: reference/configuration.md
+      - Output files and columns: reference/output.md
+      - Marker panels and genetic codes: reference/markers.md
+      - Marker annotations: reference/marker-annotations.md
+  - Explanation:
+      - explanation/index.md
+      - How GVClass works: explanation/how-it-works.md
+      - Taxonomy and classification: explanation/taxonomy.md
+      - Completeness and contamination: explanation/quality-metrics.md
+      - The species tree: explanation/species-tree.md
+
+# Internal working docs that live under docs/ but are not part of the published site.
+exclude_docs: |
+  handoffs/
+  plans/
+  quality_metrics.md
+
+plugins:
+  - search
+
+extra_javascript:
+  - javascripts/marker-annotations.js
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - footnotes
+  - toc:
+      permalink: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true

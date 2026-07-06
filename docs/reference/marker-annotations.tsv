@@ -1,0 +1,1672 @@
+marker_id	majority_annotation	majority_count	total_proteins
+004_ATP8	ATP synthase, F0 complex, subunit b/b', bacterial/chloroplast [PFAM:ATP synthase B/B' CF(0)]	10013	18807
+005_ATP5F1A	consensus disorder prediction	1738	29813
+006_ATP6	ATP synthase, F0 complex, subunit A [PFAM:ATP synthase A chain]	6630	14788
+009_ATP5MC2	ATP synthase, F0 complex, subunit C [PFAM:ATP synthase subunit C]	1964	8604
+018_COX1	Cytochrome c oxidase subunit I [PFAM:Cytochrome C and Quinol oxidase polypeptide I]	2345	10544
+019_COX2	Cupredoxin [PFAM:Cytochrome C oxidase subunit II, periplasmic domain]	921	15279
+020_COX3	Cytochrome c oxidase subunit III-like [PFAM:Cytochrome c oxidase subunit III]	5186	12814
+049_ND3	NADH:ubiquinone/plastoquinone oxidoreductase, chain 3 [PFAM:NADH-ubiquinone/plastoquinone oxidoreductase, chain 3]	3910	10675
+051_NDUFS3	NADH:ubiquinone oxidoreductase, 30kDa subunit superfamily [PFAM:Respiratory-chain NADH dehydrogenase, 30 Kd subunit]	4332	13798
+052_NDUFS2	[NiFe]-hydrogenase, large subunit [PFAM:Respiratory-chain NADH dehydrogenase, 49 Kd subunit]	1276	13299
+056_ND1	NADH:ubiquinone oxidoreductase, subunit 1/F420H2 oxidoreductase subunit H [PFAM:NADH dehydrogenase]	4742	13490
+058_NAD6	NADH-ubiquinone/plastoquinone oxidoreductase chain 6, subunit NuoJ [PFAM:NADH-ubiquinone/plastoquinone oxidoreductase chain 6]	3718	12724
+059_ND4L	NADH-ubiquinone oxidoreductase chain 4L/K [PFAM:NADH-ubiquinone/plastoquinone oxidoreductase chain 4L]	2057	9079
+060_ND5	NADH:ubiquinone oxidoreductase [PFAM:Proton-conducting membrane transporter]	6684	54097
+061_ND4	NADH:ubiquinone oxidoreductase [PFAM:Proton-conducting membrane transporter]	8326	56921
+062_ND2	NADH:ubiquinone oxidoreductase [PFAM:Proton-conducting membrane transporter]	7644	58467
+069_CYTB	Cytochrome b/b6, N-terminal domain [PFAM:Cytochrome b/b6/petB]	779	9968
+1003258at2759	GPI mannosyltransferase 1 [PFAM:Mannosyltransferase (PIG-M)]	284	1205
+1019762at2759	Signal recognition particle subunit SRP68 [PFAM:RNA-binding signal recognition particle 68]	358	1506
+1032689at2759	Ribosomal RNA adenine methyltransferase KsgA/Erm [PFAM:Ribosomal RNA adenine dimethylase]	4240	32926
+1038775at2759	consensus disorder prediction	306	1426
+1057950at2759	MEMO1 family [PFAM:Memo-like protein]	4998	11111
+1079130at2759	Glycosyl transferase, family 4 [PFAM:Glycosyl transferase family 4]	7498	24260
+1079827at2759	Small ribosomal subunit protein eS8 [PFAM:Ribosomal protein S8e]	363	1612
+1090038at2759	Class II Aminoacyl-tRNA synthetase/Biotinyl protein ligase (BPL) and lipoyl protein ligase (LPL) [PFAM:Biotin/lipoate A/B protein ligase family]	1868	10218
+1106766at2759	consensus disorder prediction	198	1017
+1111142at2759	consensus disorder prediction	301	1395
+1157302at2759	Translation initiation factor IF6 [PFAM:eIF-6 family]	774	1850
+1161199at2759	consensus disorder prediction	302	2262
+1178688at2759	ATPase, OSCP/delta subunit [PFAM:ATP synthase delta (OSCP) subunit]	8952	15959
+1193442at2759	Bystin [PFAM:Bystin]	248	864
+1194691at2759	consensus disorder prediction	481	1991
+1197019at2759	consensus disorder prediction	273	1650
+1200489at2759	S1 domain [PFAM:S1 RNA binding domain]	657	4186
+1220881at2759	TFIIH subunit Tfb4/GTF2H3 [PFAM:Transcription factor Tfb4]	280	791
+1222562at2759	16S/18S rRNA aminocarboxypropyltransferase Tsr3 [PFAM:Possible Fer4-like domain in RNase L inhibitor, RLI;Ribosome biogenesis protein, C-terminal]	412	1363
+1236198at2759	consensus disorder prediction	193	1136
+1249159at2759	consensus disorder prediction	201	1143
+1260807at2759	Protohaem IX farnesyltransferase [PFAM:UbiA prenyltransferase family]	3945	12466
+1275837at2759	consensus disorder prediction	545	2698
+1284731at2759	consensus disorder prediction	195	1574
+1291729at2759	consensus disorder prediction	145	955
+1309031at2759	consensus disorder prediction	484	2403
+1322299at2759	consensus disorder prediction	312	1141
+1338131at2759	VapC9 PIN-like domain [PFAM:PIN like domain]	409	2912
+1346165at2759	DNA primase, small subunit [PFAM:DNA primase small subunit]	471	3170
+1346432at2759	Small-subunit processome, Utp11 [PFAM:Utp11 protein]	339	938
+1348942at2759	TAP46-like protein [PFAM:TAP42-like family]	326	1444
+1380409at2759	NFACT, RNA-binding domain [PFAM:NFACT N-terminal and middle domains;NFACT protein RNA binding domain]	1599	5109
+1382842at2759	consensus disorder prediction	211	1735
+1423847at2759	RNA 3'-terminal phosphate cyclase [PFAM:RNA 3'-terminal phosphate cyclase;RNA 3'-terminal phosphate cyclase (RTC), insert domain]	311	2587
+1430056at2759	S1 domain [PFAM:S1 RNA binding domain;SHS2 domain found in N terminus of Rpb7p/Rpc25p/MJ0397]	310	2338
+1432328at2759	consensus disorder prediction	278	1094
+1434266at2759	consensus disorder prediction	249	1879
+1455730at2759	consensus disorder prediction	264	1045
+1488436at2759	RPB6/omega subunit-like superfamily [PFAM:RNA polymerase Rpb6]	1412	3522
+1504863at2759	Trafficking protein particle complex subunit [PFAM:Sybindin-like family]	302	1058
+1530008at2759	consensus disorder prediction	213	2159
+1552706at2759	Signal recognition particle, subunit SRP19-like superfamily [PFAM:SRP19 protein]	430	1538
+1567796at2759	Prefoldin alpha-like [PFAM:Prefoldin subunit]	338	2002
+1576404at2759	consensus disorder prediction	309	1326
+1588798at2759	consensus disorder prediction	196	996
+1617752at2759	Archaeal transcription elongation factor Spt4 [PFAM:Spt4/RpoE2 zinc finger]	308	2079
+1623701at2759	TMEM85/ER membrane protein complex subunit 4 [PFAM:Protein of unknown function (DUF1077)]	209	742
+1645187at2759	PDCD5-like [PFAM:Double-stranded DNA-binding domain]	518	1510
+176625at2759	consensus disorder prediction	206	1128
+257318at2759	P-loop containing nucleoside triphosphate hydrolase [PFAM:DEAD/DEAH box helicase;Helicase conserved C-terminal domain]	616	4082
+296129at2759	consensus disorder prediction	433	3563
+320059at2759	Radical SAM [PFAM:HemN C-terminal domain;Radical SAM superfamily]	2758	21187
+383503at2759	consensus disorder prediction	333	1457
+426305at2759	consensus disorder prediction	334	1285
+543764at2759	tRNA (adenine(58)-N(1))-methyltransferase non-catalytic subunit TRM6 [PFAM:Gcd10p family]	315	1838
+582756at2759	RFT1 [PFAM:Rft protein]	410	1229
+625387at2759	TRAPP III complex, Trs85 [PFAM:ER-Golgi trafficking TRAPP I complex 85 kDa subunit]	368	2045
+674160at2759	consensus disorder prediction	342	1481
+692986at2759	consensus disorder prediction	494	2869
+734666at2759	consensus disorder prediction	311	2033
+736068at2759	Metallo-dependent phosphatase-like [PFAM:Calcineurin-like phosphoesterase]	464	4031
+777920at2759	consensus disorder prediction	237	1032
+834694at2759	Metallo-dependent phosphatase-like [PFAM:Calcineurin-like phosphoesterase]	4453	11427
+855834at2759	RNA polymerase I specific transcription initiation factor RRN3 [PFAM:RNA polymerase I specific transcription initiation factor RRN3]	380	1248
+869548at2759	consensus disorder prediction	327	2082
+923657at2759	Surfeit locus 1/Shy1 [PFAM:SURF1 family]	3249	5699
+939345at2759	Repressor of RNA polymerase III transcription Maf1 [PFAM:Maf1 regulator]	254	872
+974865at2759	consensus disorder prediction	234	969
+976469at2759	consensus disorder prediction	372	1476
+ATPase	P-loop containing nucleoside triphosphate hydrolase	2600	26649
+COG0013	Alanine-tRNA ligase, class IIc [PFAM:DHHA1 domain;Threonyl and Alanyl tRNA synthetase second additional domain;tRNA synthetases class II (A)]	4394	17470
+COG0016	Class II Aminoacyl-tRNA synthetase/Biotinyl protein ligase (BPL) and lipoyl protein ligase (LPL) [PFAM:Aminoacyl tRNA synthetase class II, N-terminal domain;tRNA synthetases class II core domain (F)]	3156	13972
+COG0018	Arginine-tRNA ligase [PFAM:Arginyl tRNA synthetase N terminal domain;DALR anticodon binding domain;tRNA synthetases class I (R)]	7055	18543
+COG0048	consensus disorder prediction	533	8707
+COG0049	Small ribosomal subunit protein uS7 domain superfamily [PFAM:Ribosomal protein S7p/S5e]	1150	10362
+COG0051	Small ribosomal subunit protein uS10 [PFAM:Ribosomal protein S10p/S20e]	855	8625
+COG0052	Small ribosomal subunit protein uS2 [PFAM:Ribosomal protein S2]	4427	13675
+COG0060	Isoleucine-tRNA ligase [PFAM:Anticodon-binding domain of tRNA ligase;Domain of unknown function (DUF5915);tRNA synthetases class I (I, L, M and V)]	2639	14625
+COG0072	Ferrodoxin-fold anticodon-binding domain [PFAM:B3/4 domain;Ferredoxin-fold anticodon binding domain;Phenylalanyl tRNA synthetase beta chain CLM domain;Putative tRNA binding domain;tRNA synthetase B5 domain]	3182	21505
+COG0080	Ribosomal protein uL11 [PFAM:Ribosomal protein L11, N-terminal domain;Ribosomal protein L11, RNA binding domain]	1224	9301
+COG0081	Ribosomal protein uL1/ribosomal biogenesis protein [PFAM:Ribosomal protein L1p/L10e family]	2542	11385
+COG0085	consensus disorder prediction	943	17378
+COG0086	consensus disorder prediction	994	18668
+COG0087	Large ribosomal subunit protein uL3, bacterial/organelle-type [PFAM:Ribosomal protein L3]	3823	12536
+COG0088	Large ribosomal subunit protein uL4-like [PFAM:Ribosomal protein L4/L1 family]	5490	14292
+COG0089	Large ribosomal subunit protein uL23-like [PFAM:Ribosomal protein L23]	5621	13164
+COG0090	Large ribosomal subunit protein uL2 [PFAM:Ribosomal Proteins L2, C-terminal domain;Ribosomal Proteins L2, RNA binding domain]	1556	10038
+COG0091	Ribosomal protein uL22 superfamily [PFAM:Ribosomal protein L22p/L17e]	2217	13003
+COG0092	K Homology domain, type 2 [PFAM:KH domain;Ribosomal protein S3, C-terminal domain]	876	10265
+COG0093	Large ribosomal subunit protein uL14 [PFAM:Ribosomal protein L14p/L23e]	817	8322
+COG0094	Large ribosomal subunit protein uL5 domain superfamily [PFAM:Ribosomal protein L5;ribosomal L5P family C-terminus]	1572	10646
+COG0096	Small ribosomal subunit protein uS8 [PFAM:Ribosomal protein S8]	4546	12123
+COG0097	Large ribosomal subunit protein uL6, bacterial-type [PFAM:Ribosomal protein L6]	3740	13902
+COG0098	Small ribosomal subunit protein uS5, N-terminal [PFAM:Ribosomal protein S5, C-terminal domain;Ribosomal protein S5, N-terminal domain]	2115	10730
+COG0099	Small ribosomal subunit protein uS13 [PFAM:Ribosomal protein S13/S18]	1963	9719
+COG0100	Small ribosomal subunit protein uS11 [PFAM:Ribosomal protein S11]	1734	9801
+COG0102	Large ribosomal subunit protein uL13 [PFAM:Ribosomal protein L13]	4701	13218
+COG0103	Small ribosomal subunit protein uS9 [PFAM:Ribosomal protein S9/S16]	3883	12513
+COG0127	RdgB/HAM1 [PFAM:Ham1 family]	8608	17789
+COG0130	tRNA pseudouridine synthase II, TruB [PFAM:TruB family pseudouridylate synthase (N terminal domain);tRNA pseudouridylate synthase B C-terminal domain]	5925	18804
+COG0164	Ribonuclease HII/HIII domain [PFAM:Ribonuclease HII]	5926	16878
+COG0172	Serine-tRNA ligase, type1 [PFAM:Seryl-tRNA synthetase N-terminal domain;tRNA synthetase class II core domain (G, H, P, S and T)]	3828	14310
+COG0184	Small ribosomal subunit protein uS15 [PFAM:Ribosomal protein S15]	2170	11818
+COG0185	Small ribosomal subunit protein uS19 [PFAM:Ribosomal protein S19]	1218	8478
+COG0186	Small ribosomal subunit protein uS17 [PFAM:Ribosomal protein S17]	4185	11963
+COG0193	Peptidyl-tRNA hydrolase [PFAM:Peptidyl-tRNA hydrolase]	9756	17749
+COG0197	Large ribosomal subunit protein uL16, bacterial-type [PFAM:Ribosomal protein L16p/L10e]	1102	9532
+COG0198	Large ribosomal subunit protein uL24 [PFAM:KOW motif;Ribosomal proteins 50S L24/mitochondrial 39S L24]	3904	12851
+COG0200	Large ribosomal subunit protein uL15, bacterial-type [PFAM:Ribosomal proteins 50S-L15, 50S-L18e, 60S-L27A]	4416	13910
+COG0201	SecY/SEC61-alpha family [PFAM:SecY]	2813	11668
+COG0202	RNA polymerase, RBP11-like subunit [PFAM:Bacterial RNA polymerase, alpha chain C terminal domain;RNA polymerase Rpb3/Rpb11 dimerisation domain;RNA polymerase Rpb3/RpoA insert domain]	602	12452
+COG0216	Peptide chain release factor [PFAM:PCRF domain;RF-1 domain]	1358	10771
+COG0233	Ribosome recycling factor [PFAM:Ribosome recycling factor]	3749	12290
+COG0244	Large ribosomal subunit protein uL10-like domain superfamily [PFAM:Ribosomal protein L10]	3469	15997
+COG0255	Large ribosomal subunit protein uL29 [PFAM:Ribosomal L29 protein]	6672	14014
+COG0256	Large ribosomal subunit protein uL18 [PFAM:Ribosomal L18 of archaea, bacteria, mitoch. and chloroplast]	2710	13615
+COG0343	tRNA-guanine(15) transglycosylase-like [PFAM:Queuine tRNA-ribosyltransferase]	2082	14630
+COG0481	Translational (tr)-type GTP-binding domain [PFAM:Elongation factor G C-terminus;Elongation factor Tu GTP binding domain;Elongation factor Tu domain 2;GTP-binding protein LepA C-terminus]	642	10311
+COG0495	Leucine-tRNA ligase [PFAM:Anticodon-binding domain of tRNA ligase;Leucyl-tRNA synthetase, editing domain;tRNA synthetases class I (I, L, M and V);tRNA synthetases class I (M)]	2307	14133
+COG0504	CTP synthase [PFAM:CTP synthase N-terminus;Glutamine amidotransferase class-I]	1155	11280
+COG0519	GMP synthase, C-terminal [PFAM:GMP synthase C terminal domain;Glutamine amidotransferase class-I;NAD synthase]	1037	9973
+COG0532	Translation initiation factor IF-2, bacterial-like [PFAM:Elongation factor Tu GTP binding domain;Translation initiation factor IF-2, N-terminal region;Translation-initiation factor 2]	1997	18241
+COG0533	Kae1/TsaD family [PFAM:tRNA N6-adenosine threonylcarbamoyltransferase]	6032	15769
+COG0541	Signal recognition particle, SRP54 subunit, GTPase domain [PFAM:SRP54-type protein, GTPase domain;SRP54-type protein, helical bundle domain;Signal peptide binding domain]	1746	10174
+COG0691	SsrA-binding protein [PFAM:SmpB protein]	4175	11707
+COG0858	Ribosome-binding factor A [PFAM:Ribosome-binding factor A]	7752	15991
+GENOMAD.000023.VV	consensus disorder prediction	1115	4813
+GENOMAD.000026.VV	consensus disorder prediction	103	2025
+GENOMAD.000172.VV	RNA-directed RNA polymerase beta-chain [PFAM:RNA replicase, beta-chain]	3	7
+GENOMAD.000217.VV	Assembly protein [PFAM:Phage maturation protein]	7	7
+GENOMAD.000254.VV	consensus disorder prediction	125	945
+GENOMAD.000616.VV	Icosahedral viral capsid protein, S domain [PFAM:Viral coat protein (S domain)]	86	285
+GENOMAD.000979.VV	consensus disorder prediction	141	1017
+GENOMAD.001596.VV	Bacteriophage RNA-type, capsid [PFAM:Levivirus coat protein]	5	34
+GENOMAD.001683.VV	SaV-like [PFAM:Protein of unknwon function (DUF3310)]	140	647
+GENOMAD.006053.VV	consensus disorder prediction	146	1534
+GENOMAD.008072.VV	IraD/Gp25-like [PFAM:Baseplate wedge protein gp25]	734	1882
+GENOMAD.016854.VV	Metallo-dependent phosphatase-like [PFAM:Calcineurin-like phosphoesterase]	40	149
+GENOMAD.020215.VV	Coil	69	1021
+GENOMAD.020681.VV	consensus disorder prediction	76	505
+GENOMAD.029205.VV	P-loop containing nucleoside triphosphate hydrolase [PFAM:Guanylate kinase]	1010	14045
+GENOMAD.051630.VV	IraD/Gp25-like [PFAM:Baseplate wedge protein gp25]	894	3496
+GENOMAD.057391.VV	consensus disorder prediction	86	773
+GENOMAD.066074.VV	consensus disorder prediction	36	415
+GENOMAD.090963.VV	Baseplate protein J-like [PFAM:Baseplate J-like protein]	254	697
+GENOMAD.132751.VV	HNH nuclease [PFAM:HNH endonuclease]	821	5835
+GVOGm0003	Group II dsDNA virus coat/capsid protein [PFAM:Large eukaryotic DNA virus major capsid protein;Major capsid protein N-terminus]	3115	5786
+GVOGm0013	P-loop containing nucleoside triphosphate hydrolase [PFAM:Type III restriction enzyme, res subunit]	1156	2752
+GVOGm0022	consensus disorder prediction	1336	18025
+GVOGm0023	consensus disorder prediction	387	4205
+GVOGm0054	DNA-directed DNA polymerase, family B [PFAM:DNA polymerase family B;DNA polymerase family B, exonuclease domain]	2321	4944
+GVOGm0172	Transcription factor TFIIB [PFAM:Transcription factor TFIIB repeat]	817	3246
+GVOGm0461	DNA topoisomerase II, eukaryotic-type [PFAM:C-terminal associated domain of TOPRIM;DNA gyrase B;DNA gyrase/topoisomerase IV, subunit A;Toprim domain]	666	2413
+GVOGm0760	P-loop containing nucleoside triphosphate hydrolase	409	1087
+GVOGm0890	Poxvirus VLTF3, late transcription factor [PFAM:Poxvirus Late Transcription Factor VLTF3 like]	1235	1318
+HUH	consensus disorder prediction	67	354
+HUHlong	consensus disorder prediction	12	36
+Mirus_JellyRoll	consensus disorder prediction	116	135
+Mirus_MCP	consensus disorder prediction	334	404
+Mirus_Portal	consensus disorder prediction	496	542
+Mirus_Terminase_ATPase	P-loop containing nucleoside triphosphate hydrolase	298	416
+Mirus_Terminase_merged	P-loop containing nucleoside triphosphate hydrolase	391	1327
+Mirus_Triplex1	consensus disorder prediction	561	607
+Mirus_Triplex2	consensus disorder prediction	137	201
+OG1	S-adenosyl-L-methionine-dependent methyltransferase superfamily [PFAM:mRNA (guanine-N(7))-methyltransferase domain;mRNA capping enzyme, catalytic domain]	371	1517
+OG100	ERV/ALR sulfhydryl oxidase domain superfamily [PFAM:Erv1 / Alr family]	52	102
+OG1003	CYTH domain [PFAM:CYTH domain]	3	4
+OG10045	consensus disorder prediction	6	7
+OG10048	CYTH-like domain superfamily	2	3
+OG10083	C-type lectin-like/link domain superfamily [PFAM:Lectin C-type domain]	6	14
+OG10108	Poxvirus F16 [PFAM:Poxvirus F16 protein]	17	17
+OG10114	P-loop containing nucleoside triphosphate hydrolase	13	18
+OG10118	Protein of unknown function DUF5762 [PFAM:Family of unknown function (DUF5762)]	10	10
+OG10128	SWIB/MDM2 domain [PFAM:SWIB/MDM2 domain]	1	1
+OG1016	High mobility group box domain [PFAM:HMG (high mobility group) box]	85	113
+OG10161	Vaccinia virus, A37 [PFAM:Protein of unknown function (DUF1235)]	14	14
+OG10163	Chordopoxvirus fusion protein/multifunctional envelope protein A27 [PFAM:Chordopoxvirus multifunctional envelope protein A27]	17	17
+OG10237	Holliday junction resolvase, A22 [PFAM:Poxvirus A22 protein]	8	13
+OG1026	RNA polymerase Rpb7-like, N-terminal domain superfamily	45	151
+OG10300	GIY-YIG endonuclease superfamily	7	14
+OG1035	Protein-tyrosine phosphatase-like [PFAM:Dual specificity phosphatase, catalytic domain]	39	140
+OG10384	Cyclin-like superfamily	2	6
+OG10400	RNA polymerase, RBP11-like subunit	11	21
+OG10456	consensus disorder prediction	1	1
+OG105	Peptidase C14, caspase domain [PFAM:Caspase domain]	18	24
+OG10505	Poxvirus A51 [PFAM:Poxvirus A51 protein]	15	15
+OG1055	Protein of unknown function DUF5757 [PFAM:Family of unknown function (DUF5757)]	13	14
+OG1056	Rhodanese-like domain superfamily [PFAM:Rhodanese-like domain]	23	44
+OG1063	Thioredoxin domain [PFAM:Thioredoxin]	26	38
+OG10656	Protein kinase-like domain superfamily	17	20
+OG10712	Group II dsDNA virus coat/capsid protein [PFAM:Large eukaryotic DNA virus major capsid protein;Major capsid protein N-terminus]	14	15
+OG10739	P-loop containing nucleoside triphosphate hydrolase [PFAM:ATPase family associated with various cellular activities (AAA)]	11	13
+OG10854	consensus disorder prediction	2	2
+OG1086	ERV/ALR sulfhydryl oxidase domain [PFAM:Erv1 / Alr family]	7	8
+OG1094	consensus disorder prediction	2	2
+OG1098	consensus disorder prediction	34	55
+OG11076	consensus disorder prediction	1	1
+OG11094	DNA ligase/mRNA capping enzyme	8	9
+OG11096	P-loop containing nucleoside triphosphate hydrolase	11	12
+OG11118	Poxvirus A31 [PFAM:Poxvirus A31 protein]	13	13
+OG11119	Coil	7	15
+OG11136	Coil	2	2
+OG11137	Zinc finger, RING-type [PFAM:Ring finger domain]	15	17
+OG11158	YbiA-like superfamily	10	13
+OG11185	Coil	2	2
+OG11191	Chordopoxvirus A33R [PFAM:Chordopoxvirus A33R protein]	7	15
+OG11231	Glycoside hydrolase, family 7 [PFAM:Glycosyl hydrolase family 7]	50	118
+OG1140	Macro domain-like [PFAM:Microbial-type PARG, catalytic domain]	2	2
+OG1141	Histone H2A [PFAM:Core histone H2A/H2B/H3/H4]	5	11
+OG1148	Cold-shock protein, DNA-binding [PFAM:'Cold-shock' DNA-binding domain;2OG-Fe(II) oxygenase superfamily]	3	6
+OG11508	Coil	6	10
+OG11565	Alpha/Beta hydrolase fold [PFAM:Carboxylesterase family]	4	4
+OG11577	RNA ligase domain, REL/Rln2 [PFAM:RNA ligase]	2	2
+OG1162	Pectin lyase fold/virulence factor	1	1
+OG1164	P-loop containing nucleoside triphosphate hydrolase [PFAM:Helicase conserved C-terminal domain;SNF2-related domain;Zinc finger, C3HC4 type (RING finger)]	57	187
+OG1168	Glycosyltransferase, DXD sugar-binding motif [PFAM:Glycosyltransferase sugar-binding region containing DXD motif]	2	2
+OG118	Protein of unknown function DUF5759 [PFAM:Family of unknown function (DUF5759)]	109	110
+OG1180	consensus disorder prediction	4	6
+OG1181	HAD-like superfamily [PFAM:haloacid dehalogenase-like hydrolase]	5	18
+OG11810	FAD/NAD(P)-binding domain superfamily [PFAM:NAD(P)-binding Rossmann-like domain]	3	3
+OG11828	Coil	1	2
+OG1188	Exonuclease, RNase T/DNA polymerase III [PFAM:Exonuclease]	28	49
+OG1190	mRNA (guanine-N(7))-methyltransferase domain [PFAM:mRNA (guanine-N(7))-methyltransferase domain]	6	16
+OG1193	Protein of unknown function DUF3592 [PFAM:Protein of unknown function (DUF3592)]	7	7
+OG11979	consensus disorder prediction	5	6
+OG12	Poly(A) polymerase catalytic subunit [PFAM:Poly(A) polymerase catalytic subunit]	675	718
+OG12001	consensus disorder prediction	7	10
+OG12009	consensus disorder prediction	8	9
+OG12014	consensus disorder prediction	5	7
+OG12039	consensus disorder prediction	8	10
+OG1204	FAS1 domain [PFAM:Fasciclin domain]	300	556
+OG12078	consensus disorder prediction	9	11
+OG12167	Protein kinase domain	4	6
+OG12169	Coil	1	1
+OG1217	consensus disorder prediction	6	7
+OG12262	P-loop containing nucleoside triphosphate hydrolase [PFAM:D5 N terminal like]	3	7
+OG12268	Coil	2	5
+OG12273	Nucleic acid-binding, OB-fold [PFAM:ATP dependent DNA ligase domain;DNA ligase OB-like domain]	6	14
+OG12280	P-loop containing nucleoside triphosphate hydrolase	3	3
+OG12286	RNA polymerase Rpb5, N-terminal domain superfamily	4	9
+OG12290	Protein kinase-like domain superfamily	1	2
+OG12291	P-loop containing nucleoside triphosphate hydrolase [PFAM:Type III restriction enzyme, res subunit]	13	13
+OG12295	TBP domain superfamily	8	13
+OG1230	Coil	2	2
+OG1232	Protein of unknown function DUF5770 [PFAM:Family of unknown function (DUF5770)]	67	68
+OG12328	Protein of unknown function DUF5832 [PFAM:Family of unknown function (DUF5832)]	1	2
+OG12342	Protein of unknown function DUF5760 [PFAM:Family of unknown function (DUF5760)]	7	12
+OG1236	HD/PDEase domain	2	3
+OG12376	consensus disorder prediction	1	1
+OG12379	Zinc finger C2H2 superfamily	5	13
+OG12381	SAP domain	5	20
+OG1242	P-loop containing nucleoside triphosphate hydrolase	12	13
+OG12451	Isopenicillin N synthase-like, Fe(2+) 2OG dioxygenase domain [PFAM:2OG-Fe(II) oxygenase superfamily;non-haem dioxygenase in morphine synthesis N-terminal]	1	2
+OG12501	consensus disorder prediction	6	7
+OG12503	Coil	5	9
+OG12507	consensus disorder prediction	11	12
+OG12528	consensus disorder prediction	7	10
+OG1261	Glycosyltransferase, GlcNAc [PFAM:Glycosyltransferase (GlcNAc)]	4	7
+OG1276	consensus disorder prediction	3	3
+OG12765	Protein of unknown function DUF5859 [PFAM:Family of unknown function (DUF5859)]	4	4
+OG12819	Coil	1	1
+OG12838	Peptidase C54 [PFAM:Peptidase family C54]	47	186
+OG12845	Thioredoxin domain [PFAM:Thioredoxin]	20	39
+OG12855	Glycosyl hydrolase, five-bladed beta-propellor domain superfamily	5	5
+OG12877	Integrase, catalytic core [PFAM:Integrase core domain]	14	19
+OG12906	Band 7 domain [PFAM:SPFH domain / Band 7 family]	3	3
+OG1291	SKP1/BTB/POZ domain superfamily [PFAM:Skp1 family, dimerisation domain;Skp1 family, tetramerisation domain]	6	8
+OG13050	Coil	1	1
+OG1315	Inositol oxygenase [PFAM:Myo-inositol oxygenase]	20	21
+OG13213	P-loop containing nucleoside triphosphate hydrolase	4	4
+OG13285	consensus disorder prediction	10	10
+OG133	Hint domain superfamily	3	3
+OG1337	Protein of unknown function DUF5767 [PFAM:Family of unknown function (DUF5767)]	7	7
+OG1340	consensus disorder prediction	24	24
+OG13412	HAD superfamily [PFAM:HAD superfamily, subfamily IIIB (Acid phosphatase)]	2	4
+OG13441	Poxvirus VLTF3, late transcription factor [PFAM:Poxvirus Late Transcription Factor VLTF3 like]	8	10
+OG13453	Zinc finger, RING-type [PFAM:Zinc finger, C3HC4 type (RING finger)]	8	19
+OG13494	consensus disorder prediction	4	4
+OG1352	Group II dsDNA virus coat/capsid protein [PFAM:Large eukaryotic DNA virus major capsid protein;Major capsid protein N-terminus]	34	88
+OG13528	consensus disorder prediction	9	12
+OG13622	P-loop containing nucleoside triphosphate hydrolase	7	11
+OG1363	Cysteine desulfurase [PFAM:Aminotransferase class-V]	22	77
+OG13795	P-loop containing nucleoside triphosphate hydrolase [PFAM:Type III restriction enzyme, res subunit]	53	63
+OG138	Dual specificity protein phosphatase domain [PFAM:Dual specificity phosphatase, catalytic domain]	3	4
+OG13842	RNA polymerase subunit RPB10 [PFAM:RNA polymerases N / 8 kDa subunit]	6	9
+OG13852	DNA polymerase family X [PFAM:DNA polymerase beta thumb]	1	2
+OG1395	P-loop containing nucleoside triphosphate hydrolase [PFAM:Helicase conserved C-terminal domain]	13	39
+OG13973	Rieske iron-sulphur protein, C-terminal [PFAM:Rieske [2Fe-2S] domain]	2	4
+OG14007	consensus disorder prediction	3	4
+OG14038	consensus disorder prediction	2	2
+OG14040	consensus disorder prediction	1	1
+OG14090	Guanylate kinase/L-type calcium channel beta subunit [PFAM:Guanylate kinase]	5	7
+OG14112	consensus disorder prediction	40	247
+OG1425	Nucleic acid-binding, OB-fold [PFAM:mRNA capping enzyme, C-terminal domain]	2	13
+OG1426	consensus disorder prediction	24	24
+OG14292	Telomere resolvase ResT, catalytic domain superfamily [PFAM:Telomere resolvase]	5	8
+OG1435	Coil	15	17
+OG14449	P-loop containing nucleoside triphosphate hydrolase [PFAM:Type III restriction enzyme, res subunit]	13	15
+OG14490	DnaJ domain [PFAM:DnaJ domain]	2	2
+OG1462	consensus disorder prediction	2	2
+OG14641	consensus disorder prediction	2	3
+OG14663	consensus disorder prediction	3	4
+OG14665	Coil	2	3
+OG14694	consensus disorder prediction	6	7
+OG14757	Coil	1	1
+OG14873	Prokaryotic membrane lipoprotein lipid attachment site profile.	2	2
+OG1490	consensus disorder prediction	5	6
+OG14963	Coil	3	3
+OG15223	Coil	3	4
+OG15228	ERV/ALR sulfhydryl oxidase domain [PFAM:Erv1 / Alr family]	1	2
+OG15240	WD40/YVTN repeat-like-containing domain superfamily [PFAM:Domain of unknown function (DUF4347)]	1	1
+OG15292	PCIF1, WW domain [PFAM:Phosphorylated CTD interacting factor 1 WW domain]	2	5
+OG153	GMP reductase [PFAM:IMP dehydrogenase / GMP reductase domain]	5	27
+OG15309	consensus disorder prediction	1	1
+OG1537	consensus disorder prediction	21	25
+OG15370	consensus disorder prediction	5	5
+OG15486	consensus disorder prediction	9	12
+OG15520	Isopenicillin N synthase-like superfamily	69	146
+OG15564	consensus disorder prediction	5	5
+OG1561	S-adenosyl-L-methionine-dependent methyltransferase superfamily [PFAM:Methyltransferase domain]	4	4
+OG15668	P-loop containing nucleoside triphosphate hydrolase [PFAM:Origin of replication binding protein]	4	10
+OG1580	Fructose-1,6-bisphosphatase [PFAM:Fructose-1-6-bisphosphatase, C-terminal domain;Fructose-1-6-bisphosphatase, N-terminal domain]	111	235
+OG15845	Adenosylhomocysteinase-like [PFAM:S-adenosyl-L-homocysteine hydrolase;S-adenosyl-L-homocysteine hydrolase, NAD binding domain]	1	1
+OG1589	DNA polymerase III, clamp loader complex, gamma/delta/delta subunit, C-terminal	19	33
+OG160	Metallo-dependent phosphatase-like [PFAM:Calcineurin-like phosphoesterase]	6	10
+OG1612	Tyrosine-tRNA ligase [PFAM:tRNA synthetases class I (W and Y)]	48	151
+OG1614	Poxvirus VLTF3, late transcription factor [PFAM:Poxvirus Late Transcription Factor VLTF3 like]	23	26
+OG1616	YqaJ viral recombinase [PFAM:YqaJ-like viral recombinase domain]	4	10
+OG1617	consensus disorder prediction	12	12
+OG1619	Coil	2	2
+OG162	P-loop containing nucleoside triphosphate hydrolase [PFAM:Helicase conserved C-terminal domain;SNF2-related domain]	6	18
+OG16218	Zinc finger, RING-type	5	15
+OG1628	Tryptophan synthase beta chain-like, PALP domain superfamily [PFAM:C-terminal regulatory domain of Threonine dehydratase;Pyridoxal-phosphate dependent enzyme]	213	991
+OG16283	consensus disorder prediction	4	5
+OG16307	consensus disorder prediction	4	4
+OG1632	NUDIX hydrolase-like domain superfamily	39	49
+OG16323	Phosphatidic acid phosphatase type 2/haloperoxidase superfamily	24	156
+OG1633	Short-chain dehydrogenase/reductase SDR [PFAM:Enoyl-(Acyl carrier protein) reductase]	46	174
+OG16389	consensus disorder prediction	1	1
+OG1645	consensus disorder prediction	8	13
+OG1650	Coil	2	3
+OG1653	dUTPase-like superfamily [PFAM:dUTPase]	16	16
+OG1657	DNA clamp superfamily [PFAM:Proliferating cell nuclear antigen, N-terminal domain]	5	13
+OG166	Deoxyuridine triphosphate nucleotidohydrolase [PFAM:dUTPase]	256	917
+OG16610	Holliday junction resolvase RusA-like superfamily [PFAM:Endodeoxyribonuclease RusA]	5	5
+OG1662	Stealth family [PFAM:Stealth protein CR2, conserved region 2]	3	6
+OG1676	Poly(A) polymerase catalytic subunit [PFAM:Poly(A) polymerase catalytic subunit]	23	25
+OG16761	Protein FRG1 [PFAM:FRG1-like domain;Glycine-rich domain]	2	4
+OG16826	NTF2-like domain superfamily	3	3
+OG1684	Papain-like cysteine peptidase superfamily [PFAM:Ubiquitin carboxyl-terminal hydrolase]	6	15
+OG16858	Papain-like cysteine peptidase superfamily	6	7
+OG16863	consensus disorder prediction	3	4
+OG169	XPG/Rad2 endonuclease [PFAM:XPG I-region;XPG N-terminal domain]	35	37
+OG16952	Protein of unknown function DUF5843 [PFAM:Family of unknown function (DUF5843)]	3	3
+OG17001	Calycin [PFAM:Lipocalin-like domain]	4	4
+OG1707	Ulp1 protease family, C-terminal catalytic domain [PFAM:Ulp1 protease family, C-terminal catalytic domain]	12	20
+OG1709	consensus disorder prediction	5	5
+OG1710	Cyclin-like superfamily	2	6
+OG17215	consensus disorder prediction	1	1
+OG17239	Family of unknown function DUF5654 [PFAM:Family of unknown function (DUF5654)]	4	4
+OG1724	consensus disorder prediction	6	8
+OG17408	Coil	1	1
+OG17458	Coil	2	2
+OG1758	consensus disorder prediction	6	7
+OG17736	P-loop containing nucleoside triphosphate hydrolase [PFAM:Zeta toxin]	4	4
+OG17892	mRNA capping enzyme, adenylation domain [PFAM:mRNA capping enzyme, catalytic domain]	3	3
+OG179	Phytanoyl-CoA dioxygenase-like [PFAM:Phytanoyl-CoA dioxygenase (PhyH)]	5	8
+OG1793	Peptidase M12A [PFAM:Astacin (Peptidase family M12A)]	21	34
+OG17983	consensus disorder prediction	2	3
+OG1804	consensus disorder prediction	12	14
+OG1821	consensus disorder prediction	15	25
+OG18230	S-adenosyl-L-methionine-dependent methyltransferase superfamily [PFAM:Methyltransferase domain]	4	5
+OG183	GxxExxY protein [PFAM:PD-(D/E)XK nuclease superfamily]	146	188
+OG18309	3'-5' exonuclease domain [PFAM:3'-5' exonuclease]	7	7
+OG1831	DNA ligase, ATP-dependent, central [PFAM:ATP dependent DNA ligase domain]	14	14
+OG18495	Ulp1 protease family, C-terminal catalytic domain [PFAM:Ulp1 protease family, C-terminal catalytic domain]	5	7
+OG18573	Cupredoxin	1	2
+OG186	Protein of unknown function DUF5832 [PFAM:Family of unknown function (DUF5832)]	28	28
+OG1860	Coil	21	24
+OG1866	FCP1 homology domain [PFAM:NLI interacting factor-like phosphatase]	92	93
+OG18691	consensus disorder prediction	4	5
+OG18693	Histidine phosphatase superfamily, clade-1 [PFAM:Histidine phosphatase superfamily (branch 1)]	5	5
+OG18777	P-loop containing nucleoside triphosphate hydrolase	8	8
+OG18784	DNA-directed DNA polymerase, family B, multifunctional domain [PFAM:DNA polymerase family B;DNA polymerase family B, exonuclease domain]	2	4
+OG18883	Ankyrin repeat [PFAM:Ankyrin repeat;Ankyrin repeats (3 copies);Ankyrin repeats (many copies)]	37	122
+OG18888	consensus disorder prediction	4	4
+OG1891	Peptidase S8, subtilisin-related [PFAM:Peptidase inhibitor I9;Subtilase family]	821	2377
+OG18919	Coil	2	4
+OG1895	DNA polymerase family X [PFAM:ATP dependent DNA ligase domain;DNA ligase OB-like domain;DNA polymerase beta palm;DNA polymerase beta thumb;Fingers domain of DNA polymerase lambda;Helix-hairpin-helix domain]	34	42
+OG19	Helicase, C-terminal [PFAM:DEAD/DEAH box helicase;DSHCT (NUC185) domain;Helicase conserved C-terminal domain]	3	7
+OG19001	P-loop containing nucleoside triphosphate hydrolase [PFAM:ATPase family associated with various cellular activities (AAA)]	5	6
+OG19017	Protein kinase domain [PFAM:Protein kinase domain]	6	6
+OG19064	Alpha/Beta hydrolase fold [PFAM:alpha/beta hydrolase fold]	6	6
+OG19084	consensus disorder prediction	5	5
+OG19134	Poly(A) polymerase catalytic subunit [PFAM:Poly(A) polymerase catalytic subunit]	2	2
+OG19244	ADP-ribosylation	2	3
+OG19353	consensus disorder prediction	1	1
+OG1942	DNA-directed RNA polymerase M, 15kDa subunit, conserved site	2	7
+OG1943	Coil	3	4
+OG19455	Ribosomal RNA methyltransferase, FtsJ domain [PFAM:FtsJ-like methyltransferase]	8	9
+OG19528	Zinc finger C2H2-type	1	3
+OG1962	consensus disorder prediction	15	26
+OG197	Nucleotide-diphospho-sugar transferases	18	20
+OG19735	consensus disorder prediction	5	6
+OG19738	Glycine-rich domain [PFAM:FRG1-like domain;Glycine-rich domain]	2	3
+OG19740	consensus disorder prediction	4	4
+OG19741	consensus disorder prediction	7	9
+OG19749	Ankyrin repeat [PFAM:Ankyrin repeats (3 copies);Ankyrin repeats (many copies)]	10	25
+OG19766	consensus disorder prediction	5	5
+OG1978	Protein of unknown function DUF5767 [PFAM:Family of unknown function (DUF5767)]	13	14
+OG19822	Coil	2	2
+OG19920	Serine-threonine/tyrosine-protein kinase, catalytic domain [PFAM:Adenylate and Guanylate cyclase catalytic domain;Protein tyrosine and serine/threonine kinase]	2	6
+OG19922	Uncharacterised protein family, LppY/LpqO [PFAM:Domain of Unknown Function (DUF1259)]	3	3
+OG19923	consensus disorder prediction	1	1
+OG19924	Ankyrin repeat-containing domain superfamily	4	4
+OG19925	consensus disorder prediction	3	3
+OG19926	consensus disorder prediction	2	2
+OG19927	SKP1/BTB/POZ domain superfamily [PFAM:BTB/POZ domain]	4	4
+OG19928	F-box-like domain superfamily	3	4
+OG19929	ANKYRIN REPEAT-CONTAINING PROTEIN	3	4
+OG19930	consensus disorder prediction	3	3
+OG19931	consensus disorder prediction	6	6
+OG19932	consensus disorder prediction	4	4
+OG19933	consensus disorder prediction	3	3
+OG19934	Domain of unknown function DUF5848 [PFAM:Family of unknown function (DUF5848)]	3	3
+OG19935	consensus disorder prediction	6	6
+OG19936	consensus disorder prediction	4	4
+OG19937	consensus disorder prediction	1	1
+OG19938	consensus disorder prediction	3	3
+OG19939	Alpha/Beta hydrolase fold	2	5
+OG19940	Ankyrin repeat [PFAM:Ankyrin repeat;Ankyrin repeats (3 copies);Ankyrin repeats (many copies)]	45	139
+OG19941	consensus disorder prediction	2	2
+OG19942	consensus disorder prediction	3	3
+OG19943	F-box-like domain superfamily	2	4
+OG19944	consensus disorder prediction	3	3
+OG19945	WD40/YVTN repeat-like-containing domain superfamily	3	3
+OG19946	Protein of unknown function DUF6081 [PFAM:Family of unknown function (DUF6081)]	2	2
+OG19948	consensus disorder prediction	7	7
+OG19949	DNA polymerase III, clamp loader complex, gamma/delta/delta subunit, C-terminal	3	4
+OG19950	P-loop containing nucleoside triphosphate hydrolase [PFAM:Helicase conserved C-terminal domain;SNF2-related domain]	3	4
+OG19951	consensus disorder prediction	2	2
+OG19952	Coil	3	6
+OG19953	consensus disorder prediction	3	3
+OG19954	consensus disorder prediction	2	2
+OG19955	P-loop containing nucleoside triphosphate hydrolase [PFAM:Type III restriction enzyme, res subunit]	2	2
+OG19956	consensus disorder prediction	3	5
+OG19957	F-box-like domain superfamily	1	2
+OG19958	consensus disorder prediction	3	3
+OG19959	Poxvirus VLTF3, late transcription factor [PFAM:Poxvirus Late Transcription Factor VLTF3 like]	3	3
+OG19960	consensus disorder prediction	4	4
+OG19961	consensus disorder prediction	5	5
+OG19962	P-loop containing nucleoside triphosphate hydrolase [PFAM:D5 N terminal like;Family of unknown function (DUF5906)]	2	3
+OG19963	consensus disorder prediction	7	7
+OG19964	consensus disorder prediction	3	3
+OG19965	Ribonuclease H superfamily	2	4
+OG19966	consensus disorder prediction	3	5
+OG19967	BTB/POZ domain	1	2
+OG19968	RPB5-like RNA polymerase subunit superfamily [PFAM:RNA polymerase Rpb5, C-terminal domain]	3	3
+OG19970	Domain of unknown function DUF5898 [PFAM:Family of unknown function (DUF5898)]	6	6
+OG19971	E3 ubiquitin-protein ligase TTC3/DZIP3 domain [PFAM:E3 ubiquitin-protein ligase TTC3/DZIP3 domain]	5	7
+OG19972	P-loop containing nucleoside triphosphate hydrolase [PFAM:DNA helicase Pif1, 2B domain;PIF1-like helicase]	3	3
+OG19973	Thioredoxin domain	2	2
+OG19974	ERV/ALR sulfhydryl oxidase domain superfamily	3	3
+OG19975	Protein kinase-like domain superfamily	2	2
+OG19976	consensus disorder prediction	2	2
+OG19977	consensus disorder prediction	2	2
+OG19978	consensus disorder prediction	3	3
+OG19979	JmjC domain [PFAM:Cupin-like domain]	3	4
+OG19980	Ankyrin repeat-containing domain superfamily	2	2
+OG19981	consensus disorder prediction	1	1
+OG19982	FAD/NAD(P)-binding domain superfamily [PFAM:NAD(P)-binding Rossmann-like domain]	1	1
+OG19983	consensus disorder prediction	7	7
+OG19984	consensus disorder prediction	3	3
+OG19985	F-box-like domain superfamily	1	2
+OG19986	consensus disorder prediction	5	5
+OG19987	MORN repeat [PFAM:F-box-like;MORN repeat]	4	6
+OG19988	consensus disorder prediction	5	5
+OG19989	Domain of unknown function DUF5878 [PFAM:Family of unknown function (DUF5878)]	3	5
+OG19990	F-box domain [PFAM:F-box-like]	6	7
+OG19991	RutC-like superfamily [PFAM:Endoribonuclease L-PSP]	4	4
+OG19992	Ankyrin repeat [PFAM:Ankyrin repeat;Ankyrin repeats (3 copies);Ankyrin repeats (many copies)]	1	4
+OG19993	Domain of unknown function DUF5900 [PFAM:Family of unknown function (DUF5900)]	6	6
+OG19994	Ankyrin repeat-containing domain superfamily	2	4
+OG19995	consensus disorder prediction	1	1
+OG19996	Metal-dependent hydrolase, composite domain superfamily [PFAM:Amidohydrolase family]	4	6
+OG19997	Protein of unknown function DUF5768 [PFAM:Family of unknown function (DUF5768)]	6	6
+OG19999	consensus disorder prediction	5	5
+OG2	Proliferating cell nuclear antigen, PCNA [PFAM:Proliferating cell nuclear antigen, C-terminal domain;Proliferating cell nuclear antigen, N-terminal domain]	18	18
+OG20000	consensus disorder prediction	4	4
+OG20003	consensus disorder prediction	2	2
+OG20004	Thioredoxin domain [PFAM:Thioredoxin]	1	1
+OG20005	Protein of unknown function DUF5885 [PFAM:Family of unknown function (DUF5885)]	3	3
+OG20007	consensus disorder prediction	3	3
+OG20008	Protein of unknown function DUF5870 [PFAM:Family of unknown function (DUF5870)]	3	3
+OG20012	Protein of unknown function DUF2935	5	5
+OG20014	5'-Nucleotidase/apyrase [PFAM:5'-nucleotidase, C-terminal domain]	4	4
+OG20015	Protein kinase domain [PFAM:Protein kinase domain]	3	4
+OG20017	F-box domain [PFAM:F-box-like]	4	5
+OG20018	P-loop containing nucleoside triphosphate hydrolase	2	6
+OG20019	MORN repeat [PFAM:MORN repeat]	3	6
+OG20020	consensus disorder prediction	3	3
+OG20021	Ankyrin repeat-containing domain superfamily	4	4
+OG20037	consensus disorder prediction	5	5
+OG20052	F-box domain [PFAM:F-box-like]	4	4
+OG20056	Family of unknown function DUF5690 [PFAM:Family of unknown function (DUF5690)]	3	4
+OG20062	consensus disorder prediction	3	3
+OG20069	consensus disorder prediction	2	2
+OG20084	consensus disorder prediction	3	4
+OG20086	consensus disorder prediction	8	8
+OG20091	consensus disorder prediction	1	1
+OG20093	consensus disorder prediction	9	9
+OG20094	S-adenosyl-L-methionine-dependent methyltransferase superfamily [PFAM:mRNA (guanine-N(7))-methyltransferase domain]	4	5
+OG201	PD-(D/E)XK endonuclease-like domain superfamily [PFAM:YqaJ-like viral recombinase domain]	12	44
+OG20106	F-box domain [PFAM:F-box-like]	4	5
+OG20143	RmlC-like cupin domain superfamily	2	6
+OG20145	Ribonuclease H superfamily	5	6
+OG20155	Glutamate/phenylalanine/leucine/valine/L-tryptophan dehydrogenase, C-terminal [PFAM:Glutamate/Leucine/Phenylalanine/Valine dehydrogenase]	2	3
+OG20170	consensus disorder prediction	5	5
+OG20185	consensus disorder prediction	4	4
+OG20186	Dyp-type peroxidase [PFAM:Dyp-type peroxidase, C-terminal;Dyp-type peroxidase, N-terminal]	4	4
+OG20187	P-loop containing nucleoside triphosphate hydrolase [PFAM:Helicase conserved C-terminal domain;Type III restriction enzyme, res subunit]	6	10
+OG20192	Pectin lyase fold/virulence factor	1	2
+OG20195	Family of unknown function DUF5690 [PFAM:Family of unknown function (DUF5690)]	3	3
+OG20196	Ankyrin repeat [PFAM:Ankyrin repeats (3 copies);Ankyrin repeats (many copies)]	5	19
+OG20207	consensus disorder prediction	2	3
+OG20212	consensus disorder prediction	6	6
+OG20230	Peptidase C1A, papain C-terminal [PFAM:Papain family cysteine protease]	2	2
+OG20243	Zinc finger, RING/FYVE/PHD-type	4	7
+OG20289	consensus disorder prediction	6	6
+OG20290	Group II dsDNA virus coat/capsid protein [PFAM:Major capsid protein N-terminus]	3	8
+OG20294	consensus disorder prediction	4	4
+OG203	Holliday junction resolvase, A22 [PFAM:Poxvirus A22 protein]	13	33
+OG20314	consensus disorder prediction	5	5
+OG20315	consensus disorder prediction	4	5
+OG20320	consensus disorder prediction	7	7
+OG20330	consensus disorder prediction	3	4
+OG20331	Ankyrin repeat [PFAM:Ankyrin repeat;Ankyrin repeats (3 copies);Ankyrin repeats (many copies)]	108	430
+OG20337	consensus disorder prediction	5	5
+OG20338	NUDIX hydrolase domain [PFAM:NUDIX domain]	3	7
+OG20339	consensus disorder prediction	6	7
+OG20373	consensus disorder prediction	1	1
+OG20382	consensus disorder prediction	4	4
+OG20392	Zinc finger, CCHC-type superfamily	3	5
+OG20400	consensus disorder prediction	6	6
+OG20408	Thioredoxin-like superfamily	4	6
+OG20411	Coil	2	3
+OG20427	F-box domain [PFAM:F-box-like]	2	4
+OG2049	Nucleotide-diphospho-sugar transferases [PFAM:Glycosyl transferase family 2]	8	8
+OG205	Coil	1	2
+OG20505	consensus disorder prediction	2	2
+OG20522	consensus disorder prediction	3	3
+OG20523	Protein kinase domain [PFAM:PBP superfamily domain;Protein kinase domain;Protein tyrosine and serine/threonine kinase]	1	3
+OG20535	consensus disorder prediction	2	2
+OG20545	P-loop containing nucleoside triphosphate hydrolase [PFAM:ATPase family associated with various cellular activities (AAA)]	4	4
+OG20556	consensus disorder prediction	4	4
+OG20557	RPB5-like RNA polymerase subunit superfamily [PFAM:RNA polymerase Rpb5, C-terminal domain]	6	7
+OG20575	consensus disorder prediction	6	7
+OG20580	consensus disorder prediction	7	7
+OG206	Nucleic acid-binding, OB-fold [PFAM:mRNA capping enzyme, C-terminal domain;mRNA capping enzyme, catalytic domain]	49	108
+OG20607	Ankyrin repeat-containing domain superfamily [PFAM:Ankyrin repeats (3 copies);F-box-like]	4	10
+OG2064	Coil	1	2
+OG20641	consensus disorder prediction	2	2
+OG20692	Protein of unknown function DUF5849 [PFAM:Family of unknown function (DUF5849)]	3	3
+OG2070	Zinc finger, RING-type [PFAM:Ring finger domain]	4	5
+OG20703	consensus disorder prediction	7	7
+OG20705	consensus disorder prediction	3	6
+OG20775	Protein of unknown function DUF5849 [PFAM:Family of unknown function (DUF5849)]	5	5
+OG20781	consensus disorder prediction	4	4
+OG20815	Uracil-DNA glycosylase family 1 [PFAM:Uracil DNA glycosylase superfamily]	5	5
+OG20843	consensus disorder prediction	5	5
+OG20844	Coil	2	4
+OG20848	consensus disorder prediction	5	5
+OG20849	consensus disorder prediction	3	4
+OG20851	Papain-like cysteine peptidase superfamily	5	6
+OG20858	consensus disorder prediction	8	8
+OG2088	Coil	2	3
+OG20880	F-box-like domain superfamily	1	2
+OG209	P-loop containing nucleoside triphosphate hydrolase [PFAM:Family of unknown function (DUF5906)]	46	74
+OG21	Heat shock protein 70, conserved site [PFAM:Hsp70 protein]	154	891
+OG210	GIY-YIG endonuclease superfamily [PFAM:GIY-YIG catalytic domain]	5	6
+OG21040	consensus disorder prediction	6	6
+OG21042	Endonuclease/exonuclease/phosphatase superfamily [PFAM:Endonuclease/Exonuclease/phosphatase family]	3	3
+OG21100	consensus disorder prediction	4	4
+OG2111	consensus disorder prediction	3	4
+OG21152	consensus disorder prediction	7	7
+OG21182	consensus disorder prediction	1	1
+OG21215	consensus disorder prediction	3	4
+OG21226	RPB5-like RNA polymerase subunit superfamily [PFAM:RNA polymerase Rpb5, C-terminal domain]	8	8
+OG21233	P-loop containing nucleoside triphosphate hydrolase [PFAM:Type III restriction enzyme, res subunit]	3	3
+OG21238	consensus disorder prediction	6	6
+OG21239	XPG/Rad2 endonuclease [PFAM:XPG I-region;XPG N-terminal domain]	8	9
+OG21249	consensus disorder prediction	7	7
+OG21366	Ubiquitin-activating enzyme E1, FCCH domain superfamily	4	6
+OG21395	Protein of unknown function DUF5885 [PFAM:Family of unknown function (DUF5885)]	3	3
+OG21401	Protein kinase domain [PFAM:Protein kinase domain]	9	9
+OG21402	consensus disorder prediction	2	2
+OG21403	Histidine acid phosphatase active site	1	2
+OG21421	F-box-like domain superfamily	2	4
+OG21453	Lambda repressor-like, DNA-binding domain superfamily	3	4
+OG21476	MORN repeat [PFAM:MORN repeat]	14	35
+OG21573	Poxvirus VLTF3, late transcription factor [PFAM:Poxvirus Late Transcription Factor VLTF3 like]	7	7
+OG21575	consensus disorder prediction	5	5
+OG21576	consensus disorder prediction	6	6
+OG21577	SKP1/BTB/POZ domain superfamily	2	2
+OG21578	consensus disorder prediction	1	1
+OG21579	consensus disorder prediction	3	3
+OG21580	consensus disorder prediction	3	3
+OG21581	HNH nuclease	3	5
+OG21582	consensus disorder prediction	4	4
+OG21583	Domain of unknown function DUF5848 [PFAM:Family of unknown function (DUF5848)]	3	4
+OG21584	consensus disorder prediction	5	5
+OG21585	Domain of unknown function DUF5878 [PFAM:Family of unknown function (DUF5878)]	3	3
+OG21586	F-box-like domain superfamily	1	2
+OG21587	MORN repeat [PFAM:MORN repeat]	8	9
+OG21588	F-box-like domain superfamily	2	2
+OG21589	NTF2-like domain superfamily	4	5
+OG21590	Protein kinase-like domain superfamily	1	2
+OG21591	consensus disorder prediction	4	4
+OG21592	consensus disorder prediction	6	6
+OG21593	F-box domain [PFAM:F-box-like;Pentapeptide repeats (8 copies)]	1	4
+OG21594	consensus disorder prediction	3	4
+OG21595	F-box_SF	1	2
+OG21596	PPM-type phosphatase-like domain [PFAM:Protein phosphatase 2C]	5	5
+OG21597	consensus disorder prediction	2	3
+OG21598	consensus disorder prediction	3	3
+OG21599	consensus disorder prediction	3	3
+OG21600	consensus disorder prediction	4	4
+OG21601	Dihydroneopterin aldolase/epimerase domain [PFAM:Dihydroneopterin aldolase]	5	5
+OG21603	consensus disorder prediction	5	5
+OG21604	SKP1/BTB/POZ domain superfamily	4	4
+OG21605	consensus disorder prediction	3	3
+OG21624	consensus disorder prediction	4	4
+OG21625	consensus disorder prediction	1	1
+OG21626	consensus disorder prediction	4	4
+OG21647	Ankyrin repeat-containing domain superfamily	3	3
+OG21648	Phosphoribosyltransferase-like [PFAM:Phosphoribosyl transferase domain]	4	5
+OG21649	consensus disorder prediction	3	4
+OG21650	7,8-Dihydro-6-hydroxymethylpterin-pyrophosphokinase, HPPK [PFAM:7,8-dihydro-6-hydroxymethylpterin-pyrophosphokinase (HPPK);Pterin binding enzyme]	3	4
+OG21651	Anthranilate synthase component I-like [PFAM:Amino-transferase class IV;Anthranilate synthase component I, N terminal region;Glutamine amidotransferase class-I;chorismate binding enzyme]	2	2
+OG2166	ERCC4 domain [PFAM:ERCC4 domain]	11	17
+OG21665	F-box-like domain superfamily	3	4
+OG21666	consensus disorder prediction	2	2
+OG21667	consensus disorder prediction	3	6
+OG21668	consensus disorder prediction	8	8
+OG21669	F-box domain	3	4
+OG21670	Ankyrin repeat-containing domain superfamily	3	5
+OG21671	P-loop containing nucleoside triphosphate hydrolase [PFAM:ATPase family associated with various cellular activities (AAA)]	3	3
+OG21672	Helicase, C-terminal [PFAM:Helicase conserved C-terminal domain;SNF2-related domain]	3	4
+OG21673	Zn-dependent exopeptidases	1	1
+OG21674	Glycosyltransferase, GlcNAc [PFAM:Glycosyltransferase (GlcNAc)]	3	3
+OG21675	consensus disorder prediction	4	4
+OG21676	consensus disorder prediction	1	1
+OG21677	consensus disorder prediction	4	4
+OG21678	Ankyrin repeat-containing domain superfamily	1	2
+OG21679	Peptidase C1A, papain C-terminal [PFAM:Papain family cysteine protease]	4	6
+OG21680	consensus disorder prediction	4	4
+OG21681	consensus disorder prediction	1	1
+OG21682	consensus disorder prediction	4	5
+OG21683	consensus disorder prediction	3	3
+OG21684	Ankyrin repeat-containing domain superfamily	5	6
+OG21687	consensus disorder prediction	4	5
+OG21693	Ribonuclease H-like superfamily [PFAM:Caulimovirus viroplasmin]	1	2
+OG21696	P-loop containing nucleoside triphosphate hydrolase	2	2
+OG21707	consensus disorder prediction	4	5
+OG21709	Protein of unknown function DUF5849 [PFAM:Family of unknown function (DUF5849)]	6	6
+OG21728	Serine-threonine/tyrosine-protein kinase, catalytic domain [PFAM:Adenylate and Guanylate cyclase catalytic domain;Protein tyrosine and serine/threonine kinase]	3	5
+OG21744	Protein of unknown function DUF3592 [PFAM:Protein of unknown function (DUF3592)]	4	5
+OG21760	consensus disorder prediction	5	5
+OG21787	Lipid desaturase domain [PFAM:Lipid desaturase domain]	3	3
+OG21808	consensus disorder prediction	2	2
+OG21820	von Willebrand factor A-like domain superfamily	3	4
+OG21826	Zinc finger, RING/FYVE/PHD-type	3	3
+OG21832	consensus disorder prediction	2	2
+OG21840	Cytochrome P450 [PFAM:Cytochrome P450]	1	2
+OG21842	Collagen triple helix repeat [PFAM:Collagen triple helix repeat (20 copies)]	2	3
+OG21855	GTP cyclohydrolase I [PFAM:GTP cyclohydrolase I]	51	256
+OG21861	F-box domain [PFAM:F-box-like;Pentapeptide repeats (8 copies)]	5	9
+OG219	mRNA capping enzyme, adenylation domain [PFAM:mRNA capping enzyme, catalytic domain]	42	81
+OG21938	Protein of unknown function DUF5843 [PFAM:Family of unknown function (DUF5843)]	4	5
+OG21959	consensus disorder prediction	7	7
+OG21964	consensus disorder prediction	4	4
+OG21983	UPF0759 superfamily [PFAM:Protein of unknown function DUF72;Ubiquitin carboxyl-terminal hydrolase]	5	9
+OG21990	consensus disorder prediction	2	3
+OG21991	consensus disorder prediction	3	3
+OG21992	Tumour necrosis factor-like domain superfamily [PFAM:Collagen triple helix repeat (20 copies)]	1	2
+OG21995	Ankyrin repeat-containing domain superfamily	3	4
+OG220	S-adenosyl-L-methionine-dependent methyltransferase superfamily [PFAM:RNA cap guanine-N2 methyltransferase]	4	4
+OG22038	consensus disorder prediction	4	7
+OG22051	P-loop containing nucleoside triphosphate hydrolase [PFAM:Helicase conserved C-terminal domain;RNA cap guanine-N2 methyltransferase;SNF2-related domain]	2	5
+OG22053	consensus disorder prediction	7	7
+OG22091	consensus disorder prediction	3	4
+OG22167	Domain of unknown function DUF5848 [PFAM:Family of unknown function (DUF5848)]	1	2
+OG22168	Glutathione synthetase ATP-binding domain-like	2	4
+OG2217	Protein kinase domain [PFAM:Protein kinase domain]	177	268
+OG22203	P-loop containing nucleoside triphosphate hydrolase [PFAM:ATPase family associated with various cellular activities (AAA);BCS1 N terminal]	2	3
+OG22204	consensus disorder prediction	1	1
+OG22217	consensus disorder prediction	7	7
+OG22235	consensus disorder prediction	1	1
+OG22269	consensus disorder prediction	7	7
+OG22301	NUDIX hydrolase-like domain superfamily	4	4
+OG22305	consensus disorder prediction	6	6
+OG22324	F-box-like domain superfamily	5	5
+OG22371	consensus disorder prediction	5	5
+OG22372	consensus disorder prediction	1	1
+OG224	Formamidopyrimidine-DNA glycosylase, catalytic domain [PFAM:Formamidopyrimidine-DNA glycosylase C-terminal domain;Formamidopyrimidine-DNA glycosylase H2TH domain;Formamidopyrimidine-DNA glycosylase N-terminal domain]	10	15
+OG22412	consensus disorder prediction	6	6
+OG22420	Campylobacter phage CGC-2007, Cje0229 [PFAM:Protein of unknown function (DUF1353)]	1	1
+OG22424	Protein of unknown function DUF3592 [PFAM:Protein of unknown function (DUF3592)]	2	3
+OG22439	Domain of unknown function DUF4326 [PFAM:Domain of unknown function (DUF4326)]	4	4
+OG22440	consensus disorder prediction	4	4
+OG22441	consensus disorder prediction	6	6
+OG22563	consensus disorder prediction	3	4
+OG22565	Papain-like cysteine peptidase superfamily	4	5
+OG22644	consensus disorder prediction	2	2
+OG22671	consensus disorder prediction	4	4
+OG2284	P-loop containing nucleoside triphosphate hydrolase [PFAM:DEAD/DEAH box helicase;Helicase conserved C-terminal domain]	16	51
+OG22882	SKP1/BTB/POZ domain superfamily [PFAM:ICP0-binding domain of Ubiquitin-specific protease 7]	3	5
+OG22888	consensus disorder prediction	5	7
+OG22976	consensus disorder prediction	2	2
+OG23010	Pectin lyase fold/virulence factor	1	2
+OG23025	Dihydrofolate reductase domain [PFAM:Dihydrofolate reductase]	4	4
+OG2307	Glutaredoxin	1	3
+OG23116	Protein of unknown function DUF2283 [PFAM:Protein of unknown function (DUF2283)]	9	10
+OG23120	2-cysteine adaptor [PFAM:2-cysteine adaptor domain]	2	2
+OG23150	Thioredoxin-like superfamily	2	2
+OG232	consensus disorder prediction	6	7
+OG2337	CDAN1-interacting nuclease 1 [PFAM:Protein of unknown function TPD sequence-motif]	26	32
+OG23417	consensus disorder prediction	3	3
+OG23459	Family of unknown function DUF5690 [PFAM:Family of unknown function (DUF5690)]	2	2
+OG23493	consensus disorder prediction	5	5
+OG23494	FAD/NAD(P)-binding domain superfamily [PFAM:GMC oxidoreductase]	1	2
+OG23495	consensus disorder prediction	4	4
+OG235	DNA topoisomerase I [PFAM:Bacterial DNA topoisomerase IB, N-terminal domain;Eukaryotic DNA topoisomerase I, catalytic core]	441	817
+OG2350	RPB5-like RNA polymerase subunit superfamily [PFAM:RNA polymerase Rpb5, C-terminal domain]	7	7
+OG23517	ERV/ALR sulfhydryl oxidase domain superfamily [PFAM:Erv1 / Alr family]	4	7
+OG23522	consensus disorder prediction	3	3
+OG23523	consensus disorder prediction	5	5
+OG23524	Actin-crosslinking	4	5
+OG23525	Domain of unknown function DUF5848 [PFAM:Family of unknown function (DUF5848)]	4	4
+OG23526	consensus disorder prediction	3	3
+OG23527	RmlC-like cupin domain superfamily [PFAM:Cupin domain]	2	2
+OG23528	consensus disorder prediction	1	1
+OG23529	consensus disorder prediction	2	2
+OG23530	consensus disorder prediction	6	6
+OG23531	Protein kinase-like domain superfamily [PFAM:ABC1 atypical kinase-like domain]	2	3
+OG23532	Zinc finger, GRF-type	2	3
+OG23533	Ankyrin repeat-containing domain superfamily	5	5
+OG23534	MORN repeat [PFAM:MORN repeat]	5	11
+OG23535	BTB/POZ domain	3	4
+OG23536	S-adenosyl-L-methionine-dependent methyltransferase superfamily [PFAM:Methyltransferase domain]	2	2
+OG23537	F420, menaquinone cofactor biosynthesis	3	3
+OG23541	consensus disorder prediction	6	6
+OG23546	consensus disorder prediction	1	1
+OG23547	FAD/NAD(P)-binding domain superfamily [PFAM:GMC oxidoreductase]	4	4
+OG23553	Helicase, C-terminal [PFAM:Helicase conserved C-terminal domain;SNF2-related domain]	7	9
+OG23565	consensus disorder prediction	4	4
+OG23566	Domain of unknown function DUF5848 [PFAM:Family of unknown function (DUF5848)]	4	5
+OG23568	consensus disorder prediction	2	2
+OG23569	consensus disorder prediction	2	2
+OG23570	MORN repeat [PFAM:F-box-like;MORN repeat;Pentapeptide repeats (8 copies)]	3	5
+OG23571	Ankyrin repeat [PFAM:Ankyrin repeats (3 copies);Ankyrin repeats (many copies)]	4	10
+OG23574	F-box domain [PFAM:F-box-like]	4	7
+OG23575	Collagen triple helix repeat [PFAM:Collagen triple helix repeat (20 copies)]	3	4
+OG23576	Trimeric LpxA-like superfamily	1	1
+OG23577	consensus disorder prediction	5	5
+OG23580	F-box-like domain superfamily	3	4
+OG23581	Prokaryotic membrane lipoprotein lipid attachment site profile.	1	2
+OG23582	consensus disorder prediction	5	5
+OG23583	consensus disorder prediction	4	4
+OG23584	consensus disorder prediction	6	6
+OG23585	Protein of unknown function DUF5849 [PFAM:Family of unknown function (DUF5849)]	4	4
+OG23586	Ankyrin repeat-containing domain superfamily	3	4
+OG23587	consensus disorder prediction	4	4
+OG23588	consensus disorder prediction	1	1
+OG23589	consensus disorder prediction	3	3
+OG23590	consensus disorder prediction	3	3
+OG23591	consensus disorder prediction	3	3
+OG23592	consensus disorder prediction	5	5
+OG23593	F-box-like domain superfamily	4	5
+OG23594	consensus disorder prediction	5	5
+OG23611	P-loop containing nucleoside triphosphate hydrolase [PFAM:SNF2-related domain]	4	8
+OG23612	Bacteriophage/plasmid primase, P4, C-terminal [PFAM:D5 N terminal like]	1	2
+OG23614	Cyclin-like superfamily	2	3
+OG23615	ERV/ALR sulfhydryl oxidase domain [PFAM:Erv1 / Alr family]	2	5
+OG23621	F-box-like domain superfamily	2	6
+OG23624	F-box domain [PFAM:F-box-like]	4	5
+OG23625	Protein of unknown function DUF5879 [PFAM:Family of unknown function (DUF5879)]	4	4
+OG23626	PDZ domain [PFAM:Trypsin-like peptidase domain]	1	1
+OG23627	consensus disorder prediction	1	1
+OG23628	Protein of unknown function DUF5768 [PFAM:Family of unknown function (DUF5768)]	5	5
+OG23674	consensus disorder prediction	2	2
+OG23692	Ankyrin repeat [PFAM:Ankyrin repeat;Ankyrin repeats (3 copies);Ankyrin repeats (many copies)]	39	145
+OG23697	Double-stranded RNA-binding domain [PFAM:Double-stranded RNA binding motif]	5	10
+OG237	mRNA triphosphatase Cet1-like superfamily [PFAM:mRNA capping enzyme, beta chain]	48	100
+OG23704	consensus disorder prediction	7	7
+OG23719	Ribonuclease H superfamily	2	7
+OG2372	Coil	3	5
+OG2375	consensus disorder prediction	5	5
+OG23753	consensus disorder prediction	1	1
+OG238	Prim-pol 4 [PFAM:Prim-pol 4]	23	73
+OG23827	consensus disorder prediction	2	2
+OG23858	JmjC domain [PFAM:Cupin-like domain]	5	7
+OG23895	consensus disorder prediction	6	6
+OG2391	DNA polymerase family X [PFAM:DNA polymerase beta palm;DNA polymerase beta thumb;Fingers domain of DNA polymerase lambda;Helix-hairpin-helix domain;Xylose isomerase-like TIM barrel]	20	67
+OG23932	Peptidase S26B [PFAM:Signal peptidase, peptidase S26]	5	7
+OG23944	consensus disorder prediction	7	7
+OG24004	Thioredoxin-like superfamily	6	7
+OG24119	Ribonuclease Z/Hydroxyacylglutathione hydrolase-like [PFAM:Beta-lactamase superfamily domain]	1	2
+OG24120	consensus disorder prediction	2	2
+OG24121	MORN repeat [PFAM:F-box-like;MORN repeat]	1	2
+OG24149	Dihydrofolate reductase-like domain superfamily [PFAM:Dihydrofolate reductase]	2	6
+OG24167	DNA-directed DNA polymerase, family B [PFAM:DNA polymerase family B;DNA polymerase family B, exonuclease domain]	8	8
+OG24169	consensus disorder prediction	4	4
+OG2428	Domain of unknown function DUF5872 [PFAM:Family of unknown function (DUF5872)]	50	58
+OG24322	Ankyrin repeat-containing domain superfamily	1	2
+OG24341	ERV/ALR sulfhydryl oxidase domain superfamily	5	8
+OG2435	Peptidase C1A, papain C-terminal [PFAM:Papain family cysteine protease]	15	15
+OG24374	consensus disorder prediction	1	1
+OG24447	SKP1/BTB/POZ domain superfamily [PFAM:BTB/POZ domain]	6	6
+OG24467	consensus disorder prediction	3	3
+OG245	von Willebrand factor A-like domain superfamily	3	7
+OG24673	consensus disorder prediction	1	1
+OG24674	consensus disorder prediction	3	3
+OG24716	consensus disorder prediction	4	4
+OG24766	consensus disorder prediction	3	4
+OG24805	TM_EGFR-like	1	1
+OG24881	consensus disorder prediction	5	5
+OG24907	Ankyrin repeat-containing domain superfamily [PFAM:F-box-like]	3	4
+OG2494	OST-HTH/LOTUS domain [PFAM:NYN domain;OST-HTH/LOTUS domain]	23	51
+OG24956	consensus disorder prediction	5	6
+OG25064	Ankyrin repeat-containing domain superfamily	6	8
+OG25065	SKP1/BTB/POZ domain superfamily	3	5
+OG251	Cryptochrome/DNA photolyase, FAD-binding domain [PFAM:Deoxyribodipyrimidine photo-lyase-related protein;FAD binding domain of DNA photolyase]	1	5
+OG2512	YspA, cpYpsA-related SLOG family [PFAM:YspA, cpYpsA-related SLOG family]	22	26
+OG25128	Poxvirus VLTF3, late transcription factor [PFAM:Poxvirus Late Transcription Factor VLTF3 like]	11	11
+OG25136	consensus disorder prediction	6	6
+OG25187	Intein [PFAM:DNA polymerase family B]	2	5
+OG25203	SKP1/BTB/POZ domain superfamily	4	7
+OG25237	consensus disorder prediction	8	8
+OG2527	consensus disorder prediction	6	9
+OG254	consensus disorder prediction	2	2
+OG25739	Thioredoxin domain [PFAM:Thioredoxin]	10	15
+OG25763	F-box domain	1	1
+OG25799	consensus disorder prediction	3	3
+OG25800	F-box domain [PFAM:F-box-like]	2	7
+OG25801	consensus disorder prediction	4	4
+OG25811	consensus disorder prediction	2	2
+OG25812	Kazal domain	3	3
+OG25813	F-box-like domain superfamily	2	3
+OG25816	P-loop containing nucleoside triphosphate hydrolase [PFAM:Type III restriction enzyme, res subunit]	7	7
+OG25851	DNA clamp superfamily	1	1
+OG25852	P-loop containing nucleoside triphosphate hydrolase	1	1
+OG25853	P-loop containing nucleoside triphosphate hydrolase [PFAM:Type III restriction enzyme, res subunit]	3	4
+OG25888	consensus disorder prediction	3	3
+OG25889	Ankyrin repeat-containing domain superfamily	1	2
+OG25891	Ankyrin repeat-containing domain superfamily	3	4
+OG25920	consensus disorder prediction	6	6
+OG25921	Ankyrin repeat-containing domain superfamily	3	4
+OG25922	consensus disorder prediction	4	4
+OG25923	Protein of unknown function DUF5849 [PFAM:Family of unknown function (DUF5849)]	1	1
+OG2593	Nucleotide-diphospho-sugar transferases [PFAM:Glycosyl transferase family 2;Glycosyltransferase family 25 (LPS biosynthesis protein)]	17	39
+OG25940	Domain of unknown function DUF5848 [PFAM:Family of unknown function (DUF5848);Family of unknown function (DUF5897)]	5	5
+OG25941	consensus disorder prediction	3	4
+OG25943	consensus disorder prediction	4	4
+OG25962	consensus disorder prediction	4	5
+OG25963	consensus disorder prediction	5	5
+OG25964	Zinc finger, TFIIS-type [PFAM:Transcription factor S-II (TFIIS)]	3	3
+OG25966	Protein FRG1 [PFAM:FRG1-like domain;Glycine-rich domain]	1	1
+OG25980	consensus disorder prediction	5	5
+OG25981	consensus disorder prediction	6	6
+OG25999	F-box-like domain superfamily	2	3
+OG26000	consensus disorder prediction	3	3
+OG26001	consensus disorder prediction	5	5
+OG26002	BTB/POZ domain	3	4
+OG26003	Sterile alpha motif/pointed domain superfamily	2	4
+OG26004	Domain of unknown function DUF5848 [PFAM:Family of unknown function (DUF5848)]	4	4
+OG26020	Glycine-rich domain [PFAM:FRG1-like domain;Glycine-rich domain]	1	2
+OG26021	consensus disorder prediction	4	4
+OG26022	Zinc finger, TFIIB-type	4	6
+OG26025	Glycoside hydrolase family 1 [PFAM:Glycosyl hydrolase family 1]	6	6
+OG26026	consensus disorder prediction	3	4
+OG26027	consensus disorder prediction	1	1
+OG26031	consensus disorder prediction	2	2
+OG26065	Coil	2	3
+OG26093	Autophagy-related protein 9 [PFAM:Autophagy protein ATG9]	7	7
+OG26094	RPB5-like RNA polymerase subunit superfamily [PFAM:RNA polymerase Rpb5, C-terminal domain]	7	8
+OG26095	consensus disorder prediction	8	8
+OG26096	Xrn1, N-terminal [PFAM:XRN 5'-3' exonuclease N-terminus;Xrn1 helical domain]	6	8
+OG26097	Protein of unknown function DUF5757 [PFAM:Family of unknown function (DUF5757)]	5	6
+OG26098	P-loop containing nucleoside triphosphate hydrolase [PFAM:AAA domain]	6	8
+OG26160	consensus disorder prediction	3	3
+OG2620	consensus disorder prediction	2	3
+OG26286	Translation Initiation factor eIF- 4e [PFAM:Eukaryotic initiation factor 4E]	2	2
+OG26450	Thioredoxin-like superfamily	3	8
+OG265	Protein of unknown function DUF4231 [PFAM:Protein of unknown function (DUF4231)]	13	13
+OG26546	consensus disorder prediction	4	4
+OG26551	consensus disorder prediction	3	3
+OG26557	Ankyrin repeat-containing domain superfamily	6	6
+OG26558	Cyclic nucleotide-binding domain	3	4
+OG26607	Ribonuclease H superfamily	4	8
+OG26628	RNA polymerase Rpb2, domain 7 [PFAM:RNA polymerase Rpb2, domain 7]	3	8
+OG2663	S-adenosyl-L-methionine-dependent methyltransferase superfamily [PFAM:Methyltransferase domain]	18	22
+OG26689	Restriction/modification DNA-methyltransferase [PFAM:DNA methylase]	16	110
+OG26732	consensus disorder prediction	6	6
+OG26878	consensus disorder prediction	5	5
+OG26938	Ankyrin repeat-containing domain superfamily [PFAM:F-box-like]	2	5
+OG2696	ABC transporter type 1, transmembrane domain superfamily	1	2
+OG26973	consensus disorder prediction	6	7
+OG27069	consensus disorder prediction	1	1
+OG2708	AP endonuclease 2 [PFAM:Xylose isomerase-like TIM barrel]	18	18
+OG2710	consensus disorder prediction	22	50
+OG27129	Aspartic peptidase domain superfamily	7	7
+OG27135	consensus disorder prediction	8	8
+OG2717	Coil	33	50
+OG27242	consensus disorder prediction	2	2
+OG27243	Ankyrin repeat-containing domain superfamily	4	4
+OG27248	consensus disorder prediction	4	7
+OG2725	consensus disorder prediction	1	1
+OG27340	consensus disorder prediction	3	3
+OG2749	P-loop containing nucleoside triphosphate hydrolase [PFAM:Type III restriction enzyme, res subunit]	66	72
+OG275	Metallo-dependent phosphatase-like [PFAM:Calcineurin-like phosphoesterase]	5	5
+OG2758	S-adenosyl-L-methionine-dependent methyltransferase superfamily [PFAM:Methyltransferase domain]	53	54
+OG276	Protein kinase domain	43	121
+OG27650	Domain of unknown function DUF5678 [PFAM:Family of unknown function (DUF5678)]	2	2
+OG27717	Zinc finger, CCCH-type	4	8
+OG27757	consensus disorder prediction	3	4
+OG27953	ERV/ALR sulfhydryl oxidase domain [PFAM:Erv1 / Alr family]	3	6
+OG27975	consensus disorder prediction	1	1
+OG28056	FMN-binding split barrel	4	5
+OG281	von Willebrand factor, type A [PFAM:Hint-domain;U-box domain;VWA / Hh  protein intein-like;von Willebrand factor type A domain]	12	16
+OG282	Nucleotide-diphospho-sugar transferases	4	7
+OG2843	consensus disorder prediction	6	6
+OG2847	RPB5-like RNA polymerase subunit superfamily [PFAM:RNA polymerase Rpb5, C-terminal domain]	29	35
+OG28680	consensus disorder prediction	2	2
+OG28681	consensus disorder prediction	2	2
+OG287	Protein of unknown function DUF5754 [PFAM:Family of unknown function (DUF5754)]	305	317
+OG28762	Cytidine deaminase-like	2	5
+OG28764	consensus disorder prediction	1	1
+OG28765	Zinc finger, TFIIS-type [PFAM:Transcription factor S-II (TFIIS)]	7	7
+OG28766	consensus disorder prediction	1	1
+OG28767	Endonuclease/exonuclease/phosphatase superfamily [PFAM:Endonuclease/Exonuclease/phosphatase family]	6	7
+OG288	HD domain [PFAM:HD domain]	3	4
+OG28815	Ankyrin repeat-containing domain superfamily	3	3
+OG28816	consensus disorder prediction	4	4
+OG28817	Ankyrin repeat-containing domain superfamily	4	4
+OG28818	BTB_POZ_ZBTB_KLHL-like	1	2
+OG28819	consensus disorder prediction	2	2
+OG28820	Hepatocyte Growth Factor	4	4
+OG28821	SKP1/BTB/POZ domain superfamily [PFAM:BTB/POZ domain]	3	3
+OG2888	consensus disorder prediction	4	7
+OG28887	SKP1/BTB/POZ domain superfamily [PFAM:BTB/POZ domain;ICP0-binding domain of Ubiquitin-specific protease 7]	2	2
+OG28888	F-box-like domain superfamily	4	5
+OG28889	MORN repeat [PFAM:F-box-like;MORN repeat]	2	7
+OG28890	consensus disorder prediction	1	1
+OG28891	consensus disorder prediction	3	4
+OG28892	consensus disorder prediction	4	4
+OG28916	Glycine-rich domain [PFAM:Glycine-rich domain]	1	1
+OG28919	consensus disorder prediction	1	1
+OG28921	F-box domain [PFAM:F-box-like]	2	4
+OG29033	consensus disorder prediction	3	4
+OG29034	S-adenosyl-L-methionine-dependent methyltransferase superfamily [PFAM:Methyltransferase domain]	5	7
+OG29035	consensus disorder prediction	7	7
+OG29036	consensus disorder prediction	4	5
+OG29037	P-loop containing nucleoside triphosphate hydrolase [PFAM:Deoxynucleoside kinase]	4	4
+OG29040	Glycogen Phosphorylase B;	2	3
+OG291	P-loop containing nucleoside triphosphate hydrolase	3	6
+OG29112	Actin-crosslinking [PFAM:FRG1-like domain;Glycine-rich domain]	1	2
+OG29113	consensus disorder prediction	7	7
+OG29114	Domain of unknown function DUF5848 [PFAM:Family of unknown function (DUF5848)]	4	4
+OG29115	consensus disorder prediction	3	3
+OG29116	consensus disorder prediction	4	4
+OG29117	consensus disorder prediction	3	3
+OG29118	consensus disorder prediction	3	3
+OG29120	consensus disorder prediction	3	3
+OG29181	consensus disorder prediction	5	5
+OG29183	consensus disorder prediction	1	1
+OG2919	Group II dsDNA virus coat/capsid protein	24	62
+OG29197	consensus disorder prediction	2	2
+OG29198	consensus disorder prediction	4	4
+OG29202	P-loop containing nucleoside triphosphate hydrolase	3	3
+OG2922	Coil	10	17
+OG29238	Coil	1	2
+OG29239	HNH nuclease	2	3
+OG2924	consensus disorder prediction	15	15
+OG29261	Protein of unknown function DUF5774 [PFAM:Family of unknown function (DUF5774)]	5	5
+OG29262	5'-Nucleotidase/apyrase [PFAM:5'-nucleotidase, C-terminal domain;Calcineurin-like phosphoesterase]	2	2
+OG29290	Ribonuclease III domain [PFAM:Ribonuclease III domain]	3	6
+OG2934	Coil	2	5
+OG29368	Ankyrin repeat-containing domain superfamily	2	4
+OG29369	consensus disorder prediction	3	4
+OG29380	consensus disorder prediction	5	5
+OG29397	F-box domain [PFAM:F-box-like]	4	4
+OG295	TBP domain superfamily [PFAM:Transcription factor TFIID (or TATA-binding protein, TBP)]	57	90
+OG2956	Protein kinase domain [PFAM:Protein kinase domain]	5	6
+OG29574	Poxvirus VLTF3, late transcription factor [PFAM:Poxvirus Late Transcription Factor VLTF3 like]	2	2
+OG29575	Dual specificity protein phosphatase domain [PFAM:Dual specificity phosphatase, catalytic domain]	1	2
+OG29577	Coil	1	3
+OG29597	P-loop containing nucleoside triphosphate hydrolase [PFAM:Helicase conserved C-terminal domain]	1	1
+OG29659	YjgF/YER057c/UK114 family [PFAM:Endoribonuclease L-PSP]	2	3
+OG29661	Ankyrin repeat-containing domain superfamily	3	5
+OG29662	SKP1/BTB/POZ domain superfamily [PFAM:BTB/POZ domain]	6	7
+OG29736	Actin-crosslinking [PFAM:Glycine-rich domain]	2	3
+OG29758	Protein kinase domain [PFAM:Protein kinase domain]	5	5
+OG29767	consensus disorder prediction	8	8
+OG29873	MORN repeat [PFAM:MORN repeat]	9	18
+OG29911	Papain-like cysteine peptidase superfamily	4	4
+OG3	Transcription factor TFIIB [PFAM:TFIIB zinc-binding;Transcription factor TFIIB repeat]	13	18
+OG30139	consensus disorder prediction	6	7
+OG30140	Ankyrin repeat-containing domain superfamily	5	6
+OG3019	Nucleotide-diphospho-sugar transferases [PFAM:Cryptococcal mannosyltransferase 1]	2	4
+OG3020	Serine/threonine-specific protein phosphatase/bis(5-nucleosyl)-tetraphosphatase [PFAM:Calcineurin-like phosphoesterase]	433	2258
+OG30209	consensus disorder prediction	5	5
+OG30225	Dihydrofolate reductase-like domain superfamily [PFAM:Dihydrofolate reductase]	2	3
+OG303	Thioredoxin-like superfamily	4	9
+OG3047	Coil	12	20
+OG30538	consensus disorder prediction	1	1
+OG30539	consensus disorder prediction	2	3
+OG3058	DHH phosphoesterase superfamily	23	36
+OG3060	Coil	3	4
+OG3066	Coil	33	35
+OG30833	Ankyrin repeat [PFAM:Ankyrin repeats (3 copies);Ankyrin repeats (many copies)]	37	97
+OG3084	RPB6/omega subunit-like superfamily	18	19
+OG3087	consensus disorder prediction	17	30
+OG3088	consensus disorder prediction	20	29
+OG3091	Armadillo-type fold	29	59
+OG30922	consensus disorder prediction	7	7
+OG310	consensus disorder prediction	33	39
+OG3103	Coil	3	3
+OG31090	Prokaryotic membrane lipoprotein lipid attachment site profile.	1	1
+OG31136	DNA polymerase III, clamp loader complex, gamma/delta/delta subunit, C-terminal [PFAM:Replication factor C C-terminal domain]	4	7
+OG312	Protein of unknown function DUF5831 [PFAM:Family of unknown function (DUF5831)]	46	49
+OG3130	consensus disorder prediction	2	3
+OG31342	EGF-like domain	4	8
+OG31355	Coil	1	2
+OG314	Helicase, C-terminal [PFAM:DEAD/DEAH box helicase;Helicase conserved C-terminal domain]	3	5
+OG3143	RNA polymerase Rpb7-like, N-terminal domain superfamily	21	22
+OG31545	consensus disorder prediction	1	1
+OG31590	Ankyrin repeat [PFAM:Ankyrin repeat;Ankyrin repeats (3 copies);Ankyrin repeats (many copies)]	232	788
+OG3173	P-loop containing nucleoside triphosphate hydrolase [PFAM:Helicase conserved C-terminal domain]	41	51
+OG31759	Ankyrin repeat-containing domain superfamily [PFAM:Ankyrin repeats (many copies)]	7	33
+OG3225	consensus disorder prediction	35	52
+OG32259	Protein kinase domain [PFAM:Protein kinase domain]	7	7
+OG3226	Coil	15	35
+OG32289	consensus disorder prediction	4	4
+OG3232	consensus disorder prediction	4	5
+OG32478	consensus disorder prediction	5	5
+OG32479	consensus disorder prediction	3	3
+OG32489	consensus disorder prediction	2	2
+OG3249	P-loop containing nucleoside triphosphate hydrolase	25	58
+OG32490	YjgF/YER057c/UK114 family [PFAM:Endoribonuclease L-PSP]	1	1
+OG32493	ANKYRIN REPEAT-CONTAINING PROTEIN	1	1
+OG32495	consensus disorder prediction	4	4
+OG325	LysM domain [PFAM:LysM domain]	13	31
+OG3254	S-adenosyl-L-methionine-dependent methyltransferase superfamily [PFAM:mRNA (guanine-N(7))-methyltransferase domain]	15	30
+OG32596	ERCC4 domain [PFAM:ERCC4 domain]	4	4
+OG32602	RPB5-like RNA polymerase subunit superfamily [PFAM:RNA polymerase Rpb5, C-terminal domain]	2	3
+OG3263	P-loop containing nucleoside triphosphate hydrolase	2	4
+OG3267	HSP20-like chaperone [PFAM:CS domain]	58	165
+OG32731	DNA-directed RNA polymerase subunit RPABC5/Rpb10 [PFAM:RNA polymerases N / 8 kDa subunit]	4	6
+OG32734	Chaperone J-domain superfamily	2	5
+OG32735	Ribonuclease H domain [PFAM:RNase H]	4	5
+OG32736	Domain of unknown function DUF4326 [PFAM:Domain of unknown function (DUF4326)]	1	1
+OG328	Protein of unknown function DUF2784 [PFAM:Protein of Unknown function (DUF2784)]	13	16
+OG3282	Cyclin-like superfamily	9	27
+OG32860	consensus disorder prediction	1	1
+OG32862	Ankyrin repeat-containing domain superfamily	3	3
+OG32863	consensus disorder prediction	3	3
+OG32864	consensus disorder prediction	2	3
+OG32865	Ankyrin repeat-containing domain superfamily	2	3
+OG32866	consensus disorder prediction	1	1
+OG32867	MORN repeat [PFAM:F-box-like;MORN repeat]	2	3
+OG32869	BTB/POZ domain	3	3
+OG32870	F-box domain [PFAM:F-box-like]	2	3
+OG32871	P-loop containing nucleoside triphosphate hydrolase [PFAM:ATPase family associated with various cellular activities (AAA)]	1	1
+OG32872	consensus disorder prediction	4	4
+OG32873	consensus disorder prediction	1	1
+OG32874	Ankyrin repeat [PFAM:Ankyrin repeat;Ankyrin repeats (3 copies);Ankyrin repeats (many copies)]	1	2
+OG32875	Domain of unknown function DUF5860 [PFAM:Family of unknown function (DUF5860)]	4	4
+OG32876	Domain of unknown function DUF5860 [PFAM:Family of unknown function (DUF5860)]	4	4
+OG32877	Ankyrin repeat-containing domain superfamily	3	4
+OG32878	F-box-like domain superfamily	2	2
+OG32879	SKP1/BTB/POZ domain superfamily [PFAM:BTB/POZ domain]	2	2
+OG32880	consensus disorder prediction	4	4
+OG32881	consensus disorder prediction	2	2
+OG32882	consensus disorder prediction	6	6
+OG32883	Domain of unknown function DUF5860 [PFAM:Family of unknown function (DUF5860)]	4	4
+OG32884	consensus disorder prediction	4	4
+OG32885	consensus disorder prediction	2	2
+OG32886	consensus disorder prediction	3	3
+OG32888	consensus disorder prediction	1	1
+OG32889	SKP1/BTB/POZ domain superfamily	3	3
+OG3289	P-loop containing nucleoside triphosphate hydrolase [PFAM:Helicase conserved C-terminal domain]	22	70
+OG32890	Domain of unknown function DUF5878 [PFAM:Family of unknown function (DUF5878)]	2	2
+OG32891	consensus disorder prediction	4	4
+OG32892	consensus disorder prediction	1	1
+OG32893	consensus disorder prediction	1	1
+OG32894	consensus disorder prediction	4	4
+OG32895	HAD superfamily [PFAM:HAD superfamily, subfamily IIIB (Acid phosphatase)]	2	4
+OG32896	ANKYRIN REPEAT-CONTAINING PROTEIN	2	3
+OG32897	consensus disorder prediction	1	1
+OG32898	MORN repeat [PFAM:F-box-like;MORN repeat]	4	11
+OG32899	Protein of unknown function DUF5766 [PFAM:Family of unknown function (DUF5766)]	3	3
+OG32901	consensus disorder prediction	1	1
+OG32902	F-box domain [PFAM:F-box-like]	3	4
+OG32904	consensus disorder prediction	1	1
+OG32906	consensus disorder prediction	5	5
+OG32907	consensus disorder prediction	3	3
+OG3300	Phosphatidic acid phosphatase type 2/haloperoxidase [PFAM:PAP2 superfamily]	7	19
+OG33028	Histone H3 K4-specific methyltransferase SET7/9 N-terminal domain	3	3
+OG33066	Coil	1	2
+OG33076	Protein kinase-like domain superfamily	3	3
+OG33077	consensus disorder prediction	2	2
+OG33126	consensus disorder prediction	1	1
+OG33139	Ankyrin repeat [PFAM:Ankyrin repeats (3 copies);Ankyrin repeats (many copies)]	1	4
+OG33140	Domain of unknown function DUF5848 [PFAM:Family of unknown function (DUF5848)]	2	3
+OG3328	Coil	5	13
+OG3331	consensus disorder prediction	24	34
+OG33483	Coil	2	2
+OG33484	consensus disorder prediction	5	5
+OG33485	Coil	1	1
+OG3349	SprT-like [PFAM:SprT-like family]	3	5
+OG3354	Concanavalin A-like lectin/glucanase domain superfamily	21	32
+OG33640	consensus disorder prediction	1	1
+OG33641	Ankyrin repeat [PFAM:Ankyrin repeats (3 copies);Ankyrin repeats (many copies)]	1	7
+OG33642	F-box-like domain superfamily	1	2
+OG33643	consensus disorder prediction	2	3
+OG33713	S-adenosyl-L-methionine-dependent methyltransferase superfamily [PFAM:FtsJ-like methyltransferase]	3	6
+OG3373	consensus disorder prediction	2	2
+OG3379	consensus disorder prediction	2	5
+OG338	PPM-type phosphatase-like domain [PFAM:Protein phosphatase 2C]	531	888
+OG33817	P-loop containing nucleoside triphosphate hydrolase [PFAM:Helicase conserved C-terminal domain;SNF2-related domain]	2	5
+OG3384	Cullin protein, neddylation domain [PFAM:Cullin family;Cullin protein neddylation domain]	3	5
+OG33851	consensus disorder prediction	4	4
+OG33852	Actin-crosslinking [PFAM:Glycine-rich domain]	2	3
+OG33853	MORN repeat [PFAM:F-box-like;MORN repeat]	4	12
+OG33854	Ankyrin repeat-containing domain superfamily [PFAM:F-box-like]	1	2
+OG33895	Leucine-rich repeat, typical subtype [PFAM:Leucine Rich Repeat;Leucine rich repeat]	16	117
+OG33896	consensus disorder prediction	2	3
+OG3392	Chromosomal protein MC1 superfamily	35	39
+OG3399	consensus disorder prediction	12	14
+OG33996	Domain of unknown function DUF5902 [PFAM:Family of unknown function (DUF5902)]	2	2
+OG33997	Ubiquitin-like domain [PFAM:Ubiquitin family]	3	4
+OG33998	Kae1/TsaD family [PFAM:Telomere recombination;ThiF family;Threonylcarbamoyl-AMP synthase, C-terminal domain;tRNA N6-adenosine threonylcarbamoyltransferase]	1	1
+OG33999	consensus disorder prediction	3	3
+OG340	Papain-like cysteine peptidase superfamily	5	6
+OG3400	Coil	1	2
+OG34000	Prokaryotic membrane lipoprotein lipid attachment site profile.	1	2
+OG34038	S-adenosyl-L-methionine-dependent methyltransferase superfamily	2	2
+OG34209	F-box domain	1	3
+OG34210	consensus disorder prediction	2	3
+OG34211	consensus disorder prediction	5	5
+OG34261	ATP synthase subunit alpha, N-terminal domain-like superfamily	2	2
+OG3430	consensus disorder prediction	9	16
+OG345	Glycosyl transferase, family 1 [PFAM:Glycosyl transferases group 1]	62	84
+OG34598	Coil	1	2
+OG347	NTP pyrophosphohydrolase MazG-like domain [PFAM:MazG nucleotide pyrophosphohydrolase domain]	20	47
+OG3477	P-loop containing nucleoside triphosphate hydrolase [PFAM:AAA+ lid domain;ATPase family associated with various cellular activities (AAA);Cell division protein 48 (CDC48), N-terminal domain;Cell division protein 48 (CDC48), domain 2]	198	1005
+OG348	Peptidase C19, ubiquitin carboxyl-terminal hydrolase [PFAM:Ubiquitin carboxyl-terminal hydrolase]	42	106
+OG3482	consensus disorder prediction	1	1
+OG3490	ERV/ALR sulfhydryl oxidase domain superfamily [PFAM:Erv1 / Alr family]	18	35
+OG3491	consensus disorder prediction	1	1
+OG350	DNA polymerase family X [PFAM:DNA polymerase beta palm;DNA polymerase beta thumb;Fingers domain of DNA polymerase lambda;Helix-hairpin-helix domain]	80	260
+OG35016	S-adenosyl-L-methionine-dependent methyltransferase superfamily	1	2
+OG35017	consensus disorder prediction	1	1
+OG35018	Zinc finger C2H2-type [PFAM:Zinc finger, C2H2 type;Zinc-finger of C2H2 type]	1	1
+OG35019	consensus disorder prediction	1	1
+OG35020	Pentapeptide repeat-like	1	1
+OG35021	S-adenosyl-L-methionine-dependent methyltransferase superfamily	3	4
+OG35022	Acyl-CoA N-acyltransferase [PFAM:Tubulin-tyrosine ligase family]	1	3
+OG35023	consensus disorder prediction	1	1
+OG3521	Bifunctional purine biosynthesis protein PurH-like [PFAM:AICARFT/IMPCHase bienzyme]	3	3
+OG35218	F-box domain [PFAM:F-box-like;Family of unknown function (DUF5900)]	4	5
+OG35219	consensus disorder prediction	2	2
+OG354	Protein of unknown function DUF5763 [PFAM:Family of unknown function (DUF5763)]	121	130
+OG35464	F-box domain [PFAM:F-box-like]	1	2
+OG35465	MORN repeat [PFAM:MORN repeat]	10	26
+OG35466	Ankyrin repeat [PFAM:Ankyrin repeats (3 copies);Ankyrin repeats (many copies)]	1	3
+OG35467	consensus disorder prediction	4	4
+OG35504	Holliday junction resolvase, A22 [PFAM:Poxvirus A22 protein]	3	5
+OG3554	Link domain [PFAM:Extracellular link domain]	39	40
+OG35568	Competence-induced protein CoiA-like [PFAM:Competence protein CoiA-like family]	2	2
+OG3577	consensus disorder prediction	23	25
+OG35812	MORN repeat [PFAM:MORN repeat]	11	27
+OG35813	Ankyrin repeat [PFAM:Ankyrin repeats (3 copies);Ankyrin repeats (many copies)]	29	73
+OG35814	consensus disorder prediction	4	4
+OG3588	consensus disorder prediction	2	4
+OG3591	consensus disorder prediction	9	12
+OG3596	Glycosyl transferase, family 1 [PFAM:Glycosyl transferases group 1]	42	58
+OG35999	consensus disorder prediction	3	3
+OG3600	Coil	1	2
+OG3604	P-loop containing nucleoside triphosphate hydrolase [PFAM:ATPase family associated with various cellular activities (AAA)]	29	30
+OG3609	Zinc beta-ribbon	6	15
+OG3613	P-loop containing nucleoside triphosphate hydrolase [PFAM:Helicase conserved C-terminal domain;SNF2-related domain]	15	42
+OG36149	Ankyrin repeat-containing domain superfamily	2	3
+OG3615	consensus disorder prediction	20	24
+OG36150	consensus disorder prediction	2	2
+OG36489	consensus disorder prediction	5	5
+OG3649	consensus disorder prediction	48	52
+OG36492	consensus disorder prediction	1	1
+OG36493	Eggshell protein signature	1	3
+OG365	Protein of unknown function DUF5871 [PFAM:Family of unknown function (DUF5871)]	100	100
+OG366	Uracil-DNA glycosylase family 1 [PFAM:Uracil DNA glycosylase superfamily]	7	10
+OG36676	Transmembrane protein TauE-like [PFAM:Sulfite exporter TauE/SafE]	3	3
+OG36686	RNA polymerase subunit RPB10	3	3
+OG36716	Coil	1	2
+OG3693	Zinc beta-ribbon	14	21
+OG3700	Zinc finger, TFIIS-type [PFAM:Transcription factor S-II (TFIIS)]	11	13
+OG372	P-loop containing nucleoside triphosphate hydrolase	69	114
+OG3725	P-loop containing nucleoside triphosphate hydrolase [PFAM:Thymidylate kinase]	114	334
+OG375	VSR Endonuclease	15	17
+OG376	S-adenosyl-L-methionine-dependent methyltransferase superfamily [PFAM:mRNA (guanine-N(7))-methyltransferase domain]	63	91
+OG3769	Ribonuclease III domain [PFAM:Ribonuclease III domain]	43	60
+OG37758	Protein of unknown function DUF5762 [PFAM:Family of unknown function (DUF5762)]	3	3
+OG3781	Thioredoxin domain [PFAM:Thioredoxin]	10	17
+OG379	NUDIX hydrolase domain [PFAM:NUDIX domain]	31	41
+OG37996	BRCT domain [PFAM:BRCA1 C Terminus (BRCT) domain;Helix-hairpin-helix domain;NAD-dependent DNA ligase OB-fold domain;NAD-dependent DNA ligase adenylation domain]	3	5
+OG37997	S-adenosyl-L-methionine-dependent methyltransferase superfamily	5	5
+OG37998	DNA-directed DNA polymerase, family B [PFAM:DNA polymerase family B;DNA polymerase family B, exonuclease domain]	4	5
+OG37999	Poxvirus VLTF3, late transcription factor [PFAM:Poxvirus Late Transcription Factor VLTF3 like]	5	5
+OG381	DNA topoisomerase I [PFAM:C-terminal topoisomerase domain;Eukaryotic DNA topoisomerase I, DNA binding fragment;Eukaryotic DNA topoisomerase I, catalytic core]	1	1
+OG3819	Nucleotide-diphospho-sugar transferases	8	43
+OG3820	Protein of unknown function DUF5661 [PFAM:Protein of unknown function (DUF5661)]	5	5
+OG3842	Kinesin motor domain [PFAM:Kinesin motor domain]	27	37
+OG3848	Replication origin-binding protein [PFAM:Origin of replication binding protein]	15	19
+OG385	UV-endonuclease UvdE [PFAM:UV-endonuclease UvdE]	5	5
+OG387	consensus disorder prediction	51	59
+OG38731	P-loop containing nucleoside triphosphate hydrolase [PFAM:AAA domain]	3	3
+OG38732	P-loop containing nucleoside triphosphate hydrolase [PFAM:Poxvirus A32 protein]	2	2
+OG38734	Phosphatidic acid phosphatase type 2/haloperoxidase superfamily	2	3
+OG38735	YbiA-like superfamily	2	3
+OG389	consensus disorder prediction	38	63
+OG390	consensus disorder prediction	99	201
+OG39131	Coil	1	1
+OG39133	consensus disorder prediction	5	5
+OG39215	P-loop containing nucleoside triphosphate hydrolase [PFAM:DNA helicase Pif1, 2B domain;PIF1-like helicase]	1	1
+OG39218	Coil	1	1
+OG39220	Coil	1	1
+OG3923	Poxvirus VLTF3, late transcription factor [PFAM:Poxvirus Late Transcription Factor VLTF3 like]	62	67
+OG3956	FAD/NAD(P)-binding domain superfamily [PFAM:Pyridine nucleotide-disulphide oxidoreductase]	3	3
+OG39616	RPB6/omega subunit-like superfamily	4	4
+OG3970	Nucleic acid-binding, OB-fold [PFAM:mRNA capping enzyme, C-terminal domain;mRNA capping enzyme, catalytic domain]	17	36
+OG3994	SLATT domain	3	6
+OG4	P-loop containing nucleoside triphosphate hydrolase	68	111
+OG4001	ATP synthase subunit alpha, N-terminal domain-like superfamily	45	45
+OG40078	Coil	1	1
+OG40095	consensus disorder prediction	4	5
+OG401	consensus disorder prediction	5	6
+OG402	Domain of unknown function DUF5899 [PFAM:Family of unknown function (DUF5899)]	90	91
+OG4027	TBP domain superfamily	11	25
+OG4045	Xrn1, helical domain [PFAM:XRN 5'-3' exonuclease N-terminus;Xrn1 helical domain]	38	58
+OG4046	Virion membrane protein, poxvirus L1-related [PFAM:Lipid membrane protein of large eukaryotic DNA viruses]	4	7
+OG40854	Cell-surface Ig-like, bacterial [PFAM:Bacterial Ig-like domain;Bacterial cadherin-like domain]	1	1
+OG4118	consensus disorder prediction	7	7
+OG412	consensus disorder prediction	4	6
+OG4121	consensus disorder prediction	6	10
+OG4124	Nucleic acid-binding, OB-fold [PFAM:ATP dependent DNA ligase domain;DNA ligase OB-like domain]	60	117
+OG415	Phosphatidylinositol 3-/4-kinase, catalytic domain [PFAM:FYVE zinc finger;Phosphatidylinositol 3- and 4-kinase;Phosphoinositide 3-kinase family, accessory domain (PIK domain)]	16	30
+OG41529	consensus disorder prediction	2	2
+OG41534	Coil	1	1
+OG41645	Nucleotidyltransferase superfamily	1	2
+OG41647	Protein of unknown function DUF1963 [PFAM:Domain of unknown function (DUF1963)]	1	2
+OG41648	consensus disorder prediction	4	4
+OG41686	consensus disorder prediction	3	5
+OG417	FAD/NAD(P)-binding domain superfamily [PFAM:NAD(P)-binding Rossmann-like domain]	4	5
+OG4174	consensus disorder prediction	4	10
+OG4184	Heliorhodopsin [PFAM:Heliorhodopsin]	20	20
+OG4187	ERV/ALR sulfhydryl oxidase domain superfamily [PFAM:Erv1 / Alr family]	36	66
+OG419	FCP1 homology domain [PFAM:NLI interacting factor-like phosphatase]	87	88
+OG41908	PD-(D/E)XK endonuclease-like domain superfamily [PFAM:YqaJ-like viral recombinase domain]	2	5
+OG41909	Ribosomal RNA methyltransferase, FtsJ domain [PFAM:FtsJ-like methyltransferase]	4	5
+OG41912	Coil	1	1
+OG4201	Cyclin-like superfamily	25	36
+OG4207	Intramolecular chaperone auto-processing domain [PFAM:Chaperone of endosialidase]	3	9
+OG421	consensus disorder prediction	14	15
+OG4222	consensus disorder prediction	2	10
+OG4225	Large-conductance mechanosensitive channel MscL	4	6
+OG424	Thiamin diphosphate-binding fold [PFAM:Thiamine pyrophosphate enzyme, C-terminal TPP binding domain;Thiamine pyrophosphate enzyme, N-terminal TPP binding domain;Thiamine pyrophosphate enzyme, central domain]	68	176
+OG42468	TBP domain superfamily [PFAM:Transcription factor TFIID (or TATA-binding protein, TBP)]	2	3
+OG42469	Hemopexin-like domain superfamily	3	5
+OG426	Thioredoxin-like superfamily	74	138
+OG42601	S-adenosyl-L-methionine-dependent methyltransferase superfamily	4	5
+OG42632	consensus disorder prediction	2	3
+OG42741	Zinc beta-ribbon	2	5
+OG4308	Virion membrane protein, poxvirus L1-related [PFAM:Lipid membrane protein of large eukaryotic DNA viruses]	9	9
+OG43510	Ankyrin repeat [PFAM:Ankyrin repeat;Ankyrin repeats (3 copies);Ankyrin repeats (many copies)]	16	50
+OG436	Transcription factor TFIIB [PFAM:Transcription factor TFIIB repeat]	74	85
+OG4379	consensus disorder prediction	9	10
+OG438	Protein kinase domain [PFAM:Protein kinase domain]	1397	1979
+OG440	PD-(D/E)XK endonuclease-like domain superfamily	9	13
+OG4430	Protein kinase-like domain superfamily	31	33
+OG4458	consensus disorder prediction	5	5
+OG448	Poxvirus VLTF3, late transcription factor [PFAM:Poxvirus Late Transcription Factor VLTF3 like]	7	7
+OG44842	P-loop containing nucleoside triphosphate hydrolase [PFAM:Helicase conserved C-terminal domain;Ring finger domain;SNF2-related domain]	1	2
+OG45180	Zinc finger, CCCH-type	1	2
+OG45182	Alpha/Beta hydrolase fold [PFAM:alpha/beta hydrolase fold]	2	2
+OG45183	Coil	2	2
+OG45184	PAN/Apple domain [PFAM:PAN domain]	2	2
+OG45185	Ribonuclease H domain [PFAM:RNase H]	20	43
+OG45186	consensus disorder prediction	2	2
+OG45188	Protein kinase domain [PFAM:Protein kinase domain]	1	2
+OG45189	Ribonuclease III domain [PFAM:Ribonuclease III domain]	2	2
+OG45190	Peptidase C1A, papain C-terminal [PFAM:Papain family cysteine protease]	2	2
+OG45199	High mobility group box domain [PFAM:HMG (high mobility group) box]	1	2
+OG455	consensus disorder prediction	13	13
+OG4561	Virion membrane protein, poxvirus L1-related [PFAM:Lipid membrane protein of large eukaryotic DNA viruses]	25	26
+OG45660	P-loop containing nucleoside triphosphate hydrolase [PFAM:Type III restriction enzyme, res subunit]	3	4
+OG4599	Coil	3	3
+OG46	PD-(D/E)XK endonuclease-like domain superfamily	4	9
+OG4615	ATP synthase subunit alpha, N-terminal domain-like superfamily	3	7
+OG462	Protein of unknown function DUF3339 [PFAM:Protein of unknown function (DUF3339)]	41	48
+OG4628	consensus disorder prediction	3	3
+OG46324	P-loop containing nucleoside triphosphate hydrolase [PFAM:Type III restriction enzyme, res subunit]	3	3
+OG4636	Alpha-ketoacid/pyruvate dehydrogenase kinase, N-terminal domain superfamily [PFAM:Histidine kinase-, DNA gyrase B-, and HSP90-like ATPase;Mitochondrial branched-chain alpha-ketoacid dehydrogenase kinase]	7	20
+OG4648	Tubulin-tyrosine ligase/Tubulin polyglutamylase [PFAM:Tubulin-tyrosine ligase family]	13	13
+OG46518	TRIAD supradomain	1	3
+OG467	S-adenosyl-L-methionine-dependent methyltransferase superfamily [PFAM:mRNA (guanine-N(7))-methyltransferase domain]	43	193
+OG469	Family of unknown function DUF5654 [PFAM:Family of unknown function (DUF5654)]	52	52
+OG46911	P-loop containing nucleoside triphosphate hydrolase [PFAM:ATPase family associated with various cellular activities (AAA);Replication factor C C-terminal domain]	2	3
+OG47015	von Willebrand factor A-like domain superfamily	1	2
+OG4703	consensus disorder prediction	1	1
+OG471	P-loop containing nucleoside triphosphate hydrolase	59	108
+OG47193	consensus disorder prediction	1	1
+OG472	RNA polymerase, RBP11-like subunit [PFAM:RNA polymerase Rpb3/Rpb11 dimerisation domain]	170	196
+OG473	Poly(A) polymerase catalytic subunit [PFAM:APMV, Putative poly(A) polymerase, catalytic subunit, C-terminal;Poly(A) polymerase catalytic subunit]	98	200
+OG475	Protein of unknown function DUF5871 [PFAM:Family of unknown function (DUF5871)]	72	87
+OG476	Coil	1	1
+OG47624	Homeobox domain [PFAM:Homeodomain]	4	4
+OG47674	Ribonuclease III domain	1	4
+OG47905	PIN-like domain superfamily [PFAM:XRN 5'-3' exonuclease N-terminus]	2	3
+OG47906	Dihydrofolate reductase domain [PFAM:Dihydrofolate reductase;Thymidylate synthase]	2	4
+OG4796	LicD family [PFAM:LicD family]	1	2
+OG4797	consensus disorder prediction	13	14
+OG4799	Coil	5	10
+OG48	FAD/NAD(P)-binding domain superfamily [PFAM:Flavin containing amine oxidoreductase]	2	7
+OG482	Thioredoxin domain [PFAM:Thioredoxin]	27	51
+OG4820	NUDIX hydrolase-like domain superfamily	2	2
+OG4821	Protein kinase-like domain superfamily	17	39
+OG4829	DNA-directed RNA polymerase, M/15kDa subunit [PFAM:RNA polymerases M/15 Kd subunit]	10	43
+OG48357	DNA-directed DNA polymerase, family B [PFAM:DNA polymerase family B;DNA polymerase family B, exonuclease domain]	4	4
+OG48358	P-loop containing nucleoside triphosphate hydrolase [PFAM:SNF2-related domain]	2	4
+OG48359	DNA-directed RNA polymerase, subunit beta-prime [PFAM:RNA polymerase Rpb1, domain 5]	3	4
+OG48360	DNA ligase, ATP-dependent, central [PFAM:ATP dependent DNA ligase domain]	4	4
+OG484	Group II dsDNA virus coat/capsid protein [PFAM:Large eukaryotic DNA virus major capsid protein;Major capsid protein N-terminus]	4	4
+OG4843	Uracil-DNA glycosylase-like domain superfamily [PFAM:RNase H;Uracil DNA glycosylase superfamily]	14	52
+OG487	P-loop containing nucleoside triphosphate hydrolase	111	297
+OG489	Protein of unknown function DUF5850 [PFAM:Family of unknown function (DUF5850)]	86	87
+OG4899	TBP domain superfamily [PFAM:Transcription factor TFIID (or TATA-binding protein, TBP)]	10	26
+OG490	Protein kinase domain [PFAM:Protein kinase domain]	20	39
+OG49192	Coil	1	1
+OG492	Coil	111	194
+OG495	P-loop containing nucleoside triphosphate hydrolase [PFAM:AAA domain (dynein-related subfamily)]	1	2
+OG4974	Vaccinia virus D10, decapping enzyme [PFAM:NUDIX domain;Viral D10 N-terminal]	16	24
+OG498	P-loop containing nucleoside triphosphate hydrolase [PFAM:Helicase conserved C-terminal domain;SNF2-related domain]	59	119
+OG5	DNA topoisomerase, type IA, central [PFAM:DNA topoisomerase;Topoisomerase C-terminal repeat;Toprim domain]	157	396
+OG500	Zinc finger, TFIIS-type [PFAM:Transcription factor S-II (TFIIS)]	115	143
+OG5005	PD-(D/E)XK endonuclease-like domain superfamily	14	28
+OG502	consensus disorder prediction	35	1099
+OG503	P-loop containing nucleoside triphosphate hydrolase [PFAM:Helicase conserved C-terminal domain;Ring finger domain;SNF2-related domain]	27	62
+OG504	consensus disorder prediction	1	1
+OG50451	Domain of unknown function DUF4347 [PFAM:Domain of unknown function (DUF4347)]	3	3
+OG50452	consensus disorder prediction	1	1
+OG50454	Kringle [PFAM:Kringle domain]	3	3
+OG506	Protein kinase-like domain superfamily [PFAM:ABC1 atypical kinase-like domain]	41	92
+OG5073	consensus disorder prediction	14	15
+OG5095	Thioredoxin domain [PFAM:Thioredoxin]	40	49
+OG5115	consensus disorder prediction	4	4
+OG5198	consensus disorder prediction	16	24
+OG5208	Poxvirus VLTF3, late transcription factor [PFAM:Poxvirus Late Transcription Factor VLTF3 like]	23	23
+OG52164	Coil	3	4
+OG5259	Coil	4	5
+OG526	Ribonuclease H-like superfamily	65	84
+OG527	Zinc finger, RING-type [PFAM:Ring finger domain]	122	153
+OG528	Helix-turn-helix domain [PFAM:Helix-turn-helix domain]	1	2
+OG5283	consensus disorder prediction	2	2
+OG5285	Coil	38	78
+OG5299	Coil	11	12
+OG53	Cold-shock protein, DNA-binding [PFAM:'Cold-shock' DNA-binding domain]	10	10
+OG531	consensus disorder prediction	23	50
+OG5311	Coil	32	35
+OG533	P-loop containing nucleoside triphosphate hydrolase [PFAM:ATPase family associated with various cellular activities (AAA);Replication factor C C-terminal domain]	300	651
+OG53738	P-loop containing nucleoside triphosphate hydrolase [PFAM:Helicase conserved C-terminal domain;SNF2-related domain]	3	3
+OG5379	SET domain [PFAM:SET domain]	13	32
+OG539	Heat shock protein Hsp90, N-terminal [PFAM:Histidine kinase-, DNA gyrase B-, and HSP90-like ATPase;Hsp90 protein]	49	219
+OG5390	Protein of unknown function DUF6081 [PFAM:Family of unknown function (DUF6081)]	3	3
+OG5401	Coil	9	12
+OG541	Coil	4	10
+OG5414	Protein of unknown function DUF5760 [PFAM:Family of unknown function (DUF5760)]	17	20
+OG542	Protein of unknown function DUF5832 [PFAM:Family of unknown function (DUF5832)]	10	10
+OG5421	consensus disorder prediction	4	7
+OG5423	Protein of unknown function DUF5767 [PFAM:Family of unknown function (DUF5767)]	27	27
+OG54492	IQ motif, EF-hand binding site	1	2
+OG54493	ADP-ribosylation	1	3
+OG54495	Coil	2	2
+OG5478	Cytochrome cd1-nitrite reductase-like, haem d1 domain superfamily	1	5
+OG55163	consensus disorder prediction	1	1
+OG5517	consensus disorder prediction	4	4
+OG5531	P-loop containing nucleoside triphosphate hydrolase [PFAM:Helicase conserved C-terminal domain;SNF2-related domain]	17	18
+OG55355	Coil	1	1
+OG55356	consensus disorder prediction	3	3
+OG5584	DNA ligase/mRNA capping enzyme, catalytic domain	1	1
+OG5658	Xrn1, helical domain [PFAM:XRN 5'-3' exonuclease N-terminus;Xrn1 helical domain]	28	32
+OG5660	Protein of unknown function DUF378 [PFAM:Domain of unknown function (DUF378)]	20	20
+OG5686	consensus disorder prediction	27	27
+OG57	Protein of unknown function DUF5856 [PFAM:Family of unknown function (DUF5856)]	8	8
+OG5761	ATP synthase subunit alpha, N-terminal domain-like superfamily	6	8
+OG5776	Protein kinase-like domain superfamily	22	27
+OG581	TATA-box binding protein-like	4	5
+OG582	PLC-like phosphodiesterase, TIM beta/alpha-barrel domain superfamily [PFAM:Phosphatidylinositol-specific phospholipase C, X domain]	16	55
+OG5821	PD-(D/E)XK endonuclease-like domain superfamily [PFAM:YqaJ-like viral recombinase domain]	7	18
+OG5828	consensus disorder prediction	13	21
+OG5838	Helicase, C-terminal [PFAM:Helicase conserved C-terminal domain;SNF2-related domain]	4	4
+OG5849	consensus disorder prediction	20	34
+OG585	RPB5-like RNA polymerase subunit superfamily [PFAM:RNA polymerase Rpb5, C-terminal domain]	114	170
+OG586	consensus disorder prediction	22	34
+OG5860	PLC-like phosphodiesterase, TIM beta/alpha-barrel domain superfamily	1	4
+OG5873	P-loop containing nucleoside triphosphate hydrolase [PFAM:ATPase family associated with various cellular activities (AAA)]	25	26
+OG588	Cytidine and deoxycytidylate deaminase domain [PFAM:Cytidine and deoxycytidylate deaminase zinc-binding region]	103	105
+OG59	Ribonuclease H domain [PFAM:Domain of unknown function (DUF5710);RNase H]	1	2
+OG5907	Poxvirus serine/threonine kinase [PFAM:Poxvirus serine/threonine protein kinase]	8	10
+OG592	Coil	36	69
+OG5931	Galectin, carbohydrate recognition domain	1	1
+OG5935	Peptidase M4/M1, CTD superfamily	1	1
+OG5937	DNA-directed RNA polymerase, subunit 2 [PFAM:RNA polymerase Rpb2, domain 3;RNA polymerase Rpb2, domain 6;RNA polymerase Rpb2, domain 7]	1	5
+OG5938	Poxvirus rifampicin-resistance [PFAM:Poxvirus rifampicin resistance protein]	11	11
+OG5939	Viral late protein H2 [PFAM:Viral late protein H2]	15	15
+OG5940	P-loop containing nucleoside triphosphate hydrolase [PFAM:SNF2-related domain]	2	5
+OG5941	P-loop containing nucleoside triphosphate hydrolase [PFAM:Helicase conserved C-terminal domain;Nucleoside triphosphatase I C-terminal;SNF2-related domain]	10	11
+OG5942	RNA polymerase Rpb1, clamp domain superfamily [PFAM:RNA polymerase Rpb1, domain 1;RNA polymerase Rpb1, domain 2;RNA polymerase Rpb1, domain 4;RNA polymerase Rpb1, domain 5]	1	5
+OG5943	DNA-directed DNA polymerase, family B [PFAM:DNA polymerase family B;DNA polymerase family B exonuclease domain, N-terminal;DNA polymerase family B viral insert;DNA polymerase family B, exonuclease domain]	9	14
+OG5944	P-loop containing nucleoside triphosphate hydrolase [PFAM:Poxvirus A32 protein]	5	8
+OG5945	P-loop containing nucleoside triphosphate hydrolase [PFAM:Poxvirus A32 protein]	9	9
+OG5946	Poxvirus A28 [PFAM:Poxvirus A28 family]	17	17
+OG5947	Poxvirus VLTF3, late transcription factor [PFAM:Poxvirus Late Transcription Factor VLTF3 like]	7	7
+OG5950	mRNA (guanine-N(7))-methyltransferase domain [PFAM:mRNA (guanine-N(7))-methyltransferase domain;mRNA capping enzyme catalytic subunit, GTase, NTPase domain;mRNA capping enzyme catalytic subunit, RNA triphosphatase domain;mRNA-capping enzyme catalytic subunit, GTase, OB fold]	7	12
+OG5951	Ulp1 protease family, C-terminal catalytic domain [PFAM:Ulp1 protease family, C-terminal catalytic domain]	26	27
+OG5952	P-loop containing nucleoside triphosphate hydrolase [PFAM:D5 N terminal like;Poxvirus D5 protein-like]	6	13
+OG5954	ERV/ALR sulfhydryl oxidase domain superfamily [PFAM:E10-like protein conserved region]	6	12
+OG5956	Poxvirus early transcription factor, large subunit [PFAM:Poxvirus early transcription factor (VETF), large subunit]	8	8
+OG5958	P-loop containing nucleoside triphosphate hydrolase [PFAM:Helicase conserved C-terminal domain;Type III restriction enzyme, res subunit]	17	24
+OG5965	Pox virus entry-fusion-complex G9/A16 [PFAM:Pox virus entry-fusion-complex G9/A16]	22	22
+OG5966	P-loop containing nucleoside triphosphate hydrolase [PFAM:DEAD/DEAH box helicase;Helicase conserved C-terminal domain;RNA helicase NPH-II]	9	20
+OG5977	DNA clamp superfamily	7	8
+OG5980	Poxvirus VLTF3, late transcription factor [PFAM:Poxvirus Late Transcription Factor VLTF3 like]	3	5
+OG599	RNA polymerase Rpb7-like, N-terminal domain superfamily	99	164
+OG5995	Poxvirus intermediate transcription factor [PFAM:Poxvirus intermediate transcription factor]	17	17
+OG6	Domain of unknown function DUF5899 [PFAM:Family of unknown function (DUF5899)]	315	620
+OG600	Concanavalin A-like lectin/glucanase domain superfamily	105	162
+OG6000	Poxvirus L3/FP4 [PFAM:Poxvirus L3/FP4 protein]	21	21
+OG6015	consensus disorder prediction	4	4
+OG6024	Coil	5	6
+OG6041	Intramolecular chaperone auto-processing domain [PFAM:Chaperone of endosialidase]	4	8
+OG6092	HAD superfamily [PFAM:HAD superfamily, subfamily IIIB (Acid phosphatase)]	3	6
+OG6099	Ribonuclease H-like superfamily [PFAM:Poxvirus A22 protein]	9	14
+OG6114	Pox virus entry-fusion-complex G9/A16 [PFAM:Pox virus entry-fusion-complex G9/A16]	14	14
+OG6117	consensus disorder prediction	6	8
+OG612	Cyclin-like superfamily [PFAM:Transcription factor TFIIB repeat]	43	84
+OG6129	Poxvirus mRNA capping enzyme, small subunit [PFAM:Poxvirus mRNA capping enzyme, small subunit]	5	10
+OG613	Domain of unknown function DUF3152 [PFAM:Protein of unknown function (DUF3152)]	6	8
+OG6142	UDP-glucose/GDP-mannose dehydrogenase, N-terminal [PFAM:UDP-glucose/GDP-mannose dehydrogenase family, NAD binding domain;UDP-glucose/GDP-mannose dehydrogenase family, central domain]	19	76
+OG615	Tubulin-tyrosine ligase/Tubulin polyglutamylase [PFAM:Tubulin-tyrosine ligase family]	5	5
+OG6173	S1/P1 nuclease [PFAM:S1/P1 Nuclease]	4	4
+OG62	RPB6/omega subunit-like superfamily [PFAM:RNA polymerase Rpb6]	39	57
+OG6204	S-adenosyl-L-methionine-dependent methyltransferase superfamily [PFAM:Poly A polymerase regulatory subunit]	6	10
+OG6208	Poly(A) polymerase catalytic subunit, Poxvirus [PFAM:Poxvirus poly(A) polymerase C-terminal domain;Poxvirus poly(A) polymerase N-terminal domain;Poxvirus poly(A) polymerase nucleotidyltransferase domain]	10	13
+OG621	TBP domain superfamily	59	163
+OG6225	Coil	25	27
+OG623	Peptidase S1C [PFAM:Trypsin-like peptidase domain]	4	7
+OG624	P-loop containing nucleoside triphosphate hydrolase [PFAM:Helicase conserved C-terminal domain;SNF2-related domain]	71	118
+OG6246	Poxvirus A11 [PFAM:Poxvirus A11 Protein]	16	17
+OG6248	RNA polymerase-associated transcription specificity factor Rap94 [PFAM:RNA polymerase-associated transcription specificity factor, Rap94]	10	10
+OG6258	consensus disorder prediction	13	18
+OG626	Alpha-ketoglutarate-dependent dioxygenase AlkB-like superfamily [PFAM:2OG-Fe(II) oxygenase superfamily]	3	4
+OG6276	Coil	1	1
+OG628	Major core protein 4b [PFAM:Poxvirus P4B major core protein]	106	148
+OG6292	Virion membrane protein, poxvirus L1-related [PFAM:Lipid membrane protein of large eukaryotic DNA viruses]	23	23
+OG6305	NUDIX hydrolase-like domain superfamily	14	36
+OG634	DNA clamp superfamily [PFAM:Proliferating cell nuclear antigen, C-terminal domain;Proliferating cell nuclear antigen, N-terminal domain]	13	17
+OG6348	E3 ubiquitin ligase RBR family	1	2
+OG6366	Acyl-CoA N-acyltransferase [PFAM:Myristoyl-CoA:protein N-myristoyltransferase, N-terminal domain]	4	7
+OG6367	Berberine/berberine-like [PFAM:Berberine and berberine like;FAD binding domain]	1	2
+OG637	Glycogen Phosphorylase B;	47	95
+OG6383	Pox virus entry-fusion-complex G9/A16 [PFAM:Pox virus entry-fusion-complex G9/A16]	22	22
+OG6389	Permuted papain-like amidase enzyme, YaeF/YiiX, C92 family [PFAM:Permuted papain-like amidase enzyme, YaeF/YiiX, C92 family]	13	21
+OG6396	Poxvirus VP8/L4R, nucleic acid binding [PFAM:Poxvirus nucleic acid binding protein VP8/L4R]	11	11
+OG640	FCP1 homology domain [PFAM:NLI interacting factor-like phosphatase]	84	154
+OG646	DNA ligase/mRNA capping enzyme	122	310
+OG647	CDP-alcohol phosphatidyltransferase, transmembrane domain [PFAM:CDP-alcohol phosphatidyltransferase]	5	11
+OG650	consensus disorder prediction	144	157
+OG658	Protein of unknown function DUF2738 [PFAM:Protein of unknown function (DUF2738)]	80	81
+OG6672	consensus disorder prediction	4	4
+OG6674	Papain-like cysteine peptidase superfamily [PFAM:Vaccinia virus I7 processing peptidase]	5	9
+OG6685	Poxvirus G5 [PFAM:Poxvirus G5 protein]	27	27
+OG6702	Poxvirus D3 [PFAM:Chordopoxvirinae D3 protein]	21	21
+OG6705	P-loop containing nucleoside triphosphate hydrolase [PFAM:Guanylate-binding protein, C-terminal domain;Guanylate-binding protein, N-terminal domain]	57	150
+OG677	Class II Aminoacyl-tRNA synthetase/Biotinyl protein ligase (BPL) and lipoyl protein ligase (LPL) [PFAM:tRNA synthetases class II (D, K and N)]	6	6
+OG679	consensus disorder prediction	3	3
+OG6794	Major core protein 4b [PFAM:Poxvirus P4B major core protein]	9	9
+OG6795	DNA-directed RNA polymerase, 18kDa subunit, poxviral [PFAM:Poxvirus DNA-directed RNA polymerase, 18 kD subunit]	6	6
+OG6796	Poxvirus I1 [PFAM:Poxvirus protein I1]	8	8
+OG6799	DNA-directed RNA polymerase, 19kDa subunit, poxviral [PFAM:Poxvirus DNA-directed RNA polymerase 19 kDa subunit]	17	17
+OG68	Peptidase C1A, papain C-terminal [PFAM:Cathepsin propeptide inhibitor domain (I29);Papain family cysteine protease]	135	155
+OG6804	Uracil-DNA glycosylase-like domain superfamily	7	9
+OG6813	DNA-directed RNA polymerase, 35kDa subunit, poxviral [PFAM:Poxvirus DNA-directed RNA polymerase, 35 kD subunit]	16	17
+OG6818	Poxvirus VLTF2, trans-activator [PFAM:MYM-type Zinc finger with FCS sequence motif;Poxvirus trans-activator protein A1 C-terminal]	11	14
+OG6832	Viral trans-activator protein [PFAM:Viral Trans-Activator Protein]	5	5
+OG6833	Peptidase M44, metalloendopeptidase G1 [PFAM:Metallopeptidase from vaccinia pox]	18	18
+OG6848	Poxvirus A6 [PFAM:Poxvirus A6 protein]	14	15
+OG6887	OTU domain	10	16
+OG6948	Zinc finger, TFIIS-type [PFAM:Poxvirus DNA dependent RNA polymerase 30kDa subunit;Transcription factor S-II (TFIIS)]	13	13
+OG697	ATP synthase subunit alpha, N-terminal domain-like superfamily	104	132
+OG698	Aspartyl/Asparaginyl-tRNA synthetase, class IIb [PFAM:OB-fold nucleic acid binding domain;tRNA synthetases class II (D, K and N)]	513	3141
+OG70	Autophagy protein Atg8 ubiquitin-like [PFAM:Autophagy protein Atg8 ubiquitin like]	7	9
+OG700	Isoprenoid synthase domain superfamily [PFAM:Polyprenyl synthetase]	54	98
+OG706	consensus disorder prediction	70	94
+OG7105	Phospholipase D/Transphosphatidylase [PFAM:PLD-like domain;Phospholipase D Active site motif]	7	12
+OG7106	DNA-directed RNA polymerase, 7kDa polypeptide, chordopoxviral [PFAM:Chordopoxvirus DNA-directed RNA polymerase 7 kDa polypeptide (RPO7)]	3	3
+OG7107	Poxvirus G7-like [PFAM:Poxvirus G7-like]	17	17
+OG7108	VITF-3 subunit protein [PFAM:VITF-3 subunit protein]	12	12
+OG7109	Poxvirus P4A [PFAM:Poxvirus P4A protein]	13	13
+OG7110	Poxvirus A14, virion envelope [PFAM:Poxvirus virion envelope protein A14]	15	15
+OG7111	Poxvirus F5/Telomere-binding protein I6 domain [PFAM:Poxvirus I6-like family;Poxvirus telomere-binding protein I6, C-terminal domain]	8	19
+OG7112	Poxvirus E8 [PFAM:Poxvirus E8 protein]	9	9
+OG7113	Pox virus E6 protein [PFAM:Pox virus E6 protein]	10	10
+OG7114	Poxvirus J1 [PFAM:Poxvirus J1 protein]	15	15
+OG712	P-loop containing nucleoside triphosphate hydrolase [PFAM:Helicase conserved C-terminal domain;SNF2-related domain]	2	3
+OG7121	Chordopoxvirus G2 [PFAM:Chordopoxvirus protein G2]	20	20
+OG7123	Poxvirus P35 [PFAM:Poxvirus P35 protein]	22	22
+OG7125	Poxvirus A2.5L [PFAM:Poxvirus A3L Protein]	13	13
+OG7135	Poxvirus E2 [PFAM:Poxviridae protein]	13	21
+OG7138	Poxvirus F12L [PFAM:Poxvirus F12L protein]	21	21
+OG714	Coil	2	2
+OG7143	Glutaredoxin-like [PFAM:Glutaredoxin-like domain (DUF836)]	9	15
+OG7176	Poxvirus Virion membrane protein OPG144 precursor [PFAM:Poxvirus P21 membrane protein]	16	16
+OG7177	Poxvirus I3 ssDNA-binding [PFAM:Poxvirus I3 ssDNA-binding protein]	20	20
+OG7201	EGF-like domain	2	4
+OG7279	Poxvirus A9 [PFAM:A9 protein conserved region]	12	12
+OG7282	Poxvirus L5 [PFAM:Poxvirus L5 protein family]	18	18
+OG7298	Heliorhodopsin [PFAM:Heliorhodopsin]	63	63
+OG7353	Chordopoxvirus A30L [PFAM:Chordopoxvirus A30L protein]	14	15
+OG736	Protein of unknown function DUF5891 [PFAM:Family of unknown function (DUF5891)]	6	6
+OG7362	Alpha/Beta hydrolase fold [PFAM:Serine hydrolase (FSH1)]	10	10
+OG741	P-loop containing nucleoside triphosphate hydrolase [PFAM:DEAD/DEAH box helicase]	40	41
+OG7417	consensus disorder prediction	3	3
+OG742	Zinc finger, TFIIS-type [PFAM:Transcription factor S-II (TFIIS)]	150	153
+OG7460	Poxvirus A12 [PFAM:Poxvirus A12 protein]	23	23
+OG7462	Chordopoxvirus A20R [PFAM:Chordopoxvirus A20R protein]	18	18
+OG7481	Pox virus D2 protein [PFAM:Pox virus D2 protein]	21	21
+OG7494	Poxvirus A19 [PFAM:Protein of unknown function (DUF678)]	12	12
+OG7502	Domain of unknown function DUF5899 [PFAM:Family of unknown function (DUF5899)]	24	24
+OG7507	Late protein H7, poxvirus [PFAM:Late protein H7]	19	19
+OG7510	Poxvirus G3 [PFAM:Chordopoxvirus G3 protein]	19	19
+OG7528	Phosphoprotein F17 [PFAM:DNA-binding 11 kDa phosphoprotein]	16	16
+OG7532	Poxvirus I5 [PFAM:Poxvirus protein I5]	16	16
+OG758	Tetratricopeptide-like helical domain superfamily	24	60
+OG762	Protein of unknown function DUF5762 [PFAM:Family of unknown function (DUF5762)]	119	138
+OG764	Peptidase M24, methionine aminopeptidase [PFAM:Metallopeptidase family M24]	11	13
+OG765	RNA polymerase Rpb7-like, N-terminal domain superfamily	67	102
+OG7658	Poxvirus I2 [PFAM:Poxvirus entry protein complex L1 and I2]	20	20
+OG7672	RNA polymerase, 22kDa subunit, poxviral [PFAM:Poxvirus RNA polymerase 22 kDa subunit]	9	9
+OG769	Coil	2	5
+OG77	Cryptochrome/DNA photolyase class 1 [PFAM:DNA photolyase;FAD binding domain of DNA photolyase]	2	2
+OG774	consensus disorder prediction	7	11
+OG777	P-loop containing nucleoside triphosphate hydrolase [PFAM:AAA domain]	21	25
+OG7829	Zinc finger, RING/FYVE/PHD-type	13	27
+OG7838	consensus disorder prediction	2	2
+OG786	Coil	16	19
+OG7864	Poxvirus E2/O1 [PFAM:Poxviridae protein]	13	20
+OG787	Protein kinase-like domain superfamily	76	92
+OG795	Coil	7	10
+OG7980	P-loop containing nucleoside triphosphate hydrolase [PFAM:Type III restriction enzyme, res subunit]	20	23
+OG8	consensus disorder prediction	56	64
+OG800	DNA-directed RNA polymerase subunit Rpo5/Rpb5 [PFAM:RNA polymerase Rpb5, C-terminal domain;RNA polymerase Rpb5, N-terminal domain]	33	79
+OG8000	Poxvirus F15 [PFAM:Poxvirus protein F15]	14	14
+OG8001	Viral protein D9	9	14
+OG8041	Histone-like DNA-binding protein [PFAM:Bacterial DNA-binding protein]	626	2511
+OG809	Signal transduction response regulator, receiver domain [PFAM:His Kinase A (phospho-acceptor) domain;Histidine kinase-, DNA gyrase B-, and HSP90-like ATPase;Response regulator receiver domain]	1306	18007
+OG8094	consensus disorder prediction	10	10
+OG811	Cysteine dioxygenase type I [PFAM:Cysteine dioxygenase type I]	25	25
+OG813	WASH complex subunit 3 [PFAM:Subunit CCDC53 of WASH complex]	38	90
+OG821	ATP-dependent Clp protease proteolytic subunit [PFAM:Clp protease]	3	4
+OG8245	Virion core protein, vaccinia E11L type [PFAM:Chordopoxvirus E11 protein]	18	18
+OG825	Coil	37	58
+OG8262	consensus disorder prediction	3	4
+OG834	Ribonuclease III domain [PFAM:Ribonuclease III domain]	6	10
+OG839	consensus disorder prediction	1	1
+OG8448	Protein of unknown function DUF5765 [PFAM:Family of unknown function (DUF5765)]	6	6
+OG8461	DNA ligase, ATP-dependent, N-terminal domain superfamily [PFAM:ATP dependent DNA ligase C terminal region;ATP dependent DNA ligase domain;DNA ligase N terminus]	4	34
+OG8482	Core protein A15 [PFAM:Chordopoxvirus A15 protein]	18	18
+OG8502	DNA glycosylase	4	6
+OG8512	consensus disorder prediction	12	12
+OG8516	Protein of unknown function DUF5871 [PFAM:Family of unknown function (DUF5871)]	15	24
+OG856	Coil	1	1
+OG862	Aminotransferase class-III [PFAM:Aminotransferase class-III]	3036	8799
+OG8688	DNA clamp superfamily	7	14
+OG8768	Chordopoxvirus A13L [PFAM:Chordopoxvirus A13L protein]	19	19
+OG884	consensus disorder prediction	41	50
+OG8936	Zinc finger, TFIIS-type [PFAM:Transcription factor S-II (TFIIS)]	14	15
+OG8998	consensus disorder prediction	9	10
+OG9007	Protein L2 [PFAM:Chordopoxvirus L2 protein]	18	18
+OG901	SAP domain [PFAM:SAP domain]	11	19
+OG9028	Coil	1	2
+OG9140	Thioredoxin-like superfamily	9	11
+OG9152	Ribonucleotide reductase small subunit family [PFAM:Ribonucleotide reductase, small chain]	25	311
+OG9172	Poxvirus A21 [PFAM:Poxvirus A21 Protein]	15	15
+OG918	Polysaccharide pyruvyl transferase [PFAM:Polysaccharide pyruvyl transferase]	12	12
+OG9188	consensus disorder prediction	5	6
+OG920	consensus disorder prediction	1	1
+OG9233	Poxvirus F11 [PFAM:Poxvirus F11 protein]	24	24
+OG925	consensus disorder prediction	2	3
+OG931	Pseudouridine synthase II, N-terminal [PFAM:TruB family pseudouridylate synthase (N terminal domain)]	6	13
+OG9339	Papain-like cysteine peptidase superfamily	2	3
+OG9392	Poxvirus virion membrane protein A14.5 [PFAM:Protein of unknown function (DUF1029)]	11	11
+OG9415	RNA polymerase, RBP11-like subunit	2	6
+OG9427	Chordopoxvirus A35R [PFAM:Chordopoxvirus A35R protein]	19	19
+OG9463	Protein kinase-like domain superfamily	7	16
+OG9514	Pox virus Ag35 surface protein [PFAM:Pox virus Ag35 surface protein]	20	20
+OG9532	Protein of unknown function DUF5767 [PFAM:Family of unknown function (DUF5767)]	7	12
+OG955	Coil	4	4
+OG9556	Protein-only RNase P, C-terminal [PFAM:Protein-only RNase P]	3	6
+OG957	consensus disorder prediction	170	2746
+OG9579	Chromosomal protein MC1 superfamily [PFAM:Non-histone chromosomal protein MC1]	9	18
+OG960	Protein-tyrosine phosphatase-like [PFAM:Dual specificity phosphatase, catalytic domain]	3	8
+OG965	consensus disorder prediction	168	200
+OG9702	ERV/ALR sulfhydryl oxidase domain [PFAM:Erv1 / Alr family]	2	2
+OG9733	ERV/ALR sulfhydryl oxidase domain [PFAM:Erv1 / Alr family]	12	23
+OG975	Peptidase C1A, papain C-terminal [PFAM:Papain family cysteine protease]	4	4
+OG9799	consensus disorder prediction	7	8
+OG9823	consensus disorder prediction	9	11
+OG9842	Protein of unknown function DUF5881 [PFAM:Family of unknown function (DUF5881)]	4	4
+OG989	Metallo-dependent phosphatase-like [PFAM:Calcineurin-like phosphoesterase]	110	119
+OG993	DAHP synthase, class 1 [PFAM:DAHP synthetase I family]	5	5
+PLV_PC_054	P-loop containing nucleoside triphosphate hydrolase [PFAM:Poxvirus A32 protein]	1608	3496
+VLTF2	consensus disorder prediction	973	1609
+VLTF3	Poxvirus VLTF3, late transcription factor [PFAM:Poxvirus Late Transcription Factor VLTF3 like]	1476	18580
+VP_ATPase_1	P-loop containing nucleoside triphosphate hydrolase	1793	2631
+VP_ATPase_2	P-loop containing nucleoside triphosphate hydrolase	1763	2380
+VP_ATPase_3	P-loop containing nucleoside triphosphate hydrolase	1384	1620
+VP_ATPase_4	P-loop containing nucleoside triphosphate hydrolase	1640	1916
+VP_MCP_1	consensus disorder prediction	745	811
+VP_MCP_2	consensus disorder prediction	701	753
+VP_MCP_3	consensus disorder prediction	476	512
+VP_MCP_4	consensus disorder prediction	487	520
+VP_MCP_5	consensus disorder prediction	539	572
+VP_MCP_6	consensus disorder prediction	473	507
+VP_MCP_7	consensus disorder prediction	425	446
+VP_PRO_1	Papain-like cysteine peptidase superfamily	637	1193
+VP_PRO_2	Papain-like cysteine peptidase superfamily	273	479
+VP_Penton_1	Minor capsid protein V18/19-like, jelly roll domain superfamily [PFAM:Sputnik minor capsid protein V18/19]	2239	3895
+VP_Penton_2	Minor capsid protein V18/19-like, jelly roll domain superfamily [PFAM:Sputnik minor capsid protein V18/19]	2162	3339
+VP_Penton_3	Minor capsid protein V18/19-like, jelly roll domain superfamily [PFAM:Sputnik minor capsid protein V18/19]	1225	1706
+VP_Penton_4	Minor capsid protein V18/19-like, jelly roll domain superfamily [PFAM:Sputnik minor capsid protein V18/19]	1697	2414
+VP_Penton_6	Minor capsid protein V18/19-like, jelly roll domain superfamily [PFAM:Sputnik minor capsid protein V18/19]	1025	1593
+VP_Penton_7	Minor capsid protein V18/19-like, jelly roll domain superfamily [PFAM:Sputnik minor capsid protein V18/19]	1143	1773
+gamadvirusMCP	Group II dsDNA virus coat/capsid protein [PFAM:Large eukaryotic DNA virus major capsid protein;Major capsid protein N-terminus]	2754	3855

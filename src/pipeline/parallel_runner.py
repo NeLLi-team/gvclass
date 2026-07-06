@@ -7,8 +7,15 @@ import traceback
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 
 from src.pipeline.query_processor import run_query_processing
+from src.pipeline.progress_events import emit_progress_event
+from src.pipeline.run_status import (
+    RunStatusRecorder,
+    query_completion_state_in_run_status,
+)
 from src.pipeline.summary_writer import (
+    archive_final_summary_extended_files,
     read_individual_summary_results,
+    write_final_summary_extended_files,
     write_final_summary_files,
 )
 from src.utils import InputValidator
@@ -20,12 +27,15 @@ def validate_and_setup_task(
     output_dir: str,
     database_path: Optional[str] = None,
     allow_short: bool = False,
+    min_sequence_length: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Validate inputs and setup directories."""
     logger = logging.getLogger("gvclass_runner")
     logger.info(f"Validating inputs - Query: {query_dir}, Output: {output_dir}")
     query_path = InputValidator.validate_query_directory(
-        query_dir, allow_short=allow_short
+        query_dir,
+        allow_short=allow_short,
+        min_sequence_length=min_sequence_length,
     )
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -59,6 +69,9 @@ def process_query_task(
     completeness_mode: str = "legacy",
     sensitive_mode: bool = False,
     threads: int = 4,
+    species_tree: bool = False,
+    species_tree_trim: str = "witchi",
+    run_status: Optional[RunStatusRecorder] = None,
 ) -> Dict[str, Any]:
     """
     Process a single query through the entire pipeline.
@@ -74,6 +87,9 @@ def process_query_task(
         completeness_mode=completeness_mode,
         sensitive_mode=sensitive_mode,
         threads=threads,
+        species_tree=species_tree,
+        species_tree_trim=species_tree_trim,
+        run_status=run_status,
     )
 
 
@@ -83,8 +99,11 @@ def create_final_summary_task(results: List[Dict[str, Any]], output_dir: Path) -
     logger.info(f"Creating final summary for {len(results)} queries")
     summary_tsv = write_final_summary_files(results, output_dir)
     summary_csv = output_dir / "gvclass_summary.csv"
+    extended_tsv = write_final_summary_extended_files(results, output_dir)
+    extended_archive = archive_final_summary_extended_files(output_dir)
     logger.info(f"Summary written to: {summary_tsv}")
     logger.info(f"CSV summary written to: {summary_csv}")
+    logger.info(f"Extended diagnostics archived in: {extended_archive or extended_tsv}")
     logger.info("All query processing complete")
     logger.info("Post-processing complete")
     return summary_tsv
@@ -132,17 +151,23 @@ def calculate_optimal_workers(
 def _query_is_resume_complete(output_path: Path, query_name: str, logger) -> bool:
     """Return True when ``query_name`` is safe to skip under ``--resume``.
 
-    Preferred gate: a ``<query_name>.SUCCESS`` JSON sentinel (v1.4.3+).
-    Legacy fallback: the pre-1.4.3 ``<query_name>.summary.tab`` +
-    ``<query_name>.tar.gz`` combination, additionally validated with
-    ``tarfile.is_tarfile`` so a truncated archive from a crashed run is
-    not accepted. A single INFO log records the fallback so operators can
-    migrate runs by re-running without ``--resume``.
+    Preferred gate: the consolidated ``run_status.json`` manifest. For
+    backward compatibility, v1.4.3+ ``<query_name>.SUCCESS`` files are still
+    accepted, followed by the pre-1.4.3 ``<query_name>.summary.tab`` +
+    ``<query_name>.tar.gz`` fallback.
     """
     import tarfile
 
+    manifest_state = query_completion_state_in_run_status(output_path, query_name)
+    if manifest_state is not None:
+        return manifest_state
+
     sentinel = output_path / f"{query_name}.SUCCESS"
     if sentinel.exists():
+        logger.info(
+            f"Resume mode: accepting legacy SUCCESS sentinel for {query_name}. "
+            "New runs write run_status.json instead."
+        )
         return True
 
     summary_file = output_path / f"{query_name}.summary.tab"
@@ -162,7 +187,7 @@ def _query_is_resume_complete(output_path: Path, query_name: str, logger) -> boo
         return False
     logger.info(
         f"Legacy resume fallback: accepting pre-v1.4.3 outputs for {query_name} "
-        "(no SUCCESS sentinel). Re-run without --resume to upgrade."
+        "(not recorded in run_status.json). Re-run without --resume to upgrade."
     )
     return True
 
@@ -221,6 +246,9 @@ def _submit_query_jobs(
     completeness_mode: str,
     sensitive_mode: bool,
     threads_per_worker: int,
+    species_tree: bool = False,
+    species_tree_trim: str = "witchi",
+    run_status: Optional[RunStatusRecorder] = None,
 ) -> Dict[Future, Path]:
     future_to_query: Dict[Future, Path] = {}
     for query_file in query_files:
@@ -235,12 +263,19 @@ def _submit_query_jobs(
             completeness_mode=completeness_mode,
             sensitive_mode=sensitive_mode,
             threads=threads_per_worker,
+            species_tree=species_tree,
+            species_tree_trim=species_tree_trim,
+            run_status=run_status,
         )
         future_to_query[future] = query_file
     return future_to_query
 
 
-def _collect_query_results(future_to_query: Dict[Future, Path], logger) -> List[Dict[str, Any]]:
+def _collect_query_results(
+    future_to_query: Dict[Future, Path],
+    logger,
+    run_status: Optional[RunStatusRecorder] = None,
+) -> List[Dict[str, Any]]:
     results: List[Dict[str, Any]] = []
     for future in as_completed(future_to_query):
         query_file = future_to_query[future]
@@ -251,6 +286,16 @@ def _collect_query_results(future_to_query: Dict[Future, Path], logger) -> List[
         except Exception as exc:
             logger.error(f"Query {query_file.stem} failed: {exc}")
             logger.error(f"Traceback: {traceback.format_exc()}")
+            if run_status is not None:
+                run_status.record_query_failed(query_file.stem, str(exc))
+            emit_progress_event(
+                {
+                    "event": "query_failed",
+                    "query": query_file.stem,
+                    "progress": 100,
+                    "stage": "failed",
+                }
+            )
             results.append(
                 {"query": query_file.stem, "status": "failed", "error": str(exc)}
             )
@@ -267,6 +312,9 @@ def _process_queries_in_parallel(
     sensitive_mode: bool,
     threads_per_worker: int,
     logger,
+    species_tree: bool = False,
+    species_tree_trim: str = "witchi",
+    run_status: Optional[RunStatusRecorder] = None,
 ) -> Tuple[List[Dict[str, Any]], int]:
     query_files = list(config["query_files"])
     total_queries = len(query_files)
@@ -285,8 +333,11 @@ def _process_queries_in_parallel(
             completeness_mode,
             sensitive_mode,
             threads_per_worker,
+            species_tree=species_tree,
+            species_tree_trim=species_tree_trim,
+            run_status=run_status,
         )
-        results = _collect_query_results(future_to_query, logger)
+        results = _collect_query_results(future_to_query, logger, run_status)
 
     return results, total_queries
 
@@ -314,7 +365,7 @@ def _combine_with_resume_skipped_results(
             "Resume mode: skipped queries missing readable summary files: %s",
             ", ".join(missing_names),
         )
-        # A query that resume declared complete (SUCCESS sentinel) but whose
+        # A query that resume declared complete but whose
         # loose summary cannot be re-read must still appear in the run, as a
         # failed row, rather than silently disappearing from the final summary.
         for name in missing_names:
@@ -330,7 +381,8 @@ def gvclass_flow(
     total_threads: int = 16,
     max_workers: Optional[int] = None,
     threads_per_worker: Optional[int] = None,
-    tree_method: str = "fasttree",
+    tree_method: str = "veryfasttree",
+    iqtree_mode: str = "fast",
     mode_fast: bool = True,
     completeness_mode: str = "legacy",
     sensitive_mode: bool = False,
@@ -339,28 +391,72 @@ def gvclass_flow(
     cluster_config: Optional[Dict[str, Any]] = None,
     resume: bool = False,
     allow_short: bool = False,
+    min_sequence_length: Optional[int] = None,
+    species_tree: bool = False,
+    species_tree_combined: bool = False,
+    species_tree_trim: str = "witchi",
 ):
     """Main GVClass pipeline."""
     logger = logging.getLogger("gvclass_runner")
+    if species_tree_combined:
+        species_tree = True  # --species-tree-combined implies --species-tree
+    from src.core.alignment import configure_iqtree
+
+    configure_iqtree(iqtree_mode)
     logger.info("Validating inputs and setting up directories")
     config = validate_and_setup_task(
-        query_dir, output_dir, database_path, allow_short=allow_short
+        query_dir,
+        output_dir,
+        database_path,
+        allow_short=allow_short,
+        min_sequence_length=min_sequence_length,
     )
+    all_query_names = [query_file.stem for query_file in config["query_files"]]
     _apply_resume_filter(config, resume, logger)
 
     n_queries = len(config["query_files"])
     logger.info(f"Found {n_queries} queries to process")
 
-    # When --resume is set and every query already has a SUCCESS sentinel (or a
-    # valid legacy summary+tar pair), we have nothing to process. Creating a
+    run_status = RunStatusRecorder(
+        output_dir=config["output_path"],
+        database_path=config["database_path"],
+        query_names=all_query_names,
+        resume_skipped_query_names=config.get("resume_skipped_query_names", []),
+        settings={
+            "tree_method": tree_method,
+            "iqtree_mode": iqtree_mode,
+            "mode_fast": mode_fast,
+            "completeness_mode": completeness_mode,
+            "sensitive_mode": sensitive_mode,
+            "total_threads": total_threads,
+            "max_workers": max_workers,
+            "threads_per_worker": threads_per_worker,
+            "resume": resume,
+            "min_sequence_length": min_sequence_length,
+            "species_tree": species_tree,
+            "species_tree_combined": species_tree_combined,
+            "species_tree_trim": species_tree_trim,
+        },
+    )
+    run_status.start()
+
+    # When --resume is set and every query is already complete in the manifest
+    # (or a valid legacy marker), we have nothing to process. Creating a
     # ThreadPoolExecutor with max_workers=0 would raise ValueError, so short-
     # circuit and emit the summary from whatever is already on disk.
     if n_queries == 0:
         logger.info(
             "No queries remaining after resume filter; skipping parallel processing."
         )
+        if species_tree_combined:
+            logger.info(
+                "All queries resume-skipped; the combined species tree is built only "
+                "from this run's queries, so it is not regenerated. Re-run without "
+                "--resume to rebuild out/species_tree/combined.*"
+            )
         all_results = _combine_with_resume_skipped_results(config, [], logger)
         summary_file = create_final_summary_task(all_results, config["output_path"])
+        run_status.finish("complete")
         logger.info(f"Pipeline completed! Results in: {config['output_path']}")
         logger.info(f"Summary written to: {summary_file}")
         _ = cluster_type
@@ -374,6 +470,35 @@ def gvclass_flow(
         f"Parallelization strategy: {n_workers} workers × {threads_per_worker} threads"
     )
 
+    # Clear any previous species-tree scratch + outputs and record this run's
+    # queries so the per-query hook and the opt-in combined step read exactly this
+    # run's sidecars. Wrapped so a scratch/filesystem failure disables the feature
+    # rather than aborting the run.
+    if species_tree:
+        skipped = config.get("resume_skipped_query_names", [])
+        if resume and skipped:
+            logger.warning(
+                "%d resume-skipped queries will have no species-tree placement this run "
+                "(per-query trees + species_tree_* columns are produced only for queries "
+                "processed this run); re-run those without --resume to place them.",
+                len(skipped),
+            )
+        try:
+            from src.core.species_tree.handoff import init_handoff
+
+            init_handoff(
+                Path(config["output_path"]),
+                [query_file.stem for query_file in config["query_files"]],
+                resume=resume,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Species-tree handoff init failed (%s); disabling --species-tree for this run",
+                exc,
+            )
+            species_tree = False
+            species_tree_combined = False
+
     logger.info("Starting parallel query processing")
     results, total_queries = _process_queries_in_parallel(
         config,
@@ -385,15 +510,39 @@ def gvclass_flow(
         sensitive_mode,
         threads_per_worker,
         logger,
+        species_tree=species_tree,
+        species_tree_trim=species_tree_trim,
+        run_status=run_status,
     )
     completed_count = _count_completed(results)
     logger.info(
         f"All queries complete. Successfully processed {completed_count}/{total_queries} queries"
     )
 
+    # Opt-in combined species tree from this run's sidecars (--species-tree-combined).
+    # The per-query hook already owns the summary columns, so this writes only the
+    # additional <out>/species_tree/ combined artifacts. Never blocks the summary
+    # (internally wrapped). Resume-skipped queries are excluded (they have no
+    # sidecar this run) — a documented limitation.
+    if species_tree_combined:
+        try:
+            from src.core.species_tree.orchestration import run_combined_species_tree
+
+            run_combined_species_tree(
+                Path(config["output_path"]),
+                Path(config["database_path"]),
+                results,
+                total_threads,
+                species_tree_trim,
+                tree_method,
+            )
+        except Exception as exc:
+            logger.warning("Combined species-tree step failed: %s", exc)
+
     logger.info("Creating final summary...")
     all_results = _combine_with_resume_skipped_results(config, results, logger)
     summary_file = create_final_summary_task(all_results, config["output_path"])
+    run_status.finish("complete" if completed_count == total_queries else "failed")
     logger.info(f"Pipeline completed! Results in: {config['output_path']}")
     logger.info(f"Summary written to: {summary_file}")
     logger.info(f"Successfully processed {completed_count}/{len(results)} queries")

@@ -12,30 +12,73 @@ from typing import Dict, List, Optional, Set, Tuple
 import pandas as pd
 
 from src.config.marker_sets import (
+    CAPS_MARKER_GROUP,
     MIRUS_CATEGORY_MODELS,
     BUSCO_MODELS,
     PHAGE_MODELS,
     GVOG4M_MODELS,
     GVOG8M_MODELS,
     UNI56_MODELS,
-    MCP_MODELS,
     NCLDV_MCP_MODELS,
     MRYA_MODELS,
     VP_CATEGORY_PREFIXES,
     PLV_PREFIX,
 )
 from src.core.marker_extraction import (
-    count_unique_proteins_by_category_models,
-    count_unique_proteins_by_category_prefixes,
+    consolidate_grouped_panel,
     count_unique_proteins_for_markers,
     count_unique_proteins_for_prefixes,
     parse_hmm_output,
+    parse_hmm_scores,
 )
 from src.core.weighted_completeness import create_weighted_calculator
 from src.core.novelty_completeness import create_novelty_completeness_scorer
 from src.core.contamination_scoring import create_contamination_scorer
+from src.utils.resource_store import ResourceStore
 
 logger = logging.getLogger(__name__)
+
+
+def _dominant(counter: Counter) -> str:
+    """Single dominant key, or "" on an empty counter or a top-2 tie."""
+    top = counter.most_common(2)
+    if not top or (len(top) > 1 and top[0][1] == top[1][1]):
+        return ""
+    return top[0][0]
+
+
+# Bellas&Sommaruga caps group names (the family rank of caps reference lineages).
+# Used to recognise a caps-group nearest neighbour in the MCP trees and ignore generic
+# (non-caps) refs whose family rank is some other taxon.
+CAPS_GROUPS = frozenset(CAPS_MARKER_GROUP.values()) - {"unclassified"}
+
+
+def derive_capscan_group(marker_hits, marker_counts) -> str:
+    """Dominant capscan (Bellas&Sommaruga 2026) group for a query.
+
+    Resolves a single best group PER PROTEIN first (a protein cross-hitting several
+    caps HMMs of one group votes once), then takes the dominant group across proteins.
+    Avoids the profile-multiplicity bias of counting raw per-(protein,model) hits and
+    the per-marker tree-vote fragmentation of GVClass's consensus. Falls back to raw
+    caps-hit counts when per-protein hits are unavailable. Ties resolve to "".
+    """
+    caps_groups: Counter = Counter()
+    if marker_hits:
+        prot_groups: defaultdict = defaultdict(Counter)
+        for marker, proteins in marker_hits.items():
+            if "_caps_" in marker and marker in CAPS_MARKER_GROUP:
+                grp = CAPS_MARKER_GROUP[marker]
+                for protein in proteins:
+                    prot_groups[protein][grp] += 1
+        for grp_counts in prot_groups.values():
+            winner = _dominant(grp_counts)
+            if winner:
+                caps_groups[winner] += 1
+    if not caps_groups:
+        for marker, count in marker_counts.items():
+            if count > 0 and "_caps_" in marker and marker in CAPS_MARKER_GROUP:
+                caps_groups[CAPS_MARKER_GROUP[marker]] += count
+    return _dominant(caps_groups)
 
 
 class FullSummarizer:
@@ -79,7 +122,7 @@ class FullSummarizer:
         self.database_path = database_path
         self.completeness_mode = completeness_mode
         self.sensitive_mode = sensitive_mode
-        self.labels_file = database_path / "labels.tsv"
+        self.labels_file = ResourceStore(database_path).label_path("labels.tsv")
         self.completeness_table = database_path / "markers" / "order_completeness.tab"
         self.order_stats_df = self._load_order_stats()
         self.labels_dict = self.load_labels()
@@ -128,36 +171,136 @@ class FullSummarizer:
             tax_parts.append("")
         return genome_id, tax_parts
 
+    def _plv_count_tree_aware(
+        self,
+        marker_hits: Optional[Dict[str, Set[str]]],
+        tree_nn_results: Optional[Dict[str, Dict[str, Dict[str, float]]]],
+    ) -> int:
+        """Count A32/PLV-marker proteins ONLY when they genuinely place with PPV
+        references in the marker tree.
+
+        ``PLV_PC_054`` (the sole PLV marker) is the A32 packaging ATPase shared
+        by NCLDV and PPV, so a plain NCLDV A32 hits the HMM too and the raw HMM
+        count over-flags every giant virus. With the marker tree available we
+        keep only proteins whose nearest reference is PPV; we fall back to the
+        raw HMM count only when no tree is available (counts-only resume).
+        """
+        if not tree_nn_results:
+            return count_unique_proteins_for_prefixes(marker_hits, [PLV_PREFIX])
+        plv_proteins: Set[str] = set()
+        for marker, proteins in (marker_hits or {}).items():
+            if not marker.startswith(PLV_PREFIX):
+                continue
+            nn = tree_nn_results.get(marker, {})
+            for protein in proteins:
+                neighbors = nn.get(protein)
+                if not neighbors:
+                    continue
+                nearest, _dist = min(neighbors.items(), key=lambda kv: kv[1])
+                tax = self.labels_dict.get(self._extract_genome_id(nearest))
+                if tax and tax[0] == "PPV":
+                    plv_proteins.add(protein)
+        return len(plv_proteins)
+
+    def _protein_nearest_domain(
+        self,
+        tree_nn_results: Optional[Dict[str, Dict[str, Dict[str, float]]]],
+    ) -> Dict[str, str]:
+        """Map each query protein to the domain (NCLDV/PPV/MIRUS/BAC/EUK/...) of
+        its single nearest tree neighbour across all marker trees.
+
+        One physical protein is placed in several group trees; the minimum
+        patristic distance (deterministic tie-break on marker then neighbour)
+        decides its true lineage. Used to bucket cross-group panel hits — a VP or
+        Mirus marker on a protein that actually places with NCLDV is not counted
+        toward that panel.
+        """
+        placements: Dict[str, List[Tuple[float, str, str]]] = defaultdict(list)
+        for marker, query_neighbors in (tree_nn_results or {}).items():
+            for protein, neighbors in query_neighbors.items():
+                for neighbor, distance in neighbors.items():
+                    placements[protein].append((distance, marker, neighbor))
+        domains: Dict[str, str] = {}
+        for protein, placement_list in placements.items():
+            for _distance, _marker, neighbor in sorted(placement_list):
+                genome_id = self._extract_genome_id(neighbor)
+                if genome_id in self.labels_dict:
+                    domains[protein] = (
+                        genome_id.split("__", 1)[0] if "__" in genome_id else ""
+                    )
+                    break
+        return domains
+
+    @staticmethod
+    def _panel_has_lineage_protein(
+        proteins: Set[str],
+        protein_domain: Optional[Dict[str, str]],
+        expected_domain: str,
+    ) -> bool:
+        """Whether a category has supporting evidence after tree bucketing.
+
+        Without ``protein_domain`` (no tree placements) any hit counts (raw
+        behaviour). With it, a protein still supports the category unless it places
+        with a *different* known domain; proteins placing with ``expected_domain``
+        or left unplaced are kept, so genuine but un-placed members are not
+        dropped.
+        """
+        if not proteins:
+            return False
+        if protein_domain is None:
+            return True
+        for protein in proteins:
+            domain = protein_domain.get(protein)
+            if domain is None or domain == expected_domain:
+                return True
+        return False
+
     def calculate_vp_metrics(
         self,
         marker_counts: Dict[str, int],
         marker_hits: Optional[Dict[str, Set[str]]] = None,
+        tree_nn_results: Optional[Dict[str, Dict[str, Dict[str, float]]]] = None,
+        protein_domain: Optional[Dict[str, str]] = None,
     ) -> Tuple[str, int, int, float]:
-        """Calculate VP (Virophage) completeness metrics.
+        """Calculate VP (Virophage / Preplasmiviricota) completeness metrics.
 
         VP has 4 core categories: MCP, Penton, ATPase, Protease.
         Uses prefix matching (e.g., VP_MCP_* matches MCP category).
 
+        When ``protein_domain`` (each query protein's nearest tree-neighbour
+        domain) is provided, a category is credited only if at least one hitting
+        protein does not place with a non-PPV lineage — i.e. an NCLDV core gene
+        that cross-hits a VP marker (e.g. the shared packaging ATPase) and places
+        with NCLDV refs is excluded. Without tree placements the raw category
+        presence is used.
+
         Returns:
             Tuple of (completeness_str, vp_mcp_count, plv_count, vp_df)
-            - completeness_str: "n/4" format
+            - completeness_str: "n/N" format (N = number of core categories)
             - vp_mcp_count: count of unique proteins hitting VP_MCP markers
             - plv_count: count of unique proteins hitting PLV markers
             - vp_df: duplication factor (total VP hits / 4)
         """
         if marker_hits:
-            category_counts = count_unique_proteins_by_category_prefixes(
-                marker_hits, VP_CATEGORY_PREFIXES
-            )
-            categories_present = {
-                category for category, count in category_counts.items() if count > 0
+            category_proteins: Dict[str, Set[str]] = {
+                category: set() for category in VP_CATEGORY_PREFIXES
             }
-            vp_mcp_count = category_counts.get("MCP", 0)
-            total_vp_hits = sum(category_counts.values())
-            plv_count = count_unique_proteins_for_prefixes(marker_hits, [PLV_PREFIX])
+            for marker, proteins in marker_hits.items():
+                for category, prefix in VP_CATEGORY_PREFIXES.items():
+                    if marker.startswith(prefix):
+                        category_proteins[category].update(proteins)
+            categories_present = {
+                category
+                for category, proteins in category_proteins.items()
+                if self._panel_has_lineage_protein(proteins, protein_domain, "PPV")
+            }
+            vp_mcp_count = len(category_proteins["MCP"])
+            total_vp_hits = sum(len(proteins) for proteins in category_proteins.values())
+            plv_count = self._plv_count_tree_aware(marker_hits, tree_nn_results)
             completeness = len(categories_present)
             vp_df = total_vp_hits / 4.0 if total_vp_hits > 0 else 0.0
-            return f"{completeness}/4", vp_mcp_count, plv_count, vp_df
+            comp = f"{completeness}/{len(VP_CATEGORY_PREFIXES)}"
+            return comp, vp_mcp_count, plv_count, vp_df
 
         categories_present = set()
         vp_mcp_count = 0
@@ -182,12 +325,14 @@ class FullSummarizer:
         completeness = len(categories_present)
         vp_df = total_vp_hits / 4.0 if total_vp_hits > 0 else 0.0
 
-        return f"{completeness}/4", vp_mcp_count, plv_count, vp_df
+        comp = f"{completeness}/{len(VP_CATEGORY_PREFIXES)}"
+        return comp, vp_mcp_count, plv_count, vp_df
 
     def calculate_mirus_completeness(
         self,
         marker_counts: Dict[str, int],
         marker_hits: Optional[Dict[str, Set[str]]] = None,
+        protein_domain: Optional[Dict[str, str]] = None,
     ) -> Tuple[str, float]:
         """Calculate Mirusviricota completeness metrics.
 
@@ -197,22 +342,33 @@ class FullSummarizer:
         - Portal: Mirus_Portal
         - Triplex: Mirus_Triplex1, Mirus_Triplex2
 
+        When ``protein_domain`` (each query protein's nearest tree-neighbour
+        domain) is provided, a category is credited only if a hitting protein does
+        not place with a non-MIRUS lineage, so an NCLDV protein that cross-hits a
+        Mirus marker (e.g. the terminase ATPase) and places with NCLDV refs is
+        excluded. Without tree placements the raw category presence is used.
+
         Returns:
             Tuple of (completeness_str, mirus_df)
-            - completeness_str: "n/4" format
+            - completeness_str: "n/N" format (N = number of core categories)
             - mirus_df: duplication factor (total Mirus hits / 4)
         """
         if marker_hits:
-            category_counts = count_unique_proteins_by_category_models(
-                marker_hits, MIRUS_CATEGORY_MODELS
-            )
-            categories_present = {
-                category for category, count in category_counts.items() if count > 0
+            category_proteins: Dict[str, Set[str]] = {
+                category: set() for category in MIRUS_CATEGORY_MODELS
             }
-            total_mirus_hits = sum(category_counts.values())
+            for category, models in MIRUS_CATEGORY_MODELS.items():
+                for model in models:
+                    category_proteins[category].update(marker_hits.get(model, set()))
+            categories_present = {
+                category
+                for category, proteins in category_proteins.items()
+                if self._panel_has_lineage_protein(proteins, protein_domain, "MIRUS")
+            }
+            total_mirus_hits = sum(len(proteins) for proteins in category_proteins.values())
             completeness = len(categories_present)
             mirus_df = total_mirus_hits / 4.0 if total_mirus_hits > 0 else 0.0
-            return f"{completeness}/4", mirus_df
+            return f"{completeness}/{len(MIRUS_CATEGORY_MODELS)}", mirus_df
 
         categories_present = set()
         total_mirus_hits = 0
@@ -229,14 +385,14 @@ class FullSummarizer:
         completeness = len(categories_present)
         mirus_df = total_mirus_hits / 4.0 if total_mirus_hits > 0 else 0.0
 
-        return f"{completeness}/4", mirus_df
+        return f"{completeness}/{len(MIRUS_CATEGORY_MODELS)}", mirus_df
 
     def _extract_genome_id(self, protein_id: str) -> str:
         """
         Extract genome ID from a protein ID for labels lookup.
 
         Protein IDs can have formats like:
-        - VP__IMGVR_UViG_3300044959|000235_9 -> VP__IMGVR_UViG_3300044959|000235
+        - PPV__IMGVR_UViG_3300044959|000235_9 -> PPV__IMGVR_UViG_3300044959|000235
         - NCLDV__GCA_000123456|contig_1_42 -> NCLDV__GCA_000123456|contig_1
 
         The protein suffix is typically _N where N is a number at the end.
@@ -248,7 +404,7 @@ class FullSummarizer:
             Genome/contig ID suitable for labels lookup
         """
         # First try: check if the full ID (minus trailing _digits) is in labels
-        # This handles: VP__IMGVR_UViG_3300044959|000235_9 -> VP__IMGVR_UViG_3300044959|000235
+        # This handles: PPV__IMGVR_UViG_3300044959|000235_9 -> PPV__IMGVR_UViG_3300044959|000235
         stripped = re.sub(r"_\d+$", "", protein_id)
         if stripped in self.labels_dict:
             return stripped
@@ -489,6 +645,23 @@ class FullSummarizer:
             logger.error("Error reading marker hits from %s: %s", hmmout_file, exc)
             return {}
 
+    def _load_marker_scores(
+        self, hmmout_file: Path
+    ) -> Dict[str, Dict[str, float]]:
+        """Load per-protein per-marker bit scores from a filtered HMM output file.
+
+        Used to consolidate the MRYA panel against its marker groups (see
+        :meth:`_add_marker_metrics`).
+        """
+        if not hmmout_file.exists():
+            return {}
+
+        try:
+            return parse_hmm_scores(hmmout_file)
+        except Exception as exc:
+            logger.error("Error reading marker scores from %s: %s", hmmout_file, exc)
+            return {}
+
     def _calculate_traditional_order_metrics(
         self, marker_counts: Dict[str, int], order_ogs: List[str]
     ) -> Tuple[float, float]:
@@ -644,24 +817,42 @@ class FullSummarizer:
         )
         distances: List[float] = []
 
+        # One physical query protein can hit several overlapping marker models
+        # (e.g. a genome-packaging ATPase matching the NCLDV ATPase markers AND
+        # the PPV A32 marker PLV_PC_054). Count each protein ONCE, for its single
+        # nearest (minimum patristic distance) placement, so a shared core gene
+        # cannot cast multiple or cross-domain votes. Deterministic tie-break on
+        # (distance, marker, neighbor).
+        placements_by_protein: Dict[str, List[Tuple[float, str, str]]] = defaultdict(
+            list
+        )
         for marker, query_neighbors in tree_nn_results.items():
-            for neighbors in query_neighbors.values():
+            for query_protein, neighbors in query_neighbors.items():
                 for neighbor, distance in neighbors.items():
-                    genome_id = self._extract_genome_id(neighbor)
-                    tax_info = self.labels_dict.get(genome_id)
-                    if not tax_info:
-                        continue
+                    placements_by_protein[query_protein].append(
+                        (distance, marker, neighbor)
+                    )
 
-                    self._add_taxonomy_counts_for_neighbor(
-                        genome_id, tax_info, tax_counters
-                    )
-                    self._add_taxonomy_counts_for_marker(
-                        genome_id, tax_info, per_marker_counters, marker
-                    )
-                    lineage = self._build_taxonomy_lineage(genome_id, tax_info)
-                    if any(lineage):
-                        per_marker_lineage_counters[marker][lineage] += 1
-                    distances.append(distance)
+        for placements in placements_by_protein.values():
+            resolved = []
+            for distance, marker, neighbor in placements:
+                genome_id = self._extract_genome_id(neighbor)
+                tax_info = self.labels_dict.get(genome_id)
+                if tax_info:
+                    resolved.append((distance, marker, neighbor, genome_id, tax_info))
+            if not resolved:
+                continue
+            distance, marker, neighbor, genome_id, tax_info = min(
+                resolved, key=lambda r: (r[0], r[1], r[2])
+            )
+            self._add_taxonomy_counts_for_neighbor(genome_id, tax_info, tax_counters)
+            self._add_taxonomy_counts_for_marker(
+                genome_id, tax_info, per_marker_counters, marker
+            )
+            lineage = self._build_taxonomy_lineage(genome_id, tax_info)
+            if any(lineage):
+                per_marker_lineage_counters[marker][lineage] += 1
+            distances.append(distance)
 
         return tax_counters, per_marker_counters, per_marker_lineage_counters, distances
 
@@ -1102,7 +1293,7 @@ class FullSummarizer:
             )
 
         result["avgdist"] = sum(distances) / len(distances) if distances else 0.0
-        taxonomy_majority, taxonomy_strict, taxonomy_confidence = (
+        taxonomy_majority, _taxonomy_strict, taxonomy_confidence = (
             self._build_consensus_taxonomies(
                 tax_counters,
                 per_marker_counters,
@@ -1111,55 +1302,201 @@ class FullSummarizer:
             )
         )
         result["taxonomy_majority"] = taxonomy_majority
-        result["taxonomy_strict"] = taxonomy_strict
         result["taxonomy_confidence"] = taxonomy_confidence
+
+    def _caps_group_from_tree(self, tree_nn_results) -> str:
+        """Dominant Bellas&Sommaruga caps group from the caps MCP tree-NN placement.
+
+        A caps reference lineage carries its Bellas group at the family rank; the
+        CAPS_GROUPS whitelist gates out everything else (caps group names occur only on
+        caps references — under PPV or NCLDV domains — never on a non-caps genome).
+        Each query protein votes ONCE: its single nearest neighbour is read per MCP group
+        tree, and a cross-reactive MCP that places in BOTH mcp_plv and mcp_ncldv is
+        resolved to its CLOSEST caps-group placement so it cannot double-count (mirrors
+        contamination_scoring._per_protein_dominant_lineage). Dominant group across
+        proteins; a tie, or no caps-group neighbour, resolves to "".
+        """
+        fam_idx = self.TAX_LEVEL_MAPPING["family"]
+        per_protein: Dict[str, Tuple[Optional[str], float]] = {}
+        for marker in ("mcp_plv", "mcp_ncldv"):
+            for protein, neighbors in tree_nn_results.get(marker, {}).items():
+                if not neighbors:
+                    continue
+                nearest, dist = min(neighbors.items(), key=lambda kv: kv[1])
+                tax = self.labels_dict.get(self._extract_genome_id(nearest))
+                if not tax or len(tax) <= fam_idx:
+                    continue
+                family = tax[fam_idx].strip()
+                if family not in CAPS_GROUPS:
+                    continue
+                prev = per_protein.get(protein)
+                if prev is None or dist < prev[1]:
+                    per_protein[protein] = (family, dist)
+                elif dist == prev[1] and family != prev[0]:
+                    # equal-distance placements in different caps groups -> ambiguous, drop
+                    per_protein[protein] = (None, dist)
+        groups: Counter = Counter(
+            fam for fam, _dist in per_protein.values() if fam is not None
+        )
+        return _dominant(groups)
+
+    def _capsid_group_counter(self, tree_nn_results) -> str:
+        """Unified capsid-type tally across all MCP panels.
+
+        For each query protein placed in an MCP group tree (mcp_ncldv / mcp_mirus
+        / mcp_plv), read its single nearest neighbour and map it to a capsid-type
+        label: a Bellas&Sommaruga caps family when the neighbour's family rank is
+        in CAPS_GROUPS, otherwise the neighbour's phylum (Nucleocytoviricota /
+        Mirusviricota). One vote per physical protein — a protein cross-placed in
+        several MCP trees is resolved to its closest placement; an equal-distance
+        cross-type tie is dropped. Returns "label:count" pairs comma-joined,
+        sorted by count desc then label (e.g. "Nucleocytoviricota:4,Gossevirus:1").
+        """
+        fam_idx = self.TAX_LEVEL_MAPPING["family"]
+        phy_idx = self.TAX_LEVEL_MAPPING["phylum"]
+        capsid_phyla = {"Nucleocytoviricota", "Mirusviricota"}
+        per_protein: Dict[str, Tuple[Optional[str], float]] = {}
+        for marker in ("mcp_ncldv", "mcp_mirus", "mcp_plv"):
+            for protein, neighbors in tree_nn_results.get(marker, {}).items():
+                if not neighbors:
+                    continue
+                nearest, dist = min(neighbors.items(), key=lambda kv: kv[1])
+                tax = self.labels_dict.get(self._extract_genome_id(nearest))
+                if not tax:
+                    continue
+                label: Optional[str] = None
+                if len(tax) > fam_idx and tax[fam_idx].strip() in CAPS_GROUPS:
+                    label = tax[fam_idx].strip()
+                elif len(tax) > phy_idx and tax[phy_idx].strip() in capsid_phyla:
+                    label = tax[phy_idx].strip()
+                if label is None:
+                    continue
+                prev = per_protein.get(protein)
+                if prev is None or dist < prev[1]:
+                    per_protein[protein] = (label, dist)
+                elif dist == prev[1] and label != prev[0]:
+                    # equal-distance placements of different capsid types -> drop
+                    per_protein[protein] = (None, dist)
+        counts: Counter = Counter(
+            lbl for lbl, _dist in per_protein.values() if lbl is not None
+        )
+        return ",".join(
+            f"{lbl}:{n}"
+            for lbl, n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+        )
 
     def _add_marker_metrics(
         self,
         result: Dict[str, any],
         marker_counts: Dict[str, int],
         marker_hits: Optional[Dict[str, Set[str]]] = None,
+        tree_nn_results: Optional[Dict[str, Dict[str, Dict[str, float]]]] = None,
+        marker_scores: Optional[Dict[str, Dict[str, float]]] = None,
     ) -> None:
-        """Populate marker-based metrics for the query."""
-        result["gvog4_unique"] = sum(
-            1 for m in GVOG4M_MODELS if marker_counts.get(m, 0) > 0
-        )
+        """Populate marker-based metrics for the query.
 
-        gvog8_unique = sum(1 for m in GVOG8M_MODELS if marker_counts.get(m, 0) > 0)
-        gvog8_total = sum(marker_counts.get(m, 0) for m in GVOG8M_MODELS)
-        result["gvog8_unique"] = gvog8_unique
-        result["gvog8_total"] = gvog8_total
-        result["gvog8_dup"] = gvog8_total / gvog8_unique if gvog8_unique > 0 else 0
+        Each core marker panel is reported as ``{panel}_completeness`` ("n/N":
+        distinct models present out of the panel size) and ``{panel}_dup`` (the
+        duplication factor = total hits / distinct models present), mirroring the
+        vp_/mirus_completeness convention. The cellular single-copy markers are
+        split into the BUSCO and COG (UNI56) panels.
 
+        The MRYA panel is consolidated against its marker groups: several MRYA
+        HMMs (``VLTF3``/``ATPase``/``gamadvirusMCP``/``VLTF2``) share gene-family
+        groups with GVOG/NCLDV markers, so a generic NCLDV core protein hits them
+        as a secondary match. Using per-protein bit scores, a grouped MRYA model
+        is credited only when it is the protein's best hit within its group;
+        otherwise the protein is a higher-scoring GVOG/NCLDV gene and is not
+        counted toward MRYA. Falls back to the raw panel when no scores are
+        available (e.g. a counts-only resume).
+        """
+
+        def _panel(models):
+            present = sum(1 for m in models if marker_counts.get(m, 0) > 0)
+            total = sum(marker_counts.get(m, 0) for m in models)
+            return present, (total / present if present > 0 else 0.0)
+
+        gvog4_present, result["gvog4_dup"] = _panel(GVOG4M_MODELS)
+        result["gvog4_completeness"] = f"{gvog4_present}/{len(GVOG4M_MODELS)}"
+
+        gvog8_present, result["gvog8_dup"] = _panel(GVOG8M_MODELS)
+        result["gvog8_completeness"] = f"{gvog8_present}/{len(GVOG8M_MODELS)}"
+
+        busco_present, result["busco_dup"] = _panel(BUSCO_MODELS)
+        result["busco_completeness"] = f"{busco_present}/{len(BUSCO_MODELS)}"
+
+        if marker_scores:
+            cog_counts = consolidate_grouped_panel(marker_scores, UNI56_MODELS)
+            cog_present = len(cog_counts)
+            cog_total = sum(cog_counts.values())
+            result["cog_dup"] = cog_total / cog_present if cog_present else 0.0
+        else:
+            cog_present, result["cog_dup"] = _panel(UNI56_MODELS)
+        result["cog_completeness"] = f"{cog_present}/{len(UNI56_MODELS)}"
+
+        if marker_scores:
+            mrya_counts = consolidate_grouped_panel(marker_scores, MRYA_MODELS)
+            mrya_present = len(mrya_counts)
+            mrya_total = sum(mrya_counts.values())
+            result["mrya_dup"] = mrya_total / mrya_present if mrya_present else 0.0
+        else:
+            if marker_counts:
+                logger.warning(
+                    "No per-protein marker scores available (missing/empty "
+                    "models.out.filtered); MRYA panel falls back to raw counts, "
+                    "which overlapping GVOG/NCLDV markers can inflate."
+                )
+            mrya_present, result["mrya_dup"] = _panel(MRYA_MODELS)
+        result["mrya_completeness"] = f"{mrya_present}/{len(MRYA_MODELS)}"
+
+        phage_present, result["phage_dup"] = _panel(PHAGE_MODELS)
+        result["phage_completeness"] = f"{phage_present}/{len(PHAGE_MODELS)}"
+
+        # Standalone NCLDV major-capsid-protein count (capsid typing is reported
+        # in capsid_group). Protein-aware when marker hits are available.
         if marker_hits:
             result["ncldv_mcp_total"] = count_unique_proteins_for_markers(
                 marker_hits, NCLDV_MCP_MODELS
-            )
-            result["mcp_total"] = count_unique_proteins_for_markers(
-                marker_hits, MCP_MODELS
-            )
-            result["mrya_total"] = count_unique_proteins_for_markers(
-                marker_hits, MRYA_MODELS
-            )
-            result["phage_total"] = count_unique_proteins_for_markers(
-                marker_hits, PHAGE_MODELS
-            )
-            cellular_models = UNI56_MODELS + BUSCO_MODELS
-            cellular_total = count_unique_proteins_for_markers(
-                marker_hits, cellular_models
             )
         else:
             result["ncldv_mcp_total"] = sum(
                 marker_counts.get(m, 0) for m in NCLDV_MCP_MODELS
             )
-            result["mcp_total"] = sum(marker_counts.get(m, 0) for m in MCP_MODELS)
-            result["mrya_total"] = sum(marker_counts.get(m, 0) for m in MRYA_MODELS)
-            result["phage_total"] = sum(marker_counts.get(m, 0) for m in PHAGE_MODELS)
-            cellular_models = UNI56_MODELS + BUSCO_MODELS
-            cellular_total = sum(marker_counts.get(m, 0) for m in cellular_models)
 
+        # Internal contamination-model features: consumed by the trained model's
+        # feature vector (contamination_scoring.CONTAMINATION_MODEL_FEATURES), not
+        # emitted as summary columns. cellular = COG (UNI56) + BUSCO; counts are
+        # protein-aware when marker hits are available.
+        cellular_models = UNI56_MODELS + BUSCO_MODELS
+        result["cellular_unique"] = sum(
+            1 for m in cellular_models if marker_counts.get(m, 0) > 0
+        )
+        result["phage_unique"] = phage_present
+        if marker_hits:
+            result["cellular_total"] = count_unique_proteins_for_markers(
+                marker_hits, cellular_models
+            )
+            result["phage_total"] = count_unique_proteins_for_markers(
+                marker_hits, PHAGE_MODELS
+            )
+        else:
+            result["cellular_total"] = sum(
+                marker_counts.get(m, 0) for m in cellular_models
+            )
+            result["phage_total"] = sum(marker_counts.get(m, 0) for m in PHAGE_MODELS)
+
+        # Per-protein nearest-neighbour domain (from the marker trees) buckets
+        # cross-group panel hits: a VP/Mirus marker on a protein that actually
+        # places with NCLDV is not credited to that panel. None on a counts-only
+        # resume, where vp/mirus fall back to raw category presence.
+        protein_domain = (
+            self._protein_nearest_domain(tree_nn_results) if tree_nn_results else None
+        )
         vp_completeness, vp_mcp, plv_count, vp_df = self.calculate_vp_metrics(
-            marker_counts, marker_hits
+            marker_counts,
+            marker_hits,
+            tree_nn_results,
+            protein_domain=protein_domain,
         )
         result["vp_completeness"] = vp_completeness
         result["vp_mcp"] = vp_mcp
@@ -1167,48 +1504,58 @@ class FullSummarizer:
         result["vp_df"] = vp_df
 
         mirus_completeness, mirus_df = self.calculate_mirus_completeness(
-            marker_counts, marker_hits
+            marker_counts, marker_hits, protein_domain=protein_domain
         )
         result["mirus_completeness"] = mirus_completeness
         result["mirus_df"] = mirus_df
 
-        mrya_unique = sum(1 for m in MRYA_MODELS if marker_counts.get(m, 0) > 0)
-        result["mrya_unique"] = mrya_unique
-
-        phage_unique = sum(1 for m in PHAGE_MODELS if marker_counts.get(m, 0) > 0)
-        result["phage_unique"] = phage_unique
-
-        cellular_unique = sum(1 for m in cellular_models if marker_counts.get(m, 0) > 0)
-        result["cellular_unique"] = cellular_unique
-        result["cellular_total"] = cellular_total
-        result["cellular_dup"] = (
-            cellular_total / cellular_unique if cellular_unique > 0 else 0
-        )
+        # Unified capsid-type tally across the MCP panels (NCLDV/Mirus/PPV caps
+        # groups), e.g. "Nucleocytoviricota:4,Gossevirus:1". Needs the MCP tree-NN
+        # placements; blank on a counts-only resume that skipped the MCP trees.
+        if tree_nn_results and any(
+            m in tree_nn_results for m in ("mcp_ncldv", "mcp_mirus", "mcp_plv")
+        ):
+            result["capsid_group"] = self._capsid_group_counter(tree_nn_results)
+        else:
+            result["capsid_group"] = ""
 
     def _set_default_marker_metrics(self, result: Dict[str, any]) -> None:
         """Apply default marker metric values when counts are unavailable."""
+        # Standalone count + virophage detail columns, plus the internal
+        # contamination-model features (cellular_*/phage_unique/phage_total) that
+        # are read by the trained model but not emitted as summary columns.
         for metric in [
-            "gvog4_unique",
-            "gvog8_unique",
-            "gvog8_total",
             "ncldv_mcp_total",
-            "mcp_total",
             "vp_mcp",
             "plv",
-            "mrya_unique",
-            "mrya_total",
-            "phage_unique",
-            "phage_total",
             "cellular_unique",
             "cellular_total",
+            "phage_unique",
+            "phage_total",
         ]:
             result[metric] = 0
 
-        for metric in ["gvog8_dup", "vp_df", "mirus_df", "cellular_dup"]:
+        for metric in [
+            "gvog4_dup",
+            "gvog8_dup",
+            "busco_dup",
+            "cog_dup",
+            "mrya_dup",
+            "phage_dup",
+            "vp_df",
+            "mirus_df",
+        ]:
             result[metric] = 0.0
 
-        result["vp_completeness"] = "0/4"
-        result["mirus_completeness"] = "0/4"
+        result["gvog4_completeness"] = f"0/{len(GVOG4M_MODELS)}"
+        result["gvog8_completeness"] = f"0/{len(GVOG8M_MODELS)}"
+        result["busco_completeness"] = f"0/{len(BUSCO_MODELS)}"
+        result["cog_completeness"] = f"0/{len(UNI56_MODELS)}"
+        result["mrya_completeness"] = f"0/{len(MRYA_MODELS)}"
+        result["phage_completeness"] = f"0/{len(PHAGE_MODELS)}"
+        result["vp_completeness"] = f"0/{len(VP_CATEGORY_PREFIXES)}"
+        result["mirus_completeness"] = f"0/{len(MIRUS_CATEGORY_MODELS)}"
+        result["capsid_group"] = ""
 
     def _extract_order_taxonomy(self, tax_counters: Dict[str, Counter]) -> str:
         """Extract most-supported order taxonomy token from counters."""
@@ -1490,8 +1837,15 @@ class FullSummarizer:
         marker_hits_file = query_output_dir / "hmmout" / "models.out.filtered"
         marker_counts = self._load_marker_counts(counts_file)
         marker_hits = self._load_marker_hits(marker_hits_file)
+        marker_scores = self._load_marker_scores(marker_hits_file)
         if marker_counts:
-            self._add_marker_metrics(result, marker_counts, marker_hits)
+            self._add_marker_metrics(
+                result,
+                marker_counts,
+                marker_hits,
+                tree_nn_results=tree_nn_results,
+                marker_scores=marker_scores,
+            )
         else:
             self._set_default_marker_metrics(result)
 

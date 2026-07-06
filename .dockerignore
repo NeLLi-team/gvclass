@@ -14,9 +14,11 @@ __pycache__
 venv/
 env/
 ENV/
+.venv/
+.venv*/
 
 # Pixi environments (will be created fresh in container)
-# Note: .pixi/ is not ignored since we install it in the container
+.pixi/
 
 # Test files
 test_iqtree/
@@ -25,6 +27,7 @@ test_iqtree_results/
 # Results and example outputs
 example_results/
 *_results/
+benchmarking/
 
 # IDE files
 .vscode/
@@ -39,9 +42,12 @@ Thumbs.db
 
 # Documentation build files
 docs/_build/
+site/
 *.egg-info/
 
 # Temporary files
+tasks/
+scratchpad_test/
 *.tmp
 *.temp
 .tmp/
@@ -52,6 +58,10 @@ logs/
 
 # Cache files
 .cache/
+.codexloop/
+.memd/
+.pytest_cache/
+.wrangler/
 .prefect/
 
 # Local runtime resources are downloaded during image builds.

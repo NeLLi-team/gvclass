@@ -77,6 +77,62 @@ def test_short_fna_accepted_when_allow_short_enabled(tmp_path: Path) -> None:
     assert result == short_fna.resolve()
 
 
+def test_short_fna_accepted_with_custom_min_sequence_length(tmp_path: Path) -> None:
+    from src.utils.input_validation import InputValidator
+
+    short_fna = tmp_path / "short.fna"
+    short_fna.write_text(">c1\n" + "ACGT" * 100 + "\n")  # 400 bp
+
+    result = InputValidator.validate_sequence_file(
+        short_fna,
+        min_sequence_length=400,
+    )
+
+    assert result == short_fna.resolve()
+
+
+def test_short_fna_accepted_with_zero_min_sequence_length(tmp_path: Path) -> None:
+    from src.utils.input_validation import InputValidator
+
+    short_fna = tmp_path / "short.fna"
+    short_fna.write_text(">c1\nACGT\n")
+
+    result = InputValidator.validate_sequence_file(
+        short_fna,
+        min_sequence_length=0,
+    )
+
+    assert result == short_fna.resolve()
+
+
+def test_short_fna_rejected_against_custom_min_sequence_length(tmp_path: Path) -> None:
+    from src.utils.error_handling import ValidationError
+    from src.utils.input_validation import InputValidator
+
+    short_fna = tmp_path / "short.fna"
+    short_fna.write_text(">c1\n" + "ACGT" * 100 + "\n")  # 400 bp
+
+    with pytest.raises(ValidationError, match="minimum \\(500 bp\\)"):
+        InputValidator.validate_sequence_file(short_fna, min_sequence_length=500)
+
+
+def test_contig_split_floor_also_validates_split_contigs(tmp_path: Path) -> None:
+    from src.utils.contig_splitter import split_contigs
+    from src.utils.input_validation import InputValidator
+
+    input_fna = tmp_path / "metagenome.fna"
+    input_fna.write_text(">contig15kb\n" + "A" * 15000 + "\n")
+
+    split_dir, count = split_contigs(input_fna, min_length=10000)
+    validated_dir = InputValidator.validate_query_directory(
+        split_dir,
+        min_sequence_length=10000,
+    )
+
+    assert count == 1
+    assert validated_dir == split_dir.resolve()
+
+
 def test_validate_query_directory_reraises_short_input_error(tmp_path: Path) -> None:
     """Phase 3.2a: the directory-level validator must re-raise the short-
     input error instead of logging-and-continuing."""
@@ -215,16 +271,15 @@ def test_split_contigs_from_directory_transactional_across_files(
     assert not output_dir.exists() or list(output_dir.iterdir()) == []
 
 
-def test_advisory_and_quality_columns_in_summary_schemas() -> None:
-    """Phase 3.3 adds the three advisory/quality/r2 columns to the final
-    summary schema and makes sure the advisory column is two-decimal
-    formatted for numeric output parity."""
-    from src.pipeline.summary_writer import FINAL_SUMMARY_COLUMNS, TWO_DECIMAL_COLUMNS
+def test_completeness_reliability_column_in_summary_schema() -> None:
+    """The completeness QC column is surfaced as completeness_model_reliability;
+    the raw advisory/r2-holdout diagnostics were dropped from the final summary."""
+    from src.pipeline.summary_writer import FINAL_SUMMARY_COLUMNS
 
+    assert "completeness_model_reliability" in FINAL_SUMMARY_COLUMNS
     for column in (
         "estimated_completeness_quality",
         "estimated_completeness_advisory",
         "estimated_completeness_r2_holdout",
     ):
-        assert column in FINAL_SUMMARY_COLUMNS
-    assert "estimated_completeness_advisory" in TWO_DECIMAL_COLUMNS
+        assert column not in FINAL_SUMMARY_COLUMNS

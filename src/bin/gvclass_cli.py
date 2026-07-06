@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import csv
 import os
+import queue
 import re
 import shutil
 import subprocess
@@ -23,6 +24,9 @@ from src.bin.progress_monitor import ResourceMonitor
 SOFTWARE_VERSION = f"v{_GVCLASS_VERSION}"
 PLAIN_OUTPUT_ENV = "GVCLASS_PLAIN_OUTPUT"
 DATABASE_PATH_ENV = "GVCLASS_DB"
+RESOURCE_CACHE_ENV = "GVCLASS_RESOURCE_CACHE"
+DEFAULT_INPUT_MIN_LENGTH = 20000
+DEFAULT_CONTIGS_MIN_LENGTH = 10000
 TWO_DECIMAL_SUMMARY_COLUMNS = {
     "avgdist",
     "order_dup",
@@ -48,10 +52,14 @@ TWO_DECIMAL_SUMMARY_COLUMNS = {
     "weighted_order_completeness_raw",
     "order_weighted_completeness",
     "order_confidence_score",
+    "gvog4_dup",
     "gvog8_dup",
+    "busco_dup",
+    "cog_dup",
+    "mrya_dup",
+    "phage_dup",
     "vp_df",
     "mirus_df",
-    "cellular_dup",
     "GCperc",
     "CODINGperc",
 }
@@ -115,11 +123,14 @@ class PipelineContext:
     database: Path
     threads: int
     tree_method: str
+    iqtree_mode: str
     mode_fast: bool
     completeness_mode: str
     sensitive_mode: bool
     contigs: ContigInput
+    input_min_length: int
     contigs_min_length: int
+    validation_min_length: int
     temp_contigs_dir: Optional[Path]
     n_queries: int
     n_input_files: int
@@ -170,8 +181,13 @@ def _add_core_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--threads-per-worker", type=int, help="Threads per worker")
     parser.add_argument(
         "--tree-method",
-        choices=["fasttree", "iqtree"],
-        help="Tree building method (overrides config)",
+        choices=["veryfasttree", "iqtree", "fasttree"],
+        help="Tree building method (overrides config); default veryfasttree",
+    )
+    parser.add_argument(
+        "--iqtree-mode",
+        choices=["fast", "ufboot"],
+        help="IQ-TREE species-tree search mode (overrides config)",
     )
 
 
@@ -207,6 +223,22 @@ def _add_mode_arguments(parser: argparse.ArgumentParser) -> None:
         help="Split FNA file(s) into individual contigs for analysis (accepts file or directory)",
     )
     parser.add_argument(
+        "--min-length",
+        type=int,
+        help=(
+            "Minimum total nucleotide length (bp) for each input FNA. "
+            "Overrides quality.min_length. Use 0 to disable the length floor."
+        ),
+    )
+    parser.add_argument(
+        "--contigs-min-length",
+        type=int,
+        help=(
+            "Minimum contig length (bp) when splitting inputs with --contigs. "
+            "Overrides pipeline.contigs_min_length."
+        ),
+    )
+    parser.add_argument(
         "--resume",
         action="store_true",
         help="Resume from previous run, skipping completed queries",
@@ -215,9 +247,34 @@ def _add_mode_arguments(parser: argparse.ArgumentParser) -> None:
         "--allow-short",
         action="store_true",
         help=(
-            "Accept input FNA files shorter than the 20 kb minimum. "
-            "Use for per-contig runs (often paired with --contigs) or for "
-            "exploratory runs on short inputs."
+            "Bypass the nucleotide length floor. Use for exploratory runs "
+            "on short inputs."
+        ),
+    )
+    parser.add_argument(
+        "--species-tree",
+        action="store_true",
+        help=(
+            "Build one supermatrix species tree per query (NCLDV GVOG8 by "
+            "default; PPV/MIRUS routed by taxonomy) and assign tree-placement "
+            "taxonomy (writes out/species_tree/<query>/ and summary columns)."
+        ),
+    )
+    parser.add_argument(
+        "--species-tree-combined",
+        action="store_true",
+        help=(
+            "Implies --species-tree; additionally build one combined species "
+            "tree over all queries at once (writes out/species_tree/combined.*)."
+        ),
+    )
+    parser.add_argument(
+        "--species-tree-trim",
+        choices=["witchi", "pytrimal", "none"],
+        default="witchi",
+        help=(
+            "Supermatrix column trimming for --species-tree: witchi (rigorous, "
+            "default), pytrimal (fast), or none (unpruned)."
         ),
     )
 
@@ -266,19 +323,25 @@ def load_config(config_file: str, repo_dir: Path, output: CliOutput):
     default_config = {
         "database": {
             "path": str(repo_dir / "resources"),
-            "download_url": "https://zenodo.org/records/20479524/files/resources_v1_6_0.tar.gz?download=1",
-            "download_version": "v1.6.0",
-            "download_sha256": "f744f7144ea69d6c3ccffe56e7721d6fd598685853005e0fb90d04e699d9b23f",
-            "expected_size": 1752,
+            "cache_path": None,
+            "download_url": "https://zenodo.org/records/21225457/files/resources_v2_0_0.tar.gz?download=1",
+            "download_version": "v2.0.0",
+            "download_sha256": "df1c3a9d15a90307775f42f57e2a7c89436ed523883025f6fc94013035f5e066",
+            "expected_size": 1497,
         },
         "pipeline": {
-            "tree_method": "fasttree",
+            "tree_method": "veryfasttree",
+            "iqtree_mode": "fast",
             "mode_fast": True,
             "completeness_mode": "novelty-aware",
             "sensitive_mode": True,
             "contigs_min_length": 10000,
             "threads": 16,
             "output_pattern": "{query_dir}_results",
+        },
+        "quality": {
+            "min_length": DEFAULT_INPUT_MIN_LENGTH,
+            "recommended_length": 50000,
         },
     }
 
@@ -316,11 +379,7 @@ def _deep_merge_config(base: dict, overlay: dict) -> dict:
     """
     merged = dict(base)
     for key, value in overlay.items():
-        if (
-            key in merged
-            and isinstance(merged[key], dict)
-            and isinstance(value, dict)
-        ):
+        if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
             merged[key] = _deep_merge_config(merged[key], value)
         else:
             merged[key] = value
@@ -343,6 +402,33 @@ def resolve_database_path(args, config, repo_dir: Path) -> Path:
     if not database.is_absolute():
         database = repo_dir / database
     return database.resolve()
+
+
+def resolve_resource_cache_path(config, database: Path) -> Optional[Path]:
+    """Return configured resource cache path, or None for ResourceStore default."""
+    env_cache = os.environ.get(RESOURCE_CACHE_ENV, "").strip()
+    if env_cache:
+        return None
+
+    cache_setting = config.get("database", {}).get("cache_path")
+    if cache_setting is None:
+        return None
+
+    cache_setting = str(cache_setting).strip()
+    if not cache_setting:
+        return None
+
+    cache_path = Path(cache_setting).expanduser()
+    if not cache_path.is_absolute():
+        cache_path = database / cache_path
+    return cache_path.resolve()
+
+
+def configure_resource_cache(config, database: Path) -> None:
+    """Expose config-file cache setting to ResourceStore via its env hook."""
+    cache_path = resolve_resource_cache_path(config, database)
+    if cache_path is not None:
+        os.environ[RESOURCE_CACHE_ENV] = str(cache_path)
 
 
 def resolve_database_download_source(config) -> Optional[dict]:
@@ -368,7 +454,13 @@ def resolve_database_download_source(config) -> Optional[dict]:
 def resolve_tree_method(args, config) -> str:
     if args.tree_method:
         return args.tree_method
-    return config["pipeline"].get("tree_method", "fasttree")
+    return config["pipeline"].get("tree_method", "veryfasttree")
+
+
+def resolve_iqtree_mode(args, config) -> str:
+    if getattr(args, "iqtree_mode", None):
+        return args.iqtree_mode
+    return config["pipeline"].get("iqtree_mode", "fast")
 
 
 def resolve_mode_fast(args, config) -> bool:
@@ -394,19 +486,44 @@ def resolve_completeness_mode(args, config) -> str:
     return config["pipeline"].get("completeness_mode", "novelty-aware")
 
 
-def resolve_contigs_min_length(config) -> int:
-    raw_value = config["pipeline"].get("contigs_min_length", 10000)
+def _resolve_nonnegative_int(raw_value, setting_name: str) -> int:
     try:
         value = int(raw_value)
     except (TypeError, ValueError) as exc:
         raise ValueError(
-            f"Invalid pipeline.contigs_min_length value: {raw_value!r} (must be an integer)"
+            f"Invalid {setting_name} value: {raw_value!r} (must be an integer)"
         ) from exc
     if value < 0:
-        raise ValueError(
-            f"Invalid pipeline.contigs_min_length value: {value} (must be >= 0)"
-        )
+        raise ValueError(f"Invalid {setting_name} value: {value} (must be >= 0)")
     return value
+
+
+def resolve_input_min_length(args, config) -> int:
+    if args.min_length is not None:
+        return _resolve_nonnegative_int(args.min_length, "--min-length")
+    raw_value = config.get("quality", {}).get("min_length", DEFAULT_INPUT_MIN_LENGTH)
+    return _resolve_nonnegative_int(raw_value, "quality.min_length")
+
+
+def resolve_contigs_min_length(args, config) -> int:
+    if args.contigs_min_length is not None:
+        return _resolve_nonnegative_int(
+            args.contigs_min_length,
+            "--contigs-min-length",
+        )
+    raw_value = config["pipeline"].get(
+        "contigs_min_length",
+        DEFAULT_CONTIGS_MIN_LENGTH,
+    )
+    return _resolve_nonnegative_int(raw_value, "pipeline.contigs_min_length")
+
+
+def resolve_validation_min_length(
+    contigs: ContigInput,
+    input_min_length: int,
+    contigs_min_length: int,
+) -> int:
+    return contigs_min_length if contigs.enabled else input_min_length
 
 
 def resolve_output_dir(args, query_dir: Path, config) -> Path:
@@ -526,41 +643,49 @@ def check_and_setup_database(db_path: Path, config, output: CliOutput) -> bool:
     preferred_source = resolve_database_download_source(config)
     db_state = inspect_local_database_state(db_path)
     latest_source = DatabaseManager.get_latest_database_source(preferred_source)
+    # Prefer a Zenodo-resolved "latest" when available; otherwise fall back to the
+    # version pinned in the config (e.g. the gvclass-dev tunnel bundle). Without this
+    # fallback a config version bump (v1.7.0 -> v1.7.1) on a non-Zenodo source never
+    # triggers a re-download, leaving testers on the stale bundle.
+    update_source = latest_source or preferred_source
 
     if db_state["exists"] and db_state["complete"]:
         output.line(f"Database found at: {db_path}", key="success")
         output.line(
             f"Installed database version: {db_state['version']}", key="database"
         )
-        if latest_source:
+        if update_source and update_source.get("version"):
             output.line(
-                f"Latest database version on Zenodo: {latest_source['version']}",
+                f"Configured database version: {update_source['version']}",
                 key="download",
             )
 
-        if should_offer_database_update(db_state["version"], latest_source):
+        if should_offer_database_update(db_state["version"], update_source):
+            target_version = update_source["version"]
             if sys.stdin.isatty() and sys.stdout.isatty():
                 wants_update = prompt_yes_no(
-                    f"Update database from {db_state['version']} to {latest_source['version']}?",
+                    f"Update database from {db_state['version']} to {target_version}?",
                     default=True,
                 )
             else:
+                # The config pins a newer version; update automatically rather than
+                # silently running against a stale database.
                 output.line(
-                    "Newer database version available, but this session is non-interactive; "
-                    "skipping update prompt.",
-                    key="warning",
+                    f"Installed database {db_state['version']} is older than the "
+                    f"configured {target_version}; updating automatically.",
+                    key="download",
                 )
-                wants_update = False
+                wants_update = True
 
             if wants_update:
                 output.line(
-                    f"Updating database from {db_state['version']} to {latest_source['version']}...",
+                    f"Updating database from {db_state['version']} to {target_version}...",
                     key="download",
                 )
                 try:
                     DatabaseManager.setup_database(
                         str(db_path),
-                        preferred_source=latest_source,
+                        preferred_source=update_source,
                         force=True,
                     )
                     output.line("Database setup complete!", key="success")
@@ -616,25 +741,33 @@ def check_and_setup_database(db_path: Path, config, output: CliOutput) -> bool:
 def count_resume_skips(output_dir: Path) -> int:
     """Count queries that resume will skip.
 
-    The v1.4.3 SUCCESS sentinel is the primary marker; pre-1.4.3 runs
-    still count via the legacy summary+tar intersection so the CLI's pre-run
-    preview matches the actual resume behavior in
-    :func:`src.pipeline.parallel_runner._query_is_resume_complete`.
+    The consolidated ``run_status.json`` manifest is the primary marker. Old
+    ``.SUCCESS`` files and the legacy summary+tar intersection are still counted
+    so the CLI preview matches the runner's backward-compatible resume behavior.
     """
+    from src.pipeline.run_status import load_run_status, query_is_complete_in_run_status
+
+    run_status = load_run_status(output_dir) or {}
+    manifest_names = {
+        name
+        for name, entry in run_status.get("queries", {}).items()
+        if entry.get("status") == "complete"
+        and query_is_complete_in_run_status(output_dir, name)
+    }
     sentinel_names = {
-        path.name.removesuffix(".SUCCESS")
-        for path in output_dir.glob("*.SUCCESS")
+        path.name.removesuffix(".SUCCESS") for path in output_dir.glob("*.SUCCESS")
     }
     summary_names = {
         path.name.removesuffix(".summary.tab")
         for path in output_dir.glob("*.summary.tab")
     }
     tar_names = {
-        path.name.removesuffix(".tar.gz")
-        for path in output_dir.glob("*.tar.gz")
+        path.name.removesuffix(".tar.gz") for path in output_dir.glob("*.tar.gz")
     }
-    legacy_names = (summary_names & tar_names) - sentinel_names
-    return len(sentinel_names) + len(legacy_names)
+    legacy_names = (summary_names & tar_names) - sentinel_names - manifest_names
+    return (
+        len(manifest_names) + len(sentinel_names - manifest_names) + len(legacy_names)
+    )
 
 
 def calculate_worker_plan(args, n_queries: int, threads: int) -> WorkerPlan:
@@ -750,6 +883,13 @@ def _append_optional_pipeline_flags(
         cmd.append("--resume")
     if getattr(args, "allow_short", False):
         cmd.append("--allow-short")
+    if getattr(args, "species_tree", False):
+        cmd.append("--species-tree")
+    if getattr(args, "species_tree_combined", False):
+        cmd.append("--species-tree-combined")
+    trim = getattr(args, "species_tree_trim", "witchi")
+    if trim and trim != "witchi":
+        cmd.extend(["--species-tree-trim", trim])
 
 
 def build_pipeline_command(
@@ -775,8 +915,12 @@ def build_pipeline_command(
             str(context.workers.threads_per_worker),
             "--tree-method",
             context.tree_method,
+            "--iqtree-mode",
+            context.iqtree_mode,
             "--cluster-type",
             args.cluster_type,
+            "--min-length",
+            str(context.validation_min_length),
         ]
     )
     _append_optional_pipeline_flags(
@@ -858,9 +1002,10 @@ def combine_summary_files(output_dir: Path, output: CliOutput):
         output.line("No summary data found to combine", key="warning")
         return
 
-    with open(combined_tsv, "w") as tsv_handle, open(
-        combined_csv, "w", newline=""
-    ) as csv_handle:
+    with (
+        open(combined_tsv, "w") as tsv_handle,
+        open(combined_csv, "w", newline="") as csv_handle,
+    ):
         writer = csv.writer(csv_handle)
         tsv_handle.write("\t".join(headers) + "\n")
         writer.writerow(headers)
@@ -889,6 +1034,66 @@ def cleanup_temp_dir(temp_dir: Optional[Path]):
         shutil.rmtree(temp_dir)
 
 
+def _stream_subprocess_pipe(pipe, source: str, output_queue: queue.Queue) -> None:
+    try:
+        for line in iter(pipe.readline, ""):
+            output_queue.put((source, line))
+    finally:
+        pipe.close()
+
+
+def _drain_pipeline_output(
+    process: subprocess.Popen,
+    monitor: ResourceMonitor,
+) -> tuple[bytes, bytes]:
+    output_queue: queue.Queue = queue.Queue()
+    stdout_lines: list[str] = []
+    stderr_lines: list[str] = []
+    readers = [
+        threading.Thread(
+            target=_stream_subprocess_pipe,
+            args=(process.stdout, "stdout", output_queue),
+            daemon=True,
+        ),
+        threading.Thread(
+            target=_stream_subprocess_pipe,
+            args=(process.stderr, "stderr", output_queue),
+            daemon=True,
+        ),
+    ]
+    for reader in readers:
+        reader.start()
+
+    while process.poll() is None or any(reader.is_alive() for reader in readers):
+        try:
+            source, line = output_queue.get(timeout=0.2)
+        except queue.Empty:
+            monitor.update_memory()
+            continue
+
+        monitor.update_memory()
+        if monitor.handle_progress_line(line):
+            continue
+        if source == "stdout":
+            stdout_lines.append(line)
+        else:
+            stderr_lines.append(line)
+
+    while not output_queue.empty():
+        source, line = output_queue.get()
+        if monitor.handle_progress_line(line):
+            continue
+        if source == "stdout":
+            stdout_lines.append(line)
+        else:
+            stderr_lines.append(line)
+
+    for reader in readers:
+        reader.join(timeout=1)
+
+    return "".join(stdout_lines).encode(), "".join(stderr_lines).encode()
+
+
 def run_pipeline(
     cmd,
     env,
@@ -899,26 +1104,30 @@ def run_pipeline(
 ):
     if verbose:
         process = subprocess.Popen(cmd, env=env, cwd=repo_dir)
+        monitor = ResourceMonitor(output_dir, queries_to_process, process.pid)
+        monitor_thread = threading.Thread(target=monitor.monitor_memory)
+        monitor_thread.start()
+        stdout_data, stderr_data = process.communicate()
+        return_code = process.returncode
+        monitor.stop()
+        monitor_thread.join()
+        return return_code, stdout_data, stderr_data, monitor
     else:
+        env = {**env, "GVCLASS_PROGRESS_EVENTS": "1"}
         process = subprocess.Popen(
             cmd,
             env=env,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             cwd=repo_dir,
+            text=True,
+            bufsize=1,
         )
 
-    existing_completed = len(list(output_dir.glob("*.summary.tab")))
     monitor = ResourceMonitor(output_dir, queries_to_process, process.pid)
-    monitor.current_query = existing_completed
-    monitor_thread = threading.Thread(target=monitor.monitor)
-    monitor_thread.start()
-
-    stdout_data, stderr_data = process.communicate()
+    stdout_data, stderr_data = _drain_pipeline_output(process, monitor)
     return_code = process.returncode
-    monitor.stop()
-    monitor_thread.join()
-    print("\r" + " " * 80 + "\r", end="")
+    monitor.finish(return_code == 0)
     return return_code, stdout_data, stderr_data, monitor
 
 
@@ -954,13 +1163,29 @@ def resolve_pipeline_context(
 
     contigs = resolve_contigs_input(query_dir, args.contigs)
     database = resolve_database_path(args, config, repo_dir)
+    configure_resource_cache(config, database)
     threads = args.threads if args.threads else config["pipeline"].get("threads", 16)
     tree_method = resolve_tree_method(args, config)
+    iqtree_mode = resolve_iqtree_mode(args, config)
     mode_fast = resolve_mode_fast(args, config)
     completeness_mode = resolve_completeness_mode(args, config)
     sensitive_mode = resolve_sensitive_mode(args, config)
-    contigs_min_length = resolve_contigs_min_length(config)
+    input_min_length = resolve_input_min_length(args, config)
+    contigs_min_length = resolve_contigs_min_length(args, config)
+    validation_min_length = resolve_validation_min_length(
+        contigs,
+        input_min_length,
+        contigs_min_length,
+    )
     output_dir = resolve_output_dir(args, query_dir, config)
+
+    if contigs.enabled and args.min_length is not None:
+        output.line(
+            "Warning: --min-length is ignored in --contigs mode; "
+            "use --contigs-min-length for split contigs.",
+            key="warning",
+            file=sys.stderr,
+        )
 
     if not check_and_setup_database(database, config, output):
         raise RuntimeError("Database setup failed")
@@ -987,11 +1212,14 @@ def resolve_pipeline_context(
         database=database,
         threads=threads,
         tree_method=tree_method,
+        iqtree_mode=iqtree_mode,
         mode_fast=mode_fast,
         completeness_mode=completeness_mode,
         sensitive_mode=sensitive_mode,
         contigs=contigs,
+        input_min_length=input_min_length,
         contigs_min_length=contigs_min_length,
+        validation_min_length=validation_min_length,
         temp_contigs_dir=temp_contigs_dir,
         n_queries=n_queries,
         n_input_files=n_input_files,
@@ -1067,7 +1295,9 @@ def display_startup_configuration(
         threads=context.threads,
         workers=context.workers,
         contigs=context.contigs,
+        input_min_length=context.input_min_length,
         contigs_min_length=context.contigs_min_length,
+        validation_min_length=context.validation_min_length,
     )
     output.line(f"Completeness mode: {context.completeness_mode}")
 

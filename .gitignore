@@ -14,9 +14,14 @@ example/results
 update
 # Runtime resources are downloaded locally during setup and must stay out of git.
 resources/
+resources_pre_*/
+.gvclass_cache/
 CLAUDE.md
 AGENTS.md
-docs/
+# Internal working docs stay out of git; the published MkDocs site under docs/ is tracked.
+docs/handoffs/
+docs/plans/
+docs/quality_metrics.md
 tasks/
 release_notes/
 scripts/rotate_contamination_model.py
@@ -27,6 +32,8 @@ out*
 *_results
 results*
 logs/
+cavebins/
+slurm/
 test/
 test_input/
 __pycache__/
@@ -59,3 +66,20 @@ tests/test_real_contig_contamination_benchmark.py
 tests/test_benchmark_v1_5_0_smoke.py
 benchmarking/contamination/v1_5_0/
 .codex
+
+# capscan/issue-17 augmentation — local artifacts + one-off DB-migration scripts (do not commit)
+*.egg-info/
+.memd/
+memory.md
+*.bak_*
+scripts/relabel_issue17_vp_to_plv.py
+scripts/resolve_collisions_by_blast.py
+scripts/build_caps_refs_figshare.py
+
+# MkDocs build artifacts (not committed)
+site/
+.venv-docs/
+# Cloudflare Wrangler/Pages cache from private-repo doc preview
+.wrangler/
+# docs/reference/output.md is a real docs page; exempt it from the broad out* rule above
+!docs/reference/output.md

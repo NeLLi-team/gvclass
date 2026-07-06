@@ -1,6 +1,6 @@
 [workspace]
 name = "gvclass"
-version = "1.6.1"
+version = "2.0.0"
 description = "Giant virus classification tool using phylogenetic analysis"
 authors = ["fschulz@lbl.gov"]
 channels = ["conda-forge", "bioconda"]
@@ -12,10 +12,11 @@ python = "3.11.*"
 # Core scientific libraries used in the code
 pandas = "==2.3.3"        # Used for data manipulation
 biopython = "==1.85"      # Used for sequence I/O
+pyarrow = ">=22,<23"      # Used for compact Parquet resource bundles
 
 # Phylogenetic analysis
 ete3 = "==3.1.2"          # Used for tree parsing and analysis
-iqtree = "==3.0.1"        # External binary for tree building
+iqtree = "==3.1.2"        # External binary for tree building (Q.pfam+R10+F --fast)
 diamond = "==2.1.23"      # Fast protein alignment
 
 # Build dependencies for pyrodigal
@@ -36,6 +37,7 @@ pyfamsa = "==0.5.3.post1"     # Multiple sequence alignment (manylinux_2_17 whee
 pyrodigal = { git = "https://github.com/tomasbruna/pyrodigal.git" }  # Gene calling with codes 106, 129
 pyswrd = "==0.3.1"            # BLAST alternative
 veryfasttree = "==4.0.4.1"    # FastTree implementation
+witchi = { git = "https://github.com/stephkoest/witchi", rev = "22bd7da653329dfff02ed4cfbd4751dde97772af" }  # chi-squared alignment column pruner (v0.2.0; pure-python; CLI `witchi prune`)
 
 # CLI framework
 click = "==8.3.1"
@@ -59,8 +61,8 @@ monitor-performance = "python src/test/monitor_performance.py"
 
 # Container building
 build-containers = "bash containers/build.sh"
-build-docker = "docker build -t gvclass:1.6.1 -f containers/docker/Dockerfile ."
-build-apptainer = "apptainer build gvclass.sif docker-daemon://gvclass:1.6.1"
+build-docker = "docker build -t gvclass:2.0.0 -f containers/docker/Dockerfile ."
+build-apptainer = "apptainer build --force gvclass_2.0.0.sif docker-daemon://gvclass:2.0.0"
 analyze-parallel = "python src/test/analyze_parallelization.py"
 
 test = "python -m pytest"
