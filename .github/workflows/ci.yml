@@ -58,7 +58,6 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 90
     needs: lint-and-test
-    if: github.event_name == 'pull_request'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -106,6 +105,14 @@ jobs:
           # Keeps the test harness and the CI gate on exactly the same code
           # path.
           pixi run pytest tests/test_golden_example_summary.py -v
+
+      - name: Audit compact resource labels and reference proteins
+        env:
+          GVCLASS_RUN_RESOURCE_AUDIT: "1"
+        run: |
+          pixi run pytest \
+            tests/test_resource_label_integrity.py \
+            tests/test_species_tree_config.py -v
 
   container-build:
     name: Build Apptainer SIF and smoke-test

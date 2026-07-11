@@ -72,9 +72,9 @@ echo "Number of processes: $PROCESSES"
 echo "Valid input files found: $VALID_FILES"
 
 # Build the Docker image if it doesn't exist
-if ! docker images | grep -q "gvclass.*2.0.0"; then
+if ! docker images | grep -q "gvclass.*2.0.1"; then
     echo "Building GVClass Docker image..."
-    docker build -t gvclass:2.0.0 -f containers/docker/Dockerfile .
+    docker build -t gvclass:2.0.1 -f containers/docker/Dockerfile .
 fi
 
 # Create output directory name
@@ -87,5 +87,5 @@ docker run --rm \
   --user $(id -u):$(id -g) \
   -v "$(pwd)/$QUERYDIR:/data:ro" \
   -v "$(pwd)/$OUTPUT_DIR:/results" \
-  gvclass:2.0.0 \
+  gvclass:2.0.1 \
   /data -o /results -t "$PROCESSES"

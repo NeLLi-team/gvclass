@@ -11,8 +11,9 @@ import hashlib
 import os
 import shutil
 import tempfile
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Iterator, Iterable, Sequence
 
 
 class ResourceStore:
@@ -155,19 +156,19 @@ class ResourceStore:
         pq, _ds = self._pyarrow_modules()
         columns: Sequence[str] = table["columns"]
         data = pq.read_table(parquet_path, columns=list(columns)).to_pylist()
-        tmp = target.with_name(f"{target.name}.{os.getpid()}.tmp")
-        with tmp.open("w") as handle:
-            if table["header"]:
-                handle.write("\t".join(columns) + "\n")
-            for row in data:
-                handle.write(
-                    "\t".join(
-                        "" if row.get(column) is None else str(row.get(column))
-                        for column in columns
+        with self._temporary_path(target) as tmp:
+            with tmp.open("w") as handle:
+                if table["header"]:
+                    handle.write("\t".join(columns) + "\n")
+                for row in data:
+                    handle.write(
+                        "\t".join(
+                            "" if row.get(column) is None else str(row.get(column))
+                            for column in columns
+                        )
+                        + "\n"
                     )
-                    + "\n"
-                )
-        os.replace(tmp, target)
+            os.replace(tmp, target)
         return target
 
     def _materialize_marker_faa(self, marker: str) -> Path:
@@ -191,23 +192,22 @@ class ResourceStore:
                 f"Marker {marker} was not found in Parquet FAA table {self.faa_parquet}"
             )
 
-        tmp = target.with_name(f"{target.name}.{os.getpid()}.tmp")
-        with tmp.open("w") as handle:
-            for row in rows:
-                seq_id = row.get("seq_id")
-                sequence = row.get("sequence")
-                if not seq_id or not sequence:
-                    continue
-                handle.write(f">{seq_id}\n")
-                seq = str(sequence)
-                for start in range(0, len(seq), 80):
-                    handle.write(seq[start : start + 80] + "\n")
-        if tmp.stat().st_size == 0:
-            tmp.unlink(missing_ok=True)
-            raise FileNotFoundError(
-                f"Marker {marker} has no usable sequences in {self.faa_parquet}"
-            )
-        os.replace(tmp, target)
+        with self._temporary_path(target) as tmp:
+            with tmp.open("w") as handle:
+                for row in rows:
+                    seq_id = row.get("seq_id")
+                    sequence = row.get("sequence")
+                    if not seq_id or not sequence:
+                        continue
+                    handle.write(f">{seq_id}\n")
+                    seq = str(sequence)
+                    for start in range(0, len(seq), 80):
+                        handle.write(seq[start : start + 80] + "\n")
+            if tmp.stat().st_size == 0:
+                raise FileNotFoundError(
+                    f"Marker {marker} has no usable sequences in {self.faa_parquet}"
+                )
+            os.replace(tmp, target)
         return target
 
     def _label_cache_dir(self) -> Path:
@@ -260,14 +260,31 @@ class ResourceStore:
 
     @staticmethod
     def _link_or_copy(source: Path, target: Path) -> None:
-        tmp = target.with_name(f"{target.name}.{os.getpid()}.tmp")
-        tmp.unlink(missing_ok=True)
+        with ResourceStore._temporary_path(target) as tmp:
+            tmp.unlink()
+            try:
+                tmp.symlink_to(source)
+            except OSError:
+                tmp.unlink(missing_ok=True)
+                shutil.copyfile(source, tmp)
+            os.replace(tmp, target)
+
+    @staticmethod
+    @contextmanager
+    def _temporary_path(target: Path) -> Iterator[Path]:
+        """Yield a process- and thread-unique temporary sibling of ``target``."""
+        fd, name = tempfile.mkstemp(
+            prefix=f".{target.name}.", suffix=".tmp", dir=target.parent
+        )
+        os.close(fd)
+        tmp = Path(name)
+        # Reference data are public and caches may be shared by a compute group.
+        # mkstemp defaults to 0600, unlike the former ordinary file writes.
+        tmp.chmod(0o644)
         try:
-            tmp.symlink_to(source)
-        except OSError:
+            yield tmp
+        finally:
             tmp.unlink(missing_ok=True)
-            shutil.copyfile(source, tmp)
-        os.replace(tmp, target)
 
     @staticmethod
     def _pyarrow_modules():

@@ -31,13 +31,13 @@ Each genome returns a majority-vote taxonomy with a [confidence flag](reference/
     ./gvclass-a QUERY_DIR RESULTS_DIR -t 32
     ```
 
-    The wrapper pulls the `library://nelligroup-jgi/gvclass/gvclass:2.0.0` Apptainer image and keeps the compact-resource warm cache under `~/.cache/gvclass/resource-cache/v2.0.0`.
+    The wrapper pulls the `library://nelligroup-jgi/gvclass/gvclass:2.0.1` Apptainer image and keeps the compact-resource warm cache under `~/.cache/gvclass/resource-cache/v2.0.0`.
 
 For the full walkthrough, see [Getting started](tutorials/getting-started.md).
 
 !!! note "Current release"
 
-    Software 2.0.0. `pixi run setup-db` downloads the public v2.0.0 resource archive from [Zenodo](https://doi.org/10.5281/zenodo.21225457) and installs database `DB_VERSION` v2.0.0. Downloads and changelogs are on the [GitHub Releases](https://github.com/NeLLi-team/gvclass/releases) page.
+    Software 2.0.1. `pixi run setup-db` downloads the public v2.0.0 resource archive from [Zenodo](https://doi.org/10.5281/zenodo.21225457) and installs database `DB_VERSION` v2.0.0. Downloads and changelogs are on the [GitHub Releases](https://github.com/NeLLi-team/gvclass/releases) page.
 
 ## Citation, license, contact
 

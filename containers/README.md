@@ -1,6 +1,6 @@
 # GVClass Container Images
 
-This directory contains container definitions for the GVClass `2.0.0` release image.
+This directory contains container definitions for the GVClass `2.0.1` release image.
 
 ## Directory Structure
 
@@ -28,8 +28,8 @@ bash containers/build.sh
 apptainer build gvclass.sif containers/apptainer/gvclass.def
 
 # If direct def-file builds are unavailable, build Docker then convert
-docker build -t gvclass:2.0.0 -f containers/docker/Dockerfile .
-apptainer build --force gvclass_2.0.0.sif docker-daemon://gvclass:2.0.0
+docker build -t gvclass:2.0.1 -f containers/docker/Dockerfile .
+apptainer build --force gvclass_2.0.1.sif docker-daemon://gvclass:2.0.1
 ```
 
 This creates a self-contained image including:
@@ -68,7 +68,7 @@ falls back to container `/tmp` and is rebuilt on later runs.
 The release image is published in the Sylabs library:
 
 ```text
-library://nelligroup-jgi/gvclass/gvclass:2.0.0
+library://nelligroup-jgi/gvclass/gvclass:2.0.1
 ```
 
 It embeds the v2.0.0 database. The `gvclass-a` wrapper downloads this URI into
@@ -90,7 +90,7 @@ apptainer remote login SylabsCloud
 
 # Push the image
 apptainer push -U --library https://library.sylabs.io \
-    gvclass.sif library://nelligroup-jgi/gvclass/gvclass:2.0.0
+    gvclass.sif library://nelligroup-jgi/gvclass/gvclass:2.0.1
 ```
 
 ## Alternative: Docker
@@ -100,12 +100,12 @@ Docker images are available but less suitable for HPC clusters.
 ### Build
 ```bash
 # From project root
-docker build -t gvclass:2.0.0 -f containers/docker/Dockerfile .
+docker build -t gvclass:2.0.1 -f containers/docker/Dockerfile .
 ```
 
 ### Usage
 ```bash
-docker run -v /path/to/data:/data gvclass:2.0.0 /data -t 32
+docker run -v /path/to/data:/data gvclass:2.0.1 /data -t 32
 ```
 
 ## Container Features

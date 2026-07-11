@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -87,6 +90,33 @@ def test_resource_store_materializes_parquet_labels_and_marker_faa(
 
     materialized_dir = store.materialized_faa_dir(["GVOGm0001"])
     assert (materialized_dir / "GVOGm0001.faa").exists()
+
+
+def test_resource_store_concurrent_materialization_uses_unique_temp_files(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _write_parquet(
+        tmp_path / "parquet" / "labels" / "labels.parquet",
+        [{"label_id": "NCLDV__ref", "taxonomy": "NCLDV|p|c|o|f|g|s"}],
+    )
+    store = ResourceStore(tmp_path)
+    target = store._label_cache_dir() / "labels.tsv"
+    real_replace = os.replace
+    replace_barrier = threading.Barrier(2)
+
+    def synchronized_replace(source, destination):
+        if Path(destination) == target:
+            replace_barrier.wait(timeout=5)
+        return real_replace(source, destination)
+
+    monkeypatch.setattr(os, "replace", synchronized_replace)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        paths = list(executor.map(lambda _: store.label_path("labels.tsv"), range(2)))
+
+    assert paths == [target, target]
+    assert target.read_text() == "NCLDV__ref\tNCLDV|p|c|o|f|g|s\n"
+    assert target.stat().st_mode & 0o777 == 0o644
+    assert list(target.parent.glob(f".{target.name}.*.tmp")) == []
 
 
 def test_resource_store_materialized_dir_can_mix_legacy_and_parquet(

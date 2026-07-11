@@ -18,7 +18,7 @@ from src.pipeline.summary_writer import (
     write_final_summary_extended_files,
     write_final_summary_files,
 )
-from src.utils import InputValidator
+from src.utils import InputValidator, ValidationError
 from src.utils.database_manager import DatabaseManager
 
 
@@ -37,11 +37,6 @@ def validate_and_setup_task(
         allow_short=allow_short,
         min_sequence_length=min_sequence_length,
     )
-    output_path = Path(output_dir)
-    output_path.mkdir(parents=True, exist_ok=True)
-    db_path = DatabaseManager.setup_database(database_path)
-    logger.info(f"Using database at: {db_path}")
-
     # InputValidator already accepts .fna / .faa / .fasta / .fas via
     # alphabet inference, so enumerate the same set here — otherwise a
     # directory of .fasta inputs would validate but yield zero queries
@@ -49,6 +44,28 @@ def validate_and_setup_task(
     query_files = []
     for ext in (".fna", ".faa", ".fasta", ".fas"):
         query_files.extend(query_path.glob(f"*{ext}"))
+    query_files = sorted(query_files)
+
+    files_by_stem: Dict[str, List[Path]] = {}
+    for query_file in query_files:
+        files_by_stem.setdefault(query_file.stem, []).append(query_file)
+    collisions = {
+        stem: files for stem, files in files_by_stem.items() if len(files) > 1
+    }
+    if collisions:
+        details = "; ".join(
+            f"{stem}: {', '.join(path.name for path in files)}"
+            for stem, files in sorted(collisions.items())
+        )
+        raise ValidationError(
+            "Query filenames must have unique stems because stems identify output "
+            f"files. Rename these colliding inputs: {details}"
+        )
+
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    db_path = DatabaseManager.setup_database(database_path)
+    logger.info(f"Using database at: {db_path}")
 
     logger.info(f"Found {len(query_files)} query files")
     return {
@@ -456,7 +473,15 @@ def gvclass_flow(
             )
         all_results = _combine_with_resume_skipped_results(config, [], logger)
         summary_file = create_final_summary_task(all_results, config["output_path"])
-        run_status.finish("complete")
+        failed_results = [
+            result for result in all_results if result.get("status") != "complete"
+        ]
+        run_status.finish("failed" if failed_results else "complete")
+        if failed_results:
+            raise RuntimeError(
+                f"GVClass failed to recover summaries for {len(failed_results)} "
+                "resume-skipped queries; see run_status.json and the final summary."
+            )
         logger.info(f"Pipeline completed! Results in: {config['output_path']}")
         logger.info(f"Summary written to: {summary_file}")
         _ = cluster_type
@@ -542,13 +567,22 @@ def gvclass_flow(
     logger.info("Creating final summary...")
     all_results = _combine_with_resume_skipped_results(config, results, logger)
     summary_file = create_final_summary_task(all_results, config["output_path"])
-    run_status.finish("complete" if completed_count == total_queries else "failed")
+    failed_results = [
+        result for result in all_results if result.get("status") != "complete"
+    ]
+    run_status.finish("failed" if failed_results else "complete")
     logger.info(f"Pipeline completed! Results in: {config['output_path']}")
     logger.info(f"Summary written to: {summary_file}")
     logger.info(f"Successfully processed {completed_count}/{len(results)} queries")
 
     _ = cluster_type
     _ = cluster_config
+    if failed_results:
+        raise RuntimeError(
+            f"GVClass failed for {len(failed_results)} of "
+            f"{len(all_results)} queries; partial results were written to "
+            f"{config['output_path']}."
+        )
     return summary_file
 
 
