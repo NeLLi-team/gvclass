@@ -1,6 +1,6 @@
 [workspace]
 name = "gvclass"
-version = "2.0.0"
+version = "2.0.1"
 description = "Giant virus classification tool using phylogenetic analysis"
 authors = ["fschulz@lbl.gov"]
 channels = ["conda-forge", "bioconda"]
@@ -61,8 +61,8 @@ monitor-performance = "python src/test/monitor_performance.py"
 
 # Container building
 build-containers = "bash containers/build.sh"
-build-docker = "docker build -t gvclass:2.0.0 -f containers/docker/Dockerfile ."
-build-apptainer = "apptainer build --force gvclass_2.0.0.sif docker-daemon://gvclass:2.0.0"
+build-docker = "docker build -t gvclass:2.0.1 -f containers/docker/Dockerfile ."
+build-apptainer = "apptainer build --force gvclass_2.0.1.sif docker-daemon://gvclass:2.0.1"
 analyze-parallel = "python src/test/analyze_parallelization.py"
 
 test = "python -m pytest"

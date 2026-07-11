@@ -99,7 +99,7 @@ See [run on HPC](../how-to/run-on-hpc.md).
 
 ```text
 GVClass Pipeline
-  Software version: v2.0.0
+  Software version: v2.0.1
   Database version: v2.0.0
 ```
 

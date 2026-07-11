@@ -23,9 +23,11 @@ from src.core.species_tree.config import (
     neighbors_to_store,
     select_panel,
 )
+from src.utils.resource_store import ResourceStore
 
 REPO = Path(__file__).resolve().parents[1]
-FAA_DIR = REPO / "resources" / "database" / "faa"
+RESOURCE_DIR = REPO / "resources"
+STORE = ResourceStore(RESOURCE_DIR)
 
 
 def test_all_three_panels_registered() -> None:
@@ -111,11 +113,14 @@ def _count_prefixed_headers(faa: Path, prefix: str) -> int:
 
 
 @pytest.mark.requires_db
-@pytest.mark.skipif(not FAA_DIR.exists(), reason="reference DB not installed")
+@pytest.mark.skipif(
+    not ((RESOURCE_DIR / "database" / "faa").exists() or STORE.has_parquet_faa()),
+    reason="reference DB not installed",
+)
 @pytest.mark.parametrize("panel", [NCLDV_PANEL, PPV_PANEL, MIRUS_PANEL])
 def test_panel_groups_resolve_to_faa_with_domain_refs(panel) -> None:
     for group in panel.groups:
-        faa = FAA_DIR / f"{group}.faa"
+        faa = STORE.marker_faa_path(group)
         assert faa.exists(), f"{panel.name} group {group} has no reference faa"
         n_refs = _count_prefixed_headers(faa, panel.domain_prefix)
         assert (

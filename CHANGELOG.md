@@ -15,6 +15,33 @@ compatible bundle is noted per release.
 
 No unreleased changes.
 
+## [2.0.1] - 2026-07-10
+
+Compatible resource bundle: v2.0.0 (Zenodo DOI 10.5281/zenodo.21225457).
+
+### Fixed
+
+- Runs with one or more failed queries now exit with an error after preserving
+  the partial summary and `run_status.json`. They no longer print a successful
+  completion message or return status 0.
+- Query files with the same stem, such as `sample.fna` and `sample.faa`, are
+  rejected before output or database setup because they would overwrite the
+  same per-query files.
+- Concurrent Parquet label and marker materialization now uses a distinct
+  temporary file for each worker.
+- If both a database swap and its rollback fail, the previous database remains
+  available as `<database>.old` for manual recovery.
+
+### Release checks
+
+- The compact Parquet resource audit now checks all label and protein records,
+  and the audit runs alongside the example-genome golden regression on every CI
+  event.
+- The example-genome fixture now records the v2.0.0 database's current capsid
+  group result.
+- Container definitions and wrappers now identify the 2.0.1 software image.
+  The embedded database and persistent resource-cache namespace remain v2.0.0.
+
 ## [2.0.0] - 2026-07-06
 
 Compatible resource bundle: v2.0.0 (Zenodo DOI 10.5281/zenodo.21225457).

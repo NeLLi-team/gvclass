@@ -4,18 +4,19 @@ from __future__ import annotations
 
 import os
 import re
-from collections import defaultdict
 from pathlib import Path
+from typing import Iterator
 
 import pytest
+
+from src.utils.resource_store import ResourceStore
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 RESOURCE_DIR = Path(
     os.environ.get("GVCLASS_RESOURCE_AUDIT_DIR", REPO_ROOT / "resources")
 )
-LABELS = RESOURCE_DIR / "labels.tsv"
-ALIASES = RESOURCE_DIR / "aliases.tsv"
+STORE = ResourceStore(RESOURCE_DIR)
 FAA_DIR = Path(
     os.environ.get(
         "GVCLASS_RESOURCE_AUDIT_FAA_DIR",
@@ -25,9 +26,10 @@ FAA_DIR = Path(
 
 
 def _load_label_ids() -> set[str]:
+    labels = STORE.label_path("labels.tsv")
     label_ids: set[str] = set()
     duplicates: set[str] = set()
-    with LABELS.open() as handle:
+    with labels.open() as handle:
         for line in handle:
             if not line.strip():
                 continue
@@ -43,10 +45,11 @@ def _load_aliases(label_ids: set[str]) -> dict[str, str]:
     aliases: dict[str, str] = {}
     if os.environ.get("GVCLASS_RESOURCE_AUDIT_ALLOW_ALIASES", "1") == "0":
         return aliases
-    if not ALIASES.exists():
+    aliases_path = STORE.label_path("aliases.tsv")
+    if not aliases_path.exists():
         return aliases
 
-    with ALIASES.open() as handle:
+    with aliases_path.open() as handle:
         header = handle.readline().rstrip("\n").split("\t")
         try:
             alias_idx = header.index("alias_id")
@@ -89,14 +92,20 @@ def _candidate_label_ids(protein_id: str) -> list[str]:
     return list(dict.fromkeys(candidates))
 
 
-def _iter_faa_header_ids() -> list[str]:
-    header_ids: list[str] = []
-    for faa in sorted(FAA_DIR.glob("*.faa")):
-        with faa.open() as handle:
-            for line in handle:
-                if line.startswith(">"):
-                    header_ids.append(line[1:].split()[0])
-    return header_ids
+def _iter_faa_header_ids() -> Iterator[str]:
+    if FAA_DIR.exists():
+        for faa in sorted(FAA_DIR.glob("*.faa")):
+            with faa.open() as handle:
+                for line in handle:
+                    if line.startswith(">"):
+                        yield line[1:].split()[0]
+        return
+
+    if STORE.has_parquet_faa():
+        pq, _ds = STORE._pyarrow_modules()
+        parquet = pq.ParquetFile(STORE.faa_parquet)
+        for batch in parquet.iter_batches(columns=["seq_id"]):
+            yield from batch.column(0).to_pylist()
 
 
 def _resolve_header_id(
@@ -117,27 +126,31 @@ def _resolve_header_id(
 )
 def test_reference_faa_headers_and_labels_are_bijective() -> None:
     """Every active label should have FAA evidence and every FAA header should resolve."""
-    if not LABELS.exists() or not FAA_DIR.exists():
+    if not STORE.labels_satisfied(RESOURCE_DIR) or not (
+        FAA_DIR.exists() or STORE.has_parquet_faa()
+    ):
         pytest.skip("GVClass resource bundle is not installed")
 
     label_ids = _load_label_ids()
     aliases = _load_aliases(label_ids)
-    headers = _iter_faa_header_ids()
-    resolved_labels: dict[str, set[str]] = defaultdict(set)
-    unresolved_headers: list[str] = []
+    resolved_labels: set[str] = set()
+    unresolved_count = 0
+    unresolved_examples: list[str] = []
 
-    for header_id in headers:
+    for header_id in _iter_faa_header_ids():
         resolved = _resolve_header_id(header_id, label_ids, aliases)
         if resolved is None:
-            unresolved_headers.append(header_id)
+            unresolved_count += 1
+            if len(unresolved_examples) < 20:
+                unresolved_examples.append(header_id)
         else:
-            resolved_labels[resolved].add(header_id)
+            resolved_labels.add(resolved)
 
-    labels_without_faa = sorted(label_ids - set(resolved_labels))
+    labels_without_faa = sorted(label_ids - resolved_labels)
 
-    assert not unresolved_headers, (
-        f"{len(unresolved_headers)} FAA headers did not resolve to labels; "
-        f"examples: {unresolved_headers[:20]}"
+    assert unresolved_count == 0, (
+        f"{unresolved_count} FAA headers did not resolve to labels; "
+        f"examples: {unresolved_examples}"
     )
     assert not labels_without_faa, (
         f"{len(labels_without_faa)} labels had no FAA evidence; "

@@ -551,6 +551,7 @@ class DatabaseManager:
             shutil.rmtree(backup_path, ignore_errors=True)
 
         had_previous = db_path.exists()
+        remove_backup = False
         try:
             if had_previous:
                 os.replace(db_path, backup_path)
@@ -564,6 +565,8 @@ class DatabaseManager:
                     logger.error(
                         f"Failed to restore previous database from backup: {restore_exc}"
                     )
+                else:
+                    remove_backup = True
             raise
         else:
             # Best-effort fsync of the parent directory so the rename is
@@ -578,8 +581,9 @@ class DatabaseManager:
                     os.fsync(dir_fd)
                 finally:
                     os.close(dir_fd)
+            remove_backup = True
         finally:
-            if backup_path.exists():
+            if remove_backup and backup_path.exists():
                 shutil.rmtree(backup_path, ignore_errors=True)
 
     @classmethod

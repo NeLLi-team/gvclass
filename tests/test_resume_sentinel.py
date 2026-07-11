@@ -657,6 +657,39 @@ def test_atomic_swap_directory_rolls_back_on_failure(
     assert (db_path / "existing.txt").read_text() == "old"
 
 
+def test_atomic_swap_directory_preserves_backup_when_restore_fails(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from src.utils.database_manager import DatabaseManager
+
+    db_path = tmp_path / "resources"
+    staging_path = tmp_path / "resources.new"
+    backup_path = tmp_path / "resources.old"
+    db_path.mkdir()
+    (db_path / "existing.txt").write_text("old")
+    staging_path.mkdir()
+    (staging_path / "new.txt").write_text("new")
+
+    import os as os_module
+
+    real_replace = os_module.replace
+    call_state = {"count": 0}
+
+    def double_fault_replace(src, dst):
+        call_state["count"] += 1
+        if call_state["count"] in {2, 3}:
+            raise OSError(f"simulated rename failure {call_state['count']}")
+        real_replace(src, dst)
+
+    monkeypatch.setattr(os_module, "replace", double_fault_replace)
+    with pytest.raises(OSError, match="simulated rename failure 2"):
+        DatabaseManager._atomic_swap_directory(staging_path, db_path)
+
+    assert not db_path.exists()
+    assert (backup_path / "existing.txt").read_text() == "old"
+    assert (staging_path / "new.txt").read_text() == "new"
+
+
 def test_atomic_swap_directory_replaces_previous_and_cleans_backup(
     tmp_path: Path,
 ) -> None:
@@ -758,7 +791,9 @@ def test_combine_resume_skipped_all_readable_unchanged(tmp_path: Path) -> None:
     assert combined[0]["status"] == "complete"
 
 
-def test_resume_all_skipped_does_not_crash_on_zero_workers(tmp_path: Path) -> None:
+def test_resume_all_skipped_does_not_crash_on_zero_workers(
+    tmp_path: Path, monkeypatch
+) -> None:
     """Regression: if every query is resume-complete, the flow must not
     instantiate ThreadPoolExecutor(max_workers=0)."""
     from src.pipeline.parallel_runner import gvclass_flow
@@ -780,6 +815,12 @@ def test_resume_all_skipped_does_not_crash_on_zero_workers(tmp_path: Path) -> No
     # final summary from whatever is on disk (empty in this synthetic case).
     # The synthetic FNAs are far below the Phase 3.2 20 kb floor, so pass
     # allow_short=True to let validate_query_directory accept them.
+    db_path = tmp_path / "db"
+    db_path.mkdir()
+    monkeypatch.setattr(
+        "src.pipeline.parallel_runner.DatabaseManager.setup_database",
+        lambda _database_path: db_path,
+    )
     summary_file = gvclass_flow(
         query_dir=str(query_dir),
         output_dir=str(output_dir),
@@ -797,3 +838,102 @@ def test_resume_all_skipped_does_not_crash_on_zero_workers(tmp_path: Path) -> No
     run_log = (output_dir / "run.log").read_text()
     assert "QUERY_RESUME_SKIPPED\tq1" in run_log
     assert "QUERY_RESUME_SKIPPED\tq2" in run_log
+
+
+def test_gvclass_flow_raises_after_writing_partial_failure_outputs(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from src.pipeline import parallel_runner
+
+    query_dir = tmp_path / "queries"
+    output_path = tmp_path / "out"
+    query_dir.mkdir()
+    output_path.mkdir()
+    (query_dir / "broken.faa").write_text(">p\nM\n")
+
+    monkeypatch.setattr(
+        parallel_runner,
+        "validate_and_setup_task",
+        _fake_resume_validate(query_dir, output_path),
+    )
+
+    def fail_query(*args, **kwargs):
+        raise RuntimeError("simulated query failure")
+
+    monkeypatch.setattr(parallel_runner, "process_query_task", fail_query)
+
+    with pytest.raises(RuntimeError, match="failed for 1 of 1 queries"):
+        parallel_runner.gvclass_flow(
+            str(query_dir),
+            str(output_path),
+            total_threads=1,
+            max_workers=1,
+            threads_per_worker=1,
+        )
+
+    assert (output_path / "gvclass_summary.tsv").exists()
+    run_status = json.loads((output_path / "run_status.json").read_text())
+    assert run_status["status"] == "failed"
+
+
+def test_gvclass_flow_raises_when_mixed_resume_summary_is_missing(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from src.pipeline import parallel_runner
+
+    query_dir = tmp_path / "queries"
+    output_path = tmp_path / "out"
+    query_dir.mkdir()
+    output_path.mkdir()
+    for query_name in ("missing", "processed"):
+        (query_dir / f"{query_name}.faa").write_text(">p\nM\n")
+    (output_path / "missing.SUCCESS").write_text("{}")
+
+    monkeypatch.setattr(
+        parallel_runner,
+        "validate_and_setup_task",
+        _fake_resume_validate(query_dir, output_path),
+    )
+    monkeypatch.setattr(parallel_runner, "process_query_task", _fake_query_processor)
+
+    with pytest.raises(RuntimeError, match="failed for 1 of 2 queries"):
+        parallel_runner.gvclass_flow(
+            str(query_dir),
+            str(output_path),
+            total_threads=1,
+            max_workers=1,
+            threads_per_worker=1,
+            resume=True,
+        )
+
+    run_status = json.loads((output_path / "run_status.json").read_text())
+    assert run_status["status"] == "failed"
+
+
+def test_validate_and_setup_rejects_duplicate_stems_before_side_effects(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from src.pipeline import parallel_runner
+    from src.utils import ValidationError
+
+    query_dir = tmp_path / "queries"
+    output_path = tmp_path / "out"
+    query_dir.mkdir()
+    (query_dir / "same.fna").write_text(">c\nACGT\n")
+    (query_dir / "same.faa").write_text(">p\nM\n")
+
+    monkeypatch.setattr(
+        parallel_runner.InputValidator,
+        "validate_query_directory",
+        lambda *args, **kwargs: query_dir,
+    )
+    setup_database = Mock()
+    monkeypatch.setattr(parallel_runner.DatabaseManager, "setup_database", setup_database)
+
+    with pytest.raises(ValidationError, match=r"same: same\.faa, same\.fna"):
+        parallel_runner.validate_and_setup_task(
+            str(query_dir), str(output_path), database_path=str(tmp_path / "db")
+        )
+
+    setup_database.assert_not_called()
+    assert not output_path.exists()

@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.0.0-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/version-2.0.1-blue.svg" alt="Version">
   <img src="https://img.shields.io/badge/license-BSD--3--Clause-green.svg" alt="License">
   <img src="https://img.shields.io/badge/pixi-enabled-orange.svg" alt="Pixi">
 </p>
@@ -43,7 +43,7 @@ chmod +x gvclass-a
 
 The Apptainer image bundles the database and dependencies. See [Getting started](https://NeLLi-team.github.io/gvclass/tutorials/getting-started/) for the full walkthrough.
 
-The wrapper pulls the `library://nelligroup-jgi/gvclass/gvclass:2.0.0` SIF
+The wrapper pulls the `library://nelligroup-jgi/gvclass/gvclass:2.0.1` SIF
 from the public Sylabs library. The image embeds the compact v2.0.0 database
 and writes its Parquet materialization cache to a host directory under
 `~/.cache/gvclass/resource-cache/v2.0.0`.

@@ -18,8 +18,8 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 # Change to project root for build context
 cd "$PROJECT_ROOT"
 
-DOCKER_TAG="gvclass:2.0.0"
-SIF_IMAGE="gvclass_2.0.0.sif"
+DOCKER_TAG="gvclass:2.0.1"
+SIF_IMAGE="gvclass_2.0.1.sif"
 
 # Setup temporary directory for Apptainer/Singularity builds
 # Use /tmp to avoid recursive copy issues when temp dir is inside build context
