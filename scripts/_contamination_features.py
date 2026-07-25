@@ -67,7 +67,5 @@ def compute_query_features(
     """
     if summarizer is None:
         summarizer = FullSummarizer(database_path, sensitive_mode=sensitive_mode)
-    tree_nn = load_tree_nn_results(
-        query_output_dir / "stats" / f"{query_id}.tree_nn"
-    )
+    tree_nn = load_tree_nn_results(query_output_dir / "stats" / f"{query_id}.tree_nn")
     return summarizer.summarize_query_full(query_id, query_output_dir, tree_nn)
