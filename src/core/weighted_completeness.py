@@ -7,7 +7,7 @@ marker frequency statistics and adaptive weighting strategies.
 
 import logging
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional
+from typing import Any, Dict, List, Tuple, Optional
 import pandas as pd
 import numpy as np
 from functools import lru_cache
@@ -315,7 +315,7 @@ class WeightedCompletenessCalculator:
         marker_counts: Dict[str, int],
         taxonomic_order: str,
         expected_markers: List[str],
-    ) -> Tuple[float, float, Dict[str, any]]:
+    ) -> Tuple[float, float, Dict[str, Any]]:
         """
         Calculate weighted completeness with comprehensive metrics.
 

@@ -5,31 +5,19 @@ Full summarization module for GVClass results matching original output format.
 from collections import Counter, defaultdict
 import logging
 import math
-import re
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import pandas as pd
 
-from src.config.marker_sets import (
-    CAPS_MARKER_GROUP,
-    MIRUS_CATEGORY_MODELS,
-    BUSCO_MODELS,
-    PHAGE_MODELS,
-    GVOG4M_MODELS,
-    GVOG8M_MODELS,
-    UNI56_MODELS,
-    NCLDV_MCP_MODELS,
-    MRYA_MODELS,
-    VP_CATEGORY_PREFIXES,
-    PLV_PREFIX,
-)
-from src.core.marker_extraction import (
-    consolidate_grouped_panel,
-    count_unique_proteins_for_markers,
-    count_unique_proteins_for_prefixes,
-    parse_hmm_output,
-    parse_hmm_scores,
+from src.config.marker_sets import CAPS_MARKER_GROUP
+from src.core.summarize import (
+    consensus,
+    labels_taxonomy,
+    marker_panels,
+    order_completeness,
+    paths_stats,
+    tax_format,
 )
 from src.core.weighted_completeness import create_weighted_calculator
 from src.core.novelty_completeness import create_novelty_completeness_scorer
@@ -39,18 +27,12 @@ from src.utils.resource_store import ResourceStore
 logger = logging.getLogger(__name__)
 
 
-def _dominant(counter: Counter) -> str:
-    """Single dominant key, or "" on an empty counter or a top-2 tie."""
-    top = counter.most_common(2)
-    if not top or (len(top) > 1 and top[0][1] == top[1][1]):
-        return ""
-    return top[0][0]
-
-
-# Bellas&Sommaruga caps group names (the family rank of caps reference lineages).
-# Used to recognise a caps-group nearest neighbour in the MCP trees and ignore generic
-# (non-caps) refs whose family rank is some other taxon.
-CAPS_GROUPS = frozenset(CAPS_MARKER_GROUP.values()) - {"unclassified"}
+# ``_dominant`` and the caps-group whitelist moved to
+# src/core/summarize/labels_taxonomy.py together with the tree-NN capsid
+# methods that use them; ``derive_capscan_group`` below still reads both, and
+# the module-level names stay reachable for existing callers.
+_dominant = labels_taxonomy._dominant
+CAPS_GROUPS = labels_taxonomy.CAPS_GROUPS
 
 
 def derive_capscan_group(marker_hits, marker_counts) -> str:
@@ -84,24 +66,14 @@ def derive_capscan_group(marker_hits, marker_counts) -> str:
 class FullSummarizer:
     """Generate complete summary matching original GVClass output."""
 
-    TAX_LEVELS = [
-        "domain",
-        "phylum",
-        "class",
-        "order",
-        "family",
-        "genus",
-        "species",
-    ]
-    TAX_LEVEL_MAPPING = {
-        "domain": 0,
-        "phylum": 1,
-        "class": 2,
-        "order": 3,
-        "family": 4,
-        "genus": 5,
-        "species": 6,
-    }
+    TAX_LEVELS = consensus.TAX_LEVELS
+    TAX_LEVEL_MAPPING = labels_taxonomy.TAX_LEVEL_MAPPING
+
+    # Empty label index until ``__init__`` loads one. The wrappers below read
+    # ``labels_dict`` before delegating, whereas the bodies they replaced read
+    # it only on the branches that need it; the default keeps the no-label
+    # branches (e.g. a PLV count with no marker tree) working as they did.
+    labels_dict: Dict[str, List[str]] = {}
 
     def __init__(
         self,
@@ -134,20 +106,13 @@ class FullSummarizer:
             database_path, sensitive_mode=sensitive_mode
         )
 
+    # The label index and the taxonomy counting built on it live in
+    # src/core/summarize/labels_taxonomy.py; the methods below delegate so
+    # existing callers keep working unchanged. ``labels_dict`` is read here and
+    # passed in, so the module functions stay stateless.
+
     def load_labels(self) -> Dict[str, List[str]]:
-        """Load taxonomy labels from file."""
-        labels = {}
-        try:
-            with open(self.labels_file, "r") as f:
-                for line in f:
-                    parsed = self._parse_label_line(line)
-                    if parsed is None:
-                        continue
-                    genome_id, tax_parts = parsed
-                    labels[genome_id] = tax_parts
-        except Exception as e:
-            logger.error(f"Error loading labels: {e}")
-        return labels
+        return labels_taxonomy.load_labels(self.labels_file)
 
     def _load_order_stats(self) -> pd.DataFrame:
         """Load order-level marker recovery baselines used for completeness scaling."""
@@ -158,78 +123,30 @@ class FullSummarizer:
             return pd.DataFrame()
 
     def _parse_label_line(self, line: str) -> Optional[Tuple[str, List[str]]]:
-        if line.startswith("#"):
-            return None
-
-        parts = line.strip().split("\t")
-        if len(parts) < 2:
-            return None
-
-        genome_id = parts[0]
-        tax_parts = parts[1].split("|") if "|" in parts[1] else [parts[1]]
-        while len(tax_parts) < 7:
-            tax_parts.append("")
-        return genome_id, tax_parts
+        return labels_taxonomy._parse_label_line(line)
 
     def _plv_count_tree_aware(
         self,
         marker_hits: Optional[Dict[str, Set[str]]],
         tree_nn_results: Optional[Dict[str, Dict[str, Dict[str, float]]]],
     ) -> int:
-        """Count A32/PLV-marker proteins ONLY when they genuinely place with PPV
-        references in the marker tree.
-
-        ``PLV_PC_054`` (the sole PLV marker) is the A32 packaging ATPase shared
-        by NCLDV and PPV, so a plain NCLDV A32 hits the HMM too and the raw HMM
-        count over-flags every giant virus. With the marker tree available we
-        keep only proteins whose nearest reference is PPV; we fall back to the
-        raw HMM count only when no tree is available (counts-only resume).
-        """
-        if not tree_nn_results:
-            return count_unique_proteins_for_prefixes(marker_hits, [PLV_PREFIX])
-        plv_proteins: Set[str] = set()
-        for marker, proteins in (marker_hits or {}).items():
-            if not marker.startswith(PLV_PREFIX):
-                continue
-            nn = tree_nn_results.get(marker, {})
-            for protein in proteins:
-                neighbors = nn.get(protein)
-                if not neighbors:
-                    continue
-                nearest, _dist = min(neighbors.items(), key=lambda kv: kv[1])
-                tax = self.labels_dict.get(self._extract_genome_id(nearest))
-                if tax and tax[0] == "PPV":
-                    plv_proteins.add(protein)
-        return len(plv_proteins)
+        return labels_taxonomy._plv_count_tree_aware(
+            self.labels_dict, marker_hits, tree_nn_results
+        )
 
     def _protein_nearest_domain(
         self,
         tree_nn_results: Optional[Dict[str, Dict[str, Dict[str, float]]]],
     ) -> Dict[str, str]:
-        """Map each query protein to the domain (NCLDV/PPV/MIRUS/BAC/EUK/...) of
-        its single nearest tree neighbour across all marker trees.
+        return labels_taxonomy._protein_nearest_domain(
+            self.labels_dict, tree_nn_results
+        )
 
-        One physical protein is placed in several group trees; the minimum
-        patristic distance (deterministic tie-break on marker then neighbour)
-        decides its true lineage. Used to bucket cross-group panel hits — a VP or
-        Mirus marker on a protein that actually places with NCLDV is not counted
-        toward that panel.
-        """
-        placements: Dict[str, List[Tuple[float, str, str]]] = defaultdict(list)
-        for marker, query_neighbors in (tree_nn_results or {}).items():
-            for protein, neighbors in query_neighbors.items():
-                for neighbor, distance in neighbors.items():
-                    placements[protein].append((distance, marker, neighbor))
-        domains: Dict[str, str] = {}
-        for protein, placement_list in placements.items():
-            for _distance, _marker, neighbor in sorted(placement_list):
-                genome_id = self._extract_genome_id(neighbor)
-                if genome_id in self.labels_dict:
-                    domains[protein] = (
-                        genome_id.split("__", 1)[0] if "__" in genome_id else ""
-                    )
-                    break
-        return domains
+    # Marker panel metrics live in src/core/summarize/marker_panels.py; the
+    # methods below delegate so existing callers keep working unchanged. The
+    # panel functions never touch ``labels_dict``: the label-dependent values
+    # (``_protein_nearest_domain``, ``_plv_count_tree_aware``,
+    # ``_capsid_group_counter``) are computed here and passed in.
 
     @staticmethod
     def _panel_has_lineage_protein(
@@ -237,23 +154,9 @@ class FullSummarizer:
         protein_domain: Optional[Dict[str, str]],
         expected_domain: str,
     ) -> bool:
-        """Whether a category has supporting evidence after tree bucketing.
-
-        Without ``protein_domain`` (no tree placements) any hit counts (raw
-        behaviour). With it, a protein still supports the category unless it places
-        with a *different* known domain; proteins placing with ``expected_domain``
-        or left unplaced are kept, so genuine but un-placed members are not
-        dropped.
-        """
-        if not proteins:
-            return False
-        if protein_domain is None:
-            return True
-        for protein in proteins:
-            domain = protein_domain.get(protein)
-            if domain is None or domain == expected_domain:
-                return True
-        return False
+        return marker_panels._panel_has_lineage_protein(
+            proteins, protein_domain, expected_domain
+        )
 
     def calculate_vp_metrics(
         self,
@@ -262,71 +165,16 @@ class FullSummarizer:
         tree_nn_results: Optional[Dict[str, Dict[str, Dict[str, float]]]] = None,
         protein_domain: Optional[Dict[str, str]] = None,
     ) -> Tuple[str, int, int, float]:
-        """Calculate VP (Virophage / Preplasmiviricota) completeness metrics.
-
-        VP has 4 core categories: MCP, Penton, ATPase, Protease.
-        Uses prefix matching (e.g., VP_MCP_* matches MCP category).
-
-        When ``protein_domain`` (each query protein's nearest tree-neighbour
-        domain) is provided, a category is credited only if at least one hitting
-        protein does not place with a non-PPV lineage — i.e. an NCLDV core gene
-        that cross-hits a VP marker (e.g. the shared packaging ATPase) and places
-        with NCLDV refs is excluded. Without tree placements the raw category
-        presence is used.
-
-        Returns:
-            Tuple of (completeness_str, vp_mcp_count, plv_count, vp_df)
-            - completeness_str: "n/N" format (N = number of core categories)
-            - vp_mcp_count: count of unique proteins hitting VP_MCP markers
-            - plv_count: count of unique proteins hitting PLV markers
-            - vp_df: duplication factor (total VP hits / 4)
-        """
-        if marker_hits:
-            category_proteins: Dict[str, Set[str]] = {
-                category: set() for category in VP_CATEGORY_PREFIXES
-            }
-            for marker, proteins in marker_hits.items():
-                for category, prefix in VP_CATEGORY_PREFIXES.items():
-                    if marker.startswith(prefix):
-                        category_proteins[category].update(proteins)
-            categories_present = {
-                category
-                for category, proteins in category_proteins.items()
-                if self._panel_has_lineage_protein(proteins, protein_domain, "PPV")
-            }
-            vp_mcp_count = len(category_proteins["MCP"])
-            total_vp_hits = sum(len(proteins) for proteins in category_proteins.values())
-            plv_count = self._plv_count_tree_aware(marker_hits, tree_nn_results)
-            completeness = len(categories_present)
-            vp_df = total_vp_hits / 4.0 if total_vp_hits > 0 else 0.0
-            comp = f"{completeness}/{len(VP_CATEGORY_PREFIXES)}"
-            return comp, vp_mcp_count, plv_count, vp_df
-
-        categories_present = set()
-        vp_mcp_count = 0
-        total_vp_hits = 0
-        plv_count = 0
-        for marker, count in marker_counts.items():
-            if count <= 0:
-                continue
-
-            # Check VP categories by prefix
-            for category, prefix in VP_CATEGORY_PREFIXES.items():
-                if marker.startswith(prefix):
-                    categories_present.add(category)
-                    total_vp_hits += count
-                    if category == "MCP":
-                        vp_mcp_count += count
-
-            # Check PLV markers
-            if marker.startswith(PLV_PREFIX):
-                plv_count += count
-
-        completeness = len(categories_present)
-        vp_df = total_vp_hits / 4.0 if total_vp_hits > 0 else 0.0
-
-        comp = f"{completeness}/{len(VP_CATEGORY_PREFIXES)}"
-        return comp, vp_mcp_count, plv_count, vp_df
+        # The tree-aware PLV count needs ``labels_dict``; it is computed here
+        # under the same ``marker_hits`` guard as the branch that consumes it.
+        plv_tree_count = (
+            self._plv_count_tree_aware(marker_hits, tree_nn_results)
+            if marker_hits
+            else 0
+        )
+        return marker_panels.calculate_vp_metrics(
+            marker_counts, marker_hits, protein_domain, plv_tree_count
+        )
 
     def calculate_mirus_completeness(
         self,
@@ -334,344 +182,77 @@ class FullSummarizer:
         marker_hits: Optional[Dict[str, Set[str]]] = None,
         protein_domain: Optional[Dict[str, str]] = None,
     ) -> Tuple[str, float]:
-        """Calculate Mirusviricota completeness metrics.
-
-        Mirus has 4 core categories:
-        - MCP: Mirus_MCP, Mirus_JellyRoll
-        - ATPase: Mirus_Terminase_ATPase, Mirus_Terminase_merged
-        - Portal: Mirus_Portal
-        - Triplex: Mirus_Triplex1, Mirus_Triplex2
-
-        When ``protein_domain`` (each query protein's nearest tree-neighbour
-        domain) is provided, a category is credited only if a hitting protein does
-        not place with a non-MIRUS lineage, so an NCLDV protein that cross-hits a
-        Mirus marker (e.g. the terminase ATPase) and places with NCLDV refs is
-        excluded. Without tree placements the raw category presence is used.
-
-        Returns:
-            Tuple of (completeness_str, mirus_df)
-            - completeness_str: "n/N" format (N = number of core categories)
-            - mirus_df: duplication factor (total Mirus hits / 4)
-        """
-        if marker_hits:
-            category_proteins: Dict[str, Set[str]] = {
-                category: set() for category in MIRUS_CATEGORY_MODELS
-            }
-            for category, models in MIRUS_CATEGORY_MODELS.items():
-                for model in models:
-                    category_proteins[category].update(marker_hits.get(model, set()))
-            categories_present = {
-                category
-                for category, proteins in category_proteins.items()
-                if self._panel_has_lineage_protein(proteins, protein_domain, "MIRUS")
-            }
-            total_mirus_hits = sum(len(proteins) for proteins in category_proteins.values())
-            completeness = len(categories_present)
-            mirus_df = total_mirus_hits / 4.0 if total_mirus_hits > 0 else 0.0
-            return f"{completeness}/{len(MIRUS_CATEGORY_MODELS)}", mirus_df
-
-        categories_present = set()
-        total_mirus_hits = 0
-        for marker, count in marker_counts.items():
-            if count <= 0:
-                continue
-
-            # Check each Mirus category
-            for category, models in MIRUS_CATEGORY_MODELS.items():
-                if marker in models:
-                    categories_present.add(category)
-                    total_mirus_hits += count
-
-        completeness = len(categories_present)
-        mirus_df = total_mirus_hits / 4.0 if total_mirus_hits > 0 else 0.0
-
-        return f"{completeness}/{len(MIRUS_CATEGORY_MODELS)}", mirus_df
+        return marker_panels.calculate_mirus_completeness(
+            marker_counts, marker_hits, protein_domain
+        )
 
     def _extract_genome_id(self, protein_id: str) -> str:
-        """
-        Extract genome ID from a protein ID for labels lookup.
+        return labels_taxonomy._extract_genome_id(self.labels_dict, protein_id)
 
-        Protein IDs can have formats like:
-        - PPV__IMGVR_UViG_3300044959|000235_9 -> PPV__IMGVR_UViG_3300044959|000235
-        - NCLDV__GCA_000123456|contig_1_42 -> NCLDV__GCA_000123456|contig_1
-
-        The protein suffix is typically _N where N is a number at the end.
-
-        Args:
-            protein_id: Full protein identifier from tree
-
-        Returns:
-            Genome/contig ID suitable for labels lookup
-        """
-        # First try: check if the full ID (minus trailing _digits) is in labels
-        # This handles: PPV__IMGVR_UViG_3300044959|000235_9 -> PPV__IMGVR_UViG_3300044959|000235
-        stripped = re.sub(r"_\d+$", "", protein_id)
-        if stripped in self.labels_dict:
-            return stripped
-
-        # Second try: just the part before | (for older format entries)
-        # This handles: genome_id|protein_id -> genome_id
-        if "|" in protein_id:
-            base_id = protein_id.split("|")[0]
-            if base_id in self.labels_dict:
-                return base_id
-
-        # Third try: strip protein suffix from full ID even if not in labels
-        return stripped
+    # Taxonomy formatting lives in src/core/summarize/tax_format.py; the
+    # methods below delegate so existing callers keep working unchanged.
 
     def format_tax_level_counts(
         self, tax_counter: Counter, level: str | None = None
     ) -> str:
-        """Format taxonomy counts with percentages, grouping low-frequency taxa."""
-        if not tax_counter:
-            return ""
-
-        normalized_counter = Counter()
-        for tax, count in tax_counter.items():
-            normalized_counter[self._format_tax_count_key(tax, level)] += count
-
-        total = sum(normalized_counter.values())
-        if total <= 0:
-            return ""
-
-        grouped_counter = Counter(normalized_counter)
-        low_threshold = 5.0
-        low_counts_by_group = Counter()
-
-        for tax, count in normalized_counter.items():
-            percentage = (count / total) * 100
-            group_key = self._low_frequency_tax_group_key(tax, level)
-            if percentage <= low_threshold and group_key:
-                low_counts_by_group[group_key] += count
-                grouped_counter.pop(tax, None)
-
-        for group_key, count in low_counts_by_group.items():
-            grouped_counter[group_key] += count
-
-        sorted_counts = sorted(
-            grouped_counter.items(), key=lambda x: x[1], reverse=True
-        )
-
-        formatted = []
-        for tax, count in sorted_counts:
-            percentage = (count / total) * 100
-            formatted.append(f"{tax}:{count}({percentage:.2f}%)")
-
-        return ",".join(formatted)
+        return tax_format.format_tax_level_counts(tax_counter, level)
 
     @staticmethod
     def _format_tax_count_key(tax_key: str, level: str | None = None) -> str:
-        if level == "domain":
-            return tax_key.split("__", 1)[0]
-
-        if "__" not in tax_key:
-            return tax_key
-
-        domain, tax_name = tax_key.split("__", 1)
-        if tax_name == f"{domain}_unclassified":
-            tax_name = "unclassified"
-        elif tax_name == f"{domain}_other":
-            tax_name = "other"
-        return f"{domain}__{tax_name}"
+        return tax_format._format_tax_count_key(tax_key, level)
 
     @staticmethod
     def _low_frequency_tax_group_key(tax_key: str, level: str | None = None) -> str:
-        if level == "domain":
-            return ""
-        if "__" in tax_key:
-            domain = tax_key.split("__", 1)[0]
-            return f"{domain}__other"
-        if "_" in tax_key:
-            domain = tax_key.split("_", 1)[0]
-            return f"{domain}__other"
-        return f"{tax_key}_other"
+        return tax_format._low_frequency_tax_group_key(tax_key, level)
 
     def get_tax_consensus(self, tax_counter: Counter, level: str) -> Tuple[str, str]:
-        """Get majority and strict consensus for a taxonomic level."""
-        if not tax_counter:
-            return f"{level[0]}_", f"{level[0]}_"
+        return tax_format.get_tax_consensus(tax_counter, level)
 
-        total = sum(tax_counter.values())
-        most_common = tax_counter.most_common(1)[0]
-        tax, count = most_common
-
-        # For domain level, use the full domain name (e.g., "NCLDV" -> "d_NCLDV")
-        # For other levels, use the full taxonomy with prefix (e.g., "NCLDV__Mesomimiviridae" -> "f_Mesomimiviridae")
-        if level == "domain":
-            # Domain is just the prefix part (e.g., "NCLDV", "BAC", "EUK")
-            tax_name = tax
-        else:
-            # For other levels, extract the name after the domain prefix
-            if "__" in tax:
-                parts = tax.split("__")
-                tax_name = parts[-1] if len(parts) > 1 and parts[-1] else tax
-            else:
-                tax_name = tax
-
-        # Strict consensus: 100% agreement
-        strict = f"{level[0]}_{tax_name}" if count == total else f"{level[0]}_"
-
-        # Majority consensus: >50% agreement
-        majority = f"{level[0]}_{tax_name}" if count > total * 0.5 else f"{level[0]}_"
-
-        return majority, strict
+    # Order-level completeness lives in
+    # src/core/summarize/order_completeness.py; the methods below delegate so
+    # existing callers keep working unchanged. The reference tables and scorers
+    # are read here and passed in, so the module functions stay stateless.
 
     def calculate_order_metrics(
         self, counts_file: Path, order_tax: str, family_tax: str = ""
-    ) -> Dict[str, any]:
-        """Calculate order-specific completeness and duplication metrics.
+    ) -> Dict[str, Any]:
+        return order_completeness.calculate_order_metrics(
+            self.completeness_table,
+            self.order_stats_df,
+            self.weighted_calculator,
+            self.novelty_scorer,
+            self.completeness_mode,
+            counts_file,
+            order_tax,
+            family_tax,
+        )
 
-        Returns:
-            Dictionary of raw and normalized order completeness metrics.
-        """
-        try:
-            order_ogs = self._load_order_orthogroups(order_tax)
-            if not order_ogs:
-                return self._default_order_metrics(order_tax)
-
-            marker_counts = self._load_marker_counts(counts_file)
-            raw_completeness, duplication = self._calculate_traditional_order_metrics(
-                marker_counts, order_ogs
-            )
-            raw_weighted_completeness, confidence_score = (
-                self._calculate_weighted_order_metrics(
-                    marker_counts, order_tax, order_ogs, raw_completeness
-                )
-            )
-            normalized_completeness, baseline_mean, baseline_std = (
-                self._normalize_order_completeness(raw_completeness, order_tax)
-            )
-            normalized_weighted_completeness, _, _ = self._normalize_order_completeness(
-                raw_weighted_completeness, order_tax
-            )
-            result = {
-                "order_completeness": normalized_completeness,
-                "order_completeness_raw": raw_completeness,
-                "order_dup": duplication,
-                "order_weighted_completeness": normalized_weighted_completeness,
-                "order_weighted_completeness_raw": raw_weighted_completeness,
-                "order_confidence_score": confidence_score,
-                "order_completeness_baseline_mean": baseline_mean,
-                "order_completeness_baseline_std": baseline_std,
-                "order_completeness_reference_order": order_tax,
-                "order_completeness_strategy": "order_baseline_ratio_v1",
-                "estimated_completeness": normalized_completeness,
-                "estimated_completeness_strategy": "order_baseline_ratio_v1",
-            }
-            if self.novelty_scorer.available:
-                result.update(
-                    self.novelty_scorer.calculate(
-                        marker_counts=marker_counts,
-                        order_tax=order_tax,
-                        family_tax=family_tax,
-                        strategy1_raw=raw_completeness,
-                        strategy1_score=normalized_completeness,
-                        selected_mode=self.completeness_mode,
-                    )
-                )
-            return result
-
-        except Exception as e:
-            logger.error(f"Error calculating order metrics: {e}")
-            return self._default_order_metrics(order_tax)
-
-    def _default_order_metrics(self, order_tax: str = "") -> Dict[str, any]:
-        """Return default order completeness metrics."""
-        return {
-            "order_completeness": 0.0,
-            "order_completeness_raw": 0.0,
-            "order_dup": 0.0,
-            "order_weighted_completeness": 0.0,
-            "order_weighted_completeness_raw": 0.0,
-            "order_confidence_score": 0.0,
-            "order_completeness_baseline_mean": 0.0,
-            "order_completeness_baseline_std": 0.0,
-            "order_completeness_reference_order": order_tax,
-            "order_completeness_strategy": "order_baseline_ratio_v1",
-            "order_completeness_v2": 0.0,
-            "order_completeness_v2_strategy": "novelty_aware_v1",
-            "order_completeness_v2_strategy2_raw": 0.0,
-            "order_completeness_v2_strategy2_normalized": 0.0,
-            "order_completeness_v2_support_score": 0.0,
-            "order_completeness_v2_ood_flag": "unassigned",
-            "order_completeness_v2_reference_group": "unavailable",
-            "order_completeness_v2_validation_mode": "unavailable",
-            "order_completeness_v2_informative_fraction": 0.0,
-            "estimated_completeness": 0.0,
-            "estimated_completeness_strategy": "order_baseline_ratio_v1",
-        }
+    def _default_order_metrics(self, order_tax: str = "") -> Dict[str, Any]:
+        return order_completeness._default_order_metrics(order_tax)
 
     def _load_order_orthogroups(self, order_tax: str) -> List[str]:
-        """Load expected orthogroups for a specific taxonomic order."""
-        comp_df = pd.read_csv(self.completeness_table, sep="\t")
-        order_row = comp_df[comp_df["Order"] == order_tax]
-        if order_row.empty:
-            return []
-        ogs_str = str(order_row["Orthogroups"].values[0])
-        return [og.strip() for og in ogs_str.split(",") if og.strip()]
+        return order_completeness._load_order_orthogroups(
+            self.completeness_table, order_tax
+        )
+
+    # File/path helpers live in src/core/summarize/paths_stats.py; the methods
+    # below delegate so existing callers keep working unchanged.
 
     def _load_marker_counts(self, counts_file: Path) -> Dict[str, int]:
-        """Load marker counts from a models.counts file."""
-        marker_counts = {}
-        if not counts_file.exists():
-            return marker_counts
-
-        try:
-            with open(counts_file, "r") as f:
-                for line in f:
-                    parts = line.strip().split("\t")
-                    if len(parts) != 2:
-                        continue
-                    try:
-                        marker_counts[parts[0]] = int(parts[1])
-                    except ValueError:
-                        logger.warning(
-                            "Skipping malformed marker count '%s' in %s",
-                            line.strip(),
-                            counts_file,
-                        )
-        except Exception as e:
-            logger.error(f"Error reading marker counts from {counts_file}: {e}")
-        return marker_counts
+        return paths_stats._load_marker_counts(counts_file)
 
     def _load_marker_hits(self, hmmout_file: Path) -> Dict[str, Set[str]]:
-        """Load per-marker protein hits from a filtered HMM output file."""
-        if not hmmout_file.exists():
-            return {}
+        return paths_stats._load_marker_hits(hmmout_file)
 
-        try:
-            return parse_hmm_output(hmmout_file)
-        except Exception as exc:
-            logger.error("Error reading marker hits from %s: %s", hmmout_file, exc)
-            return {}
-
-    def _load_marker_scores(
-        self, hmmout_file: Path
-    ) -> Dict[str, Dict[str, float]]:
-        """Load per-protein per-marker bit scores from a filtered HMM output file.
-
-        Used to consolidate the MRYA panel against its marker groups (see
-        :meth:`_add_marker_metrics`).
-        """
-        if not hmmout_file.exists():
-            return {}
-
-        try:
-            return parse_hmm_scores(hmmout_file)
-        except Exception as exc:
-            logger.error("Error reading marker scores from %s: %s", hmmout_file, exc)
-            return {}
+    def _load_marker_scores(self, hmmout_file: Path) -> Dict[str, Dict[str, float]]:
+        return paths_stats._load_marker_scores(hmmout_file)
 
     def _calculate_traditional_order_metrics(
         self, marker_counts: Dict[str, int], order_ogs: List[str]
     ) -> Tuple[float, float]:
-        """Calculate completeness and duplication from expected order markers."""
-        present_ogs = sum(1 for og in order_ogs if marker_counts.get(og, 0) > 0)
-        total_hits = sum(marker_counts.get(og, 0) for og in order_ogs)
-
-        completeness = (present_ogs / len(order_ogs)) * 100 if order_ogs else 0.0
-        duplication = total_hits / present_ogs if present_ogs > 0 else 0.0
-        return completeness, duplication
+        return order_completeness._calculate_traditional_order_metrics(
+            marker_counts, order_ogs
+        )
 
     def _calculate_weighted_order_metrics(
         self,
@@ -680,109 +261,43 @@ class FullSummarizer:
         order_ogs: List[str],
         fallback_completeness: float,
     ) -> Tuple[float, float]:
-        """Calculate ML-weighted completeness with fallback to traditional metrics."""
-        try:
-            weighted_completeness, confidence_score, _ = (
-                self.weighted_calculator.calculate_weighted_completeness(
-                    marker_counts=marker_counts,
-                    taxonomic_order=order_tax,
-                    expected_markers=order_ogs,
-                )
-            )
-            logger.debug(
-                f"Weighted completeness for {order_tax}: {weighted_completeness:.2f}% "
-                f"(traditional: {fallback_completeness:.2f}%)"
-            )
-            return weighted_completeness, confidence_score
-        except Exception as e:
-            logger.warning(f"Weighted completeness calculation failed: {e}")
-            return fallback_completeness, 50.0
+        return order_completeness._calculate_weighted_order_metrics(
+            self.weighted_calculator,
+            marker_counts,
+            order_tax,
+            order_ogs,
+            fallback_completeness,
+        )
 
     def _normalize_order_completeness(
         self, raw_completeness: float, order_tax: str
     ) -> Tuple[float, float, float]:
-        """Normalize marker recovery against complete-reference order baselines."""
-        if self.order_stats_df.empty:
-            return raw_completeness, 0.0, 0.0
+        return order_completeness._normalize_order_completeness(
+            self.order_stats_df, raw_completeness, order_tax
+        )
 
-        order_row = self.order_stats_df[self.order_stats_df["Order"] == order_tax]
-        if order_row.empty:
-            return raw_completeness, 0.0, 0.0
-
-        baseline_mean = float(order_row["Average_Percent"].iloc[0])
-        baseline_std = float(order_row["Std_Percent"].iloc[0])
-        if baseline_mean <= 0:
-            return raw_completeness, baseline_mean, baseline_std
-
-        normalized = (raw_completeness / baseline_mean) * 100.0
-        normalized = max(0.0, min(100.0, normalized))
-        return normalized, baseline_mean, baseline_std
-
-    def _read_stats_tsv(self, stats_tsv_file: Path) -> Dict[str, any]:
-        """Read base stats from the reformat stage TSV."""
-        basic_stats = {}
-        if not stats_tsv_file.exists():
-            return basic_stats
-
-        try:
-            stats_df = pd.read_csv(stats_tsv_file, sep="\t")
-            if not stats_df.empty:
-                basic_stats = stats_df.iloc[0].to_dict()
-        except Exception as e:
-            logger.error(f"Error reading stats TSV: {e}")
-        return basic_stats
+    def _read_stats_tsv(self, stats_tsv_file: Path) -> Dict[str, Any]:
+        return paths_stats._read_stats_tsv(stats_tsv_file)
 
     def _read_stats_tab(
-        self, stats_tab_file: Path, basic_stats: Dict[str, any]
+        self, stats_tab_file: Path, basic_stats: Dict[str, Any]
     ) -> None:
-        """Merge coding table/genecount fields from legacy stats.tab file."""
-        if not stats_tab_file.exists():
-            return
-
-        try:
-            with open(stats_tab_file, "r") as f:
-                for line in f:
-                    self._update_basic_stats_from_tab_line(line, basic_stats)
-        except Exception as e:
-            logger.error(f"Error reading stats tab: {e}")
+        paths_stats._read_stats_tab(stats_tab_file, basic_stats)
 
     def _update_basic_stats_from_tab_line(
-        self, line: str, basic_stats: Dict[str, any]
+        self, line: str, basic_stats: Dict[str, Any]
     ) -> None:
-        if line.startswith("ttable\t"):
-            basic_stats["ttable"] = line.strip().split("\t")[1]
-            return
-        if line.startswith("genes\t"):
-            basic_stats["genecount"] = int(line.strip().split("\t")[1])
-            return
-        if line.startswith("coding_density\t"):
-            basic_stats["CODINGperc"] = float(line.strip().split("\t")[1])
+        paths_stats._update_basic_stats_from_tab_line(line, basic_stats)
 
     def _load_basic_stats(
         self, query_id: str, query_output_dir: Path
-    ) -> Dict[str, any]:
-        """Load query summary statistics from available stats files."""
-        stats_tsv_file = query_output_dir / "stats" / f"{query_id}_stats.tsv"
-        stats_tab_file = query_output_dir / "stats" / f"{query_id}.stats.tab"
-
-        basic_stats = self._read_stats_tsv(stats_tsv_file)
-        self._read_stats_tab(stats_tab_file, basic_stats)
-        return basic_stats
+    ) -> Dict[str, Any]:
+        return paths_stats._load_basic_stats(query_id, query_output_dir)
 
     def _initialize_summary_result(
-        self, query_id: str, basic_stats: Dict[str, any]
-    ) -> Dict[str, any]:
-        """Create the base result dictionary with normalized defaults."""
-        ttable = basic_stats.get("ttable", "unknown")
-        return {
-            "query": query_id,
-            "contigs": basic_stats.get("contigs", 0),
-            "LENbp": basic_stats.get("LENbp", 0),
-            "GCperc": basic_stats.get("GCperc", 0.0),
-            "genecount": basic_stats.get("genecount", 0),
-            "CODINGperc": basic_stats.get("CODINGperc", 0.0),
-            "ttable": "codemeta" if ttable == "0" else ttable,
-        }
+        self, query_id: str, basic_stats: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        return paths_stats._initialize_summary_result(query_id, basic_stats)
 
     def _collect_taxonomy_counts(
         self, tree_nn_results: Dict[str, Dict[str, Dict[str, float]]]
@@ -792,96 +307,21 @@ class FullSummarizer:
         Dict[str, Counter[Tuple[str, ...]]],
         List[float],
     ]:
-        """Aggregate taxonomy counts from NN tree hits.
-
-        Returns a tuple of:
-        * ``tax_counters`` — flat per-level Counter (legacy shape, used by
-          contamination scoring and the per-level detailed columns).
-        * ``per_marker_counters`` — ``Dict[level, Dict[marker, Counter]]``
-          that retains the per-marker breakdown. The per-marker majority
-          rule in :meth:`_build_consensus_taxonomies` uses this to avoid
-          the prior bug where a single marker with many paralog hits could
-          dominate the majority vote by sheer count.
-        * ``per_marker_lineage_counters`` — ``Dict[marker, Counter[lineage]]``
-          retaining the full 7-rank lineage for each hit. Consensus taxonomy
-          uses this to constrain lower ranks to the already selected parent
-          lineage.
-        * ``distances`` — flat list of patristic distances for the mean.
-        """
-        tax_counters = {level: Counter() for level in self.TAX_LEVELS}
-        per_marker_counters: Dict[str, Dict[str, Counter]] = {
-            level: defaultdict(Counter) for level in self.TAX_LEVELS
-        }
-        per_marker_lineage_counters: Dict[str, Counter[Tuple[str, ...]]] = defaultdict(
-            Counter
+        return labels_taxonomy._collect_taxonomy_counts(
+            self.labels_dict, tree_nn_results
         )
-        distances: List[float] = []
-
-        # One physical query protein can hit several overlapping marker models
-        # (e.g. a genome-packaging ATPase matching the NCLDV ATPase markers AND
-        # the PPV A32 marker PLV_PC_054). Count each protein ONCE, for its single
-        # nearest (minimum patristic distance) placement, so a shared core gene
-        # cannot cast multiple or cross-domain votes. Deterministic tie-break on
-        # (distance, marker, neighbor).
-        placements_by_protein: Dict[str, List[Tuple[float, str, str]]] = defaultdict(
-            list
-        )
-        for marker, query_neighbors in tree_nn_results.items():
-            for query_protein, neighbors in query_neighbors.items():
-                for neighbor, distance in neighbors.items():
-                    placements_by_protein[query_protein].append(
-                        (distance, marker, neighbor)
-                    )
-
-        for placements in placements_by_protein.values():
-            resolved = []
-            for distance, marker, neighbor in placements:
-                genome_id = self._extract_genome_id(neighbor)
-                tax_info = self.labels_dict.get(genome_id)
-                if tax_info:
-                    resolved.append((distance, marker, neighbor, genome_id, tax_info))
-            if not resolved:
-                continue
-            distance, marker, neighbor, genome_id, tax_info = min(
-                resolved, key=lambda r: (r[0], r[1], r[2])
-            )
-            self._add_taxonomy_counts_for_neighbor(genome_id, tax_info, tax_counters)
-            self._add_taxonomy_counts_for_marker(
-                genome_id, tax_info, per_marker_counters, marker
-            )
-            lineage = self._build_taxonomy_lineage(genome_id, tax_info)
-            if any(lineage):
-                per_marker_lineage_counters[marker][lineage] += 1
-            distances.append(distance)
-
-        return tax_counters, per_marker_counters, per_marker_lineage_counters, distances
 
     def _build_taxonomy_lineage(
         self, genome_id: str, tax_info: List[str]
     ) -> Tuple[str, ...]:
-        """Return a normalized 7-rank lineage tuple for one labeled genome."""
-        domain_prefix = genome_id.split("__", 1)[0] if "__" in genome_id else ""
-        lineage: List[str] = []
-        for level in self.TAX_LEVELS:
-            idx = self.TAX_LEVEL_MAPPING[level]
-            tax_value = tax_info[idx].strip() if idx < len(tax_info) else ""
-            if level == "domain":
-                tax_value = domain_prefix or tax_value
-            lineage.append(tax_value)
-        return tuple(lineage)
+        return labels_taxonomy._build_taxonomy_lineage(genome_id, tax_info)
 
     def _add_taxonomy_counts_for_neighbor(
         self, genome_id: str, tax_info: List[str], tax_counters: Dict[str, Counter]
     ) -> None:
-        domain_prefix = genome_id.split("__")[0] if "__" in genome_id else ""
-        for level, idx in self.TAX_LEVEL_MAPPING.items():
-            if idx >= len(tax_info):
-                continue
-            tax_value = tax_info[idx].strip()
-            if not tax_value:
-                continue
-            tax_key = self._build_taxonomy_key(level, domain_prefix, tax_value)
-            tax_counters[level][tax_key] += 1
+        labels_taxonomy._add_taxonomy_counts_for_neighbor(
+            genome_id, tax_info, tax_counters
+        )
 
     def _add_taxonomy_counts_for_marker(
         self,
@@ -890,120 +330,45 @@ class FullSummarizer:
         per_marker_counters: Dict[str, Dict[str, Counter]],
         marker: str,
     ) -> None:
-        domain_prefix = genome_id.split("__")[0] if "__" in genome_id else ""
-        for level, idx in self.TAX_LEVEL_MAPPING.items():
-            if idx >= len(tax_info):
-                continue
-            tax_value = tax_info[idx].strip()
-            if not tax_value:
-                continue
-            tax_key = self._build_taxonomy_key(level, domain_prefix, tax_value)
-            per_marker_counters[level][marker][tax_key] += 1
+        labels_taxonomy._add_taxonomy_counts_for_marker(
+            genome_id, tax_info, per_marker_counters, marker
+        )
 
     @staticmethod
     def _build_taxonomy_key(level: str, domain_prefix: str, tax_value: str) -> str:
-        if level == "domain":
-            return domain_prefix or tax_value
-        if domain_prefix:
-            return f"{domain_prefix}__{tax_value}"
-        return tax_value
+        return tax_format._build_taxonomy_key(level, domain_prefix, tax_value)
 
-    # --- Per-marker majority -------------------------------------------------
-    #
-    # Each level has a minimum number of distinct supporting markers required
-    # before a consensus assignment is accepted. Below that floor the level
-    # is emitted as an empty label (``d_``, ``p_``, ...) and
-    # ``taxonomy_confidence`` is set to ``low_support``. Order-level markers
-    # are skipped under ``mode_fast=True``, so the order threshold drops to
-    # 2 in that regime and ``taxonomy_confidence`` becomes
-    # ``reduced_fastmode`` when the relaxed threshold is what let the
-    # assignment through.
-    _MIN_MARKERS_FOR_LEVEL: Dict[str, int] = {
-        "domain": 2,
-        "phylum": 2,
-        "class": 2,
-        "order": 3,
-        "family": 2,
-        "genus": 2,
-        "species": 2,
-    }
-    _MIN_MARKERS_FOR_LEVEL_FAST: Dict[str, int] = {
-        **_MIN_MARKERS_FOR_LEVEL,
-        "order": 2,
-    }
+    # Taxonomy consensus lives in src/core/summarize/consensus.py; the
+    # thresholds and methods below delegate so existing callers keep working
+    # unchanged.
+
+    _MIN_MARKERS_FOR_LEVEL: Dict[str, int] = consensus._MIN_MARKERS_FOR_LEVEL
+    _MIN_MARKERS_FOR_LEVEL_FAST: Dict[str, int] = consensus._MIN_MARKERS_FOR_LEVEL_FAST
 
     @classmethod
     def _min_markers_for_level(cls, level: str, mode_fast: bool) -> int:
-        threshold_map = (
-            cls._MIN_MARKERS_FOR_LEVEL_FAST if mode_fast else cls._MIN_MARKERS_FOR_LEVEL
-        )
-        return threshold_map.get(level, 2)
+        return consensus._min_markers_for_level(level, mode_fast)
 
     @staticmethod
     def _stable_top(counter: Counter) -> Optional[Tuple[str, int]]:
-        """Return the counter entry with the highest count, breaking ties on
-        lexicographic key so the result does not depend on upstream insertion
-        order. ``Counter.most_common(1)`` alone is insertion-stable, which is
-        non-deterministic when the feeder iterates an unordered glob
-        (``tree_dir.glob("*.treefile")``)."""
-        if not counter:
-            return None
-        # Sort descending by (count, key) with key as tiebreaker. Negative
-        # count keeps the primary sort descending; key asc ensures stable
-        # alphabetic tiebreak across runs.
-        return min(counter.items(), key=lambda kv: (-kv[1], kv[0]))
+        return tax_format._stable_top(counter)
 
     @classmethod
     def _per_marker_majority(
         cls,
         per_marker_level_counters: Dict[str, Counter],
     ) -> Tuple[Optional[str], int, int]:
-        """Tally one winning taxon per marker and return the across-marker vote.
-
-        For each marker, the per-marker winner is chosen with a stable
-        lexicographic tiebreaker on taxon name. The across-marker winner is
-        chosen the same way, so two pipelines processing the same data
-        cannot disagree on the consensus call purely because they iterated
-        markers in different filesystem orders.
-
-        Returns ``(winning_taxon, supporting_markers, total_markers)``.
-        """
-        marker_votes: Counter = Counter()
-        total_markers = 0
-        for counter in per_marker_level_counters.values():
-            if not counter:
-                continue
-            total_markers += 1
-            winner_pair = cls._stable_top(counter)
-            if winner_pair is None:
-                continue
-            marker_votes[winner_pair[0]] += 1
-
-        if not marker_votes:
-            return None, 0, total_markers
-
-        winning_taxon, supporting_markers = cls._stable_top(marker_votes)
-        return winning_taxon, supporting_markers, total_markers
+        return consensus._per_marker_majority(per_marker_level_counters)
 
     @staticmethod
     def _tax_key_matches_domain(tax_key: str, domain: Optional[str]) -> bool:
-        if not domain:
-            return True
-        return tax_key.startswith(f"{domain}__")
+        return tax_format._tax_key_matches_domain(tax_key, domain)
 
     @classmethod
     def _filter_counter_to_domain(
         cls, counter: Counter, domain: Optional[str]
     ) -> Counter:
-        if not domain:
-            return counter
-        return Counter(
-            {
-                tax_key: count
-                for tax_key, count in counter.items()
-                if cls._tax_key_matches_domain(tax_key, domain)
-            }
-        )
+        return consensus._filter_counter_to_domain(counter, domain)
 
     @classmethod
     def _filter_per_marker_counters_to_domain(
@@ -1011,14 +376,9 @@ class FullSummarizer:
         per_marker_level_counters: Dict[str, Counter],
         domain: Optional[str],
     ) -> Dict[str, Counter]:
-        if not domain:
-            return per_marker_level_counters
-        filtered: Dict[str, Counter] = {}
-        for marker, counter in per_marker_level_counters.items():
-            marker_counter = cls._filter_counter_to_domain(counter, domain)
-            if marker_counter:
-                filtered[marker] = marker_counter
-        return filtered
+        return consensus._filter_per_marker_counters_to_domain(
+            per_marker_level_counters, domain
+        )
 
     def _build_consensus_taxonomies(
         self,
@@ -1029,86 +389,15 @@ class FullSummarizer:
             Dict[str, Counter[Tuple[str, ...]]]
         ] = None,
     ) -> Tuple[str, str, str]:
-        """Build majority and strict taxonomy strings and a confidence label.
-
-        The majority call now uses a per-marker vote: one winning taxon per
-        marker, then the across-marker winner. A minimum number of distinct
-        supporting markers is required (see ``_min_markers_for_level``);
-        otherwise the level is emitted unassigned. Strict consensus
-        continues to require 100% agreement within the flat counter for
-        backward compatibility with pre-1.4.3 callers.
-        """
-        if per_marker_lineage_counters is not None:
-            return self._build_consensus_taxonomies_from_lineages(
-                per_marker_lineage_counters, mode_fast
-            )
-
-        majority_parts = []
-        strict_parts = []
-        confidence_flags: List[str] = []
-        saw_taxonomy_evidence = False
-        selected_domain: Optional[str] = None
-
-        for level in self.TAX_LEVELS:
-            flat_counter = tax_counters[level]
-            per_marker_level = per_marker_counters.get(level, {})
-            if level != "domain":
-                flat_counter = self._filter_counter_to_domain(
-                    flat_counter, selected_domain
-                )
-                per_marker_level = self._filter_per_marker_counters_to_domain(
-                    per_marker_level, selected_domain
-                )
-            threshold = self._min_markers_for_level(level, mode_fast)
-            winning, supporting, total = self._per_marker_majority(per_marker_level)
-            if flat_counter or total > 0:
-                saw_taxonomy_evidence = True
-
-            if winning is not None and supporting >= threshold:
-                majority = self._format_tax_label(level, winning)
-                if level == "domain":
-                    selected_domain = winning
-                # Only flag reduced_fastmode when the relaxed threshold is
-                # what actually allowed the call — i.e. the support falls
-                # below the standard-mode threshold but clears the fast-mode
-                # one. A fast-mode run that already has 3+ supporting
-                # order-level markers should not be downgraded.
-                standard_threshold = self._MIN_MARKERS_FOR_LEVEL.get(level, 2)
-                if (
-                    mode_fast
-                    and threshold < standard_threshold
-                    and supporting < standard_threshold
-                ):
-                    confidence_flags.append("reduced_fastmode")
-            else:
-                majority = f"{level[0]}_"
-                if total > 0:
-                    confidence_flags.append("low_support")
-
-            # Strict keeps the flat-counter 100% rule, but must never be more
-            # specific than majority: if the per-marker majority withheld this
-            # level (insufficient distinct-marker support), strict is withheld
-            # too, so the "conservative" column is always at least as
-            # conservative as the majority column.
-            _, strict = self.get_tax_consensus(flat_counter, level)
-            if majority == f"{level[0]}_":
-                strict = f"{level[0]}_"
-            majority_parts.append(majority)
-            strict_parts.append(strict)
-
-        if not saw_taxonomy_evidence:
-            confidence_flags.append("no_support")
-
-        majority_str = ";".join(majority_parts)
-        strict_str = ";".join(strict_parts)
-        confidence = self._aggregate_confidence_flags(confidence_flags)
-        return majority_str, strict_str, confidence
+        return consensus._build_consensus_taxonomies(
+            tax_counters, per_marker_counters, mode_fast, per_marker_lineage_counters
+        )
 
     @staticmethod
     def _lineage_matches_prefix(
         lineage: Tuple[str, ...], selected_prefix: Tuple[str, ...]
     ) -> bool:
-        return lineage[: len(selected_prefix)] == selected_prefix
+        return tax_format._lineage_matches_prefix(lineage, selected_prefix)
 
     @classmethod
     def _lineage_rank_counter(
@@ -1117,17 +406,9 @@ class FullSummarizer:
         rank_index: int,
         selected_prefix: Tuple[str, ...],
     ) -> Counter:
-        rank_counter: Counter = Counter()
-        for marker_counter in per_marker_lineage_counters.values():
-            for lineage, count in marker_counter.items():
-                if not cls._lineage_matches_prefix(lineage, selected_prefix):
-                    continue
-                if rank_index >= len(lineage):
-                    continue
-                tax_value = lineage[rank_index].strip()
-                if tax_value:
-                    rank_counter[tax_value] += count
-        return rank_counter
+        return consensus._lineage_rank_counter(
+            per_marker_lineage_counters, rank_index, selected_prefix
+        )
 
     @classmethod
     def _per_marker_lineage_majority(
@@ -1136,150 +417,35 @@ class FullSummarizer:
         rank_index: int,
         selected_prefix: Tuple[str, ...],
     ) -> Tuple[Optional[str], int, int]:
-        marker_votes: Counter = Counter()
-        total_markers = 0
-
-        for marker_counter in per_marker_lineage_counters.values():
-            rank_counter: Counter = Counter()
-            for lineage, count in marker_counter.items():
-                if not cls._lineage_matches_prefix(lineage, selected_prefix):
-                    continue
-                if rank_index >= len(lineage):
-                    continue
-                tax_value = lineage[rank_index].strip()
-                if tax_value:
-                    rank_counter[tax_value] += count
-            if not rank_counter:
-                continue
-            total_markers += 1
-            winner_pair = cls._stable_top(rank_counter)
-            if winner_pair is None:
-                continue
-            marker_votes[winner_pair[0]] += 1
-
-        if not marker_votes:
-            return None, 0, total_markers
-
-        winning_taxon, supporting_markers = cls._stable_top(marker_votes)
-        return winning_taxon, supporting_markers, total_markers
+        return consensus._per_marker_lineage_majority(
+            per_marker_lineage_counters, rank_index, selected_prefix
+        )
 
     def _format_lineage_tax_label(
         self, level: str, selected_prefix: Tuple[str, ...], tax_value: str
     ) -> str:
-        if not tax_value:
-            return f"{level[0]}_"
-        if level == "domain":
-            return self._format_tax_label(level, tax_value)
-        domain = selected_prefix[0] if selected_prefix else ""
-        return self._format_tax_label(
-            level, self._build_taxonomy_key(level, domain, tax_value)
-        )
+        return consensus._format_lineage_tax_label(level, selected_prefix, tax_value)
 
     def _build_consensus_taxonomies_from_lineages(
         self,
         per_marker_lineage_counters: Dict[str, Counter[Tuple[str, ...]]],
         mode_fast: bool,
     ) -> Tuple[str, str, str]:
-        """Build top-down consensus taxonomy from full neighbor lineages."""
-        majority_parts = []
-        strict_parts = []
-        confidence_flags: List[str] = []
-        saw_taxonomy_evidence = False
-        selected_prefix: Tuple[str, ...] = ()
-        strict_prefix: Optional[Tuple[str, ...]] = ()
-        stop_lower_ranks = False
-
-        for rank_index, level in enumerate(self.TAX_LEVELS):
-            blank = f"{level[0]}_"
-            if stop_lower_ranks:
-                majority_parts.append(blank)
-                strict_parts.append(blank)
-                continue
-
-            flat_counter = self._lineage_rank_counter(
-                per_marker_lineage_counters, rank_index, selected_prefix
-            )
-            threshold = self._min_markers_for_level(level, mode_fast)
-            winning, supporting, total = self._per_marker_lineage_majority(
-                per_marker_lineage_counters, rank_index, selected_prefix
-            )
-            if flat_counter or total > 0:
-                saw_taxonomy_evidence = True
-
-            if winning is not None and supporting >= threshold:
-                majority = self._format_lineage_tax_label(
-                    level, selected_prefix, winning
-                )
-                strict = blank
-                if strict_prefix is not None:
-                    strict_counter = self._lineage_rank_counter(
-                        per_marker_lineage_counters,
-                        rank_index,
-                        strict_prefix,
-                    )
-                    if len(strict_counter) == 1:
-                        strict_value = next(iter(strict_counter))
-                        if strict_value == winning:
-                            strict = self._format_lineage_tax_label(
-                                level, strict_prefix, strict_value
-                            )
-                            strict_prefix = strict_prefix + (strict_value,)
-                        else:
-                            strict_prefix = None
-                    else:
-                        strict_prefix = None
-                selected_prefix = selected_prefix + (winning,)
-
-                standard_threshold = self._MIN_MARKERS_FOR_LEVEL.get(level, 2)
-                if (
-                    mode_fast
-                    and threshold < standard_threshold
-                    and supporting < standard_threshold
-                ):
-                    confidence_flags.append("reduced_fastmode")
-            else:
-                majority = blank
-                strict = blank
-                stop_lower_ranks = True
-                strict_prefix = None
-                if total > 0:
-                    confidence_flags.append("low_support")
-
-            majority_parts.append(majority)
-            strict_parts.append(strict)
-
-        if not saw_taxonomy_evidence:
-            confidence_flags.append("no_support")
-
-        majority_str = ";".join(majority_parts)
-        strict_str = ";".join(strict_parts)
-        confidence = self._aggregate_confidence_flags(confidence_flags)
-        return majority_str, strict_str, confidence
+        return consensus._build_consensus_taxonomies_from_lineages(
+            per_marker_lineage_counters, mode_fast
+        )
 
     @staticmethod
     def _format_tax_label(level: str, tax_key: str) -> str:
-        if level == "domain":
-            return f"{level[0]}_{tax_key}"
-        if "__" in tax_key:
-            parts = tax_key.split("__")
-            tax_name = parts[-1] if len(parts) > 1 and parts[-1] else tax_key
-        else:
-            tax_name = tax_key
-        return f"{level[0]}_{tax_name}"
+        return tax_format._format_tax_label(level, tax_key)
 
     @staticmethod
     def _aggregate_confidence_flags(flags: List[str]) -> str:
-        if not flags:
-            return "high"
-        # Preserve a stable priority so the string always reports the
-        # strongest caveat first.
-        priority = {"no_support": 0, "low_support": 1, "reduced_fastmode": 2}
-        unique = sorted(set(flags), key=lambda flag: priority.get(flag, 99))
-        return ",".join(unique)
+        return tax_format._aggregate_confidence_flags(flags)
 
     def _add_taxonomy_summary(
         self,
-        result: Dict[str, any],
+        result: Dict[str, Any],
         tax_counters: Dict[str, Counter],
         per_marker_counters: Dict[str, Dict[str, Counter]],
         per_marker_lineage_counters: Dict[str, Counter[Tuple[str, ...]]],
@@ -1305,186 +471,20 @@ class FullSummarizer:
         result["taxonomy_confidence"] = taxonomy_confidence
 
     def _caps_group_from_tree(self, tree_nn_results) -> str:
-        """Dominant Bellas&Sommaruga caps group from the caps MCP tree-NN placement.
-
-        A caps reference lineage carries its Bellas group at the family rank; the
-        CAPS_GROUPS whitelist gates out everything else (caps group names occur only on
-        caps references — under PPV or NCLDV domains — never on a non-caps genome).
-        Each query protein votes ONCE: its single nearest neighbour is read per MCP group
-        tree, and a cross-reactive MCP that places in BOTH mcp_plv and mcp_ncldv is
-        resolved to its CLOSEST caps-group placement so it cannot double-count (mirrors
-        contamination_scoring._per_protein_dominant_lineage). Dominant group across
-        proteins; a tie, or no caps-group neighbour, resolves to "".
-        """
-        fam_idx = self.TAX_LEVEL_MAPPING["family"]
-        per_protein: Dict[str, Tuple[Optional[str], float]] = {}
-        for marker in ("mcp_plv", "mcp_ncldv"):
-            for protein, neighbors in tree_nn_results.get(marker, {}).items():
-                if not neighbors:
-                    continue
-                nearest, dist = min(neighbors.items(), key=lambda kv: kv[1])
-                tax = self.labels_dict.get(self._extract_genome_id(nearest))
-                if not tax or len(tax) <= fam_idx:
-                    continue
-                family = tax[fam_idx].strip()
-                if family not in CAPS_GROUPS:
-                    continue
-                prev = per_protein.get(protein)
-                if prev is None or dist < prev[1]:
-                    per_protein[protein] = (family, dist)
-                elif dist == prev[1] and family != prev[0]:
-                    # equal-distance placements in different caps groups -> ambiguous, drop
-                    per_protein[protein] = (None, dist)
-        groups: Counter = Counter(
-            fam for fam, _dist in per_protein.values() if fam is not None
-        )
-        return _dominant(groups)
+        return labels_taxonomy._caps_group_from_tree(self.labels_dict, tree_nn_results)
 
     def _capsid_group_counter(self, tree_nn_results) -> str:
-        """Unified capsid-type tally across all MCP panels.
-
-        For each query protein placed in an MCP group tree (mcp_ncldv / mcp_mirus
-        / mcp_plv), read its single nearest neighbour and map it to a capsid-type
-        label: a Bellas&Sommaruga caps family when the neighbour's family rank is
-        in CAPS_GROUPS, otherwise the neighbour's phylum (Nucleocytoviricota /
-        Mirusviricota). One vote per physical protein — a protein cross-placed in
-        several MCP trees is resolved to its closest placement; an equal-distance
-        cross-type tie is dropped. Returns "label:count" pairs comma-joined,
-        sorted by count desc then label (e.g. "Nucleocytoviricota:4,Gossevirus:1").
-        """
-        fam_idx = self.TAX_LEVEL_MAPPING["family"]
-        phy_idx = self.TAX_LEVEL_MAPPING["phylum"]
-        capsid_phyla = {"Nucleocytoviricota", "Mirusviricota"}
-        per_protein: Dict[str, Tuple[Optional[str], float]] = {}
-        for marker in ("mcp_ncldv", "mcp_mirus", "mcp_plv"):
-            for protein, neighbors in tree_nn_results.get(marker, {}).items():
-                if not neighbors:
-                    continue
-                nearest, dist = min(neighbors.items(), key=lambda kv: kv[1])
-                tax = self.labels_dict.get(self._extract_genome_id(nearest))
-                if not tax:
-                    continue
-                label: Optional[str] = None
-                if len(tax) > fam_idx and tax[fam_idx].strip() in CAPS_GROUPS:
-                    label = tax[fam_idx].strip()
-                elif len(tax) > phy_idx and tax[phy_idx].strip() in capsid_phyla:
-                    label = tax[phy_idx].strip()
-                if label is None:
-                    continue
-                prev = per_protein.get(protein)
-                if prev is None or dist < prev[1]:
-                    per_protein[protein] = (label, dist)
-                elif dist == prev[1] and label != prev[0]:
-                    # equal-distance placements of different capsid types -> drop
-                    per_protein[protein] = (None, dist)
-        counts: Counter = Counter(
-            lbl for lbl, _dist in per_protein.values() if lbl is not None
-        )
-        return ",".join(
-            f"{lbl}:{n}"
-            for lbl, n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
-        )
+        return labels_taxonomy._capsid_group_counter(self.labels_dict, tree_nn_results)
 
     def _add_marker_metrics(
         self,
-        result: Dict[str, any],
+        result: Dict[str, Any],
         marker_counts: Dict[str, int],
         marker_hits: Optional[Dict[str, Set[str]]] = None,
         tree_nn_results: Optional[Dict[str, Dict[str, Dict[str, float]]]] = None,
         marker_scores: Optional[Dict[str, Dict[str, float]]] = None,
     ) -> None:
-        """Populate marker-based metrics for the query.
-
-        Each core marker panel is reported as ``{panel}_completeness`` ("n/N":
-        distinct models present out of the panel size) and ``{panel}_dup`` (the
-        duplication factor = total hits / distinct models present), mirroring the
-        vp_/mirus_completeness convention. The cellular single-copy markers are
-        split into the BUSCO and COG (UNI56) panels.
-
-        The MRYA panel is consolidated against its marker groups: several MRYA
-        HMMs (``VLTF3``/``ATPase``/``gamadvirusMCP``/``VLTF2``) share gene-family
-        groups with GVOG/NCLDV markers, so a generic NCLDV core protein hits them
-        as a secondary match. Using per-protein bit scores, a grouped MRYA model
-        is credited only when it is the protein's best hit within its group;
-        otherwise the protein is a higher-scoring GVOG/NCLDV gene and is not
-        counted toward MRYA. Falls back to the raw panel when no scores are
-        available (e.g. a counts-only resume).
-        """
-
-        def _panel(models):
-            present = sum(1 for m in models if marker_counts.get(m, 0) > 0)
-            total = sum(marker_counts.get(m, 0) for m in models)
-            return present, (total / present if present > 0 else 0.0)
-
-        gvog4_present, result["gvog4_dup"] = _panel(GVOG4M_MODELS)
-        result["gvog4_completeness"] = f"{gvog4_present}/{len(GVOG4M_MODELS)}"
-
-        gvog8_present, result["gvog8_dup"] = _panel(GVOG8M_MODELS)
-        result["gvog8_completeness"] = f"{gvog8_present}/{len(GVOG8M_MODELS)}"
-
-        busco_present, result["busco_dup"] = _panel(BUSCO_MODELS)
-        result["busco_completeness"] = f"{busco_present}/{len(BUSCO_MODELS)}"
-
-        if marker_scores:
-            cog_counts = consolidate_grouped_panel(marker_scores, UNI56_MODELS)
-            cog_present = len(cog_counts)
-            cog_total = sum(cog_counts.values())
-            result["cog_dup"] = cog_total / cog_present if cog_present else 0.0
-        else:
-            cog_present, result["cog_dup"] = _panel(UNI56_MODELS)
-        result["cog_completeness"] = f"{cog_present}/{len(UNI56_MODELS)}"
-
-        if marker_scores:
-            mrya_counts = consolidate_grouped_panel(marker_scores, MRYA_MODELS)
-            mrya_present = len(mrya_counts)
-            mrya_total = sum(mrya_counts.values())
-            result["mrya_dup"] = mrya_total / mrya_present if mrya_present else 0.0
-        else:
-            if marker_counts:
-                logger.warning(
-                    "No per-protein marker scores available (missing/empty "
-                    "models.out.filtered); MRYA panel falls back to raw counts, "
-                    "which overlapping GVOG/NCLDV markers can inflate."
-                )
-            mrya_present, result["mrya_dup"] = _panel(MRYA_MODELS)
-        result["mrya_completeness"] = f"{mrya_present}/{len(MRYA_MODELS)}"
-
-        phage_present, result["phage_dup"] = _panel(PHAGE_MODELS)
-        result["phage_completeness"] = f"{phage_present}/{len(PHAGE_MODELS)}"
-
-        # Standalone NCLDV major-capsid-protein count (capsid typing is reported
-        # in capsid_group). Protein-aware when marker hits are available.
-        if marker_hits:
-            result["ncldv_mcp_total"] = count_unique_proteins_for_markers(
-                marker_hits, NCLDV_MCP_MODELS
-            )
-        else:
-            result["ncldv_mcp_total"] = sum(
-                marker_counts.get(m, 0) for m in NCLDV_MCP_MODELS
-            )
-
-        # Internal contamination-model features: consumed by the trained model's
-        # feature vector (contamination_scoring.CONTAMINATION_MODEL_FEATURES), not
-        # emitted as summary columns. cellular = COG (UNI56) + BUSCO; counts are
-        # protein-aware when marker hits are available.
-        cellular_models = UNI56_MODELS + BUSCO_MODELS
-        result["cellular_unique"] = sum(
-            1 for m in cellular_models if marker_counts.get(m, 0) > 0
-        )
-        result["phage_unique"] = phage_present
-        if marker_hits:
-            result["cellular_total"] = count_unique_proteins_for_markers(
-                marker_hits, cellular_models
-            )
-            result["phage_total"] = count_unique_proteins_for_markers(
-                marker_hits, PHAGE_MODELS
-            )
-        else:
-            result["cellular_total"] = sum(
-                marker_counts.get(m, 0) for m in cellular_models
-            )
-            result["phage_total"] = sum(marker_counts.get(m, 0) for m in PHAGE_MODELS)
-
+        """Populate marker-based metrics for the query."""
         # Per-protein nearest-neighbour domain (from the marker trees) buckets
         # cross-group panel hits: a VP/Mirus marker on a protein that actually
         # places with NCLDV is not credited to that panel. None on a counts-only
@@ -1492,113 +492,60 @@ class FullSummarizer:
         protein_domain = (
             self._protein_nearest_domain(tree_nn_results) if tree_nn_results else None
         )
-        vp_completeness, vp_mcp, plv_count, vp_df = self.calculate_vp_metrics(
-            marker_counts,
-            marker_hits,
-            tree_nn_results,
-            protein_domain=protein_domain,
+        # The tree-aware PLV count and the capsid tally need ``labels_dict``, so
+        # they are computed here and passed in, each under the same guard as the
+        # branch that consumed it.
+        plv_tree_count = (
+            self._plv_count_tree_aware(marker_hits, tree_nn_results)
+            if marker_hits
+            else 0
         )
-        result["vp_completeness"] = vp_completeness
-        result["vp_mcp"] = vp_mcp
-        result["plv"] = plv_count
-        result["vp_df"] = vp_df
-
-        mirus_completeness, mirus_df = self.calculate_mirus_completeness(
-            marker_counts, marker_hits, protein_domain=protein_domain
+        capsid_group = (
+            self._capsid_group_counter(tree_nn_results)
+            if tree_nn_results
+            and any(m in tree_nn_results for m in ("mcp_ncldv", "mcp_mirus", "mcp_plv"))
+            else ""
         )
-        result["mirus_completeness"] = mirus_completeness
-        result["mirus_df"] = mirus_df
+        result.update(
+            marker_panels._add_marker_metrics(
+                marker_counts,
+                marker_hits,
+                marker_scores,
+                protein_domain,
+                plv_tree_count,
+                capsid_group,
+            )
+        )
 
-        # Unified capsid-type tally across the MCP panels (NCLDV/Mirus/PPV caps
-        # groups), e.g. "Nucleocytoviricota:4,Gossevirus:1". Needs the MCP tree-NN
-        # placements; blank on a counts-only resume that skipped the MCP trees.
-        if tree_nn_results and any(
-            m in tree_nn_results for m in ("mcp_ncldv", "mcp_mirus", "mcp_plv")
-        ):
-            result["capsid_group"] = self._capsid_group_counter(tree_nn_results)
-        else:
-            result["capsid_group"] = ""
-
-    def _set_default_marker_metrics(self, result: Dict[str, any]) -> None:
-        """Apply default marker metric values when counts are unavailable."""
-        # Standalone count + virophage detail columns, plus the internal
-        # contamination-model features (cellular_*/phage_unique/phage_total) that
-        # are read by the trained model but not emitted as summary columns.
-        for metric in [
-            "ncldv_mcp_total",
-            "vp_mcp",
-            "plv",
-            "cellular_unique",
-            "cellular_total",
-            "phage_unique",
-            "phage_total",
-        ]:
-            result[metric] = 0
-
-        for metric in [
-            "gvog4_dup",
-            "gvog8_dup",
-            "busco_dup",
-            "cog_dup",
-            "mrya_dup",
-            "phage_dup",
-            "vp_df",
-            "mirus_df",
-        ]:
-            result[metric] = 0.0
-
-        result["gvog4_completeness"] = f"0/{len(GVOG4M_MODELS)}"
-        result["gvog8_completeness"] = f"0/{len(GVOG8M_MODELS)}"
-        result["busco_completeness"] = f"0/{len(BUSCO_MODELS)}"
-        result["cog_completeness"] = f"0/{len(UNI56_MODELS)}"
-        result["mrya_completeness"] = f"0/{len(MRYA_MODELS)}"
-        result["phage_completeness"] = f"0/{len(PHAGE_MODELS)}"
-        result["vp_completeness"] = f"0/{len(VP_CATEGORY_PREFIXES)}"
-        result["mirus_completeness"] = f"0/{len(MIRUS_CATEGORY_MODELS)}"
-        result["capsid_group"] = ""
+    def _set_default_marker_metrics(self, result: Dict[str, Any]) -> None:
+        marker_panels._set_default_marker_metrics(result)
 
     def _extract_order_taxonomy(self, tax_counters: Dict[str, Counter]) -> str:
-        """Extract most-supported order taxonomy token from counters."""
-        if not tax_counters["order"]:
-            return ""
-
-        most_common_order = tax_counters["order"].most_common(1)[0][0]
-        if "__" not in most_common_order:
-            return ""
-        parts = most_common_order.split("__")
-        return parts[1] if len(parts) > 1 else most_common_order
+        return order_completeness._extract_order_taxonomy(tax_counters)
 
     def _extract_family_taxonomy(self, tax_counters: Dict[str, Counter]) -> str:
-        """Extract most-supported family taxonomy token from counters."""
-        if not tax_counters["family"]:
-            return ""
-
-        most_common_family = tax_counters["family"].most_common(1)[0][0]
-        if "__" not in most_common_family:
-            return ""
-        parts = most_common_family.split("__")
-        return parts[1] if len(parts) > 1 else most_common_family
+        return order_completeness._extract_family_taxonomy(tax_counters)
 
     def _add_order_metrics(
         self,
-        result: Dict[str, any],
+        result: Dict[str, Any],
         counts_file: Path,
         tax_counters: Dict[str, Counter],
     ) -> None:
-        """Populate order-level completeness metrics from order assignment."""
-        order_tax = self._extract_order_taxonomy(tax_counters)
-        family_tax = self._extract_family_taxonomy(tax_counters)
-        if order_tax:
-            result.update(
-                self.calculate_order_metrics(counts_file, order_tax, family_tax)
-            )
-            return
-
-        result.update(self._default_order_metrics(order_tax))
+        order_completeness._add_order_metrics(
+            self.completeness_table,
+            self.order_stats_df,
+            self.weighted_calculator,
+            self.novelty_scorer,
+            self.completeness_mode,
+            result,
+            counts_file,
+            tax_counters,
+        )
 
     def _add_contamination_metrics(
         self,
-        result: Dict[str, any],
+        result: Dict[str, Any],
         query_id: str,
         query_output_dir: Path,
         marker_counts: Dict[str, int],
@@ -1718,16 +665,9 @@ class FullSummarizer:
 
     @staticmethod
     def _candidate_type_for_reason(reason: str) -> str:
-        mapping = {
-            "cellular_markers": "cellular",
-            "cellular_hits": "cellular",
-            "phage_markers": "phage",
-            "phage_hits": "phage",
-            "viral_mixture": "mixed_viral",
-        }
-        return mapping.get(str(reason), "uncertain")
+        return paths_stats._candidate_type_for_reason(reason)
 
-    def _classify_contamination_type(self, result: Dict[str, any]) -> str:
+    def _classify_contamination_type(self, result: Dict[str, Any]) -> str:
         raw_estimate = result.get("estimated_contamination", 0.0)
         try:
             estimated = float(raw_estimate) if raw_estimate is not None else 0.0
@@ -1779,33 +719,11 @@ class FullSummarizer:
 
     @staticmethod
     def _resolve_query_fna_path(query_id: str, query_output_dir: Path) -> Path:
-        candidates = [
-            query_output_dir / "query_fna" / f"{query_id}.fna",
-            query_output_dir / f"{query_id}_reformatted.fna",
-            query_output_dir
-            / "gene_calling"
-            / f"{query_id}_reformatted"
-            / f"{query_id}_reformatted.fna",
-        ]
-        for candidate in candidates:
-            if candidate.exists():
-                return candidate
-        return Path()
+        return paths_stats._resolve_query_fna_path(query_id, query_output_dir)
 
     @staticmethod
     def _resolve_query_faa_path(query_id: str, query_output_dir: Path) -> Path:
-        candidates = [
-            query_output_dir / "query_faa" / f"{query_id}.faa",
-            query_output_dir
-            / "gene_calling"
-            / f"{query_id}_reformatted"
-            / f"{query_id}_reformatted.faa",
-        ]
-        for candidate in candidates:
-            if candidate.exists():
-                return candidate
-        matches = sorted(query_output_dir.glob("gene_calling/**/*.faa"))
-        return matches[0] if matches else Path()
+        return paths_stats._resolve_query_faa_path(query_id, query_output_dir)
 
     def summarize_query_full(
         self,
@@ -1813,7 +731,7 @@ class FullSummarizer:
         query_output_dir: Path,
         tree_nn_results: Dict[str, Dict[str, Dict[str, float]]],
         mode_fast: bool = True,
-    ) -> Dict[str, any]:
+    ) -> Dict[str, Any]:
         """Generate full summary for a query matching original format."""
         basic_stats = self._load_basic_stats(query_id, query_output_dir)
         result = self._initialize_summary_result(query_id, basic_stats)
