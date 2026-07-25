@@ -8,7 +8,7 @@ and other user inputs to ensure data integrity and security.
 import os
 import re
 from pathlib import Path
-from typing import Union, Optional, Dict, Any
+from typing import Union, Optional
 from Bio import SeqIO
 from Bio.SeqRecord import SeqRecord
 
@@ -21,91 +21,75 @@ class InputValidator:
     # Constants for validation
     VALID_EXTENSIONS = {".fna", ".faa", ".fas", ".fasta"}
     MIN_SEQUENCE_LENGTH = 20000  # 20kb minimum
-    RECOMMENDED_LENGTH = 50000  # 50kb recommended
-    MAX_SEQUENCE_LENGTH = 50000000  # 50MB maximum
-
-    # Filename validation patterns
-    INVALID_FILENAME_CHARS = re.compile(r'[<>:"|?*\x00-\x1f]')
-    INVALID_FILENAME_PATTERNS = re.compile(
-        r"^\.|^CON$|^PRN$|^AUX$|^NUL$|^COM[1-9]$|^LPT[1-9]$", re.IGNORECASE
-    )
+    # Maximum input file size, in bytes. Was 50 MB under a constant named for
+    # sequence length, which rejected the assembly FASTA files --contigs exists
+    # to process. The ceiling is bounded by memory, not by policy: validation
+    # and gene calling each hold a whole file via list(SeqIO.parse(...)), at
+    # roughly 2x the file size in RSS, and the per-query stages run
+    # concurrently. 500 MB keeps one parse near 1 GB. Raising it further needs
+    # streaming parsers first.
+    MAX_FILE_SIZE_BYTES = 500_000_000
 
     # Sequence validation patterns
     VALID_DNA_CHARS = set("ATCGRYSWKMBDHVN-")
     VALID_PROTEIN_CHARS = set("ACDEFGHIKLMNPQRSTVWYXZBJOU*-")
 
-    # Parameter validation ranges
-    THREAD_LIMITS = (1, 64)
-    PROCESS_LIMITS = (1, 128)
-    EVALUE_LIMITS = (1e-20, 1.0)
-    COVERAGE_LIMITS = (0.0, 100.0)
-
-    @classmethod
-    def validate_filename(cls, filename: str) -> str:
-        """
-        Validate and sanitize filename.
-
-        Args:
-            filename: Filename to validate
-
-        Returns:
-            Sanitized filename
-
-        Raises:
-            ValidationError: If filename is invalid
-        """
-        if not filename:
-            raise ValidationError("Filename cannot be empty", field="filename")
-
-        # Remove directory components for security
-        filename = os.path.basename(filename)
-
-        # Check for invalid characters
-        if cls.INVALID_FILENAME_CHARS.search(filename):
-            raise ValidationError(
-                f"Filename contains invalid characters: {filename}",
-                field="filename",
-                value=filename,
-            )
-
-        # Check for reserved names
-        if cls.INVALID_FILENAME_PATTERNS.match(filename):
-            raise ValidationError(
-                f"Filename uses reserved name: {filename}",
-                field="filename",
-                value=filename,
-            )
-
-        # Check for path traversal
-        if ".." in filename or filename.startswith("/"):
-            raise ValidationError(
-                f"Filename contains path traversal: {filename}",
-                field="filename",
-                value=filename,
-            )
-
-        # Check length
-        if len(filename) > 255:
-            raise ValidationError(
-                f"Filename too long (max 255 characters): {len(filename)}",
-                field="filename",
-                value=filename,
-            )
-
-        return filename
+    # Full IUPAC nucleotide alphabet. Any character outside this set
+    # (E, F, I, L, P, Q, ...) can only be an amino acid. Deliberately matches
+    # VALID_DNA_CHARS: inferring a type this set admits but the alphabet
+    # validator rejects would turn a working input into a hard error. U is
+    # therefore absent here too, so RNA keeps its pre-2.0.2 handling.
+    NUCLEOTIDE_ALPHABET = VALID_DNA_CHARS
+    # The four unambiguous bases. Real nucleotide sequence is dominated by
+    # these; protein is not, because A/C/G/T are only 4 of 20 residues.
+    UNAMBIGUOUS_BASES = set("ACGT")
+    # Characters carrying no alphabet signal either way.
+    UNINFORMATIVE_CHARS = set("N-")
+    # Below this many informative characters, base diversity is not evidence.
+    MIN_LENGTH_FOR_BASE_DIVERSITY = 12
 
     @classmethod
     def _infer_fasta_type_from_content(cls, sequences) -> str:
-        """Return ``'fna'`` or ``'faa'`` based on the alphabet of the first
-        informative sequence. Used for extension-agnostic ``.fasta``/``.fas``
-        files so their contents actually go through DNA/protein alphabet
-        validation rather than bypassing ``_validate_sequence_record``."""
+        """Return ``'fna'`` or ``'faa'`` from the first informative sequence.
+
+        Used for extension-agnostic ``.fasta``/``.fas`` files, both to pick the
+        alphabet for :meth:`_validate_sequence_record` and to route the query to
+        the nucleotide or protein branch in
+        :func:`~src.pipeline.query_processing_engine._is_nucleotide_input`.
+
+        Three steps, because no one of them is sufficient alone:
+
+        1. Any character outside :data:`NUCLEOTIDE_ALPHABET` means protein.
+           Ordinary proteins nearly always contain E, F, I, L, P or Q.
+        2. A sequence long enough to judge that uses fewer than three of the
+           four bases is protein. Real nucleotide sequence uses all four; a
+           low-complexity protein repeat such as the silk-fibroin ``GAGAGS``
+           motif uses two and would otherwise pass step 3, since ``S`` is also
+           an IUPAC ambiguity code.
+        3. Otherwise nucleotide when the unambiguous bases are at least half of
+           the informative characters (ignoring ``N`` and gaps). This is what
+           separates the peptide ``MKWVNDHRYSGACD``, whose every letter is also
+           an ambiguity code, from a contig carrying many ``R``/``Y``/``S``/``W``
+           positions.
+
+        Only the first non-empty record is examined, so it decides the whole
+        file. Defaults to ``'fna'`` when every sequence is empty.
+        """
         for record in sequences:
             seq = str(record.seq).upper()
             if not seq:
                 continue
-            is_dna_like = set(seq) <= cls.VALID_DNA_CHARS
-            return "fna" if is_dna_like else "faa"
+            if not set(seq) <= cls.NUCLEOTIDE_ALPHABET:
+                return "faa"
+            informative = [c for c in seq if c not in cls.UNINFORMATIVE_CHARS]
+            if not informative:
+                return "fna"
+            distinct_bases = {c for c in informative if c in cls.UNAMBIGUOUS_BASES}
+            if len(informative) >= cls.MIN_LENGTH_FOR_BASE_DIVERSITY:
+                if len(distinct_bases - {"U"}) < 3 and len(distinct_bases - {"T"}) < 3:
+                    return "faa"
+            unambiguous = sum(1 for c in informative if c in cls.UNAMBIGUOUS_BASES)
+            return "fna" if unambiguous / len(informative) >= 0.5 else "faa"
         return "fna"
 
     @classmethod
@@ -190,9 +174,11 @@ class InputValidator:
                 f"File is empty: {filepath}", field="file_size", value=file_size
             )
 
-        if file_size > cls.MAX_SEQUENCE_LENGTH:
+        if file_size > cls.MAX_FILE_SIZE_BYTES:
             raise ValidationError(
-                f"File too large: {file_size} bytes (max: {cls.MAX_SEQUENCE_LENGTH})",
+                f"File too large: {file_size} bytes exceeds the "
+                f"{cls.MAX_FILE_SIZE_BYTES // 1_000_000} MB limit. "
+                "Split the file or pass fewer sequences per file.",
                 field="file_size",
                 value=file_size,
             )
@@ -419,261 +405,6 @@ class InputValidator:
         return path
 
     @classmethod
-    def validate_threads(cls, threads: int) -> int:
-        """
-        Validate thread count parameter.
-
-        Args:
-            threads: Number of threads
-
-        Returns:
-            Validated thread count
-
-        Raises:
-            ValidationError: If thread count is invalid
-        """
-        if not isinstance(threads, int):
-            raise ValidationError(
-                f"Thread count must be an integer, got {type(threads).__name__}",
-                field="threads",
-                value=threads,
-            )
-
-        if not (cls.THREAD_LIMITS[0] <= threads <= cls.THREAD_LIMITS[1]):
-            raise ValidationError(
-                f"Thread count must be between {cls.THREAD_LIMITS[0]} and {cls.THREAD_LIMITS[1]}, got {threads}",
-                field="threads",
-                value=threads,
-            )
-
-        return threads
-
-    @classmethod
-    def validate_processes(cls, processes: int) -> int:
-        """
-        Validate process count parameter.
-
-        Args:
-            processes: Number of processes
-
-        Returns:
-            Validated process count
-
-        Raises:
-            ValidationError: If process count is invalid
-        """
-        if not isinstance(processes, int):
-            raise ValidationError(
-                f"Process count must be an integer, got {type(processes).__name__}",
-                field="processes",
-                value=processes,
-            )
-
-        if not (cls.PROCESS_LIMITS[0] <= processes <= cls.PROCESS_LIMITS[1]):
-            raise ValidationError(
-                f"Process count must be between {cls.PROCESS_LIMITS[0]} and {cls.PROCESS_LIMITS[1]}, got {processes}",
-                field="processes",
-                value=processes,
-            )
-
-        return processes
-
-    @classmethod
-    def validate_evalue(cls, evalue: float) -> float:
-        """
-        Validate E-value parameter.
-
-        Args:
-            evalue: E-value threshold
-
-        Returns:
-            Validated E-value
-
-        Raises:
-            ValidationError: If E-value is invalid
-        """
-        if not isinstance(evalue, (int, float)):
-            raise ValidationError(
-                f"E-value must be a number, got {type(evalue).__name__}",
-                field="evalue",
-                value=evalue,
-            )
-
-        if not (cls.EVALUE_LIMITS[0] <= evalue <= cls.EVALUE_LIMITS[1]):
-            raise ValidationError(
-                f"E-value must be between {cls.EVALUE_LIMITS[0]} and {cls.EVALUE_LIMITS[1]}, got {evalue}",
-                field="evalue",
-                value=evalue,
-            )
-
-        return float(evalue)
-
-    @classmethod
-    def validate_coverage(cls, coverage: float) -> float:
-        """
-        Validate coverage percentage parameter.
-
-        Args:
-            coverage: Coverage percentage
-
-        Returns:
-            Validated coverage percentage
-
-        Raises:
-            ValidationError: If coverage is invalid
-        """
-        if not isinstance(coverage, (int, float)):
-            raise ValidationError(
-                f"Coverage must be a number, got {type(coverage).__name__}",
-                field="coverage",
-                value=coverage,
-            )
-
-        if not (cls.COVERAGE_LIMITS[0] <= coverage <= cls.COVERAGE_LIMITS[1]):
-            raise ValidationError(
-                f"Coverage must be between {cls.COVERAGE_LIMITS[0]}% and {cls.COVERAGE_LIMITS[1]}%, got {coverage}%",
-                field="coverage",
-                value=coverage,
-            )
-
-        return float(coverage)
-
-    @classmethod
-    def validate_genetic_code(cls, code: int) -> int:
-        """
-        Validate genetic code parameter.
-
-        Args:
-            code: Genetic code number
-
-        Returns:
-            Validated genetic code
-
-        Raises:
-            ValidationError: If genetic code is invalid
-        """
-        # Valid genetic codes from NCBI
-        valid_codes = {
-            0,
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            9,
-            10,
-            11,
-            12,
-            13,
-            14,
-            15,
-            16,
-            21,
-            22,
-            23,
-            24,
-            25,
-            26,
-            27,
-            28,
-            29,
-            30,
-            31,
-            106,
-            129,
-        }
-
-        if not isinstance(code, int):
-            raise ValidationError(
-                f"Genetic code must be an integer, got {type(code).__name__}",
-                field="genetic_code",
-                value=code,
-            )
-
-        if code not in valid_codes:
-            raise ValidationError(
-                f"Invalid genetic code: {code}. Must be one of: {sorted(valid_codes)}",
-                field="genetic_code",
-                value=code,
-            )
-
-        return code
-
-    @classmethod
-    def validate_mafft_option(cls, option: str) -> str:
-        """
-        Validate MAFFT alignment option.
-
-        Args:
-            option: MAFFT option
-
-        Returns:
-            Validated option
-
-        Raises:
-            ValidationError: If option is invalid
-        """
-        valid_options = {
-            "auto",
-            "linsi",
-            "ginsi",
-            "einsi",
-            "fftns",
-            "fftnsi",
-            "nwns",
-            "nwnsi",
-        }
-
-        if not isinstance(option, str):
-            raise ValidationError(
-                f"MAFFT option must be a string, got {type(option).__name__}",
-                field="mafft_option",
-                value=option,
-            )
-
-        if option not in valid_options:
-            raise ValidationError(
-                f"Invalid MAFFT option: {option}. Must be one of: {sorted(valid_options)}",
-                field="mafft_option",
-                value=option,
-            )
-
-        return option
-
-    @classmethod
-    def validate_tree_method(cls, method: str) -> str:
-        """
-        Validate tree building method.
-
-        Args:
-            method: Tree building method
-
-        Returns:
-            Validated method
-
-        Raises:
-            ValidationError: If method is invalid
-        """
-        valid_methods = {"iqtree", "veryfasttree", "fasttree"}
-
-        if not isinstance(method, str):
-            raise ValidationError(
-                f"Tree method must be a string, got {type(method).__name__}",
-                field="tree_method",
-                value=method,
-            )
-
-        if method not in valid_methods:
-            raise ValidationError(
-                f"Invalid tree method: {method}. Must be one of: {sorted(valid_methods)}",
-                field="tree_method",
-                value=method,
-            )
-
-        return method
-
-    @classmethod
     def validate_query_directory(
         cls,
         query_dir: Union[str, Path],
@@ -726,72 +457,3 @@ class InputValidator:
             )
 
         return dir_path
-
-    @classmethod
-    def validate_config_parameters(cls, config: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Validate configuration parameters.
-
-        Args:
-            config: Configuration dictionary
-
-        Returns:
-            Validated configuration dictionary
-
-        Raises:
-            ValidationError: If any parameter is invalid
-        """
-        validated_config = {}
-
-        # Validate known parameters
-        if "threads" in config:
-            validated_config["threads"] = cls.validate_threads(config["threads"])
-
-        if "processes" in config:
-            validated_config["processes"] = cls.validate_processes(config["processes"])
-
-        if "evalue" in config:
-            validated_config["evalue"] = cls.validate_evalue(config["evalue"])
-
-        if "query_coverage" in config:
-            validated_config["query_coverage"] = cls.validate_coverage(
-                config["query_coverage"]
-            )
-
-        if "subject_coverage" in config:
-            validated_config["subject_coverage"] = cls.validate_coverage(
-                config["subject_coverage"]
-            )
-
-        if "mafft_option" in config:
-            validated_config["mafft_option"] = cls.validate_mafft_option(
-                config["mafft_option"]
-            )
-
-        if "tree_method" in config:
-            validated_config["tree_method"] = cls.validate_tree_method(
-                config["tree_method"]
-            )
-
-        if "genetic_codes" in config:
-            if isinstance(config["genetic_codes"], list):
-                validated_config["genetic_codes"] = [
-                    cls.validate_genetic_code(code) for code in config["genetic_codes"]
-                ]
-            else:
-                raise ValidationError(
-                    "genetic_codes must be a list",
-                    field="genetic_codes",
-                    value=config["genetic_codes"],
-                )
-
-        # Copy other parameters without validation (with warning)
-        for key, value in config.items():
-            if key not in validated_config:
-                validated_config[key] = value
-                error_handler.log_warning(
-                    f"Unknown configuration parameter: {key}",
-                    context={"parameter": key, "value": value},
-                )
-
-        return validated_config
