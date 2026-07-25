@@ -10,9 +10,7 @@ import logging.handlers
 import traceback
 import sys
 from typing import Optional, Dict, Any, Callable, TypeVar, Union
-from pathlib import Path
 from functools import wraps
-from contextlib import contextmanager
 
 # Type variable for decorated functions
 F = TypeVar("F", bound=Callable[..., Any])
@@ -223,123 +221,6 @@ def handle_errors(
                         raise
                 else:
                     raise
-
-        return wrapper
-
-    return decorator
-
-
-@contextmanager
-def error_context(step: str, input_file: Optional[str] = None):
-    """
-    Context manager for error handling in processing steps.
-
-    Args:
-        step: Name of the processing step
-        input_file: Input file being processed
-    """
-    context = {"step": step}
-    if input_file:
-        context["input_file"] = input_file
-
-    try:
-        error_handler.log_info(f"Starting step: {step}", context)
-        yield
-        error_handler.log_info(f"Completed step: {step}", context)
-    except Exception as e:
-        error_handler.handle_error(e, context)
-        raise
-
-
-def validate_input(
-    value: Any, field: str, validator: Callable[[Any], bool], error_msg: str
-) -> Any:
-    """
-    Validate input value with custom validator.
-
-    Args:
-        value: Value to validate
-        field: Field name for error reporting
-        validator: Validation function
-        error_msg: Error message if validation fails
-
-    Returns:
-        Validated value
-
-    Raises:
-        ValidationError: If validation fails
-    """
-    if not validator(value):
-        raise ValidationError(error_msg, field=field, value=value)
-    return value
-
-
-def safe_file_operation(operation: str, file_path: Union[str, Path]) -> Callable:
-    """
-    Decorator for safe file operations.
-
-    Args:
-        operation: Name of the file operation
-        file_path: Path to the file
-
-    Returns:
-        Decorator function
-    """
-
-    def decorator(func: F) -> F:
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            try:
-                return func(*args, **kwargs)
-            except IOError as e:
-                raise FileError(
-                    f"File operation '{operation}' failed: {str(e)}",
-                    file_path=str(file_path),
-                    operation=operation,
-                )
-            except Exception as e:
-                if "Permission denied" in str(e):
-                    raise FileError(
-                        f"Permission denied for file operation '{operation}'",
-                        file_path=str(file_path),
-                        operation=operation,
-                    )
-                raise
-
-        return wrapper
-
-    return decorator
-
-
-def require_files(*file_paths: Union[str, Path]) -> Callable:
-    """
-    Decorator to ensure required files exist before function execution.
-
-    Args:
-        file_paths: Paths to required files
-
-    Returns:
-        Decorator function
-    """
-
-    def decorator(func: F) -> F:
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            for file_path in file_paths:
-                path = Path(file_path)
-                if not path.exists():
-                    raise FileError(
-                        f"Required file not found: {file_path}",
-                        file_path=str(file_path),
-                        operation="require_files",
-                    )
-                if not path.is_file():
-                    raise FileError(
-                        f"Path is not a file: {file_path}",
-                        file_path=str(file_path),
-                        operation="require_files",
-                    )
-            return func(*args, **kwargs)
 
         return wrapper
 

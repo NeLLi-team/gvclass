@@ -25,7 +25,6 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, r2_score
 from sklearn.model_selection import train_test_split
 
-
 CORE_PREVALENCE_THRESHOLD = 0.90
 ACCESSORY_PREVALENCE_THRESHOLD = 0.50
 FAMILY_MIN_REF_GENOMES = 5
@@ -77,7 +76,9 @@ def load_metadata(run_dir: Path) -> Dict[str, Dict[str, str]]:
     return metadata
 
 
-def load_order_table(resources_dir: Path) -> Tuple[Dict[str, List[str]], Dict[str, float]]:
+def load_order_table(
+    resources_dir: Path,
+) -> Tuple[Dict[str, List[str]], Dict[str, float]]:
     order_markers: Dict[str, List[str]] = {}
     order_baselines: Dict[str, float] = {}
     path = resources_dir / "order_completeness.tab"
@@ -85,7 +86,9 @@ def load_order_table(resources_dir: Path) -> Tuple[Dict[str, List[str]], Dict[st
         for row in csv.DictReader(handle, delimiter="\t"):
             order_name = row["Order"]
             order_markers[order_name] = [
-                marker.strip() for marker in row["Orthogroups"].split(",") if marker.strip()
+                marker.strip()
+                for marker in row["Orthogroups"].split(",")
+                if marker.strip()
             ]
             order_baselines[order_name] = float(row["Average_Percent"])
     return order_markers, order_baselines
@@ -124,7 +127,9 @@ def extract_primary_token(value: str) -> str:
     return token.split("__", 1)[1] if "__" in token else token
 
 
-def build_query_counts(run_dir: Path, accessions: Iterable[str]) -> Dict[str, Dict[str, int]]:
+def build_query_counts(
+    run_dir: Path, accessions: Iterable[str]
+) -> Dict[str, Dict[str, int]]:
     results_dir = run_dir / "gvclass_extended_results"
     counts_by_accession: Dict[str, Dict[str, int]] = {}
     for accession in accessions:
@@ -253,7 +258,10 @@ def select_group_definition(
                 & (family_stats["avg_copy"] <= 1.2)
             ).sum()
         )
-    if len(family_profile) >= FAMILY_MIN_REF_GENOMES and family_core_count >= FAMILY_MIN_CORE_MARKERS:
+    if (
+        len(family_profile) >= FAMILY_MIN_REF_GENOMES
+        and family_core_count >= FAMILY_MIN_CORE_MARKERS
+    ):
         return (
             GroupDefinition(level="family", name=family_name, order_name=order_name),
             family_stats,
@@ -308,7 +316,9 @@ def build_strategy3_training_table(
             continue
         core_markers, accessory_markers = strategy3_sets.get(order_name, ([], []))
         for genome_id, profile in genome_profiles.items():
-            present_markers = [marker for marker in markers if profile.get(marker, 0) > 0]
+            present_markers = [
+                marker for marker in markers if profile.get(marker, 0) > 0
+            ]
             if not present_markers:
                 continue
             for completeness_level in SIMULATED_COMPLETENESS_LEVELS:
@@ -321,7 +331,9 @@ def build_strategy3_training_table(
                     strategy1_score = 0.0
                     if baseline > 0:
                         strategy1_score = min(100.0, (raw_score / baseline) * 100.0)
-                    strategy2_score = compute_marker_fraction(synthetic_counts, core_markers)
+                    strategy2_score = compute_marker_fraction(
+                        synthetic_counts, core_markers
+                    )
                     accessory_score = compute_marker_fraction(
                         synthetic_counts, accessory_markers
                     )
@@ -394,15 +406,21 @@ def summarize_by_level(
             {
                 level_key: group_name,
                 "n_genomes": len(items),
-                "mean_strategy1": round(mean(float(item["strategy1"]) for item in items), 2),
+                "mean_strategy1": round(
+                    mean(float(item["strategy1"]) for item in items), 2
+                ),
                 "median_strategy1": round(
                     median(float(item["strategy1"]) for item in items), 2
                 ),
-                "mean_strategy2": round(mean(float(item["strategy2"]) for item in items), 2),
+                "mean_strategy2": round(
+                    mean(float(item["strategy2"]) for item in items), 2
+                ),
                 "median_strategy2": round(
                     median(float(item["strategy2"]) for item in items), 2
                 ),
-                "mean_strategy3": round(mean(float(item["strategy3"]) for item in items), 2),
+                "mean_strategy3": round(
+                    mean(float(item["strategy3"]) for item in items), 2
+                ),
                 "median_strategy3": round(
                     median(float(item["strategy3"]) for item in items), 2
                 ),

@@ -30,7 +30,6 @@ from sklearn.ensemble import (
 from sklearn.metrics import mean_absolute_error, r2_score
 from sklearn.model_selection import train_test_split
 
-
 RANDOM_SEED = 42
 SIMULATED_COMPLETENESS_LEVELS = [1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2]
 SIMULATIONS_PER_LEVEL_TUNING = 2
@@ -77,7 +76,9 @@ OOD_STRICT_FLAGS = {
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--run-dir", default="benchmarking/completeness/refs-Feb-2026-fna-pox10-genus10")
+    parser.add_argument(
+        "--run-dir", default="benchmarking/completeness/refs-Feb-2026-fna-pox10-genus10"
+    )
     parser.add_argument("--resources-dir", default="resources")
     parser.add_argument(
         "--best-config-json",
@@ -112,7 +113,9 @@ def load_metadata(run_dir: Path) -> Dict[str, Dict[str, str]]:
     return metadata
 
 
-def load_order_table(resources_dir: Path) -> Tuple[Dict[str, List[str]], Dict[str, float]]:
+def load_order_table(
+    resources_dir: Path,
+) -> Tuple[Dict[str, List[str]], Dict[str, float]]:
     order_markers: Dict[str, List[str]] = {}
     order_baselines: Dict[str, float] = {}
     path = resources_dir / "order_completeness.tab"
@@ -120,7 +123,9 @@ def load_order_table(resources_dir: Path) -> Tuple[Dict[str, List[str]], Dict[st
         for row in csv.DictReader(handle, delimiter="\t"):
             order_name = row["Order"]
             order_markers[order_name] = [
-                marker.strip() for marker in row["Orthogroups"].split(",") if marker.strip()
+                marker.strip()
+                for marker in row["Orthogroups"].split(",")
+                if marker.strip()
             ]
             order_baselines[order_name] = float(row["Average_Percent"])
     return order_markers, order_baselines
@@ -159,7 +164,9 @@ def extract_primary_token(value: str) -> str:
     return token.split("__", 1)[1] if "__" in token else token
 
 
-def build_query_counts(run_dir: Path, accessions: Iterable[str]) -> Dict[str, Dict[str, int]]:
+def build_query_counts(
+    run_dir: Path, accessions: Iterable[str]
+) -> Dict[str, Dict[str, int]]:
     results_dir = run_dir / "gvclass_extended_results"
     counts_by_accession: Dict[str, Dict[str, int]] = {}
     for accession in accessions:
@@ -210,8 +217,12 @@ def parse_reference_marker_profiles(
         }
     )
 
-    order_profiles: Dict[str, Dict[str, Dict[str, int]]] = defaultdict(lambda: defaultdict(dict))
-    family_profiles: Dict[str, Dict[str, Dict[str, int]]] = defaultdict(lambda: defaultdict(dict))
+    order_profiles: Dict[str, Dict[str, Dict[str, int]]] = defaultdict(
+        lambda: defaultdict(dict)
+    )
+    family_profiles: Dict[str, Dict[str, Dict[str, int]]] = defaultdict(
+        lambda: defaultdict(dict)
+    )
     faa_dir = resources_dir / "database" / "faa"
 
     for marker in relevant_markers:
@@ -240,7 +251,9 @@ def parse_reference_marker_profiles(
     return order_profiles, family_profiles
 
 
-def marker_stats_for_group(genome_profiles: Dict[str, Dict[str, int]], markers: List[str]) -> pd.DataFrame:
+def marker_stats_for_group(
+    genome_profiles: Dict[str, Dict[str, int]], markers: List[str]
+) -> pd.DataFrame:
     rows: List[Dict[str, float]] = []
     genome_count = len(genome_profiles)
     if genome_count == 0:
@@ -278,7 +291,11 @@ def build_stats_cache(
     for family_name, genome_profiles in family_profiles.items():
         orders = set()
         for genome_id in genome_profiles:
-            orders.add(next((o for o, prof in order_profiles.items() if genome_id in prof), None))
+            orders.add(
+                next(
+                    (o for o, prof in order_profiles.items() if genome_id in prof), None
+                )
+            )
         orders.discard(None)
         if len(orders) != 1:
             continue
@@ -334,7 +351,8 @@ def select_group_and_tiers(
     family_tiers = build_tier_set(family_stats, config)
     if (
         len(family_profile) >= config.family_min_ref_genomes
-        and informative_marker_count(family_tiers) >= config.family_min_informative_markers
+        and informative_marker_count(family_tiers)
+        >= config.family_min_informative_markers
     ):
         return GroupDefinition("family", family_name, order_name), family_tiers
 
@@ -350,7 +368,9 @@ def presence_fraction(present_markers: set[str], markers: Tuple[str, ...]) -> fl
     return present / len(markers)
 
 
-def score_tier_set(present_markers: set[str], tier_set: TierSet, config: Strategy2Config) -> Dict[str, float]:
+def score_tier_set(
+    present_markers: set[str], tier_set: TierSet, config: Strategy2Config
+) -> Dict[str, float]:
     core_fraction = presence_fraction(present_markers, tier_set.core)
     shared_fraction = presence_fraction(present_markers, tier_set.shared)
     accessory_fraction = presence_fraction(present_markers, tier_set.accessory)
@@ -397,7 +417,9 @@ def simulate_samples(
         if not markers:
             continue
         for genome_id, profile in genome_profiles.items():
-            present_markers = [marker for marker in markers if profile.get(marker, 0) > 0]
+            present_markers = [
+                marker for marker in markers if profile.get(marker, 0) > 0
+            ]
             if not present_markers:
                 continue
             family_name = labels.get(genome_id, {}).get("family", "")
@@ -431,7 +453,11 @@ def build_config_grid() -> List[Strategy2Config]:
                             continue
                         for family_min_ref in (3, 5):
                             for family_min_info in (2, 3):
-                                for weights in ((0.7, 0.2, 0.1), (0.6, 0.3, 0.1), (0.5, 0.3, 0.2)):
+                                for weights in (
+                                    (0.7, 0.2, 0.1),
+                                    (0.6, 0.3, 0.1),
+                                    (0.5, 0.3, 0.2),
+                                ):
                                     configs.append(
                                         Strategy2Config(
                                             name=f"cfg_{idx:03d}",
@@ -498,7 +524,9 @@ def build_strategy2_baselines(
             family_name = labels.get(genome_id, {}).get("family", "")
             group_def, tier_set = get_group(order_name, family_name)
             present_markers = {marker for marker, count in profile.items() if count > 0}
-            raw_score = float(score_tier_set(present_markers, tier_set, config)["strategy2"])
+            raw_score = float(
+                score_tier_set(present_markers, tier_set, config)["strategy2"]
+            )
             group_key = (group_def.level, group_def.name, order_name)
             group_scores[group_key].append(raw_score)
 
@@ -540,7 +568,9 @@ def compute_support_metrics(
     shared_present = round((shared_fraction / 100.0) * shared_marker_count)
     informative_present = int(core_present + shared_present)
     informative_fraction = (
-        0.0 if informative_marker_count == 0 else informative_present / informative_marker_count
+        0.0
+        if informative_marker_count == 0
+        else informative_present / informative_marker_count
     )
     ref_support = min(1.0, baseline_n_refs / 10.0)
     support_score = round((0.85 * informative_fraction) + (0.15 * ref_support), 4)
@@ -661,7 +691,11 @@ def evaluate_config(
         synthetic_scores.append(score)
         synthetic_truth.append(float(sample["true_completeness"]))
 
-    synthetic_mae = mean_absolute_error(synthetic_truth, synthetic_scores) if synthetic_scores else 100.0
+    synthetic_mae = (
+        mean_absolute_error(synthetic_truth, synthetic_scores)
+        if synthetic_scores
+        else 100.0
+    )
     isolate_mae_100 = mean(abs(100.0 - score) for score in isolate_scores)
     composite = synthetic_mae + (0.5 * isolate_mae_100) + (0.2 * informative_zero)
 
@@ -694,7 +728,9 @@ def build_strategy3_training_table(
     family_stats_cache: Dict[Tuple[str, str], pd.DataFrame],
     strategy2_baselines: Dict[Tuple[str, str, str], Dict[str, float]],
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    synthetic_samples = simulate_samples(labels, order_profiles, order_markers, SIMULATIONS_PER_LEVEL_FINAL)
+    synthetic_samples = simulate_samples(
+        labels, order_profiles, order_markers, SIMULATIONS_PER_LEVEL_FINAL
+    )
     tier_cache: Dict[Tuple[str, str], Tuple[GroupDefinition, TierSet]] = {}
 
     def get_group(order_name: str, family_name: str) -> Tuple[GroupDefinition, TierSet]:
@@ -718,15 +754,21 @@ def build_strategy3_training_table(
         if order_name not in order_markers:
             continue
         group_def, tier_set = get_group(order_name, family_name)
-        raw_score = 100.0 * (len(sample["present_markers"]) / len(order_markers[order_name]))
+        raw_score = 100.0 * (
+            len(sample["present_markers"]) / len(order_markers[order_name])
+        )
         baseline = order_baselines.get(order_name, 0.0)
-        strategy1_score = 0.0 if baseline <= 0 else min(100.0, (raw_score / baseline) * 100.0)
+        strategy1_score = (
+            0.0 if baseline <= 0 else min(100.0, (raw_score / baseline) * 100.0)
+        )
         tier_scores = score_tier_set(sample["present_markers"], tier_set, config)
         strategy2_raw_score = float(tier_scores["strategy2"])
-        strategy2_norm_score, strategy2_baseline_mean, strategy2_baseline_n_refs = normalize_strategy2_score(
-            strategy2_raw_score,
-            group_def,
-            strategy2_baselines,
+        strategy2_norm_score, strategy2_baseline_mean, strategy2_baseline_n_refs = (
+            normalize_strategy2_score(
+                strategy2_raw_score,
+                group_def,
+                strategy2_baselines,
+            )
         )
         training_rows.append(
             {
@@ -808,7 +850,11 @@ def build_strategy3_training_table(
         best_validation_type = ""
         best_validation_families = 0
 
-        family_names = [family for family in sorted(model_order_df["family_name"].unique()) if family]
+        family_names = [
+            family
+            for family in sorted(model_order_df["family_name"].unique())
+            if family
+        ]
         use_lofo = len(family_names) >= 2
 
         for model_name, model_factory in candidate_models:
@@ -831,7 +877,9 @@ def build_strategy3_training_table(
                     )
                     pred = model.predict(model_order_df.loc[test_mask, feature_cols])
                     preds.extend(pred.tolist())
-                    truth.extend(model_order_df.loc[test_mask, "true_completeness"].tolist())
+                    truth.extend(
+                        model_order_df.loc[test_mask, "true_completeness"].tolist()
+                    )
                     validation_families += 1
 
             if not preds:
@@ -875,7 +923,9 @@ def build_strategy3_training_table(
     return training_df, pd.DataFrame(model_rows)
 
 
-def summarize_by_level(rows: List[Dict[str, object]], level_key: str, output_path: Path) -> None:
+def summarize_by_level(
+    rows: List[Dict[str, object]], level_key: str, output_path: Path
+) -> None:
     groups: Dict[str, List[Dict[str, object]]] = defaultdict(list)
     for row in rows:
         groups[str(row[level_key])].append(row)
@@ -886,12 +936,24 @@ def summarize_by_level(rows: List[Dict[str, object]], level_key: str, output_pat
             {
                 level_key: group_name,
                 "n_genomes": len(items),
-                "mean_strategy1": round(mean(float(item["strategy1"]) for item in items), 2),
-                "median_strategy1": round(median(float(item["strategy1"]) for item in items), 2),
-                "mean_strategy2": round(mean(float(item["strategy2"]) for item in items), 2),
-                "median_strategy2": round(median(float(item["strategy2"]) for item in items), 2),
-                "mean_strategy3": round(mean(float(item["strategy3"]) for item in items), 2),
-                "median_strategy3": round(median(float(item["strategy3"]) for item in items), 2),
+                "mean_strategy1": round(
+                    mean(float(item["strategy1"]) for item in items), 2
+                ),
+                "median_strategy1": round(
+                    median(float(item["strategy1"]) for item in items), 2
+                ),
+                "mean_strategy2": round(
+                    mean(float(item["strategy2"]) for item in items), 2
+                ),
+                "median_strategy2": round(
+                    median(float(item["strategy2"]) for item in items), 2
+                ),
+                "mean_strategy3": round(
+                    mean(float(item["strategy3"]) for item in items), 2
+                ),
+                "median_strategy3": round(
+                    median(float(item["strategy3"]) for item in items), 2
+                ),
             }
         )
 
@@ -916,11 +978,17 @@ def summarize_by_level(rows: List[Dict[str, object]], level_key: str, output_pat
 
 
 def describe(values: List[float]) -> Tuple[float, float, int]:
-    return round(mean(values), 2), round(median(values), 2), sum(v >= 90.0 for v in values)
+    return (
+        round(mean(values), 2),
+        round(median(values), 2),
+        sum(v >= 90.0 for v in values),
+    )
 
 
 def downsample_training_order_df(order_df: pd.DataFrame) -> pd.DataFrame:
-    family_names = [family for family in sorted(order_df["family_name"].unique()) if family]
+    family_names = [
+        family for family in sorted(order_df["family_name"].unique()) if family
+    ]
     if len(family_names) >= 2:
         parts = []
         for family_name, family_df in order_df.groupby("family_name", sort=False):
@@ -1009,7 +1077,9 @@ def main() -> None:
 
         tuning_path = run_dir / f"strategy2_tuning_results_{suffix}.tsv"
         with tuning_path.open("w", newline="") as handle:
-            writer = csv.DictWriter(handle, fieldnames=list(tuning_results[0].keys()), delimiter="\t")
+            writer = csv.DictWriter(
+                handle, fieldnames=list(tuning_results[0].keys()), delimiter="\t"
+            )
             writer.writeheader()
             writer.writerows(tuning_results)
 
@@ -1022,14 +1092,18 @@ def main() -> None:
             core_max_copy=float(best_row["core_max_copy"]),
             shared_max_copy=float(best_row["shared_max_copy"]),
             family_min_ref_genomes=int(best_row["family_min_ref_genomes"]),
-            family_min_informative_markers=int(best_row["family_min_informative_markers"]),
+            family_min_informative_markers=int(
+                best_row["family_min_informative_markers"]
+            ),
             weight_core=float(best_row["weight_core"]),
             weight_shared=float(best_row["weight_shared"]),
             weight_accessory=float(best_row["weight_accessory"]),
         )
 
     best_config_path = run_dir / f"strategy2_best_config_{suffix}.json"
-    best_config_path.write_text(json.dumps(asdict(best_config), indent=2, sort_keys=True) + "\n")
+    best_config_path.write_text(
+        json.dumps(asdict(best_config), indent=2, sort_keys=True) + "\n"
+    )
     strategy2_baselines = build_strategy2_baselines(
         best_config,
         labels,
@@ -1093,9 +1167,15 @@ def main() -> None:
                     "strategy2_core_fraction": 0.0,
                     "strategy2_shared_fraction": 0.0,
                     "strategy2_accessory_fraction": 0.0,
-                    "strategy2_informative_marker_count": support_metrics["informative_marker_count"],
-                    "strategy2_informative_present_count": support_metrics["informative_present_count"],
-                    "strategy2_informative_fraction": support_metrics["informative_fraction"],
+                    "strategy2_informative_marker_count": support_metrics[
+                        "informative_marker_count"
+                    ],
+                    "strategy2_informative_present_count": support_metrics[
+                        "informative_present_count"
+                    ],
+                    "strategy2_informative_fraction": support_metrics[
+                        "informative_fraction"
+                    ],
                     "strategy2_support_score": support_metrics["support_score"],
                     "strategy3_ood_flag": support_metrics["ood_flag"],
                     "strategy3": fallback_score,
@@ -1107,10 +1187,12 @@ def main() -> None:
         present_markers = {m for m, c in query_counts[accession].items() if c > 0}
         tier_scores = score_tier_set(present_markers, tier_set, best_config)
         strategy2_raw = float(tier_scores["strategy2"])
-        strategy2_norm, strategy2_baseline_mean, strategy2_baseline_n_refs = normalize_strategy2_score(
-            strategy2_raw,
-            group_def,
-            strategy2_baselines,
+        strategy2_norm, strategy2_baseline_mean, strategy2_baseline_n_refs = (
+            normalize_strategy2_score(
+                strategy2_raw,
+                group_def,
+                strategy2_baselines,
+            )
         )
         support_metrics = compute_support_metrics(
             informative_marker_count=int(tier_scores["informative_marker_count"]),
@@ -1133,7 +1215,9 @@ def main() -> None:
                 "strategy2_group_name": group_def.name,
                 "strategy2_core_marker_count": tier_scores["core_marker_count"],
                 "strategy2_shared_marker_count": tier_scores["shared_marker_count"],
-                "strategy2_accessory_marker_count": tier_scores["accessory_marker_count"],
+                "strategy2_accessory_marker_count": tier_scores[
+                    "accessory_marker_count"
+                ],
                 "strategy1": float(row["order_completeness"]),
                 "strategy1_raw": float(row["order_completeness_raw"]),
                 "strategy2_raw": strategy2_raw,
@@ -1143,9 +1227,15 @@ def main() -> None:
                 "strategy2_core_fraction": tier_scores["core_fraction"],
                 "strategy2_shared_fraction": tier_scores["shared_fraction"],
                 "strategy2_accessory_fraction": tier_scores["accessory_fraction"],
-                "strategy2_informative_marker_count": support_metrics["informative_marker_count"],
-                "strategy2_informative_present_count": support_metrics["informative_present_count"],
-                "strategy2_informative_fraction": support_metrics["informative_fraction"],
+                "strategy2_informative_marker_count": support_metrics[
+                    "informative_marker_count"
+                ],
+                "strategy2_informative_present_count": support_metrics[
+                    "informative_present_count"
+                ],
+                "strategy2_informative_fraction": support_metrics[
+                    "informative_fraction"
+                ],
                 "strategy2_support_score": support_metrics["support_score"],
                 "strategy3_ood_flag": support_metrics["ood_flag"],
                 "strategy3": 0.0,
@@ -1180,7 +1270,9 @@ def main() -> None:
                     "strategy2_raw_score": float(row["strategy2_raw"]),
                     "strategy2_score": float(row["strategy2"]),
                     "strategy2_baseline_mean": float(row["strategy2_baseline_mean"]),
-                    "strategy2_baseline_n_refs": float(row["strategy2_baseline_n_refs"]),
+                    "strategy2_baseline_n_refs": float(
+                        row["strategy2_baseline_n_refs"]
+                    ),
                     "core_fraction": float(row["strategy2_core_fraction"]),
                     "shared_fraction": float(row["strategy2_shared_fraction"]),
                     "accessory_fraction": float(row["strategy2_accessory_fraction"]),
@@ -1208,7 +1300,9 @@ def main() -> None:
 
     comparison_path = run_dir / f"completeness_strategy_comparison_{suffix}.tsv"
     with comparison_path.open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(comparison_rows[0].keys()), delimiter="\t")
+        writer = csv.DictWriter(
+            handle, fieldnames=list(comparison_rows[0].keys()), delimiter="\t"
+        )
         writer.writeheader()
         writer.writerows(comparison_rows)
 
