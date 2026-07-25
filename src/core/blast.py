@@ -255,12 +255,25 @@ def run_blastp(
                 open(output_file, "a").close()
                 return
 
-        # Sort and filter top hits per query, then write to output file
+        # Sort and filter top hits per query, then write to output file.
+        #
+        # Both orderings below are deterministic on purpose. pyswrd searches in
+        # parallel, so ``hits_by_query`` is populated in thread-completion order
+        # and equal-scoring hits arrive in an arbitrary order. Left as-is, two
+        # runs of the same input emit the same hit set in a different order,
+        # which changes which subjects survive the top-N cut, and from there the
+        # alignment, the gene tree, the nearest neighbour, and finally the
+        # per-rank taxonomy vote. This was measured: two identical runs differed
+        # in the genus and species columns. Sorting by query id, and breaking
+        # score/e-value ties on target id, pins all of it. Matches
+        # ``_rank_unique_subjects`` in the species-tree neighbour search.
         with open(output_file, "w") as out:
             total_hits_written = 0
-            for query_id, query_hits in hits_by_query.items():
-                # Sort this query's hits by score (descending) and e-value (ascending)
-                query_hits.sort(key=lambda x: (-x["score"], x["evalue"]))
+            for query_id in sorted(hits_by_query):
+                query_hits = hits_by_query[query_id]
+                query_hits.sort(
+                    key=lambda x: (-x["score"], x["evalue"], x["target_id"])
+                )
 
                 # Take only top N hits for this query
                 for hit_data in query_hits[:top_per_query]:
@@ -381,7 +394,13 @@ def parse_blastp(
             for subject, score, identity in hits:
                 all_hits.append((subject, score, identity))
 
-        # Sort all hits by score (descending) to ensure best hits are selected first
+        # Sort all hits by score (descending) to ensure best hits are selected
+        # first. list.sort is stable, so equal-scoring hits keep the order they
+        # were read in, which makes this selection only as deterministic as the
+        # .m8 file it reads. run_blastp writes that file in a fixed order
+        # (queries sorted by id, hits by score then e-value then target id) for
+        # exactly this reason. Change the write order there and the references
+        # chosen here move with it.
         all_hits.sort(key=lambda x: -x[1])
 
         # Return unique subject IDs in score order
