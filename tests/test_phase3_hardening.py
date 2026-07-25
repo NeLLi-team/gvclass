@@ -14,7 +14,6 @@ from unittest.mock import patch
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # 3.1 Contig splitter
 # ---------------------------------------------------------------------------
@@ -176,6 +175,78 @@ def test_pure_dna_fasta_routes_to_dna_alphabet(tmp_path: Path) -> None:
     assert result == good_fasta.resolve()
 
 
+def test_protein_fasta_of_iupac_letters_is_not_called_dna(tmp_path: Path) -> None:
+    """Every letter of ``MKWVNDHRYSGACD`` is also an IUPAC ambiguity code, so a
+    set-membership test against ``VALID_DNA_CHARS`` calls this peptide DNA."""
+    from Bio import SeqIO
+
+    from src.utils.input_validation import InputValidator
+
+    peptides = tmp_path / "peptides.fasta"
+    peptides.write_text(">p1\nMKWVNDHRYSGACD\n>p2\nMKWVNDHRYSGACD\n")
+
+    records = list(SeqIO.parse(str(peptides), "fasta"))
+    assert InputValidator._infer_fasta_type_from_content(records) == "faa"
+
+    # Protein path: no DNA-alphabet rejection and no 20 kb nucleotide floor.
+    assert InputValidator.validate_sequence_file(peptides) == peptides.resolve()
+
+
+def test_ambiguity_rich_contig_is_still_called_dna(tmp_path: Path) -> None:
+    """The other side of the same discriminator: GVClass accepts IUPAC
+    ambiguity codes in nucleotide input, and ``_is_nucleotide_input`` routes
+    gene calling off this helper, so a misread here sends a real contig to the
+    protein branch."""
+    from Bio import SeqIO
+
+    from src.pipeline.query_processing_engine import _is_nucleotide_input
+    from src.utils.input_validation import InputValidator
+
+    contig = tmp_path / "ambiguous.fasta"
+    contig.write_text(">c1\nATGNNNRYKMSWATGCCGT\n")
+
+    records = list(SeqIO.parse(str(contig), "fasta"))
+    assert InputValidator._infer_fasta_type_from_content(records) == "fna"
+    assert _is_nucleotide_input(contig) is True
+
+
+def test_low_complexity_protein_repeats_are_not_called_dna(tmp_path: Path) -> None:
+    """Gly/Ala-rich repeats (collagen, elastin, silk fibroin) use only letters
+    that are also nucleotide codes, ``S`` among them, so neither an alphabet
+    test nor a base-composition test alone separates them from DNA. Base
+    diversity does: real nucleotide sequence uses all four bases."""
+    from src.pipeline.query_processing_engine import _is_nucleotide_input
+    from src.utils.input_validation import InputValidator
+
+    class _Record:
+        def __init__(self, seq: str) -> None:
+            self.seq = seq
+
+    for motif in ("GAGAGSGAGAGSGAGAGS", "GAPGAPGAPGAPGAPGAP", "GGYGGGGRGGYGGGGRGG"):
+        assert (
+            InputValidator._infer_fasta_type_from_content([_Record(motif)]) == "faa"
+        ), motif
+
+    fibroin = tmp_path / "fibroin.fasta"
+    fibroin.write_text(">p1\nGAGAGSGAGAGSGAGAGS\n")
+    assert _is_nucleotide_input(fibroin) is False
+
+    # An assembly-gap N-run must not tip a contig onto the protein path either.
+    gapped = tmp_path / "gapped.fasta"
+    gapped.write_text(">c1\nATGAAA" + "N" * 40 + "CCGGTTACGT\n")
+    assert _is_nucleotide_input(gapped) is True
+
+
+def test_file_size_cap_admits_assemblies_over_the_old_50mb_limit() -> None:
+    """The cap was 50 MB under a constant named for sequence length in bp, but
+    compared against the file size in bytes, so ``--contigs`` on a metagenome
+    assembly failed with "File too large". Writing a >50 MB FASTA would slow the
+    suite, so assert the cap itself: this fails if it regresses to 50 MB."""
+    from src.utils.input_validation import InputValidator
+
+    assert InputValidator.MAX_FILE_SIZE_BYTES > 50_000_000
+
+
 # ---------------------------------------------------------------------------
 # 3.3 Novelty R² gating
 # ---------------------------------------------------------------------------
@@ -194,7 +265,9 @@ def test_augment_ood_flag_merges_without_duplicates() -> None:
     assert merge("none", "r2_below_gate") == "r2_below_gate"
     assert merge("unassigned", "r2_below_gate") == "unassigned,r2_below_gate"
     # Idempotent — no duplicates even when merging twice.
-    assert merge("unassigned,r2_below_gate", "r2_below_gate") == "unassigned,r2_below_gate"
+    assert (
+        merge("unassigned,r2_below_gate", "r2_below_gate") == "unassigned,r2_below_gate"
+    )
 
 
 def test_r2_thresholds_are_the_plan_values() -> None:
