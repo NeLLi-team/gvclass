@@ -3,6 +3,7 @@ from pathlib import Path
 
 from src.config.marker_sets import BUSCO_MODELS, PHAGE_MODELS, UNI56_MODELS
 from src.core.contamination_scoring import ContaminationScorer
+from src.core.summarize import labels_taxonomy, marker_panels
 from src.core.summarize_full import FullSummarizer
 
 
@@ -110,28 +111,28 @@ def test_cog_consolidation_excludes_grouped_rna_pol():
 def test_vp_completeness_is_tree_bucketed():
     """A VP marker on a protein that places with NCLDV is not counted toward the
     PPV panel; a VP marker placing with PPV is."""
-    summarizer = FullSummarizer.__new__(FullSummarizer)
     marker_hits = {"VP_ATPase_1": {"p_ncldv"}, "VP_MCP_a": {"p_ppv"}}
     protein_domain = {"p_ncldv": "NCLDV", "p_ppv": "PPV"}
 
-    comp, _vp_mcp, _plv, _vp_df = summarizer.calculate_vp_metrics(
-        {}, marker_hits, tree_nn_results=None, protein_domain=protein_domain
+    comp, _vp_mcp, _plv, _vp_df = marker_panels.calculate_vp_metrics(
+        {}, marker_hits, protein_domain=protein_domain, plv_tree_count=0
     )
     assert comp == "1/4"  # MCP (PPV) kept, ATPase (NCLDV) dropped
 
     # Without tree placements, fall back to raw category presence.
-    comp_raw, _, _, _ = summarizer.calculate_vp_metrics({}, marker_hits)
+    comp_raw, _, _, _ = marker_panels.calculate_vp_metrics(
+        {}, marker_hits, protein_domain=None, plv_tree_count=0
+    )
     assert comp_raw == "2/4"
 
 
 def test_mirus_completeness_is_tree_bucketed():
     """A Mirus marker on a protein placing with NCLDV is excluded; one placing
     with MIRUS is kept."""
-    summarizer = FullSummarizer.__new__(FullSummarizer)
     marker_hits = {"Mirus_Terminase_ATPase": {"p_ncldv"}, "Mirus_Portal": {"p_mirus"}}
     protein_domain = {"p_ncldv": "NCLDV", "p_mirus": "MIRUS"}
 
-    comp, _df = summarizer.calculate_mirus_completeness(
+    comp, _df = marker_panels.calculate_mirus_completeness(
         {}, marker_hits, protein_domain=protein_domain
     )
     assert comp == "1/4"  # Portal (MIRUS) kept, ATPase (NCLDV) dropped
@@ -140,19 +141,18 @@ def test_mirus_completeness_is_tree_bucketed():
 def test_protein_nearest_domain_min_distance_and_label_lookup():
     """Each protein is bucketed to the domain of its single nearest tree neighbour
     across all trees; neighbours absent from labels are skipped."""
-    summarizer = FullSummarizer.__new__(FullSummarizer)
-    summarizer.labels_dict = {"NCLDV__g1": ["NCLDV"], "PPV__g2": ["PPV"]}
+    labels_dict = {"NCLDV__g1": ["NCLDV"], "PPV__g2": ["PPV"]}
     tree_nn = {
         # nearest neighbour (0.05) is unlabeled -> skipped; PPV at 0.20 then wins
         # over the NCLDV placement at 0.40 in another tree.
         "g_mcp": {"p1": {"UNKNOWN__x": 0.05, "PPV__g2": 0.20}},
         "g_atp": {"p1": {"NCLDV__g1": 0.40}},
     }
-    domains = summarizer._protein_nearest_domain(tree_nn)
+    domains = labels_taxonomy._protein_nearest_domain(labels_dict, tree_nn)
     assert domains["p1"] == "PPV"
 
     # No tree placements -> empty mapping.
-    assert summarizer._protein_nearest_domain({}) == {}
+    assert labels_taxonomy._protein_nearest_domain(labels_dict, {}) == {}
 
 
 def test_rule_based_contamination_uses_unique_proteins_for_category_totals(tmp_path):

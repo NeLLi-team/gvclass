@@ -1,10 +1,8 @@
 """
 Reference labels and taxonomy counting for the GVClass summary.
 
-Stateless counterparts of the ``FullSummarizer`` methods that read the
-reference ``labels.tsv`` and turn tree nearest-neighbour placements into
-taxonomy counters; the class keeps thin delegating wrappers for every name
-here.
+Stateless helpers that read the reference ``labels.tsv`` and turn tree
+nearest-neighbour placements into taxonomy counters.
 
 The label index these functions need (``labels_dict``) is passed in as an
 explicit first argument, so nothing here reads instance state.
@@ -132,7 +130,7 @@ def _collect_taxonomy_counts(
       contamination scoring and the per-level detailed columns).
     * ``per_marker_counters`` — ``Dict[level, Dict[marker, Counter]]``
       that retains the per-marker breakdown. The per-marker majority
-      rule in :meth:`_build_consensus_taxonomies` uses this to avoid
+      rule in :func:`consensus._build_consensus_taxonomies` uses this to avoid
       the prior bug where a single marker with many paralog hits could
       dominate the majority vote by sheer count.
     * ``per_marker_lineage_counters`` — ``Dict[marker, Counter[lineage]]``

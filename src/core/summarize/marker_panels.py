@@ -1,9 +1,8 @@
 """
 Marker panel metrics for the GVClass summary.
 
-Stateless counterparts of the ``FullSummarizer`` methods that turn marker
-counts, hits and per-protein scores into panel completeness and duplication
-values; the class keeps thin delegating wrappers for every name here.
+Stateless helpers that turn marker counts, hits and per-protein scores into
+panel completeness and duplication values.
 
 The values that need the reference labels (``_protein_nearest_domain``,
 ``_plv_count_tree_aware``, ``_capsid_group_counter``) are computed by the class
@@ -76,7 +75,7 @@ def calculate_vp_metrics(
     presence is used.
 
     ``plv_tree_count`` is the tree-aware PLV protein count from
-    ``FullSummarizer._plv_count_tree_aware``; it is only consulted on the
+    ``labels_taxonomy._plv_count_tree_aware``; it is only consulted on the
     marker-hits path, where the raw count would over-flag giant viruses.
 
     Returns:

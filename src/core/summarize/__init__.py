@@ -1,8 +1,8 @@
 """
 Helper modules extracted from :mod:`src.core.summarize_full`.
 
-Each module holds stateless functions that ``FullSummarizer`` re-exposes as
-thin delegating methods, so existing callers keep working unchanged.
+Each module holds stateless functions; ``FullSummarizer`` calls them directly
+and passes the instance state they need as explicit arguments.
 """
 
 __all__: list = []
