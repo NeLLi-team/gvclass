@@ -22,6 +22,21 @@ from 2.0.1.
 
 ### Fixed
 
+- Runs are reproducible. The same input now produces the same output every time.
+  BLAST results were written in the order pyswrd's parallel search happened to
+  return them, and equal-scoring hits were left in arrival order, so two runs of
+  one input could select different reference sequences, build different gene
+  trees, and report different per-rank taxonomy votes. Two runs of the bundled
+  example differed in the `genus` and `species` columns. Hits are now written
+  ordered by query, then score, e-value and target.
+
+  This changes some reported values, because the previous ones depended on which
+  of several equally-scoring references happened to be chosen. On the bundled
+  example the assigned taxonomy, completeness and contamination are unchanged;
+  what moves is per-rank vote detail, `avgdist`, and `capsid_group`. Most of the
+  movement is toward stronger agreement: PkV-RF01's family and class consensus go
+  from 95.24 percent to 100 percent, and the average nearest-reference distance
+  for GVMAG-S-1096109-37 drops from 0.20 to 0.09.
 - `.fasta` and `.fas` files are no longer misread as DNA when their sequences
   are protein. File type decided membership in the IUPAC nucleotide alphabet,
   which contains the ambiguity codes `R`, `Y`, `S`, `W`, `K`, `M`, `B`, `D`,
@@ -59,6 +74,11 @@ from 2.0.1.
   gene caller cannot move when the lock file is refreshed.
 - Deleted unreachable validation and error-handling helpers, and moved benchmark
   and prototype scripts out of `src/` so they are no longer packaged.
+- `FullSummarizer` is split from 1778 lines into 420, with the extracted logic
+  under `src/core/summarize/`. Contamination scoring deliberately stays on the
+  class: it is the only step that both reads and writes the result row.
+- One worker-planning heuristic replaces the two that had diverged between the
+  CLI and the runner.
 
 ## [2.0.1] - 2026-07-10
 
