@@ -5,7 +5,7 @@ site_author: Frederik Schulz (NeLLi Group, DOE Joint Genome Institute)
 site_url: !ENV [READTHEDOCS_CANONICAL_URL, "https://NeLLi-team.github.io/gvclass/"]
 repo_url: https://github.com/NeLLi-team/gvclass
 repo_name: NeLLi-team/gvclass
-edit_uri: edit/gvclass-dev/docs/
+edit_uri: edit/main/docs/
 copyright: Copyright &copy; NeLLi Group, DOE Joint Genome Institute, BSD-3-Clause
 
 theme:

@@ -2,9 +2,7 @@ name: CI
 
 on:
   push:
-    # gvclass-dev is the active development branch; without it here, dev work
-    # accumulates ungated until release time.
-    branches: [main, gvclass-dev, "v*"]
+    branches: [main, "v*"]
     tags: ["v*"]
   pull_request:
     branches: [main]
