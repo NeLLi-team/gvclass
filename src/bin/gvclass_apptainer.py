@@ -7,11 +7,13 @@ import subprocess
 from pathlib import Path
 from urllib.parse import urlparse
 
-DEFAULT_IMAGE = "library://nelligroup-jgi/gvclass/gvclass:2.0.1"
-SYLABS_IMAGE = "library://nelligroup-jgi/gvclass/gvclass:2.0.1"
+DEFAULT_IMAGE = "library://nelligroup-jgi/gvclass/gvclass:2.0.2"
+SYLABS_IMAGE = "library://nelligroup-jgi/gvclass/gvclass:2.0.2"
 PUBLIC_LIBRARY_URL = "https://library.sylabs.io"
 IMAGE_CACHE_DIR = Path.home() / ".cache" / "gvclass" / "images"
-DEFAULT_RESOURCE_CACHE_DIR = Path.home() / ".cache" / "gvclass" / "resource-cache" / "v2.0.0"
+DEFAULT_RESOURCE_CACHE_DIR = (
+    Path.home() / ".cache" / "gvclass" / "resource-cache" / "v2.0.0"
+)
 CONTAINER_RESOURCE_CACHE_DIR = "/resource-cache"
 
 
@@ -223,8 +225,7 @@ def _add_mode_args(parser: argparse.ArgumentParser) -> None:
         "--resource-cache-dir",
         default=str(DEFAULT_RESOURCE_CACHE_DIR),
         help=(
-            "Host directory for Parquet materialization cache "
-            "(default: %(default)s)"
+            "Host directory for Parquet materialization cache " "(default: %(default)s)"
         ),
     )
 
@@ -242,7 +243,9 @@ def resolve_output_path(
     query_path: Path, output_dir_positional: str | None, output_dir_flag: str | None
 ) -> Path:
     if output_dir_positional and output_dir_flag:
-        raise ValueError("Use either positional output_dir or -o/--output-dir, not both.")
+        raise ValueError(
+            "Use either positional output_dir or -o/--output-dir, not both."
+        )
 
     resolved_output = output_dir_flag or output_dir_positional
     if resolved_output:

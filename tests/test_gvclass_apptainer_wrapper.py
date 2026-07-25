@@ -6,13 +6,11 @@ from src.bin import gvclass_apptainer
 def test_apptainer_wrapper_uses_release_sylabs_image_by_default() -> None:
     assert (
         gvclass_apptainer.DEFAULT_IMAGE
-        == "library://nelligroup-jgi/gvclass/gvclass:2.0.1"
+        == "library://nelligroup-jgi/gvclass/gvclass:2.0.2"
     )
 
 
-def test_apptainer_wrapper_pulls_https_image(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_apptainer_wrapper_pulls_https_image(tmp_path: Path, monkeypatch) -> None:
     calls = []
     monkeypatch.setattr(gvclass_apptainer, "IMAGE_CACHE_DIR", tmp_path / "images")
     monkeypatch.setattr(
@@ -61,9 +59,7 @@ def test_apptainer_wrapper_pulls_library_image_from_sylabs(
     ]
 
 
-def test_apptainer_wrapper_binds_resource_cache(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_apptainer_wrapper_binds_resource_cache(tmp_path: Path, monkeypatch) -> None:
     query = tmp_path / "query"
     output = tmp_path / "output"
     cache = tmp_path / "cache"

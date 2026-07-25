@@ -10,7 +10,6 @@ from pathlib import Path
 
 import yaml
 
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -55,9 +54,7 @@ def test_readme_uses_runtime_resource_model_path() -> None:
 def test_release_version_matches_user_facing_wrappers() -> None:
     version = _software_version()
     pixi = tomllib.loads((REPO_ROOT / "pixi.toml").read_text())
-    expected_image_ref = re.compile(
-        rf"(?:gvclass/)?gvclass:{re.escape(version)}"
-    )
+    expected_image_ref = re.compile(rf"(?:gvclass/)?gvclass:{re.escape(version)}")
     expected_apptainer_ref = re.compile(rf"gvclass:{re.escape(version)}")
     stale_image_ref = re.compile(
         rf"(?:gvclass/)?gvclass:(?!{re.escape(version)}\b)\d+\.\d+\.\d+"
@@ -77,6 +74,23 @@ def test_release_version_matches_user_facing_wrappers() -> None:
         text = (REPO_ROOT / path).read_text()
         assert expected_image_ref.search(text), path
         assert not stale_image_ref.search(text), path
+
+
+def test_apptainer_wrapper_copies_stay_in_sync() -> None:
+    """``gvclass-a`` and ``src/bin/gvclass_apptainer.py`` are the same program.
+
+    ``gvclass-a`` is what users ``wget`` from the repo, so it has to stay a
+    standalone script; ``src/bin/gvclass_apptainer.py`` is what the tests
+    import. Nothing generates one from the other, so without this check a fix
+    applied to one silently misses the other.
+    """
+    wrapper = (REPO_ROOT / "gvclass-a").read_text()
+    module = (REPO_ROOT / "src" / "bin" / "gvclass_apptainer.py").read_text()
+
+    assert wrapper == module, (
+        "gvclass-a and src/bin/gvclass_apptainer.py have diverged; "
+        "apply the change to both."
+    )
 
 
 def test_gitmodules_does_not_reference_missing_submodules() -> None:

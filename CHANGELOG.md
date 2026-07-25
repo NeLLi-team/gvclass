@@ -15,6 +15,51 @@ compatible bundle is noted per release.
 
 No unreleased changes.
 
+## [2.0.2] - 2026-07-24
+
+Compatible resource bundle: v2.0.0 (Zenodo DOI 10.5281/zenodo.21225457), unchanged
+from 2.0.1.
+
+### Fixed
+
+- `.fasta` and `.fas` files are no longer misread as DNA when their sequences
+  are protein. File type decided membership in the IUPAC nucleotide alphabet,
+  which contains the ambiguity codes `R`, `Y`, `S`, `W`, `K`, `M`, `B`, `D`,
+  `H`, `V`, so a peptide spelled only from those letters was classified as DNA,
+  validated against the DNA alphabet, and sent to nucleotide gene calling. Type
+  is now decided by alphabet, base diversity, and base composition together,
+  which also covers low-complexity protein repeats such as the silk-fibroin
+  `GAGAGS` motif. Nucleotide contigs carrying ambiguity codes or assembly-gap
+  `N` runs are unaffected.
+- Input files between 50 MB and 500 MB are accepted. The limit was 50 MB, set on
+  a constant named for sequence length in bp but compared against the file size
+  in bytes, which rejected the assembly FASTA files that `--contigs` mode exists
+  to process. The new ceiling is bounded by memory: validation and gene calling
+  each hold a whole file in memory.
+
+### Changed
+
+- The built-in default for `pipeline.threads` is `4`, matching the shipped
+  configuration file and the documentation. It was `4` in the file and `16` in
+  the code, so a run without a configuration file used `16`.
+- `config/gvclass_config.yaml` is the single source of default settings. The
+  fallback in the CLI, used by installs without `config/`, is pinned to the
+  shipped file by a test.
+- Genetic-code selection is no longer a configuration key. GVClass always
+  evaluates the full panel and keeps the best-scoring code per query, which is
+  what it already did; the `genetic_codes` keys were never read.
+- Removed configuration keys that no code read: `quality.min_markers`,
+  `quality.recommended_length`, `database.expected_size`,
+  `resources.memory_limit`, `resources.task_timeout`, `logging.level`,
+  `logging.keep_temp`. Log verbosity follows `-v` / `--verbose`.
+
+### Internal
+
+- `pyrodigal` is pinned to a commit, matching how `witchi` is pinned, so the
+  gene caller cannot move when the lock file is refreshed.
+- Deleted unreachable validation and error-handling helpers, and moved benchmark
+  and prototype scripts out of `src/` so they are no longer packaged.
+
 ## [2.0.1] - 2026-07-10
 
 Compatible resource bundle: v2.0.0 (Zenodo DOI 10.5281/zenodo.21225457).

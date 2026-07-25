@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gvclass"
-version = "2.0.1"
+version = "2.0.2"
 description = "Giant virus classification tool using phylogenetic analysis"
 authors = [{ name = "Frederik Schulz", email = "fschulz@lbl.gov" }]
 requires-python = ">=3.11,<3.12"
@@ -59,6 +59,9 @@ markers = [
 python_version = "3.11"
 ignore_missing_imports = true
 no_strict_optional = true
+# The codes below are deliberately deferred, not clean; the largest backlogs are
+# arg-type (33) and assignment (18). 2026-07-24: valid-type was re-enabled and
+# its 16 errors fixed.
 disable_error_code = [
   "arg-type",
   "assignment",
@@ -72,7 +75,6 @@ disable_error_code = [
   "operator",
   "return-value",
   "union-attr",
-  "valid-type",
   "var-annotated",
 ]
 
