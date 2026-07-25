@@ -10,18 +10,11 @@ from __future__ import annotations
 
 from collections import Counter
 
-from src.core.summarize_full import FullSummarizer
-
-
-def _summarizer():
-    # Bypass the heavy __init__ (model loading); the method under test only
-    # uses class attributes and pure helper methods.
-    return FullSummarizer.__new__(FullSummarizer)
+from src.core.summarize import consensus
 
 
 def test_strict_not_more_specific_than_majority_below_floor():
-    summ = _summarizer()
-    levels = FullSummarizer.TAX_LEVELS
+    levels = consensus.TAX_LEVELS
 
     tax_counters = {lvl: Counter() for lvl in levels}
     # One taxon unanimously present in the flat order-level counter ...
@@ -32,7 +25,7 @@ def test_strict_not_more_specific_than_majority_below_floor():
     # majority rule withholds the order call.
     per_marker["order"] = {"markerA": Counter({"NCLDV__Imitervirales": 5})}
 
-    majority_str, strict_str, _conf = summ._build_consensus_taxonomies(
+    majority_str, strict_str, _conf = consensus._build_consensus_taxonomies(
         tax_counters, per_marker, mode_fast=False
     )
     majority = dict(zip(levels, majority_str.split(";")))
@@ -43,8 +36,7 @@ def test_strict_not_more_specific_than_majority_below_floor():
 
 
 def test_strict_keeps_call_when_majority_assigns():
-    summ = _summarizer()
-    levels = FullSummarizer.TAX_LEVELS
+    levels = consensus.TAX_LEVELS
 
     tax_counters = {lvl: Counter() for lvl in levels}
     tax_counters["order"] = Counter({"NCLDV__Imitervirales": 4})
@@ -54,7 +46,7 @@ def test_strict_keeps_call_when_majority_assigns():
         f"marker{i}": Counter({"NCLDV__Imitervirales": 1}) for i in range(4)
     }
 
-    majority_str, strict_str, _conf = summ._build_consensus_taxonomies(
+    majority_str, strict_str, _conf = consensus._build_consensus_taxonomies(
         tax_counters, per_marker, mode_fast=False
     )
     majority = dict(zip(levels, majority_str.split(";")))

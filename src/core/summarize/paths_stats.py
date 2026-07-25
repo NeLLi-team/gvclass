@@ -1,8 +1,7 @@
 """
 File and path helpers for the GVClass summary.
 
-Stateless counterparts of the ``FullSummarizer`` methods that only read query
-output files; the class keeps thin delegating wrappers for every name here.
+Stateless helpers that only read query output files.
 """
 
 import logging

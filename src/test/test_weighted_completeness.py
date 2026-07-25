@@ -17,6 +17,7 @@ from src.core.weighted_completeness import (
     WeightedCompletenessCalculator,
     create_weighted_calculator,
 )
+from src.core.summarize import order_completeness
 from src.core.summarize_full import FullSummarizer
 
 
@@ -309,7 +310,15 @@ class TestFullSummarizerIntegration:
         counts_file.write_text(counts_content)
 
         # Test the integration
-        metrics = summarizer.calculate_order_metrics(counts_file, "TestOrder")
+        metrics = order_completeness.calculate_order_metrics(
+            summarizer.completeness_table,
+            summarizer.order_stats_df,
+            summarizer.weighted_calculator,
+            summarizer.novelty_scorer,
+            summarizer.completeness_mode,
+            counts_file,
+            "TestOrder",
+        )
 
         # Validate return values
         assert isinstance(metrics["order_completeness"], float)
@@ -339,7 +348,15 @@ class TestFullSummarizerIntegration:
             counts_file = temp_database_dir / "test_counts.txt"
             counts_file.write_text("OG21\t1\n")
 
-            metrics = summarizer.calculate_order_metrics(counts_file, "TestOrder")
+            metrics = order_completeness.calculate_order_metrics(
+                summarizer.completeness_table,
+                summarizer.order_stats_df,
+                summarizer.weighted_calculator,
+                summarizer.novelty_scorer,
+                summarizer.completeness_mode,
+                counts_file,
+                "TestOrder",
+            )
 
             # Should fallback gracefully
             assert metrics["order_weighted_completeness_raw"] == metrics["order_completeness_raw"]

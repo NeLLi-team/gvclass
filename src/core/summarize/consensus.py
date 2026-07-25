@@ -1,9 +1,8 @@
 """
 Taxonomy consensus for the GVClass summary.
 
-Stateless counterparts of the ``FullSummarizer`` methods that turn per-marker
-taxonomy counters and neighbor lineages into consensus taxonomy strings; the
-class keeps thin delegating wrappers for every name here.
+Stateless helpers that turn per-marker taxonomy counters and neighbor lineages
+into consensus taxonomy strings.
 """
 
 from collections import Counter

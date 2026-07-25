@@ -1,9 +1,8 @@
 """
 Taxonomy label, key and count formatting for the GVClass summary.
 
-Stateless counterparts of the ``FullSummarizer`` methods that turn taxonomy
-counters and lineage keys into output strings; the class keeps thin delegating
-wrappers for every name here.
+Stateless helpers that turn taxonomy counters and lineage keys into output
+strings.
 """
 
 from collections import Counter

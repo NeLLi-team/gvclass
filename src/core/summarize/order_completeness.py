@@ -1,9 +1,7 @@
 """
 Order-level completeness metrics for the GVClass summary.
 
-Stateless counterparts of the ``FullSummarizer`` methods that score a query
-against its assigned taxonomic order; the class keeps thin delegating wrappers
-for every name here.
+Stateless helpers that score a query against its assigned taxonomic order.
 
 The reference tables and scorers these functions need
 (``completeness_table``, ``order_stats_df``, ``weighted_calculator``,

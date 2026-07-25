@@ -19,42 +19,25 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Dict, Tuple
 
+from src.core.summarize import consensus, tax_format
+
 # ---------------------------------------------------------------------------
 # 2.1 Taxonomy majority per marker.
 # ---------------------------------------------------------------------------
 
 
-def _make_summarizer(tmp_path: Path):
-    """Construct a FullSummarizer with a minimal on-disk database."""
-    from src.core.summarize_full import FullSummarizer
-    from tests.conftest import stage_db_resources
-
-    db = tmp_path / "db"
-    stage_db_resources(db, markers=False)
-    (db / "labels.tsv").write_text("")
-    (db / "markers").mkdir(exist_ok=True)
-    (db / "markers" / "order_completeness.tab").write_text(
-        "Order\tOrthogroups\tAverage_Percent\tStd_Percent\n"
-    )
-    (db / "markers" / "stats.tsv").write_text(
-        "marker_name\torder_name\tpercent_genomes_with_marker\n"
-    )
-    return FullSummarizer(db)
-
-
-def _empty_taxonomy_vote_inputs(summarizer):
+def _empty_taxonomy_vote_inputs():
     flat_counters: Dict[str, Counter] = {
-        level: Counter() for level in summarizer.TAX_LEVELS
+        level: Counter() for level in consensus.TAX_LEVELS
     }
     per_marker: Dict[str, Dict[str, Counter]] = {
-        level: defaultdict(Counter) for level in summarizer.TAX_LEVELS
+        level: defaultdict(Counter) for level in consensus.TAX_LEVELS
     }
     lineage_counters: Dict[str, Counter[Tuple[str, ...]]] = defaultdict(Counter)
     return flat_counters, per_marker, lineage_counters
 
 
 def _add_lineage_vote(
-    summarizer,
     flat_counters: Dict[str, Counter],
     per_marker: Dict[str, Dict[str, Counter]],
     lineage_counters: Dict[str, Counter[Tuple[str, ...]]],
@@ -62,19 +45,17 @@ def _add_lineage_vote(
     lineage: Tuple[str, ...],
 ) -> None:
     domain = lineage[0]
-    for level, tax_value in zip(summarizer.TAX_LEVELS, lineage):
+    for level, tax_value in zip(consensus.TAX_LEVELS, lineage):
         if not tax_value:
             continue
-        tax_key = summarizer._build_taxonomy_key(level, domain, tax_value)
+        tax_key = tax_format._build_taxonomy_key(level, domain, tax_value)
         flat_counters[level][tax_key] += 1
         per_marker[level][marker][tax_key] += 1
     lineage_counters[marker][lineage] += 1
 
 
-def test_per_marker_majority_requires_distinct_marker_support(tmp_path: Path) -> None:
+def test_per_marker_majority_requires_distinct_marker_support() -> None:
     """A single paralog-heavy marker must not dominate the vote."""
-    summarizer = _make_summarizer(tmp_path)
-
     paralog_counter: Counter = Counter()
     paralog_counter["NCLDV__Paraloplace"] = 10
 
@@ -88,19 +69,15 @@ def test_per_marker_majority_requires_distinct_marker_support(tmp_path: Path) ->
         "MARKER_C": Counter(single_counter),
     }
 
-    winner, supporting, total = summarizer._per_marker_majority(per_marker)
+    winner, supporting, total = consensus._per_marker_majority(per_marker)
 
     assert winner == "NCLDV__Imitervirales"
     assert supporting == 3
     assert total == 4
 
 
-def test_tax_level_counts_normalize_domain_unclassified_placeholders(
-    tmp_path: Path,
-) -> None:
-    summarizer = _make_summarizer(tmp_path)
-
-    formatted = summarizer.format_tax_level_counts(
+def test_tax_level_counts_normalize_domain_unclassified_placeholders() -> None:
+    formatted = tax_format.format_tax_level_counts(
         Counter({"NCLDV__NCLDV_unclassified": 6, "NCLDV__Megaviricetes": 4}),
         level="class",
     )
@@ -109,12 +86,8 @@ def test_tax_level_counts_normalize_domain_unclassified_placeholders(
     assert "NCLDV__NCLDV_unclassified" not in formatted
 
 
-def test_tax_level_counts_use_domain_prefix_for_grouped_minor_taxa(
-    tmp_path: Path,
-) -> None:
-    summarizer = _make_summarizer(tmp_path)
-
-    formatted = summarizer.format_tax_level_counts(
+def test_tax_level_counts_use_domain_prefix_for_grouped_minor_taxa() -> None:
+    formatted = tax_format.format_tax_level_counts(
         Counter({"NCLDV__S392": 18, "PLV__EP00001": 1, "NCLDV__singleton": 1}),
         level="species",
     )
@@ -125,10 +98,8 @@ def test_tax_level_counts_use_domain_prefix_for_grouped_minor_taxa(
     assert "NCLDV_other" not in formatted
 
 
-def test_domain_counts_are_not_grouped_as_other(tmp_path: Path) -> None:
-    summarizer = _make_summarizer(tmp_path)
-
-    formatted = summarizer.format_tax_level_counts(
+def test_domain_counts_are_not_grouped_as_other() -> None:
+    formatted = tax_format.format_tax_level_counts(
         Counter({"NCLDV": 19, "PLV": 1}),
         level="domain",
     )
@@ -138,23 +109,19 @@ def test_domain_counts_are_not_grouped_as_other(tmp_path: Path) -> None:
     assert "PLV_other" not in formatted
 
 
-def test_build_consensus_taxonomies_emits_low_support_when_below_threshold(
-    tmp_path: Path,
-) -> None:
-    summarizer = _make_summarizer(tmp_path)
-
+def test_build_consensus_taxonomies_emits_low_support_when_below_threshold() -> None:
     flat_counters: Dict[str, Counter] = {
-        level: Counter() for level in summarizer.TAX_LEVELS
+        level: Counter() for level in consensus.TAX_LEVELS
     }
     flat_counters["order"]["NCLDV__Imitervirales"] = 2
 
     per_marker: Dict[str, Dict[str, Counter]] = {
-        level: defaultdict(Counter) for level in summarizer.TAX_LEVELS
+        level: defaultdict(Counter) for level in consensus.TAX_LEVELS
     }
     per_marker["order"]["MARKER_A"]["NCLDV__Imitervirales"] = 1
     per_marker["order"]["MARKER_B"]["NCLDV__Imitervirales"] = 1
 
-    majority, _, confidence = summarizer._build_consensus_taxonomies(
+    majority, _, confidence = consensus._build_consensus_taxonomies(
         flat_counters, per_marker, mode_fast=False
     )
 
@@ -163,19 +130,15 @@ def test_build_consensus_taxonomies_emits_low_support_when_below_threshold(
     assert "low_support" in confidence
 
 
-def test_build_consensus_taxonomies_marks_no_support_when_no_taxonomy_evidence(
-    tmp_path: Path,
-) -> None:
-    summarizer = _make_summarizer(tmp_path)
-
+def test_build_consensus_taxonomies_marks_no_support_when_no_taxonomy_evidence() -> None:
     flat_counters: Dict[str, Counter] = {
-        level: Counter() for level in summarizer.TAX_LEVELS
+        level: Counter() for level in consensus.TAX_LEVELS
     }
     per_marker: Dict[str, Dict[str, Counter]] = {
-        level: defaultdict(Counter) for level in summarizer.TAX_LEVELS
+        level: defaultdict(Counter) for level in consensus.TAX_LEVELS
     }
 
-    majority, _, confidence = summarizer._build_consensus_taxonomies(
+    majority, _, confidence = consensus._build_consensus_taxonomies(
         flat_counters, per_marker, mode_fast=True
     )
 
@@ -183,23 +146,19 @@ def test_build_consensus_taxonomies_marks_no_support_when_no_taxonomy_evidence(
     assert confidence == "no_support"
 
 
-def test_build_consensus_taxonomies_fast_mode_relaxes_order_threshold(
-    tmp_path: Path,
-) -> None:
-    summarizer = _make_summarizer(tmp_path)
-
+def test_build_consensus_taxonomies_fast_mode_relaxes_order_threshold() -> None:
     flat_counters: Dict[str, Counter] = {
-        level: Counter() for level in summarizer.TAX_LEVELS
+        level: Counter() for level in consensus.TAX_LEVELS
     }
     flat_counters["order"]["NCLDV__Imitervirales"] = 2
 
     per_marker: Dict[str, Dict[str, Counter]] = {
-        level: defaultdict(Counter) for level in summarizer.TAX_LEVELS
+        level: defaultdict(Counter) for level in consensus.TAX_LEVELS
     }
     per_marker["order"]["MARKER_A"]["NCLDV__Imitervirales"] = 1
     per_marker["order"]["MARKER_B"]["NCLDV__Imitervirales"] = 1
 
-    majority, _, confidence = summarizer._build_consensus_taxonomies(
+    majority, _, confidence = consensus._build_consensus_taxonomies(
         flat_counters, per_marker, mode_fast=True
     )
 
@@ -217,12 +176,10 @@ def test_taxonomy_confidence_column_present_in_summary_schemas() -> None:
     assert "taxonomy_confidence" in LEGACY_SUMMARY_HEADERS
 
 
-def test_per_marker_majority_deterministic_on_ties(tmp_path: Path) -> None:
+def test_per_marker_majority_deterministic_on_ties() -> None:
     """Codex-audit regression: ties must resolve by lexicographic key so that
     upstream iteration order (``tree_dir.glob``) does not change the consensus
     across runs on the same data."""
-    summarizer = _make_summarizer(tmp_path)
-
     # Same vote counts, inserted in two different orders.
     case1 = {
         "mA": Counter({"NCLDV__Alpha": 1}),
@@ -233,35 +190,31 @@ def test_per_marker_majority_deterministic_on_ties(tmp_path: Path) -> None:
         "mA": Counter({"NCLDV__Alpha": 1}),
     }
 
-    w1, _, _ = summarizer._per_marker_majority(case1)
-    w2, _, _ = summarizer._per_marker_majority(case2)
+    w1, _, _ = consensus._per_marker_majority(case1)
+    w2, _, _ = consensus._per_marker_majority(case2)
 
     assert w1 == w2
     # Alphabetic tiebreak: "Alpha" < "Beta".
     assert w1 == "NCLDV__Alpha"
 
 
-def test_fast_mode_not_flagged_when_support_meets_standard_threshold(
-    tmp_path: Path,
-) -> None:
+def test_fast_mode_not_flagged_when_support_meets_standard_threshold() -> None:
     """Codex-audit regression: ``reduced_fastmode`` must only appear when the
     relaxed fast-mode threshold is what allowed the assignment through.
     Three supporting markers already clear the standard threshold (3), so
     the fast-mode flag should NOT fire."""
-    summarizer = _make_summarizer(tmp_path)
-
     flat_counters: Dict[str, Counter] = {
-        level: Counter() for level in summarizer.TAX_LEVELS
+        level: Counter() for level in consensus.TAX_LEVELS
     }
     flat_counters["order"]["NCLDV__Imitervirales"] = 3
 
     per_marker: Dict[str, Dict[str, Counter]] = {
-        level: defaultdict(Counter) for level in summarizer.TAX_LEVELS
+        level: defaultdict(Counter) for level in consensus.TAX_LEVELS
     }
     for marker in ("MARKER_A", "MARKER_B", "MARKER_C"):
         per_marker["order"][marker]["NCLDV__Imitervirales"] = 1
 
-    majority, _, confidence = summarizer._build_consensus_taxonomies(
+    majority, _, confidence = consensus._build_consensus_taxonomies(
         flat_counters, per_marker, mode_fast=True
     )
 
@@ -271,14 +224,8 @@ def test_fast_mode_not_flagged_when_support_meets_standard_threshold(
     assert confidence == "high"
 
 
-def test_build_consensus_taxonomies_keeps_lower_ranks_in_majority_domain(
-    tmp_path: Path,
-) -> None:
-    summarizer = _make_summarizer(tmp_path)
-
-    flat_counters, per_marker, lineage_counters = _empty_taxonomy_vote_inputs(
-        summarizer
-    )
+def test_build_consensus_taxonomies_keeps_lower_ranks_in_majority_domain() -> None:
+    flat_counters, per_marker, lineage_counters = _empty_taxonomy_vote_inputs()
     for marker, lineage in {
         "m1": (
             "MIRUS",
@@ -363,17 +310,17 @@ def test_build_consensus_taxonomies_keeps_lower_ranks_in_majority_domain(
         ),
     }.items():
         _add_lineage_vote(
-            summarizer, flat_counters, per_marker, lineage_counters, marker, lineage
+            flat_counters, per_marker, lineage_counters, marker, lineage
         )
 
-    majority, _, confidence = summarizer._build_consensus_taxonomies(
+    majority, _, confidence = consensus._build_consensus_taxonomies(
         flat_counters,
         per_marker,
         mode_fast=True,
         per_marker_lineage_counters=lineage_counters,
     )
 
-    parts = dict(zip(summarizer.TAX_LEVELS, majority.split(";")))
+    parts = dict(zip(consensus.TAX_LEVELS, majority.split(";")))
     assert parts["domain"] == "d_MIRUS"
     assert parts["phylum"] == "p_Mirusviricota"
     assert parts["class"] == "c_Class_04"
@@ -383,13 +330,8 @@ def test_build_consensus_taxonomies_keeps_lower_ranks_in_majority_domain(
     assert confidence == "high"
 
 
-def test_build_consensus_taxonomies_keeps_child_ranks_in_selected_parent(
-    tmp_path: Path,
-) -> None:
-    summarizer = _make_summarizer(tmp_path)
-    flat_counters, per_marker, lineage_counters = _empty_taxonomy_vote_inputs(
-        summarizer
-    )
+def test_build_consensus_taxonomies_keeps_child_ranks_in_selected_parent() -> None:
+    flat_counters, per_marker, lineage_counters = _empty_taxonomy_vote_inputs()
 
     lineages = {
         "m1": (
@@ -476,30 +418,25 @@ def test_build_consensus_taxonomies_keeps_child_ranks_in_selected_parent(
     }
     for marker, lineage in lineages.items():
         _add_lineage_vote(
-            summarizer, flat_counters, per_marker, lineage_counters, marker, lineage
+            flat_counters, per_marker, lineage_counters, marker, lineage
         )
 
-    majority, _, confidence = summarizer._build_consensus_taxonomies(
+    majority, _, confidence = consensus._build_consensus_taxonomies(
         flat_counters,
         per_marker,
         mode_fast=True,
         per_marker_lineage_counters=lineage_counters,
     )
 
-    parts = dict(zip(summarizer.TAX_LEVELS, majority.split(";")))
+    parts = dict(zip(consensus.TAX_LEVELS, majority.split(";")))
     assert parts["phylum"] == "p_Phylum_A"
     assert parts["class"] == "c_Class_A1"
     assert "Class_B" not in majority
     assert confidence == "high"
 
 
-def test_build_consensus_taxonomies_stops_below_unresolved_parent(
-    tmp_path: Path,
-) -> None:
-    summarizer = _make_summarizer(tmp_path)
-    flat_counters, per_marker, lineage_counters = _empty_taxonomy_vote_inputs(
-        summarizer
-    )
+def test_build_consensus_taxonomies_stops_below_unresolved_parent() -> None:
+    flat_counters, per_marker, lineage_counters = _empty_taxonomy_vote_inputs()
 
     lineages = {
         "m1": (
@@ -532,10 +469,10 @@ def test_build_consensus_taxonomies_stops_below_unresolved_parent(
     }
     for marker, lineage in lineages.items():
         _add_lineage_vote(
-            summarizer, flat_counters, per_marker, lineage_counters, marker, lineage
+            flat_counters, per_marker, lineage_counters, marker, lineage
         )
 
-    majority, _, confidence = summarizer._build_consensus_taxonomies(
+    majority, _, confidence = consensus._build_consensus_taxonomies(
         flat_counters,
         per_marker,
         mode_fast=True,
