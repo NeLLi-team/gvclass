@@ -51,7 +51,6 @@ database:
   download_url: https://zenodo.org/records/21225457/files/resources_v2_0_0.tar.gz?download=1
   download_version: v2.0.0
   download_sha256: df1c3a9d15a90307775f42f57e2a7c89436ed523883025f6fc94013035f5e066
-  expected_size: 1497
 ```
 
 Each key is defined in the [configuration reference](../reference/configuration.md); the values above are the current public setup-download pin. The keys you are most likely to change are `path` (where the database lives), `cache_path` (where compact-resource views are materialized), and `download_version` (the pinned download bundle, currently `v2.0.0`).

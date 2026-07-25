@@ -21,6 +21,11 @@ from src.pipeline.summary_writer import (
 from src.utils import InputValidator, ValidationError
 from src.utils.database_manager import DatabaseManager
 
+#: Genetic codes evaluated for every nucleotide query. This is deliberately not
+#: configurable: GVClass always runs the full optimization and picks the
+#: best-scoring code per query. Code 0 is pyrodigal meta mode.
+DEFAULT_GENETIC_CODES = (0, 1, 4, 6, 11, 15, 29, 106, 129)
+
 
 def validate_and_setup_task(
     query_dir: str,
@@ -135,11 +140,23 @@ def calculate_optimal_workers(
     """
     Calculate optimal number of workers and threads per worker.
 
+    This is the single implementation of the split; the CLI's
+    ``calculate_worker_plan`` adapts its ``-j`` / ``--threads-per-worker``
+    overrides onto it.
+
     Strategy:
-    - Each worker needs at least min_threads_per_worker threads
-    - Maximize parallelism while maintaining thread efficiency
-    - For few queries with many threads, use fewer workers with more threads
-    - For many queries with limited threads, use more workers with fewer threads
+    - When every query can have its own worker with at least two threads, give
+      each one a worker and share the threads out. This is the small-batch case
+      and latency matters more there than per-worker thread count.
+    - Otherwise target ``min_threads_per_worker`` per worker and cap the worker
+      count, so a large batch does not spawn hundreds of workers.
+    - Never allocate more threads than the run was given.
+
+    The two previous copies of this heuristic each got one half wrong: the CLI
+    pinned four threads per worker above four queries, so five queries on a
+    64-thread node used 20 threads and left 44 idle; this one required
+    ``n_queries <= 4``, so three queries on eight threads dropped from three
+    workers to two.
     """
     if max_workers is None:
         max_workers = n_queries
@@ -150,9 +167,14 @@ def calculate_optimal_workers(
         max_workers,
     )
 
-    if n_queries <= 4 and total_threads >= n_queries * 8:
+    threads_for_full_parallelism = 2
+    if (
+        n_queries <= max_workers
+        and total_threads >= n_queries * threads_for_full_parallelism
+    ):
         n_workers = n_queries
         threads_per_worker = total_threads // n_workers
+        return max(1, n_workers), max(threads_for_full_parallelism, threads_per_worker)
     else:
         target_threads_per_worker = 4
         n_workers = total_threads // target_threads_per_worker
@@ -403,7 +425,6 @@ def gvclass_flow(
     mode_fast: bool = True,
     completeness_mode: str = "legacy",
     sensitive_mode: bool = False,
-    genetic_codes: List[int] = [0, 1, 4, 6, 11, 15, 29, 106, 129],
     cluster_type: str = "local",
     cluster_config: Optional[Dict[str, Any]] = None,
     resume: bool = False,
@@ -528,7 +549,7 @@ def gvclass_flow(
     results, total_queries = _process_queries_in_parallel(
         config,
         n_workers,
-        genetic_codes,
+        list(DEFAULT_GENETIC_CODES),
         tree_method,
         mode_fast,
         completeness_mode,
