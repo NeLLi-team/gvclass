@@ -30,7 +30,6 @@ database:
   download_url: https://zenodo.org/records/21225457/files/resources_v2_0_0.tar.gz?download=1
   download_version: v2.0.0
   download_sha256: df1c3a9d15a90307775f42f57e2a7c89436ed523883025f6fc94013035f5e066
-  expected_size: 1497
 
 # Pipeline settings
 pipeline:
@@ -43,27 +42,14 @@ pipeline:
   threads: 4
   output_pattern: "{query_dir}_results"
 
-# Genetic code settings
-genetic_codes:
-  codes: [0, 1, 4, 6, 11, 15, 29, 106, 129]
-  improvement_threshold: 0.05
-
 # Quality thresholds
 quality:
-  min_markers: 3
   min_length: 20000
-  recommended_length: 50000
-
-# Resource allocation
-resources:
-  memory_limit: 8
-  task_timeout: 60
-
-# Logging
-logging:
-  level: ERROR
-  keep_temp: false
 ```
+
+Every key GVClass reads is listed above. The file is the single source of the
+built-in defaults: `src/bin/gvclass_cli.py` carries a matching literal for
+installs where `config/` is absent, and a test fails if the two ever disagree.
 
 ## Keys
 
@@ -76,7 +62,6 @@ logging:
 | `download_url` | `https://zenodo.org/records/21225457/files/resources_v2_0_0.tar.gz?download=1` | Archive fetched for first-time setup and auto-update. |
 | `download_version` | `v2.0.0` | Pinned public download version. An older installed `DB_VERSION` triggers a re-download. |
 | `download_sha256` | `df1c3a9d...35f5e066` | Checksum verified after download. |
-| `expected_size` | `1497` | Expected archive size in MB, used for validation. |
 
 The full checksum is `df1c3a9d15a90307775f42f57e2a7c89436ed523883025f6fc94013035f5e066`. Override the database location with `-d` / `--database` or the `GVCLASS_DB` environment variable. See [configure the database](../how-to/configure-the-database.md).
 
@@ -97,31 +82,18 @@ Compact resource bundles can store labels and reference proteins as Parquet (`pa
 
 For tuning these against runtime, see [tune speed and accuracy](../how-to/tune-speed-and-accuracy.md).
 
-### genetic_codes
-
-| Key | Default | Meaning |
-| --- | --- | --- |
-| `codes` | `[0, 1, 4, 6, 11, 15, 29, 106, 129]` | Genetic codes tested during gene calling. Code `0` is pyrodigal meta mode. |
-| `improvement_threshold` | `0.05` | Minimum fractional improvement (5%) required to select an alternative code over meta. |
-
 ### quality
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `min_markers` | `3` | Minimum markers required for a query. |
 | `min_length` | `20000` | Minimum total nucleotide length (bp) for each `.fna` input in bin/MAG mode. Override per run with `--min-length`; use `--allow-short` to bypass the gate. |
-| `recommended_length` | `50000` | Recommended minimum length (bp). |
 
-### resources
+## Genetic codes are not configurable
 
-| Key | Default | Meaning |
-| --- | --- | --- |
-| `memory_limit` | `8` | Memory limit per worker (GB). |
-| `task_timeout` | `60` | Per-task timeout (minutes). |
+GVClass always evaluates the full panel `0, 1, 4, 6, 11, 15, 29, 106, 129` for
+every nucleotide query and keeps the best-scoring code. Code `0` is pyrodigal
+meta mode. See [markers and genetic codes](markers.md).
 
-### logging
+## Log verbosity
 
-| Key | Default | Meaning |
-| --- | --- | --- |
-| `level` | `ERROR` | Log level. One of `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`. |
-| `keep_temp` | `false` | Keep intermediate files when `true`. |
+Log level follows `-v` / `--verbose` on the command line, not a config key.

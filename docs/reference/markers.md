@@ -44,16 +44,16 @@ Nine genetic codes are tested during gene calling:
 | 106 | Genetic code similar to code 6, found in some novel giant virus genomes |
 | 129 | Genetic code similar to code 29, found in some novel giant virus genomes |
 
-The codes tested and the selection margin are set in config (`genetic_codes.codes`, `genetic_codes.improvement_threshold`); see [Configuration reference](configuration.md).
+Every code above is tested for every nucleotide query. This is not configurable; see [Configuration reference](configuration.md).
 
 Selection rule, applied per query:
 
 - Start from meta (code 0).
-- Replace it when another code yields more complete marker hits (over 66 percent HMM coverage).
-- Or equal hits with over 5 percent higher average hit score.
-- Or equal hits with over 5 percent higher coding density.
+- Replace it when another code yields at least 2 more complete marker hits.
+- Or an average best-hit score at least 10 percent higher.
+- Or a coding density at least 5 percent higher.
 
-The margin for the second and third conditions is `improvement_threshold` (0.05).
+Any one of the three conditions is sufficient.
 
 The selected code is written to the `ttable` column. When the pyrodigal meta model wins, `ttable` reads `codemeta`. Protein (`.faa`) input skips gene calling and reports `ttable` `no_fna`, and its nucleotide statistics (`GCperc`, `CODINGperc`) are `0.00`.
 

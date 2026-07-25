@@ -353,7 +353,7 @@ class GeneticCodeOptimizer:
         self,
         query_file: Path,
         output_dir: Path,
-        genetic_codes: List[int] = [0, 1, 4, 6, 11, 15, 29, 106, 129],
+        genetic_codes: List[int],
     ) -> Tuple[int, Dict[str, Path], Dict, Dict[int, Dict]]:
         """
         Run genetic code optimization with thread-based parallelism.

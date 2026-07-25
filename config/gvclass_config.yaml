@@ -14,8 +14,6 @@ database:
   download_url: https://zenodo.org/records/21225457/files/resources_v2_0_0.tar.gz?download=1
   download_version: v2.0.0
   download_sha256: df1c3a9d15a90307775f42f57e2a7c89436ed523883025f6fc94013035f5e066
-  # Expected size for validation (in MB)
-  expected_size: 1497
 
 # Pipeline settings
 pipeline:
@@ -39,33 +37,8 @@ pipeline:
   # Variables: {query_dir} = basename of query directory
   output_pattern: "{query_dir}_results"
 
-# Genetic code settings
-genetic_codes:
-  # List of genetic codes to test
-  codes: [0, 1, 4, 6, 11, 15, 29, 106, 129]
-  # Minimum improvement threshold for selecting alternative genetic codes
-  improvement_threshold: 0.05  # 5%
-
 # Quality thresholds
 quality:
-  # Minimum number of markers required
-  min_markers: 3
   # Minimum total nucleotide length (bp) for each input FNA in bin/MAG mode.
   # Override per run with --min-length.
   min_length: 20000
-  # Recommended minimum length (bp)
-  recommended_length: 50000
-
-# Resource allocation
-resources:
-  # Memory limit per worker (GB)
-  memory_limit: 8
-  # Timeout for individual tasks (minutes)
-  task_timeout: 60
-
-# Logging
-logging:
-  # Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
-  level: ERROR
-  # Keep intermediate files
-  keep_temp: false

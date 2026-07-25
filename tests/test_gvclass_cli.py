@@ -2,14 +2,17 @@ import os
 from pathlib import Path
 
 import pytest
+import yaml
 
 from src.bin.gvclass_cli import (
+    BUILTIN_CONFIG_DEFAULTS,
     CliOutput,
     ContigInput,
     PipelineContext,
     RESOURCE_CACHE_ENV,
     WorkerPlan,
     build_pipeline_command,
+    calculate_worker_plan,
     configure_resource_cache,
     inspect_local_database_state,
     load_config,
@@ -22,6 +25,8 @@ from src.bin.gvclass_cli import (
 )
 from src.utils.database_manager import DatabaseManager
 from src.utils.resource_store import ResourceStore
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_inspect_local_database_state_requires_database_directory(tmp_path):
@@ -58,9 +63,10 @@ def _load(tmp_path: Path, text: str):
 
 
 def test_load_config_partial_pipeline_uses_defaults(tmp_path):
-    # Only one pipeline key set; the rest must fall back to defaults.
-    config = _load(tmp_path, "pipeline:\n  threads: 4\n")
-    assert config["pipeline"]["threads"] == 4
+    # Only one pipeline key set; the rest must fall back to defaults. Use a
+    # value that differs from the default so this proves the override applies.
+    config = _load(tmp_path, "pipeline:\n  threads: 12\n")
+    assert config["pipeline"]["threads"] == 12
     assert config["pipeline"]["tree_method"] == "veryfasttree"
     assert config["pipeline"]["mode_fast"] is True
     assert config["pipeline"]["completeness_mode"] == "novelty-aware"
@@ -122,9 +128,78 @@ def test_configure_resource_cache_sets_configured_path_for_resource_store(
 
 def test_load_config_empty_file_returns_defaults(tmp_path):
     config = _load(tmp_path, "# only a comment\n")
-    assert config["pipeline"]["threads"] == 16
+    assert config["pipeline"]["threads"] == 4
     assert config["database"]["download_version"] == "v2.0.0"
     assert config["quality"]["min_length"] == 20000
+
+
+def test_builtin_defaults_match_shipped_config_yaml():
+    """The shipped YAML is the single source of defaults; the CLI literal is
+    only the fallback for installs without ``config/``. This keeps the literal
+    from becoming a second source of truth."""
+    shipped = yaml.safe_load((REPO_ROOT / "config" / "gvclass_config.yaml").read_text())
+
+    assert shipped == BUILTIN_CONFIG_DEFAULTS
+
+
+def _auto_plan(n_queries: int, threads: int):
+    import argparse
+
+    args = argparse.Namespace(max_workers=None, threads_per_worker=None)
+    plan = calculate_worker_plan(args, n_queries, threads)
+    return plan.workers, plan.threads_per_worker
+
+
+def test_worker_plan_never_oversubscribes():
+    """One heuristic now serves the CLI and the runner. Assert the invariants
+    rather than the numbers: never hand out more threads than the run was
+    given, never start more workers than there are queries."""
+    for n_queries in (1, 2, 3, 4, 5, 8, 16, 50, 100, 200, 500):
+        for threads in (4, 8, 16, 32, 64, 128):
+            workers, per_worker = _auto_plan(n_queries, threads)
+
+            assert workers >= 1 and per_worker >= 1
+            assert workers <= n_queries, (n_queries, threads)
+            assert workers * per_worker <= threads, (n_queries, threads)
+
+
+def test_worker_plan_runs_every_query_at_once_when_threads_allow():
+    """Small batches keep full parallelism: latency matters more there than
+    threads per worker. The runner's copy required ``n_queries <= 4``, which
+    dropped three queries on eight threads to two workers."""
+    for n_queries, threads in ((3, 8), (5, 16), (8, 32), (10, 64)):
+        workers, _ = _auto_plan(n_queries, threads)
+        assert workers == n_queries, (n_queries, threads)
+
+
+def test_worker_plan_spends_a_large_node_on_a_small_batch():
+    """The CLI's copy pinned four threads per worker above four queries, so
+    five queries on a 64-thread node used 20 threads and left 44 idle."""
+    workers, per_worker = _auto_plan(n_queries=5, threads=64)
+
+    assert workers == 5
+    assert workers * per_worker >= 56
+
+
+def test_worker_plan_caps_workers_for_a_large_batch():
+    """Hundreds of queries must not spawn hundreds of workers."""
+    workers, per_worker = _auto_plan(n_queries=500, threads=128)
+
+    assert workers <= 20
+    assert workers * per_worker <= 128
+
+
+def test_worker_plan_honours_explicit_overrides():
+    import argparse
+
+    both = argparse.Namespace(max_workers=8, threads_per_worker=3)
+    assert calculate_worker_plan(both, 50, 64) == WorkerPlan(8, 3)
+
+    workers_only = argparse.Namespace(max_workers=8, threads_per_worker=None)
+    assert calculate_worker_plan(workers_only, 50, 64) == WorkerPlan(8, 8)
+
+    per_worker_only = argparse.Namespace(max_workers=None, threads_per_worker=3)
+    assert calculate_worker_plan(per_worker_only, 50, 64).threads_per_worker == 3
 
 
 def test_resolve_input_min_length_uses_cli_over_config(tmp_path):

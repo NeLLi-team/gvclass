@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import csv
 import os
 import queue
@@ -318,32 +319,35 @@ def resolve_plain_output(args) -> bool:
     return env_value in {"1", "true", "yes", "on"}
 
 
+#: Fallback for installs without ``config/gvclass_config.yaml``, which is the
+#: single source of these defaults. A test pins the two together.
+BUILTIN_CONFIG_DEFAULTS = {
+    "database": {
+        "path": "resources",
+        "cache_path": None,
+        "download_url": "https://zenodo.org/records/21225457/files/resources_v2_0_0.tar.gz?download=1",
+        "download_version": "v2.0.0",
+        "download_sha256": "df1c3a9d15a90307775f42f57e2a7c89436ed523883025f6fc94013035f5e066",
+    },
+    "pipeline": {
+        "tree_method": "veryfasttree",
+        "iqtree_mode": "fast",
+        "mode_fast": True,
+        "completeness_mode": "novelty-aware",
+        "sensitive_mode": True,
+        "contigs_min_length": DEFAULT_CONTIGS_MIN_LENGTH,
+        "threads": 4,
+        "output_pattern": "{query_dir}_results",
+    },
+    "quality": {
+        "min_length": DEFAULT_INPUT_MIN_LENGTH,
+    },
+}
+
+
 def load_config(config_file: str, repo_dir: Path, output: CliOutput):
     config_path = Path(config_file)
-    default_config = {
-        "database": {
-            "path": str(repo_dir / "resources"),
-            "cache_path": None,
-            "download_url": "https://zenodo.org/records/21225457/files/resources_v2_0_0.tar.gz?download=1",
-            "download_version": "v2.0.0",
-            "download_sha256": "df1c3a9d15a90307775f42f57e2a7c89436ed523883025f6fc94013035f5e066",
-            "expected_size": 1497,
-        },
-        "pipeline": {
-            "tree_method": "veryfasttree",
-            "iqtree_mode": "fast",
-            "mode_fast": True,
-            "completeness_mode": "novelty-aware",
-            "sensitive_mode": True,
-            "contigs_min_length": 10000,
-            "threads": 16,
-            "output_pattern": "{query_dir}_results",
-        },
-        "quality": {
-            "min_length": DEFAULT_INPUT_MIN_LENGTH,
-            "recommended_length": 50000,
-        },
-    }
+    default_config = copy.deepcopy(BUILTIN_CONFIG_DEFAULTS)
 
     if not config_path.is_absolute():
         config_path = Path.cwd() / config_file
@@ -771,6 +775,18 @@ def count_resume_skips(output_dir: Path) -> int:
 
 
 def calculate_worker_plan(args, n_queries: int, threads: int) -> WorkerPlan:
+    """Resolve the worker/thread split for one CLI invocation.
+
+    Explicit ``-j`` / ``--threads-per-worker`` win. Otherwise the split comes
+    from :func:`~src.pipeline.parallel_runner.calculate_optimal_workers`, which
+    is the one implementation of this heuristic; this function only adapts the
+    CLI's overrides onto it. The CLI previously carried a second, divergent copy
+    that pinned four threads per worker whenever more than four queries were
+    present, so five queries on a 64-thread node used 20 threads and left 44
+    idle.
+    """
+    from src.pipeline.parallel_runner import calculate_optimal_workers
+
     if args.max_workers and args.threads_per_worker:
         return WorkerPlan(
             workers=args.max_workers, threads_per_worker=args.threads_per_worker
@@ -786,14 +802,9 @@ def calculate_worker_plan(args, n_queries: int, threads: int) -> WorkerPlan:
         workers = min(n_queries, max(1, threads // args.threads_per_worker))
         return WorkerPlan(workers=workers, threads_per_worker=args.threads_per_worker)
 
-    if n_queries <= 4 and threads >= n_queries * 2:
-        workers = n_queries
-        return WorkerPlan(
-            workers=workers, threads_per_worker=max(1, threads // workers)
-        )
-
-    threads_per_worker = 4
-    workers = min(n_queries, max(1, threads // threads_per_worker))
+    workers, threads_per_worker = calculate_optimal_workers(
+        n_queries=n_queries, total_threads=threads
+    )
     return WorkerPlan(workers=workers, threads_per_worker=threads_per_worker)
 
 
