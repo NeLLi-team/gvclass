@@ -7,8 +7,8 @@ import subprocess
 from pathlib import Path
 from urllib.parse import urlparse
 
-DEFAULT_IMAGE = "library://nelligroup-jgi/gvclass/gvclass:2.0.2"
-SYLABS_IMAGE = "library://nelligroup-jgi/gvclass/gvclass:2.0.2"
+DEFAULT_IMAGE = "library://nelligroup-jgi/gvclass/gvclass:2.0.3"
+SYLABS_IMAGE = "library://nelligroup-jgi/gvclass/gvclass:2.0.3"
 PUBLIC_LIBRARY_URL = "https://library.sylabs.io"
 IMAGE_CACHE_DIR = Path.home() / ".cache" / "gvclass" / "images"
 DEFAULT_RESOURCE_CACHE_DIR = (
