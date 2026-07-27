@@ -77,13 +77,13 @@ From: ghcr.io/prefix-dev/pixi:latest
 
 %labels
     Author fschulz
-    Version 2.0.2
+    Version 2.0.3
     Description GVClass - Giant Virus Classification Pipeline with Pixi
     Database v2.0.0
     ResourceCache /resource-cache
 
 %help
-    GVClass Pipeline 2.0.2
+    GVClass Pipeline 2.0.3
     
     IMPORTANT: Input data must be bind-mounted!
     

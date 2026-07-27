@@ -15,6 +15,18 @@ compatible bundle is noted per release.
 
 No unreleased changes.
 
+## [2.0.3] - 2026-07-27
+
+Compatible resource bundle: v2.0.0 (Zenodo DOI 10.5281/zenodo.21225457),
+unchanged from 2.0.2.
+
+### Fixed
+
+- Fixed `No genetic codes produced valid results` during genetic-code selection
+  when PyHMMer could not classify the first predicted protein or read it as DNA
+  (#18). GVClass now opens predicted protein files with an explicit amino
+  alphabet.
+
 ## [2.0.2] - 2026-07-24
 
 Compatible resource bundle: v2.0.0 (Zenodo DOI 10.5281/zenodo.21225457), unchanged

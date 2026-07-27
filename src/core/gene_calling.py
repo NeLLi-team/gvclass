@@ -28,7 +28,11 @@ def run_pyhmmer_search_simple(hmm_file: str, query_file: str, output_file: str) 
             profiles = list(hmm_handle)
 
         # Read query sequences
-        with pyhmmer.easel.SequenceFile(query_file, digital=True) as seq_handle:
+        with pyhmmer.easel.SequenceFile(
+            query_file,
+            digital=True,
+            alphabet=pyhmmer.easel.Alphabet.amino(),
+        ) as seq_handle:
             sequences = list(seq_handle)
 
         # Keep the genetic-code evaluation path single-threaded so it works
