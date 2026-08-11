@@ -4,23 +4,7 @@ Giant virus genomes arrive in pieces. A metagenome yields contigs and bins, rare
 
 Here is the path a query takes, from an input file to the final table.
 
-```mermaid
-flowchart TD
-  FNA["Nucleotide input .fna"] --> GC["Gene calling (pyrodigal, 9 codes)"]
-  FAA["Protein input .faa"] --> HMM
-  GC --> HMM["Marker detection (pyhmmer, GVOG HMMs)"]
-  HMM --> BLAST["Homolog search (pyswrd, top ~100)"]
-  BLAST --> ALN["Align + trim (pyfamsa, pytrimal)"]
-  ALN --> TREE{"Tree building"}
-  TREE -->|default| VFT["VeryFastTree"]
-  TREE -->|opt-in| IQ["IQ-TREE Q.pfam+R10+F"]
-  VFT --> NN["Nearest neighbours per marker tree"]
-  IQ --> NN
-  NN --> TAX["Majority-vote taxonomy + confidence"]
-  NN --> QC["Completeness + contamination QC"]
-  TAX --> OUT["gvclass_summary.tsv"]
-  QC --> OUT
-```
+![GVClass workflow. Gene calling across nine genetic codes produces query proteins. HMM marker detection collects the proteins with marker hits. Each marker protein gets a reference pull, alignment, trimming, and a gene tree. Nearest neighbours across trees cast a majority vote for taxonomy and confidence, while marker counts feed completeness and contamination models. Everything lands in gvclass_summary.tsv.](../assets/gvclass_workflow.png)
 
 The pipeline runs as six stages. Each stage feeds the next, and most of the wall-clock time goes into the trees.
 

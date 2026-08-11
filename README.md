@@ -12,6 +12,12 @@
 
 GVClass assigns taxonomy to giant virus genomes and metagenome-assembled genomes by phylogenetic placement against a comprehensive reference genome database. It covers Nucleocytoviricota (NCLDV), Mirusviricota, and Preplasmiviricota (PPV). It predicts taxonomy from domain down to genus and species level, assigning a nearest-reference label. Each genome returns a majority-vote taxonomy with a confidence flag, plus completeness and contamination metrics tuned for giant viruses.
 
+## How it works
+
+![GVClass workflow. Gene calling across nine genetic codes produces query proteins. HMM marker detection collects the proteins with marker hits. Each marker protein gets a reference pull, alignment, trimming, and a gene tree. Nearest neighbors across trees cast a majority vote for taxonomy and confidence, while marker counts feed completeness and contamination models. Everything lands in gvclass_summary.tsv.](docs/assets/gvclass_workflow.png)
+
+GVClass calls genes across nine genetic codes, detects conserved markers with HMM panels, and places each marker protein in its own reference tree. Nearest neighbors across the trees cast a majority vote that sets taxonomy and confidence, and the marker evidence feeds completeness and contamination models tuned for giant viruses. [How GVClass works](https://NeLLi-team.github.io/gvclass/explanation/how-it-works/) explains each stage.
+
 ## Documentation
 
 **Full documentation: https://NeLLi-team.github.io/gvclass/**

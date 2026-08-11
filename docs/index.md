@@ -4,6 +4,10 @@ GVClass assigns taxonomy to giant virus genomes and metagenome-assembled genomes
 
 Each genome returns a majority-vote taxonomy with a [confidence flag](reference/output.md), plus [completeness and contamination metrics](explanation/quality-metrics.md) tuned for giant viruses. The taxonomy comes from a per-marker tree nearest-neighbor vote across the GVOG panels.
 
+![GVClass workflow. Gene calling across nine genetic codes produces query proteins. HMM marker detection collects the proteins with marker hits. Each marker protein gets a reference pull, alignment, trimming, and a gene tree. Nearest neighbors across trees cast a majority vote for taxonomy and confidence, while marker counts feed completeness and contamination models. Everything lands in gvclass_summary.tsv.](assets/gvclass_workflow.png)
+
+Each stage is described in [How GVClass works](explanation/how-it-works.md).
+
 ## Where to go
 
 - [Tutorials](tutorials/index.md): learn GVClass by running it on the bundled example.
