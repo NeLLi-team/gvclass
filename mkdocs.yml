@@ -6,7 +6,7 @@ site_url: !ENV [READTHEDOCS_CANONICAL_URL, "https://NeLLi-team.github.io/gvclass
 repo_url: https://github.com/NeLLi-team/gvclass
 repo_name: NeLLi-team/gvclass
 edit_uri: edit/main/docs/
-copyright: Copyright &copy; NeLLi Group, DOE Joint Genome Institute, BSD-3-Clause
+copyright: Copyright &copy; 2026, The Regents of the University of California, through Lawrence Berkeley National Laboratory
 
 theme:
   name: material

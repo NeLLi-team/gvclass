@@ -4,7 +4,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/version-2.0.3-blue.svg" alt="Version">
-  <img src="https://img.shields.io/badge/license-BSD--3--Clause-green.svg" alt="License">
+  <img src="https://img.shields.io/badge/license-non--commercial-orange.svg" alt="License: non-commercial use only">
   <img src="https://img.shields.io/badge/pixi-enabled-orange.svg" alt="Pixi">
 </p>
 
@@ -84,4 +84,4 @@ The GVClass runtime resources include genomes and models derived from:
 
 ## License and contact
 
-BSD 3-Clause (see `LICENCE`). Report issues at https://github.com/NeLLi-team/gvclass/issues or contact fschulz@lbl.gov.
+Non-commercial use only (see `LICENCE`). Report issues at https://github.com/NeLLi-team/gvclass/issues or contact fschulz@lbl.gov.

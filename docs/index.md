@@ -47,4 +47,4 @@ For the full walkthrough, see [Getting started](tutorials/getting-started.md).
 
 Cite Pitot et al. (2024), [*Conservative taxonomy and quality assessment of giant virus genomes with GVClass*](https://www.nature.com/articles/s44298-024-00069-7), npj Viruses.
 
-Licensed under BSD-3-Clause. Questions and bugs go to [GitHub Issues](https://github.com/NeLLi-team/gvclass/issues) or fschulz@lbl.gov.
+Licensed for non-commercial use only. See [`LICENCE`](https://github.com/NeLLi-team/gvclass/blob/main/LICENCE). Questions and bugs go to [GitHub Issues](https://github.com/NeLLi-team/gvclass/issues) or fschulz@lbl.gov.
