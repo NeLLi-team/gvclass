@@ -1,50 +1,58 @@
 # GVClass
 
-GVClass assigns taxonomy to giant virus genomes and metagenome-assembled genomes by phylogenetic placement against a comprehensive reference genome database. It covers Nucleocytoviricota (NCLDV), Mirusviricota, and Preplasmiviricota (PPV). It predicts taxonomy from domain down to genus and species level, assigning a [nearest-reference label](explanation/taxonomy.md).
+GVClass classifies giant-virus genomes and metagenome-assembled genomes using marker-gene trees. It supports Nucleocytoviricota (NCLDV), Mirusviricota and Preplasmiviricota (PPV), and reports taxonomy, marker counts, completeness and contamination estimates.
 
-Each genome returns a majority-vote taxonomy with a [confidence flag](reference/output.md), plus [completeness and contamination metrics](explanation/quality-metrics.md) tuned for giant viruses. The taxonomy comes from a per-marker tree nearest-neighbor vote across the GVOG panels.
+## Install and run an example
 
-![GVClass workflow. Gene calling across nine genetic codes produces query proteins. HMM marker detection collects the proteins with marker hits. Each marker protein gets a reference pull, alignment, trimming, and a gene tree. Nearest neighbors across trees cast a majority vote for taxonomy and confidence, while marker counts feed completeness and contamination models. Everything lands in gvclass_summary.tsv.](assets/gvclass_workflow.png)
+On Linux x86-64 with [Pixi](https://pixi.sh/latest/installation/) and Git installed:
 
-Each stage is described in [How GVClass works](explanation/how-it-works.md).
+```bash
+git clone https://github.com/NeLLi-team/gvclass.git
+cd gvclass
+pixi install --frozen
+pixi run setup-db
+pixi run gvclass example -o example_results -t 8
+head -n 4 example_results/gvclass_summary.tsv
+```
 
-## Where to go
+The example contains two nucleotide assemblies and one protein set. Follow [Getting started](tutorials/getting-started.md) for input preparation and output interpretation. For clusters, use the [Apptainer and Slurm instructions](how-to/run-on-hpc.md).
 
-- [Tutorials](tutorials/index.md): learn GVClass by running it on the bundled example.
-- [How-to guides](how-to/index.md): task recipes for bins, contigs, HPC, and tuning.
-- [Reference](reference/index.md): every flag, the 44 output columns, and config keys.
-- [Explanation](explanation/index.md): how placement, taxonomy, and the quality models work.
+## Run your genomes
 
-## Quick install
+Create an input directory in the repository:
 
-=== "Pixi (local)"
+```bash
+mkdir -p query_genomes
+```
 
-    ```bash
-    git clone https://github.com/NeLLi-team/gvclass.git
-    cd gvclass
-    pixi install
-    pixi run setup-db
-    pixi run example
-    ```
+Place one genome per `.fna` file or one proteome per `.faa` file in this directory, then run:
 
-=== "Apptainer (HPC)"
+```bash
+pixi run gvclass query_genomes -o results -t 8
+```
 
-    ```bash
-    wget https://raw.githubusercontent.com/NeLLi-team/gvclass/main/gvclass-a
-    chmod +x gvclass-a
-    ./gvclass-a QUERY_DIR RESULTS_DIR -t 32
-    ```
+To also build a shared species tree:
 
-    The wrapper pulls the `library://nelligroup-jgi/gvclass/gvclass:2.0.3` Apptainer image and keeps the compact-resource warm cache under `~/.cache/gvclass/resource-cache/v2.0.0`.
+```bash
+pixi run gvclass query_genomes -o species_tree_results -t 8 --species-tree-combined
+```
 
-For the full walkthrough, see [Getting started](tutorials/getting-started.md).
+See [Build a species tree](how-to/build-a-species-tree.md) for input requirements and tree files.
 
-!!! note "Current release"
+## Documentation
 
-    Software 2.0.3. `pixi run setup-db` downloads the public v2.0.0 resource archive from [Zenodo](https://doi.org/10.5281/zenodo.21225457) and installs database `DB_VERSION` v2.0.0. Downloads and changelogs are on the [GitHub Releases](https://github.com/NeLLi-team/gvclass/releases) page.
+| Task | Page |
+| --- | --- |
+| Install and run the bundled examples | [Getting started](tutorials/getting-started.md) |
+| Classify genome bins | [Classify a directory of bins](how-to/classify-bins.md) |
+| Classify contigs separately | [Classify individual contigs](how-to/classify-contigs.md) |
+| Run a batch job | [HPC instructions](how-to/run-on-hpc.md) |
+| Read the results | [Output files and columns](reference/output.md) |
+| Look up an option | [Command-line reference](reference/cli.md) |
+| Understand the method | [How GVClass works](explanation/how-it-works.md) |
 
-## Citation, license, contact
+## Citation and license
 
 Cite Pitot et al. (2024), [*Conservative taxonomy and quality assessment of giant virus genomes with GVClass*](https://www.nature.com/articles/s44298-024-00069-7), npj Viruses.
 
-Licensed for non-commercial use only. See [`LICENCE`](https://github.com/NeLLi-team/gvclass/blob/main/LICENCE). Questions and bugs go to [GitHub Issues](https://github.com/NeLLi-team/gvclass/issues) or fschulz@lbl.gov.
+GVClass is licensed for non-commercial use only. See [LICENCE](https://github.com/NeLLi-team/gvclass/blob/main/LICENCE). Report problems through [GitHub Issues](https://github.com/NeLLi-team/gvclass/issues).

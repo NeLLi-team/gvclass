@@ -1,41 +1,45 @@
 # Completeness and contamination
 
-Standard genome quality checks assume a tidy single-copy core and treat anything host-like as contamination. This does not apply to giant virus genomes. Nucleocytoviricota genomes are gene-rich, and they routinely carry genes that look eukaryotic, so a checker built for bacterial or eukaryotic MAGs would flag almost every real giant virus as contaminated. GVClass measures quality with metrics tuned to that biology. Each bin gets two headline numbers, `estimated_completeness` and `estimated_contamination`, plus supporting columns that say how far to trust them.
+GVClass estimates genome quality from marker recovery, marker duplication, reference matches, and contig-level evidence. The main fields are `estimated_completeness`, `completeness_model_reliability`, `estimated_contamination`, and `contamination_type`.
 
-## How complete is the genome
+For commands to inspect these fields, see [Assess genome quality](../how-to/assess-genome-quality.md).
 
-`estimated_completeness` is the percentage of the expected gene complement recovered for the lineage the bin was assigned to. By default it comes from a novelty-aware, per-lineage model. Rather than scoring every bin against one fixed marker list, the model conditions the expectation on the assigned lineage and on how novel that lineage is relative to the reference set. The `--completeness-mode legacy` flag selects a fixed-panel calculation instead; `novelty-aware` is the default. It is the only completeness field in the main table.
+## Completeness
 
-The companion column `completeness_model_reliability` is easy to misread. It takes three values, `advisory_only`, `moderate`, and `high`, and it reflects the hold-out R^2 of the completeness model for the bin's assigned order. It describes the model, not the genome. A bin can score `estimated_completeness` 100.00 and still carry `advisory_only` reliability when the model for its order validated poorly in hold-out. The bundled example shows this directly. PkV-RF01 returns `estimated_completeness` 100.00 with `8/8` core GVOG markers, yet its reliability is `advisory_only`, because the completeness model for its order, Imitervirales, validates only at the advisory tier. The 10-contig Pimascovirales bin GVMAG-S-1096109-37 returns 82.86 at `moderate` reliability. Read the percentage through its tier: a high number under `advisory_only` is a plausible estimate, not a measured fact.
+`estimated_completeness` is a marker-based estimate on a 0–100 scale. It compares recovered markers with the expected complement for a reference lineage. A value of 100 does not demonstrate that the full nucleotide sequence has been recovered.
 
-!!! warning
+The default `novelty-aware` mode uses lineage-specific marker tiers and, where available, an order-specific prediction model. If a model's recorded hold-out R² is below 0.5, GVClass uses the marker-tier estimate. `--completeness-mode legacy` uses the order-marker recovery ratio scaled to a reference baseline.
 
-    `completeness_model_reliability` is a property of the order model, not of the genome in front of you. An `advisory_only` value flags an order where the model lacks hold-out support, so treat even a 100.00 completeness in that order as an estimate to confirm, not a guarantee.
+`completeness_model_reliability` describes the available model and its recorded hold-out R²:
 
-## What contamination means for a giant virus
+| Value | Interpretation |
+| --- | --- |
+| `advisory_only` | Model or validation information is missing, or R² is below 0.5. |
+| `moderate` | R² is at least 0.5 and below 0.7. |
+| `high` | R² is at least 0.7. |
 
-Here the giant virus case departs sharply from cellular genome QC. Some Nucleocytoviricota genomes carry hundreds of eukaryote-like genes acquired by horizontal gene transfer from their hosts and prey, spanning metabolism, cytoskeletal proteins, nutrient transport, and DNA repair. A contamination checker built for cellular MAGs would read those host-like genes as foreign DNA and condemn the genome. GVClass does not count them. The HGT-derived gene content is a genuine feature of giant virus biology, and penalizing it would reject nearly every legitimate genome.
+These tiers describe model validation, not confidence intervals for individual genomes. A high completeness estimate with `advisory_only` reliability needs support from marker counts and other assembly evidence. Strategy and support fields are recorded in `<query>/<query>.summary.tab` inside each query's `.tar.gz` archive.
 
-To separate real cellular contamination from this HGT background, GVClass restricts the cellular signal to conserved cellular marker genes that giant viruses obligately lack: the eukaryotic BUSCO set (255 markers) and the universal cellular UNI56 set (56 markers). Giant viruses lack a complete cellular housekeeping repertoire and depend on the host for it, so a clean giant virus bin carries essentially none of these markers. When they do appear, they point to cellular DNA that co-binned with the virus rather than to viral HGT. That is the contamination GVClass is built to catch. The [marker reference](../reference/markers.md) lists each panel and its size.
+## Contamination
 
-!!! note
+`estimated_contamination` is the prediction of the bundled ExtraTrees regressor. Its inputs include cellular and phage marker signals, marker duplication, taxonomic disagreement, and the distribution of reference matches across contigs. The archived per-query summary records the model identifier in `estimated_contamination_strategy`.
 
-    GVClass does not penalize the eukaryote-like genes that giant viruses acquire by HGT. Only the conserved cellular markers (BUSCO and UNI56) that a virus cannot legitimately carry feed `estimated_contamination`.
+Giant viruses can carry genes acquired from cellular organisms. A cellular-like protein or a BUSCO/UNI56 hit alone is insufficient to identify a contaminating contig. GVClass combines these signals with contig-level lineage evidence. Inspect the implicated contigs before removing DNA from a bin.
 
-## The contamination estimate
+`contamination_type` is `clean` below the reporting threshold, normally 10. At or above that threshold it reports a likely source:
 
-`estimated_contamination` is the headline contamination figure, the output of a trained model rather than a marker ratio. The model is an `ExtraTreesRegressor` (identifier `extra_trees_v1`) shipped in the resource bundle at `resources/contamination/model.joblib`. It is trained on features computed in sensitive mode, the default search setting. On the real-contig benchmark it reaches a mean absolute error of 3.92%, and on clean bins its mean predicted contamination is 0.14%, close to zero. The bundled clean examples land where that benchmark predicts: PkV-RF01 and AC3300027503___Ga0255182_1000024 both return `estimated_contamination` 0.00, and the 10-contig GVMAG-S-1096109-37 returns 0.08.
+| Value | Evidence |
+| --- | --- |
+| `cellular` | Cellular markers or coherent cellular-lineage assignments on contigs. |
+| `mixed_viral` | Conflicting viral order or family assignments. |
+| `phage` | Phage markers or matches to phage, PPV, PLV or virophage references. |
+| `duplication` | Elevated marker copy numbers. |
+| `uncertain` | No source could be resolved from the available evidence. |
 
-## Naming the source of contamination
+`clean` means that the estimate is below the threshold, not that contamination has been excluded. A `mixed_viral` signal is reported as `uncertain` when at least three contigs carry viral evidence and none has a coherent cellular lineage. Sparse viral references can produce this pattern as well as mixtures.
 
-When `estimated_contamination` reaches 10 or higher, GVClass fills in `contamination_type` to suggest where the extra DNA came from. The categories are `clean`, `cellular`, `mixed_viral`, `phage`, `duplication`, and `uncertain`. Two of them carry the conceptual weight of this page. `cellular` means the bin picked up host or co-occurring microbial DNA, evidenced by those mainly single-copy BUSCO or UNI56 markers a virus should not have. `mixed_viral` means two or more viral orders are mixed on one bin; it is multi-order viral mixing, not host gene content, and not the HGT genes described above. The remaining two are narrower: `phage` flags bacteriophage markers (the geNomad panel) on the bin, and `duplication` flags inflated marker copy numbers.
+## Marker duplication
 
-One refinement protects novel lineages from a false `mixed_viral` call. When a bin shows no coherent cellular contigs, three or more viral-bearing contigs, and a `viral_mixture` signature, that pattern can equally mean a genuinely novel virus whose markers do not yet match a single reference order. GVClass downgrades that case from `mixed_viral` to `uncertain`, which routes it to manual review rather than rejection. Notably, the per-contig evidence behind these calls (`cellular_coherent_*`, `cellular_lineage_purity_median`, `viral_bearing_contig_count`, `contig_attribution_mode`) is written to the extended summary tables, keeping the main table readable.
+`order_dup` and `gvog8_dup` report the average copies per detected marker in their respective panels. A value near 1 indicates mostly single-copy markers. Higher values can reflect mixed populations, assembly duplication, or gene duplication and need inspection. A value of 0 can indicate no detected markers.
 
-## Duplication as complementary QC
-
-Two duplication columns add a second, orthogonal view that does not depend on the contamination model. `order_dup` is the average copy number of the order-level markers expected for the lineage, and `gvog8_dup` is the duplication factor across the eight core NCLDV markers. A single clean genome should carry one copy of each, so both sit near 1. Values above roughly 2 point to multiple populations, an assembly chimera, or a mixed bin; values below about 1.5 are typically clean. Duplication catches a failure mode the percentages can miss: a bin can look complete and score low contamination yet still hold two near-complete genomes of the same lineage, which inflates the duplication factors before it surfaces anywhere else.
-
-## Reading the metrics together
-
-Together these columns describe a bin from complementary angles. High `estimated_completeness` at a reliability tier you trust, low `estimated_contamination`, `contamination_type` `clean`, and duplication factors near 1 is the signature of a high-quality GVMAG. Low completeness, contamination at or above 10, a non-`clean` type, or duplication above 2 each flag a bin for manual curation. The [assess genome quality](../how-to/assess-genome-quality.md) how-to turns these thresholds into a step-by-step triage you can run across a batch of bins, and [the output reference](../reference/output.md) documents every column these metrics live in.
+Two genomes in one bin can recover most expected markers while inflating copy counts. Review duplication together with completeness, contamination, and taxonomic support. The [output reference](../reference/output.md) lists the supporting fields.

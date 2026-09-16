@@ -1,115 +1,94 @@
 # Command-line interface
 
-GVClass runs from the repository through pixi, or from the `gvclass-a` Apptainer wrapper. The entry point is `src.bin.gvclass_cli:main`, launched by the `./gvclass` script.
+Run commands from the GVClass repository directory. Each file in `query_genomes/` is treated as one query:
 
 ```bash
-pixi run gvclass QUERY_DIR -o OUTPUT_DIR -t THREADS [options]
+pixi run gvclass query_genomes -o results -t 8
 ```
 
-Run this from the repository directory so the `./gvclass` launcher can resolve `src/`. The `gvclass-a` Apptainer wrapper takes the input as the first positional argument and the output directory either as an optional second positional argument or with `-o`/`--output-dir` (default `<query>_results`). It exposes `-t`/`--threads`, `--tree-method`, `--mode-fast`, `-e`/`--extended`, `-j`/`--max-workers`, `--sensitive`, `--contigs`, `--min-length`, `--contigs-min-length`, `--image` (override the default published SIF), and `--resource-cache-dir` (host cache for compact Parquet materialization).
-
-CLI arguments override config keys, which override built-in defaults.
+CLI flags override [configuration values](configuration.md), which override built-in defaults. Defaults below refer to the shipped configuration.
 
 ## Input and output
 
-Config keys are listed in [configuration](configuration.md); database download and location are covered in [configure the database](../how-to/configure-the-database.md).
-
-| Option | Argument/Default | Description |
+| Option | Argument/default | Description |
 | --- | --- | --- |
-| `query_dir` | path (positional) | Directory with `.fna`/`.faa` inputs (also `.fasta`/`.fas`), or a single FASTA file when `--contigs` is set. |
-| `-o`, `--output-dir` | path; default `<query_dir>_results` | Output directory. |
-| `-c`, `--config` | path; default `config/gvclass_config.yaml` | Configuration file. |
-| `-d`, `--database` | path | Database path. Overrides `GVCLASS_DB` and config. |
+| `query_dir` | path (positional) | Directory of `.fna`, `.faa`, `.fasta`, or `.fas` files. A single FASTA file is accepted with `--contigs`. |
+| `-o`, `--output-dir` | path; `<query_dir>_results` | Output directory. |
+| `-c`, `--config` | path; `config/gvclass_config.yaml` | YAML configuration file. |
+| `-d`, `--database` | path | Database directory. Overrides `GVCLASS_DB` and `database.path`. |
 
-## Parallelism
+## Threads and workers
 
-| Option | Argument/Default | Description |
+| Option | Argument/default | Description |
 | --- | --- | --- |
-| `-t`, `--threads` | int; default `4` (config) | Total threads. Overrides config. |
-| `-j`, `--max-workers` | int; auto if unset | Parallel workers. |
-| `--threads-per-worker` | int; auto if unset | Threads per worker. |
+| `-t`, `--threads` | integer; `4` | Total thread budget. |
+| `-j`, `--max-workers` | integer; automatic | Maximum queries processed in parallel. |
+| `--threads-per-worker` | integer; automatic | Threads allocated to each query. |
 
-## Pipeline and markers
+## Classification
 
-For choosing between these settings, see [tune speed and accuracy](../how-to/tune-speed-and-accuracy.md).
-
-| Option | Argument/Default | Description |
+| Option | Argument/default | Description |
 | --- | --- | --- |
-| `--tree-method` | `{veryfasttree,iqtree,fasttree}`; default `veryfasttree` | Tree builder. `fasttree` is an alias for `veryfasttree`. |
-| `--iqtree-mode` | `{fast,ufboot}`; default `fast` | Species-tree IQ-TREE search mode. Per-marker trees always use `--fast`. |
-| `--mode-fast` | flag; on by default | Enable fast mode. |
-| `-e`, `--extended` | flag | Build trees for all markers. Turns fast mode off (slower). |
-| `--sensitive` | flag; on by default | Force `E=1e-5`, `domE=1e-5`; skip GA cutoffs. |
-| `--completeness-mode` | `{legacy,novelty-aware}`; default `novelty-aware` | Completeness estimator surfaced as the primary estimate. |
+| `--tree-method` | `veryfasttree`, `iqtree`, `fasttree`; `veryfasttree` | Tree builder. `fasttree` is an alias for `veryfasttree`. |
+| `--iqtree-mode` | `fast`, `ufboot`; `fast` | IQ-TREE search mode for species trees. Per-marker trees use `--fast`. |
+| `--mode-fast` | flag; enabled by default | Skip order-level marker trees; order-level HMM searches still run. |
+| `-e`, `--extended` | flag | Include order-level marker trees. Overrides fast mode. |
+| `--sensitive` | flag; enabled by default | Use `E=1e-5` and `domE=1e-5` instead of GA cutoffs. |
+| `--completeness-mode` | `legacy`, `novelty-aware`; `novelty-aware` | Estimator used for `estimated_completeness`. |
 
-## Species tree
+See [speed and tree settings](../how-to/tune-speed-and-accuracy.md) for examples.
 
-See [build a species tree](../how-to/build-a-species-tree.md) and [the species tree](../explanation/species-tree.md).
+## Species trees
 
-| Option | Argument/Default | Description |
-| --- | --- | --- |
-| `--species-tree` | flag | Build one supermatrix species tree per query. Writes `species_tree/<query>/` and fills the four `species_tree_*` summary columns. |
-| `--species-tree-combined` | flag | Implies `--species-tree`. Also builds one combined tree over all queries (`species_tree/combined.*`). |
-| `--species-tree-trim` | `{witchi,pytrimal,none}`; default `witchi` | Supermatrix column trimming. |
-
-## Inputs handling
-
-| Option | Argument/Default | Description |
-| --- | --- | --- |
-| `-C`, `--contigs` | flag | Split FNA into per-contig queries. Accepts a file or a directory. |
-| `--min-length` | int; default `quality.min_length` (`20000`) | Minimum total nucleotide length for each `.fna` input in bin/MAG mode. Use `0` to remove this length floor. |
-| `--contigs-min-length` | int; default `pipeline.contigs_min_length` (`10000`) | Minimum contig length when splitting inputs with `--contigs`. Also used as the validation floor for the split contig files. |
-| `--allow-short` | flag | Bypass the nucleotide length floor while keeping other FASTA validation. |
-| `--resume` | flag | Skip completed queries recorded in `run_status.json`. Older `.SUCCESS` sentinels and summary+archive pairs are still accepted for existing output directories. |
-| `--plain-output` | flag | Disable emojis and ANSI colors. Also env `GVCLASS_PLAIN_OUTPUT=1`. |
-
-## Cluster
-
-See [run on HPC](../how-to/run-on-hpc.md).
-
-!!! note
-    These flags are accepted but currently have no effect: GVClass runs locally and parallelizes across the cores of the machine or allocation it is launched on. To use a scheduler, submit a GVClass run as a single batch job, as shown in [run on HPC](../how-to/run-on-hpc.md).
-
-| Option | Argument/Default | Description |
-| --- | --- | --- |
-| `--cluster-type` | `{local,slurm,pbs,sge}`; default `local` | Intended scheduler; parsed but currently inert. |
-| `--cluster-queue` | string | Queue/partition for cluster jobs. |
-| `--cluster-project` | string | Project/account for cluster billing. |
-| `--cluster-walltime` | string; default `04:00:00` | Walltime for cluster jobs. |
-
-## Other
-
-| Option | Argument/Default | Description |
-| --- | --- | --- |
-| `-v`, `--verbose` | flag | Verbose output. |
-| `--version` | flag | Print version information and exit. |
-
-## Notes
-
-!!! note "Fast and sensitive modes default on"
-    Fast mode (`mode_fast: true`) and sensitive mode (`sensitive_mode: true`) are both on by default. `-e`/`--extended` turns fast mode off and builds trees for all markers.
-
-!!! note "Database path precedence"
-    The database path resolves in this order: `--database`, then the `GVCLASS_DB` environment variable, then `database.path` in the config, then the default `<repo>/resources`.
-
-!!! note "Compact Parquet resources"
-    Compact bundles can store labels and reference proteins under `parquet/`. GVClass materializes the needed TSV and marker FASTA views into `<database.path>/.gvclass_cache/` by default. Set `database.cache_path` or `GVCLASS_RESOURCE_CACHE` to choose another cache directory; the environment variable has precedence. The Apptainer wrapper sets `GVCLASS_RESOURCE_CACHE=/resource-cache` inside the container and bind-mounts that path from a host cache directory.
-
-## Version output
-
-```text
-GVClass Pipeline
-  Software version: v2.0.3
-  Database version: v2.0.0
+```bash
+pixi run gvclass query_genomes -o species_tree_results -t 8 --species-tree-combined
 ```
 
-The database version is read from the installed bundle. The current public
-setup-download archive installs `v2.0.0`.
+| Option | Argument/default | Description |
+| --- | --- | --- |
+| `--species-tree` | flag; disabled | Build a concatenated-marker tree for each eligible query. Write `species_tree/<query>/` and four `species_tree_*` summary columns. |
+| `--species-tree-combined` | flag; disabled | Enable `--species-tree` and add a combined tree of eligible queries and references for each viral panel. |
+| `--species-tree-trim` | `witchi`, `pytrimal`, `none`; `witchi` | Alignment trimming method before marker concatenation. |
 
-## See also
+NCLDV, PPV, and MIRUS queries use separate panels. A combined tree contains only eligible queries processed in the current run; queries skipped by `--resume` are excluded. See [build a species tree](../how-to/build-a-species-tree.md) for marker requirements and output paths.
 
-- [Configuration](configuration.md)
-- [Output files](output.md)
-- [Marker panels](markers.md)
-- [Getting started](../tutorials/getting-started.md)
-- [Classify contigs](../how-to/classify-contigs.md)
+## Input handling and resume
+
+| Option | Argument/default | Description |
+| --- | --- | --- |
+| `-C`, `--contigs` | flag | Split nucleotide FASTA files into one query per contig. Accepts a file or directory. |
+| `--min-length` | integer; `20000` bp | Minimum total nucleotide length per input in bin/MAG mode. `0` disables the length threshold. |
+| `--contigs-min-length` | integer; `10000` bp | Minimum contig length in `--contigs` mode. |
+| `--allow-short` | flag | Bypass the nucleotide length threshold; retain other FASTA validation. |
+| `--resume` | flag | Skip completed queries using `run_status.json`. Also accepts `.SUCCESS` files and valid summary/archive pairs from older runs. |
+| `--plain-output` | flag | Disable emojis and ANSI colors. Also set by `GVCLASS_PLAIN_OUTPUT=1`. |
+
+## Cluster options
+
+GVClass runs on the machine where it is launched. The following options are accepted but do not submit scheduler jobs. See [run on HPC](../how-to/run-on-hpc.md) for a batch script.
+
+| Option | Argument/default |
+| --- | --- |
+| `--cluster-type` | `local`, `slurm`, `pbs`, `sge`; `local` |
+| `--cluster-queue` | queue or partition name |
+| `--cluster-project` | account name |
+| `--cluster-walltime` | time; `04:00:00` |
+
+## Other options
+
+| Option | Description |
+| --- | --- |
+| `-h`, `--help` | Show command-line help. |
+| `-v`, `--verbose` | Enable verbose logging. |
+| `--version` | Report the software version and installed database version. |
+
+```bash
+pixi run gvclass --help
+pixi run gvclass --version
+```
+
+## Apptainer wrapper
+
+`gvclass-a` accepts an input path and either a second positional output path or `-o`/`--output-dir`. Its default output is `<query>_results`; its default thread count is `16`.
+
+Supported options are `-t`, `-j`, `--tree-method`, `--mode-fast`, `-e`/`--extended`, `--sensitive`, `-C`/`--contigs`, `--min-length`, and `--contigs-min-length`. `--image` selects an Apptainer image; `--resource-cache-dir` sets the host resource cache. The wrapper does not expose species-tree options. See [run on HPC](../how-to/run-on-hpc.md) for container commands.

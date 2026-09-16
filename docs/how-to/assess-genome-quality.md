@@ -1,65 +1,94 @@
 # Assess genome quality
 
-Open `gvclass_summary.tsv` (or the `.csv`) after a run and read the columns below to decide whether a classified giant virus MAG (GVMAG) is high quality or needs manual curation. You need a finished classification first; see [Classify bins](classify-bins.md). Full column definitions live in [the output reference](../reference/output.md).
+Review the taxonomy, marker counts, and quality estimates together. Completeness
+and contamination estimates depend on marker evidence and reference data.
 
-## Read completeness
+The commands below use `example_results/` from the
+[getting-started tutorial](../tutorials/getting-started.md). Replace that directory
+with your results directory.
 
-`estimated_completeness` is the percentage of the expected genome recovered for the assigned lineage. A value near 100 means little is missing. In the bundled example, `PkV-RF01` and `AC3300027503___Ga0255182_1000024` both score `100.00`, while the 10-contig `GVMAG-S-1096109-37` scores `82.86`.
+## 1. Read the assignment and estimates together
 
-Read `completeness_model_reliability` next to it. The value (`advisory_only`, `moderate`, or `high`) describes the per-order model that produced the estimate, not your genome. A `100.00` tagged `advisory_only` means the assigned order has too few references to calibrate the model, so treat that number as a rough guide. The `GVMAG-S-1096109-37` estimate is tagged `moderate`, which carries more weight.
+```bash
+cut -f1,2,4,15-18 example_results/gvclass_summary.tsv
+```
 
-!!! note
-    `estimated_completeness` is the only completeness field in the main table. Switch the underlying estimator with `--completeness-mode legacy` for a fixed-panel calculation instead (see [the CLI reference](../reference/cli.md)).
+The selected columns show the query, lineage, taxonomy confidence, completeness,
+model reliability, contamination, and contamination type. Check the lineage and
+its marker support first; the estimates depend on the assignment.
 
-## Read contamination
+`estimated_completeness` is a marker-based estimate on a 0–100 scale. A value of
+100 does not establish that every part of the genome has been assembled.
+`completeness_model_reliability` describes the per-order model, not the query:
 
-`estimated_contamination` is the trained-model estimate. On clean bins it sits near zero; the three example genomes report `0.00`, `0.08`, and `0.00`.
-
-`contamination_type` names the likely source. It reads `clean` below the threshold and carries a specific label once `estimated_contamination` reaches 10 or higher.
-
-| `contamination_type` | likely source |
+| Value | Interpretation |
 | --- | --- |
-| `clean` | contamination below the threshold; nothing to remove |
-| `cellular` | eukaryotic or prokaryotic cellular sequence |
-| `mixed_viral` | two or more viral orders mixed in one bin |
-| `phage` | bacteriophage sequence |
-| `duplication` | duplicated content, often an assembly chimera |
-| `uncertain` | ambiguous signal flagged for triage (can be a novel-virus signature, not true contamination) |
+| `advisory_only` | Model validation is missing or insufficient, or a fallback estimate is used. |
+| `moderate` | The model meets the intermediate hold-out fit threshold. |
+| `high` | The model meets the higher hold-out fit threshold. |
 
-## Read duplication
+See [Quality metrics](../explanation/quality-metrics.md) for the estimators and
+reliability thresholds.
 
-Duplication catches bins that merge multiple populations or chimeric assemblies. Check `order_dup` and `gvog8_dup`:
+## 2. Review the contamination evidence
 
-- above ~2: multiple populations or assembly chimeras are likely; inspect the bin
-- below ~1.5: typically clean
+`estimated_contamination` is the trained model's estimate. The type label
+summarises the detected signal:
 
-Each `{panel}_dup` column is a duplication factor, total marker hits divided by distinct markers present. A single-copy marker found twice pushes the factor above 1.
+| `contamination_type` | Signal to review |
+| --- | --- |
+| `clean` | Estimate below the reporting threshold; not proof that contamination is absent. |
+| `cellular` | Cellular marker or contig evidence. |
+| `mixed_viral` | Marker placements suggest more than one viral lineage. |
+| `phage` | Phage markers or matches to phage, PPV, PLV or virophage references. |
+| `duplication` | Excess marker copies. |
+| `uncertain` | Unresolved signal or an unavailable numeric estimate. |
 
-## Check for cellular carry-over
+The reporting threshold is at least 10 and can be higher if the model specifies
+a higher threshold. Interpret a missing estimate as unavailable, not zero.
 
-Giant viruses obligately lack the conserved cellular markers that cellular genomes carry, so any of those markers signals sequence from a host or a co-binned cell. Watch two panels and their duplication factors:
+Inspect marker counts and duplication alongside the estimate:
 
-- `busco_completeness` (`n/255`) with `busco_dup`: eukaryotic BUSCO markers
-- `cog_completeness` (`n/56`) with `cog_dup`: universal cellular COG (UNI56) markers
+```bash
+cut -f1,14,19-26 example_results/gvclass_summary.tsv
+```
 
-A non-zero `busco_completeness` or `cog_completeness`, especially with an elevated `_dup`, points to cellular carry-over. See [the markers reference](../reference/markers.md) for every panel.
+This includes `order_dup`, GVOG4 and GVOG8 counts and duplication, and the BUSCO
+and UNI56 cellular panels. A duplication factor above 1 means multiple copies
+were found for at least some detected markers. Check their contig locations and
+annotations before deciding whether they represent mixed genomes, duplicated
+sequence, or genuine gene copies.
 
-!!! warning
-    Giant viruses carry many eukaryote-like genes acquired by horizontal gene transfer. GVClass does NOT count those as contamination; the cellular signal is restricted to conserved cellular HMMs (BUSCO eukaryotic plus UNI56 universal cellular) that giant viruses lack. `mixed_viral` likewise means several viral orders mixed in one bin, not host genes. See [quality metrics](../explanation/quality-metrics.md) for the reasoning.
+Review cellular marker hits in their contig context. Gene transfer and integrated
+viral sequences can produce such hits without a separate contaminating genome.
 
-## Look deeper
+## 3. Inspect the archived diagnostics
 
-Two extra archived outputs explain a flagged genome.
+Extract the extended table:
 
-- `gvclass_summary.extended.tar.gz` contains `gvclass_summary.extended.tsv` and `.csv`. These hold the per-contig diagnostics (`cellular_coherent_*`, `cellular_lineage_purity_median`, `viral_bearing_contig_count`, `contig_attribution_mode`) that the main table omits to stay readable.
-- `<query>.tar.gz` contains `stats/<query>.contamination_candidates.tsv` when `estimated_contamination` reaches 10, the type is interpretable, and suspicious contigs are found. It names the specific contigs to drop or check.
+```bash
+mkdir -p example_results/diagnostics
+tar -xzf example_results/gvclass_summary.extended.tar.gz \
+    -C example_results/diagnostics
+head -n 4 example_results/diagnostics/gvclass_summary.extended.tsv
+```
 
-## The verdict
+It includes contig-level fields such as `cellular_coherent_contig_count`,
+`cellular_lineage_purity_median`, `viral_bearing_contig_count`, and
+`contig_attribution_mode`.
 
-Apply one combined rule:
+List the files for one query:
 
-- high `estimated_completeness`, low duplication (`order_dup` and `gvog8_dup` below ~1.5), and `contamination_type` `clean`: a high-quality GVMAG
-- low completeness, high duplication, or any non-clean type: send the bin for manual curation
+```bash
+tar -tzf example_results/GVMAG-S-1096109-37.tar.gz
+```
 
-!!! tip
-    All three bundled example genomes pass: high completeness, low duplication, and `clean`. Use them as a reference point when reading your own [summary table](../reference/output.md).
+For flagged queries, the archive can contain
+`<query>/stats/<query>.contamination_candidates.tsv`. This file is written when
+the estimate reaches the reporting threshold, the type is interpretable, and
+candidate contigs are found. Review those contigs against gene annotations,
+coverage, and assembly context before removing them. The absence of a candidate
+file does not prove that a bin is clean.
+
+All columns and archive paths are listed in the
+[output reference](../reference/output.md).

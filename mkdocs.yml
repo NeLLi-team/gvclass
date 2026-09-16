@@ -1,5 +1,5 @@
 site_name: GVClass
-site_description: Conservative taxonomy and quality assessment of giant virus genomes (NCLDV, Mirusviricota, and Preplasmiviricota).
+site_description: Classify giant-virus genomes with marker-gene trees and estimate genome quality.
 site_author: Frederik Schulz (NeLLi Group, DOE Joint Genome Institute)
 # RTD injects READTHEDOCS_CANONICAL_URL at build; the default keeps GitHub Pages correct.
 site_url: !ENV [READTHEDOCS_CANONICAL_URL, "https://NeLLi-team.github.io/gvclass/"]
@@ -75,6 +75,10 @@ exclude_docs: |
 
 plugins:
   - search
+
+validation:
+  links:
+    anchors: warn
 
 extra_javascript:
   - javascripts/marker-annotations.js
