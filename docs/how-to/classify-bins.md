@@ -1,67 +1,67 @@
 # Classify a directory of bins
 
-Metagenomic binning gives you one FASTA per putative genome. GVClass takes a directory of those bins and returns a taxonomy call and a quality table for each one. This is the recommended way to run the tool.
+Use one FASTA file per genome or bin. All contigs in a file are analysed together
+as one query.
 
-## Prepare the input directory
+## 1. Prepare the input
 
-Put one FASTA file per putative genome in a single directory. A file may hold several contigs that belong to the same genome; GVClass treats the whole file as one query. Use nucleotide FASTA (`.fna`) or protein FASTA (`.faa`).
+Create a directory containing nucleotide FASTA (`.fna`) or protein FASTA (`.faa`)
+files. `.fasta` and `.fas` are also accepted; GVClass infers their sequence type
+from the content. Give each file a distinct name, using letters, numbers, `_`, or
+`-` before the extension.
 
-For reliable giant-virus calls, mind the assembled length and gene content:
-
-- Default minimum: 20 kb of total assembled sequence per nucleotide file. GVClass rejects shorter `.fna` inputs unless you lower the floor with `--min-length`, set `quality.min_length` in the config, or pass `--allow-short`.
-- Better reliability: at or above 30 kb.
-- Preferred: at or above 50 kb.
-
-Length is really a proxy for gene content. GVClass infers taxonomy by placing marker genes in reference trees, so a query needs to carry several genes for the method to work. A short fragment with only one or two predicted proteins rarely hits enough markers, and GVClass cannot assign a taxonomy when no markers are found.
-
-Keep filenames clean. The filename becomes the query name, so avoid `.`, `;`, and `:`. Use `_` or `-` instead. For protein input, write headers as `filename|proteinid`.
-
-!!! tip
-    Filter short contigs (below a few kb) out of each bin before you run. For giant viruses, prefer bins assembled to at least 50 kb; short fragments add noise and weaken the marker signal.
-
-To adjust the nucleotide length gate for a run, pass `--min-length`:
+Copy the two bundled nucleotide bins to try this workflow:
 
 ```bash
-pixi run gvclass my_bins -o my_results -t 32 --min-length 30000
+mkdir -p query_genomes
+cp example/*.fna query_genomes/
 ```
 
-For a persistent default, set the same value in the config:
+For your own analysis, put your FASTA files in `query_genomes/` instead. Files
+must be directly inside the directory, not in subdirectories. The default
+minimum total nucleotide length is 20,000 bp per file. Protein inputs have no
+nucleotide length requirement.
 
-```yaml
-quality:
-  min_length: 30000
-```
+## 2. Run GVClass
 
-Use `--min-length 0` only when you want to keep normal FASTA validation but remove the nucleotide length floor. Use `--allow-short` when you want to bypass the length gate for exploratory runs while still seeing a warning.
-
-## Run the classification
-
-Run from the cloned repository so the launcher can find `src/`:
+Run from the GVClass repository after [installation and database setup](../tutorials/getting-started.md):
 
 ```bash
-pixi run gvclass my_bins -o my_results -t 32
+pixi run gvclass query_genomes -o bin_results -t 8
 ```
 
-Here `my_bins` is your input directory, `-o my_results` is the output directory, and `-t 32` sets the total thread budget. Omit `-o` and results go to `<query_dir>_results` (for this command, `my_bins_results`).
+`-t 8` sets the total thread budget. GVClass chooses how many queries to process
+at once. See [thread settings](tune-speed-and-accuracy.md#threads-and-workers)
+for manual control.
 
-!!! note
-    To run from any directory, install the CLI wrapper or use the Apptainer wrapper on a cluster. See [Configure the database](configure-the-database.md) for shared database setups and [Run on an HPC cluster](run-on-hpc.md) for batch submission.
+To change the nucleotide length requirement, add `--min-length 30000` for a
+30,000 bp minimum, or `--min-length 0` to disable it. `--allow-short` accepts
+shorter inputs with a warning. A sequence that passes the length check still
+needs marker genes for classification.
 
-## Choose parallelism
+To add eligible queries to a combined species tree, add
+`--species-tree-combined`. See the [species-tree guide](build-a-species-tree.md)
+for the full command and outputs.
 
-Two flags control throughput:
+## 3. Read the results
 
-- `-t` sets the total number of threads.
-- `-j` sets how many bins run at once (workers). GVClass picks a worker count automatically when you leave `-j` unset.
+```bash
+cut -f1,2,4 bin_results/gvclass_summary.tsv
+```
 
-For a directory of many small bins, more workers help; for a few large genomes, give each worker more threads. See [Tune speed and accuracy](tune-speed-and-accuracy.md) for the trade-offs.
+The copied example contains two bins, so the summary should have two data rows.
+Each row reports the query, assigned lineage, and classification confidence.
+The full TSV and CSV summaries include quality estimates. Each query's files
+are stored in a `<query>.tar.gz` archive inside `bin_results/`.
 
-## Read the results
+If a query fails, inspect `bin_results/gvclass_failed_queries.tsv` and
+`bin_results/run.log`. After correcting the cause, repeat the command with
+`--resume` to skip completed queries:
 
-GVClass writes a combined table for the whole run plus per-query files:
+```bash
+pixi run gvclass query_genomes -o bin_results -t 8 --resume
+```
 
-- `gvclass_summary.tsv` and `gvclass_summary.csv`: one row per bin with the taxonomy call and quality metrics.
-- `<query>.tar.gz`: per-query artifacts, including the per-query summary rows.
-- `gvclass_summary.extended.tar.gz`: archived extended diagnostics.
-
-See [Output files and columns](../reference/output.md) for every file and the full column layout. To turn the table into a curation decision, read [Assess genome quality](assess-genome-quality.md). For what happens between FASTA and taxonomy, see [How GVClass works](../explanation/how-it-works.md).
+Use a new output directory when changing analysis settings. For quality
+interpretation, follow [Assess genome quality](assess-genome-quality.md); for
+all output paths, see the [output reference](../reference/output.md).

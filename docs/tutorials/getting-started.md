@@ -1,121 +1,83 @@
 # Getting started
 
-By the end of this page you will have installed GVClass with [Pixi](https://pixi.sh), downloaded its reference database once, classified three bundled example genomes, and read the summary table that GVClass writes. Every command below is copy-paste ready and runs the same example, so you can check your output against the results shown here.
-
-!!! note "What you need"
-    A Linux machine (`linux-64`), plus `git` and `curl`. Pixi installs Python and every other dependency into a project-local environment, so nothing else has to be set up first.
+Classify the three bundled example genomes and inspect their summary. You need
+Linux x86-64 (`linux-64`) and Git.
 
 ## 1. Install Pixi
 
-Pixi manages the GVClass environment. Install it with the official script.
-
-```bash
-curl -fsSL https://pixi.sh/install.sh | bash
-```
-
-Open a new shell so the `pixi` command is on your `PATH`, then confirm it is available.
+Install Pixi using its [installation instructions](https://pixi.sh/latest/installation/).
+Open a new shell, then check that it is available:
 
 ```bash
 pixi --version
 ```
 
-You should see a version string such as `pixi 0.40.0`. Once the command is found, Pixi is ready.
-
-## 2. Clone GVClass and install dependencies
-
-Clone the repository and move into it.
+## 2. Install GVClass
 
 ```bash
 git clone https://github.com/NeLLi-team/gvclass.git
 cd gvclass
+pixi install --frozen
 ```
 
-Install the environment. Pixi reads `pixi.toml`, resolves every pinned tool (pyrodigal, pyhmmer, VeryFastTree, and the rest), and builds a local environment.
+Run the remaining commands from this directory. Pixi installs Python and the
+other dependencies locally.
 
-```bash
-pixi install
-```
-
-The first install downloads packages and takes a few minutes. When it finishes, the environment is locked and reused on every later command. Run GVClass commands from this `gvclass` directory so the launcher can find `src/`.
-
-## 3. Download the database
-
-GVClass classifies against a reference database of giant virus orthologous groups. Download it once.
+## 3. Download the reference database
 
 ```bash
 pixi run setup-db
 ```
 
-!!! note "One download per database location"
-    This fetches the public v2.0.0 resource bundle (about 1.5 GB) and verifies its checksum before unpacking. It runs once per database location; later runs reuse the files in `resources/`. To point GVClass at a shared copy, see [Configure the database](../how-to/configure-the-database.md).
+The default download is about 1.5 GB. Setup checks the archive checksum and
+extracts it into `resources/`. Later runs reuse that directory. For another
+location, follow [Configure the database](../how-to/configure-the-database.md).
 
-When the download and checksum verification finish, a `resources/` directory holds the database.
-
-## 4. Classify the example genomes
-
-GVClass ships with three inputs in `example/`: two nucleotide bins (`.fna`) and one protein set (`.faa`). Run the bundled example.
+## 4. Run the example
 
 ```bash
-pixi run example
+pixi run gvclass example -o example_results -t 8
 ```
 
-This classifies the three files in `example/` into `example_results/` using 8 threads, with the default VeryFastTree tree method, fast mode, and sensitive mode all on. To change any of these, see [Tune speed and accuracy](../how-to/tune-speed-and-accuracy.md) and the [CLI reference](../reference/cli.md).
+The `example/` directory contains two nucleotide bins (`.fna`) and one protein
+set (`.faa`). Each file is one query. GVClass uses eight threads as its total
+budget and writes results to `example_results/`.
 
-The run prints a configuration banner, per-query progress, and a completion message. Your output should look something like the block below (the layout is representative; the exact numbers will differ).
+## 5. Inspect the summary
+
+Print the query names, assigned lineages, and classification confidence:
+
+```bash
+cut -f1,2,4 example_results/gvclass_summary.tsv
+```
+
+The table should contain these three queries:
 
 ```text
-    ================================================================
-    GVClass - Giant Virus Classification Tool
-    ================================================================
-
-============================================================
-                    Pipeline Configuration
-============================================================
-Config file: config/gvclass_config.yaml
-Query directory: /home/you/gvclass/example
-Output directory: /home/you/gvclass/example_results
-Database: /home/you/gvclass/resources
-Threads: 6 used / 8 requested (Workers: 3 × 2 threads)
-Tree method: veryfasttree
-Fast mode: True
-Sensitive mode: True
-Resume mode: DISABLED
-Total queries: 3
-============================================================
-Completeness mode: novelty-aware
-
-Progress: [##############################] 100% | 3/3 queries | complete
-
-Pipeline completed successfully!
-Validating pipeline outputs...
-All outputs validated successfully
-Generating combined summary...
-Combined summary written to: example_results/gvclass_summary.tsv
-CSV summary written to: example_results/gvclass_summary.csv
+AC3300027503___Ga0255182_1000024
+GVMAG-S-1096109-37
+PkV-RF01
 ```
 
-Notice that an `example_results/` directory now exists. The combined table you will read next is `example_results/gvclass_summary.tsv`.
+Check the number of result rows:
 
-## 5. Read your first result
+```bash
+awk 'END {print NR - 1, "queries"}' example_results/gvclass_summary.tsv
+```
 
-Open `example_results/gvclass_summary.tsv`. It has one row per query and 44 columns. A few of those columns tell you most of what you want at a glance.
+Expected output:
 
-| query | taxonomy_majority | taxonomy_confidence | estimated_completeness | estimated_contamination | contamination_type | ttable |
-|-------|-------------------|---------------------|------------------------|-------------------------|--------------------|--------|
-| AC3300027503___Ga0255182_1000024 | d_NCLDV;p_Nucleocytoviricota;c_Megaviricetes;o_Imitervirales;f_IM_01;g_g2284;s_S392 | high | 100.00 | 0.00 | clean | codemeta |
-| GVMAG-S-1096109-37 | d_NCLDV;p_Nucleocytoviricota;c_Megaviricetes;o_Pimascovirales;f_PM_01;g_g94;s_S679 | high | 82.86 | 0.08 | clean | codemeta |
-| PkV-RF01 | d_NCLDV;p_Nucleocytoviricota;c_Megaviricetes;o_Imitervirales;f_IM_19;g_g1787;s_singleton | high | 100.00 | 0.00 | clean | no_fna |
+```text
+3 queries
+```
 
-`taxonomy_majority` is the full lineage, from domain (`d_`) through species (`s_`), produced by the per-marker single-gene-tree nearest-neighbor majority vote. All three queries classify with `high` confidence and a `clean` contamination type, which is what a high-quality giant virus genome looks like. For what completeness and contamination mean, see [Completeness and contamination](../explanation/quality-metrics.md).
+`taxonomy_majority` contains the lineage supported by the marker gene trees.
+`taxonomy_confidence` describes its marker support. For completeness and
+contamination estimates, see [Assess genome quality](../how-to/assess-genome-quality.md).
 
-The summary also reports one column per rank (`domain`, `phylum`, `class`, `order`, `family`, `genus`, `species`), but these do not simply repeat the lineage. Each holds the vote behind that rank as a distribution of single-protein-tree calls with counts and percentages. For `AC3300027503___Ga0255182_1000024` the `order` column reads `NCLDV__Imitervirales:19(95.00%),PLV_other:1(5.00%)`: nineteen of the twenty single-protein trees placed the query in Imitervirales and one landed elsewhere, so Imitervirales becomes the order in `taxonomy_majority`. See [Output files and columns](../reference/output.md) for every column.
+Open `example_results/gvclass_summary.csv` in a spreadsheet for the remaining
+columns. `PkV-RF01` is a protein input, so its `ttable` value is `no_fna`.
 
-`PkV-RF01` was a protein (`.faa`) input, so GVClass skipped gene calling: its genetic code shows `no_fna`, and the GC content and coding-density columns are not computed for it. The two `.fna` bins were gene-called, so they report a real genetic code (`codemeta`) and nucleotide statistics.
-
-That is a full GVClass run. `example_results/` now holds the combined summaries, run metadata, and per-query tarballs; exact vote counts and distances can shift slightly from run to run because tree inference is multithreaded.
-
-## Next steps
-
-- Classify your own data with [Classify a directory of bins](../how-to/classify-bins.md).
-- Learn what every column means in [Output files and columns](../reference/output.md).
-- Understand the method behind the numbers in [How GVClass works](../explanation/how-it-works.md).
+To classify your own genomes, follow [Classify a directory of bins](../how-to/classify-bins.md).
+To put queries together in a tree, follow [Build a species tree](../how-to/build-a-species-tree.md).
+All files and columns are listed in the [output reference](../reference/output.md).

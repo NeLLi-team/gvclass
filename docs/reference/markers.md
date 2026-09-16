@@ -1,6 +1,6 @@
 # Marker panels and genetic codes
 
-Every query is scored against a fixed set of HMM marker panels. Each panel contributes a completeness column and, where applicable, a duplication column to the summary table. Gene calling for nucleotide input is run under nine genetic codes, and the selected code is recorded per query.
+Marker panels provide presence, duplication, and capsid-type counts in the [summary table](output.md). Nucleotide inputs are evaluated under nine genetic codes.
 
 ## Marker panels
 
@@ -17,16 +17,15 @@ Every query is scored against a fixed set of HMM marker panels. Each panel contr
 | Capsid typing | `capsid_group`, `ncldv_mcp_total` | count | Capsid (MCP) type tally |
 | PPV flag | `plv` | count | A32 (`PLV_PC_054`) proteins placing with PPV references |
 
-For each panel, `{panel}_completeness` reports distinct marker models present over panel size (for example `8/8`), and `{panel}_dup` reports total hits over distinct models present (a duplication factor).
+`{panel}_completeness` reports markers present over panel size, such as `8/8`. For panels with `{panel}_dup`, duplication is total hits divided by distinct markers present.
 
-!!! note
-    Two panels deviate from the `{panel}_dup` convention. The virophage panel emits `vp_completeness` and `vp_mcp` (count of VP MCP hits), not `vp_dup`. The Mirusviricota panel emits `mirus_completeness` only. `capsid_group` is a `label:count` tally across the Nucleocytoviricota and Mirusviricota phyla and the Bellas & Sommaruga capsid groups; `ncldv_mcp_total` is the NCLDV-specific MCP count; `plv` counts A32 proteins (`PLV_PC_054`) that place with PPV references and flags Polinton-like viruses and virophages within the PPV (Preplasmiviricota) domain. It is `0` for ordinary NCLDV.
+Virophage and Mirusviricota completeness counts marker categories. The virophage panel also reports `vp_mcp`; neither panel reports a duplication column. `capsid_group` reports `label:count` values for Nucleocytoviricota, Mirusviricota, and Bellas & Sommaruga capsid groups. The PPV (Preplasmiviricota) group includes Polinton-like viruses and virophages; `plv` is `0` for ordinary NCLDV.
 
-Each marker model carries a majority functional annotation derived from its member proteins. The full per-model table is in [Marker annotations](marker-annotations.md).
+Functional annotations are listed in [marker annotations](marker-annotations.md).
 
-Order-level markers are a separate panel of 576 order-conserved orthologous groups, built only when fast mode is off (`-e`/`--extended`). The default fast mode skips them. See [Tune speed and accuracy](../how-to/tune-speed-and-accuracy.md) for the speed and resolution trade-off.
+The 576 order-level marker groups are searched in both modes. Their trees are built only with `-e`/`--extended`. See [speed and tree settings](../how-to/tune-speed-and-accuracy.md).
 
-Per-column definitions for the full summary table are in [Output reference](output.md); interpretation of completeness, contamination, and duplication is in [Quality metrics](../explanation/quality-metrics.md).
+See [quality metrics](../explanation/quality-metrics.md) for interpretation.
 
 ## Genetic codes
 
@@ -44,17 +43,14 @@ Nine genetic codes are tested during gene calling:
 | 106 | Genetic code similar to code 6, found in some novel giant virus genomes |
 | 129 | Genetic code similar to code 29, found in some novel giant virus genomes |
 
-Every code above is tested for every nucleotide query. This is not configurable; see [Configuration reference](configuration.md).
+Codes are ranked by complete marker hits, average best-hit score, coding density, then code preference. If the top-ranked candidate is not code `0` and code `0` is available, that candidate must exceed code `0` by at least one of these margins:
 
-Selection rule, applied per query:
+- 2 complete marker hits;
+- 10% in average best-hit score;
+- 5% in coding density (relative increase).
 
-- Start from meta (code 0).
-- Replace it when another code yields at least 2 more complete marker hits.
-- Or an average best-hit score at least 10 percent higher.
-- Or a coding density at least 5 percent higher.
+Otherwise, code `0` is retained. The code panel is fixed.
 
-Any one of the three conditions is sufficient.
+The selected code appears in `ttable`; code `0` is reported as `codemeta`. Protein (`.faa`) input skips gene calling, reports `ttable=no_fna`, and has `GCperc=0.00` and `CODINGperc=0.00`.
 
-The selected code is written to the `ttable` column. When the pyrodigal meta model wins, `ttable` reads `codemeta`. Protein (`.faa`) input skips gene calling and reports `ttable` `no_fna`, and its nucleotide statistics (`GCperc`, `CODINGperc`) are `0.00`.
-
-For the full gene-calling and marker-detection sequence, see [How it works](../explanation/how-it-works.md).
+See [how it works](../explanation/how-it-works.md) for the gene-calling and marker-detection workflow.

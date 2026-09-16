@@ -5,58 +5,51 @@
 <p align="center">
   <img src="https://img.shields.io/badge/version-2.0.3-blue.svg" alt="Version">
   <img src="https://img.shields.io/badge/license-non--commercial-orange.svg" alt="License: non-commercial use only">
-  <img src="https://img.shields.io/badge/pixi-enabled-orange.svg" alt="Pixi">
 </p>
 
-# GVClass — Giant Virus Classification
+# GVClass
 
-GVClass assigns taxonomy to giant virus genomes and metagenome-assembled genomes by phylogenetic placement against a comprehensive reference genome database. It covers Nucleocytoviricota (NCLDV), Mirusviricota, and Preplasmiviricota (PPV). It predicts taxonomy from domain down to genus and species level, assigning a nearest-reference label. Each genome returns a majority-vote taxonomy with a confidence flag, plus completeness and contamination metrics tuned for giant viruses.
+GVClass classifies giant-virus genomes and metagenome-assembled genomes using marker-gene trees. It supports Nucleocytoviricota (NCLDV), Mirusviricota and Preplasmiviricota (PPV), and reports taxonomy, marker counts, completeness and contamination estimates.
 
-## How it works
+## Install and run
 
-![GVClass workflow. Gene calling across nine genetic codes produces query proteins. HMM marker detection collects the proteins with marker hits. Each marker protein gets a reference pull, alignment, trimming, and a gene tree. Nearest neighbors across trees cast a majority vote for taxonomy and confidence, while marker counts feed completeness and contamination models. Everything lands in gvclass_summary.tsv.](docs/assets/gvclass_workflow.png)
-
-GVClass calls genes across nine genetic codes, detects conserved markers with HMM panels, and places each marker protein in its own reference tree. Nearest neighbors across the trees cast a majority vote that sets taxonomy and confidence, and the marker evidence feeds completeness and contamination models tuned for giant viruses. [How GVClass works](https://NeLLi-team.github.io/gvclass/explanation/how-it-works/) explains each stage.
-
-## Documentation
-
-**Full documentation: https://NeLLi-team.github.io/gvclass/**
-
-- [Tutorials](https://NeLLi-team.github.io/gvclass/tutorials/) — learn GVClass on the bundled example.
-- [How-to guides](https://NeLLi-team.github.io/gvclass/how-to/) — bins, contigs, HPC, species trees, speed/accuracy, quality.
-- [Reference](https://NeLLi-team.github.io/gvclass/reference/) — every CLI flag, config key, output column, and marker panel.
-- [Explanation](https://NeLLi-team.github.io/gvclass/explanation/) — how placement, taxonomy, and the quality models work.
-
-## Quick start
-
-Pixi (local):
+On Linux x86-64 with [Pixi](https://pixi.sh/latest/installation/) and Git installed:
 
 ```bash
 git clone https://github.com/NeLLi-team/gvclass.git
 cd gvclass
-pixi install
+pixi install --frozen
 pixi run setup-db
-pixi run example
+pixi run gvclass example -o example_results -t 8
+head -n 4 example_results/gvclass_summary.tsv
 ```
 
-Apptainer (HPC):
+Create a directory for your genomes:
 
 ```bash
-wget https://raw.githubusercontent.com/NeLLi-team/gvclass/main/gvclass-a
-chmod +x gvclass-a
-./gvclass-a QUERY_DIR RESULTS_DIR -t 32
+mkdir -p query_genomes
 ```
 
-The Apptainer image bundles the database and dependencies. See [Getting started](https://NeLLi-team.github.io/gvclass/tutorials/getting-started/) for the full walkthrough.
+Put one genome per `.fna` file or one proteome per `.faa` file in this directory, then run:
 
-The wrapper pulls the `library://nelligroup-jgi/gvclass/gvclass:2.0.3` SIF
-from the public Sylabs library. The image embeds the compact v2.0.0 database
-and writes its Parquet materialization cache to a host directory under
-`~/.cache/gvclass/resource-cache/v2.0.0`.
+```bash
+pixi run gvclass query_genomes -o results -t 8
+```
 
-## Input
+To build a shared species tree as well:
 
-GVClass works best on bins after metagenomic binning: a directory of one or more FASTA files (`.fna` or `.faa`), one file per putative genome. For giant virus discovery, filter contigs to >=30 kb (>=50 kb preferred). Use `--min-length` to adjust the MAG/bin nucleotide floor and `--contigs` with `--contigs-min-length` to classify each contig in a multi-contig `.fna` independently. Details are in [the how-to guides](https://NeLLi-team.github.io/gvclass/how-to/).
+```bash
+pixi run gvclass query_genomes -o species_tree_results -t 8 --species-tree-combined
+```
+
+## Documentation
+
+- [Getting started](https://NeLLi-team.github.io/gvclass/tutorials/getting-started/): installation, bundled examples and output.
+- [Classify genome bins](https://NeLLi-team.github.io/gvclass/how-to/classify-bins/): input preparation and resume.
+- [Build a species tree](https://NeLLi-team.github.io/gvclass/how-to/build-a-species-tree/): per-query and combined trees.
+- [Run on a cluster](https://NeLLi-team.github.io/gvclass/how-to/run-on-hpc/): Slurm and Apptainer.
+- [Command-line options](https://NeLLi-team.github.io/gvclass/reference/cli/) and [output columns](https://NeLLi-team.github.io/gvclass/reference/output/).
+- [Methods](https://NeLLi-team.github.io/gvclass/explanation/how-it-works/): taxonomy and quality estimates.
 
 ## Citation
 
@@ -70,9 +63,9 @@ The trained contamination model is shipped in the runtime resource bundle at
 The v2.0.0 runtime resource bundle is archived on Zenodo:
 https://doi.org/10.5281/zenodo.21225457
 
-The GVClass runtime resources include genomes and models derived from:
+Reference data sources:
 
-> Medvedeva S, Guyet U, Pelletier E, et al. (2026): Widespread and intron-rich mirusviruses are predicted to reproduce in nuclei of unicellular eukaryotes. Nature Microbiology 11:228-239. https://doi.org/10.1038/s41564-025-01906-2
+> Medvedeva S, Guyet U, Pelletier E, et al. (2026): Widespread and intron-rich mirusviruses are predicted to reproduce in nuclei of unicellular eukaryotes. Nature Microbiology 11:228-239. https://doi.org/10.1038/s41564-025-02190-6
 
 > Roux S, Fischer MG, Hackl T, Katz LA, Schulz F, Yutin N (2023): Updated Virophage Taxonomy and Distinction from Polinton-like Viruses. Biomolecules 13(2):204. https://doi.org/10.3390/biom13020204
 
