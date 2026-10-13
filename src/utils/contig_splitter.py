@@ -88,8 +88,7 @@ def split_contigs(
 
     if not retained:
         raise ValueError(
-            f"No contigs found in {input_fna} "
-            f"(min_length filter: {min_length} bp)"
+            f"No contigs found in {input_fna} " f"(min_length filter: {min_length} bp)"
         )
 
     if output_dir is None:
@@ -142,9 +141,10 @@ def split_contigs_from_directory(
     # Find all FNA files first so we can plan the full split before touching
     # the output directory. The Codex-audit requirement is that a collision
     # anywhere in the directory leaves no partial files on disk.
-    fna_extensions = {".fna", ".fa", ".fasta"}
+    fna_extensions = {".fna", ".fa", ".fasta", ".fas"}
     fna_files = sorted(
-        f for f in input_dir.iterdir()
+        f
+        for f in input_dir.iterdir()
         if f.is_file() and f.suffix.lower() in fna_extensions
     )
     if not fna_files:

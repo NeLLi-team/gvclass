@@ -189,7 +189,9 @@ def _collect_filtered_search_results(
     return model_hits, filtered_lines, total_lines, hit_lines, passed_cutoffs
 
 
-def _write_filtered_output_file(filtered_output: str, filtered_lines: List[str]) -> None:
+def _write_filtered_output_file(
+    filtered_output: str, filtered_lines: List[str]
+) -> None:
     with open(filtered_output, "w") as f:
         f.writelines(filtered_lines)
 
@@ -276,11 +278,7 @@ def _has_model_cutoffs(model: Any) -> bool:
     return bool(
         hasattr(model, "cutoffs")
         and model.cutoffs
-        and (
-            model.cutoffs.gathering is not None
-            or model.cutoffs.trusted is not None
-            or model.cutoffs.noise is not None
-        )
+        and model.cutoffs.gathering is not None
     )
 
 
@@ -608,13 +606,13 @@ def _process_hmmout_hit_line(
 def _write_og_hits(outfile: TextIO, protein_hits_order: GenomeHits) -> None:
     for _, protein_dict in protein_hits_order.items():
         for _, (_, _, _, line) in protein_dict.items():
-            outfile.write(f"{line}\n")
+            outfile.write(f"{line.rstrip()}\n")
 
 
 def _write_non_og_hits(outfile: TextIO, protein_hits: GenomeHits) -> None:
     for _, protein_dict in protein_hits.items():
         for _, (_, _, _, line) in protein_dict.items():
-            outfile.write(f"{line}\n")
+            outfile.write(f"{line.rstrip()}\n")
 
 
 def _filter_hmmout_to_hits(
@@ -727,9 +725,7 @@ def process_hmmout(
         hmmout, filtered_hmmout, cutoffs, protein_hits, protein_hits_order
     )
     total_non_og_markers = _count_non_og_hits(protein_hits, counts, scores)
-    total_og_markers, proteins_seen = _count_og_hits(
-        protein_hits_order, counts, scores
-    )
+    total_og_markers, proteins_seen = _count_og_hits(protein_hits_order, counts, scores)
     proteins_with_multiple_markers = _count_proteins_with_multiple_og_markers(
         proteins_seen
     )

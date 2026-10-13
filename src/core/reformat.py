@@ -41,7 +41,10 @@ def calculate_stats(records: List[SeqRecord], input_file: str) -> pd.DataFrame:
         pd.DataFrame: DataFrame containing the calculated statistics.
     """
     total_length = sum(len(record.seq) for record in records)
-    gc_count = sum(record.seq.count("G") + record.seq.count("C") for record in records)
+    gc_count = sum(
+        str(record.seq).upper().count("G") + str(record.seq).upper().count("C")
+        for record in records
+    )
     gc_percentage = (gc_count / total_length * 100) if total_length > 0 else 0
     stats_dict = {
         "query": os.path.splitext(os.path.basename(input_file))[0],

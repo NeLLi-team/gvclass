@@ -7,6 +7,7 @@ import logging
 import os
 import shutil
 import tarfile
+import threading
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -32,6 +33,8 @@ from src.utils.input_validation import InputValidator
 from src.utils.resource_store import ResourceStore
 
 from Bio import SeqIO
+
+_THREAD_LOCAL = threading.local()
 
 HMM_MODEL_FILES = [
     "busco69.hmm",
@@ -65,8 +68,8 @@ def process_single_query(
     genetic_codes: List[int],
     tree_method: str,
     mode_fast: bool,
-    completeness_mode: str = "legacy",
-    sensitive_mode: bool = False,
+    completeness_mode: str = "novelty-aware",
+    sensitive_mode: bool = True,
     threads: int = 4,
     species_tree: bool = False,
     species_tree_trim: str = "witchi",
@@ -231,6 +234,8 @@ def _emit_query_progress(
 def _initialize_query(query_file: Path, output_base: Path) -> Tuple[str, Path]:
     query_name = query_file.stem
     query_output_dir = output_base / query_name
+    if query_output_dir.exists():
+        shutil.rmtree(query_output_dir, ignore_errors=True)
     query_output_dir.mkdir(parents=True, exist_ok=True)
     return query_name, query_output_dir
 
@@ -254,8 +259,8 @@ def _is_nucleotide_input(query_file: Path) -> bool:
     """Decide nucleotide vs protein by alphabet, not just the suffix.
 
     ``.fna`` is always nucleotide and ``.faa`` always protein. For the
-    extension-agnostic ``.fasta``/``.fas`` (which the validator admits as
-    either), infer the alphabet from the contents using the same helper the
+    extension-agnostic ``.fasta``/``.fas``/``.fa`` (which the validator admits
+    as either), infer the alphabet from the contents using the same helper the
     validator uses, so a DNA ``.fasta`` is gene-called instead of being fed
     raw to the protein path.
     """
@@ -264,7 +269,7 @@ def _is_nucleotide_input(query_file: Path) -> bool:
         return True
     if suffix == ".faa":
         return False
-    if suffix in (".fasta", ".fas"):
+    if suffix in (".fasta", ".fas", ".fa"):
         records = list(SeqIO.parse(str(query_file), "fasta"))
         return InputValidator._infer_fasta_type_from_content(records) == "fna"
     return False
@@ -808,6 +813,32 @@ def _log_tree_nn_output(tree_nn_file: Path, logger) -> None:
     logger.error(f"Tree_nn file was NOT created: {tree_nn_file}")
 
 
+def _get_thread_summarizer(
+    database_path: Path,
+    completeness_mode: str,
+    sensitive_mode: bool,
+) -> FullSummarizer:
+    cache: Dict[Tuple[Any, str, str, bool], FullSummarizer] = getattr(
+        _THREAD_LOCAL, "summarizers", None
+    )
+    if cache is None:
+        cache = {}
+        _THREAD_LOCAL.summarizers = cache
+    key = (
+        FullSummarizer,
+        str(database_path.resolve()),
+        completeness_mode,
+        sensitive_mode,
+    )
+    if key not in cache:
+        cache[key] = FullSummarizer(
+            database_path,
+            completeness_mode=completeness_mode,
+            sensitive_mode=sensitive_mode,
+        )
+    return cache[key]
+
+
 def _generate_summary_data(
     query_name: str,
     query_output_dir: Path,
@@ -820,7 +851,7 @@ def _generate_summary_data(
 ) -> Dict[str, Any]:
     logger.info(f"Generating full summary: {query_name}")
     try:
-        summarizer = FullSummarizer(
+        summarizer = _get_thread_summarizer(
             database_path,
             completeness_mode=completeness_mode,
             sensitive_mode=sensitive_mode,
@@ -836,18 +867,7 @@ def _generate_summary_data(
     except Exception as exc:
         logger.error(f"Failed to generate summary for {query_name}: {exc}")
         logger.error(traceback.format_exc())
-        return _fallback_summary_data(query_name)
-
-
-def _fallback_summary_data(query_name: str) -> Dict[str, Any]:
-    return {
-        "query": query_name,
-        "length": "",
-        "genecount": "",
-        "coding_density": "",
-        "ttable": "",
-        "classification": "Error during classification",
-    }
+        raise
 
 
 def _create_output_dirs(query_output_dir: Path) -> None:
@@ -1000,8 +1020,8 @@ def _post_process_query(
     post_process_start = time.time()
     try:
         _log_tree_nn_file(query_name, query_output_dir, logger)
+        _remove_reformatted_file(query_name, query_output_dir, output_base, logger)
         _archive_query_output(query_name, query_output_dir, output_base, logger)
-        _remove_reformatted_file(query_name, output_base, logger)
         shutil.rmtree(query_output_dir)
         logger.info(f"✓ Removed original directory: {query_output_dir}")
         elapsed = time.time() - post_process_start
@@ -1115,11 +1135,14 @@ def _clear_prior_outputs(query_name: str, output_base: Path, logger) -> None:
                 logger.warning(f"Could not remove stale {victim}: {exc}")
 
 
-def _remove_reformatted_file(query_name: str, output_base: Path, logger) -> None:
-    reformatted_file = output_base / f"{query_name}_reformatted.fna"
-    if reformatted_file.exists():
-        reformatted_file.unlink()
-        logger.info(f"✓ Removed reformatted file: {reformatted_file}")
+def _remove_reformatted_file(
+    query_name: str, query_output_dir: Path, output_base: Path, logger
+) -> None:
+    for base in (query_output_dir, output_base):
+        reformatted_file = base / f"{query_name}_reformatted.fna"
+        if reformatted_file.exists():
+            reformatted_file.unlink()
+            logger.info(f"✓ Removed reformatted file: {reformatted_file}")
 
 
 def _log_partial_outputs(

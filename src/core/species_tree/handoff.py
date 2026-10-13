@@ -87,7 +87,11 @@ def init_handoff(
     scratch.mkdir(parents=True, exist_ok=True)
     manifest = scratch / _MANIFEST
     _atomic_write_json(manifest, {"queries": sorted(query_names)})
-    logger.info("Species-tree handoff initialised for %d queries at %s", len(query_names), scratch)
+    logger.info(
+        "Species-tree handoff initialised for %d queries at %s",
+        len(query_names),
+        scratch,
+    )
     return SpeciesTreeHandoff(scratch_dir=scratch, manifest_path=manifest)
 
 

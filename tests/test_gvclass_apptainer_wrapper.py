@@ -6,7 +6,7 @@ from src.bin import gvclass_apptainer
 def test_apptainer_wrapper_uses_release_sylabs_image_by_default() -> None:
     assert (
         gvclass_apptainer.DEFAULT_IMAGE
-        == "library://nelligroup-jgi/gvclass/gvclass:2.0.3"
+        == "library://nelligroup-jgi/gvclass/gvclass:2.1.0"
     )
 
 
@@ -83,6 +83,8 @@ def test_apptainer_wrapper_binds_resource_cache(tmp_path: Path, monkeypatch) -> 
         contigs_mode=True,
         min_length=30000,
         contigs_min_length=50000,
+        species_tree_combined=True,
+        resume=True,
     )
 
     assert rc == 0
@@ -94,5 +96,7 @@ def test_apptainer_wrapper_binds_resource_cache(tmp_path: Path, monkeypatch) -> 
     assert "GVCLASS_RESOURCE_CACHE=/resource-cache" in command
     assert gvclass_apptainer.DEFAULT_IMAGE in command
     assert "--contigs" in command
+    assert "--species-tree-combined" in command
+    assert "--resume" in command
     assert command[command.index("--min-length") + 1] == "30000"
     assert command[command.index("--contigs-min-length") + 1] == "50000"

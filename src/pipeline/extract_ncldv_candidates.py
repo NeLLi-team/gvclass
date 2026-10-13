@@ -182,8 +182,12 @@ def main():
     # Step 3: Organize files
     print("\nOrganizing output files...")
 
-    # Move all .tar.gz files to gvclass/
-    gz_files = list(results_path.glob("*.tar.gz"))
+    # Move all per-query .tar.gz files to gvclass/ (excluding top-level summary archive)
+    gz_files = [
+        gz_file
+        for gz_file in results_path.glob("*.tar.gz")
+        if gz_file.name != "gvclass_summary.extended.tar.gz"
+    ]
     print(f"Moving {len(gz_files)} .tar.gz files to {gvclass_dir}...")
 
     for gz_file in gz_files:

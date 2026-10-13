@@ -136,7 +136,7 @@ def run_performance_test(query_dir, threads_list=[4, 8, 16]):
         # Run with CPU monitoring
         cmd = [
             sys.executable,
-            "src/test/monitor_performance.py",
+            "scripts/monitor_performance.py",
             "--",
             "pixi",
             "run",
@@ -205,7 +205,7 @@ def main():
         print("\nTo run performance tests, use: --test")
         print("To monitor CPU usage during a run:")
         print(
-            "  python src/test/monitor_cpu_usage.py pixi run gvclass example -o output -t 16"
+            "  python scripts/monitor_performance.py pixi run gvclass example -o output -t 16"
         )
 
 

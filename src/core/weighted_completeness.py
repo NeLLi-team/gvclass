@@ -167,14 +167,14 @@ class WeightedCompletenessCalculator:
             if len(order_stats) < 5:  # Need minimum samples for meaningful scaling
                 return weights
 
-            # Create feature matrix for adaptive scaling
-            order_conservations = order_stats[
-                "percent_genomes_with_marker"
-            ].values.reshape(-1, 1)
+            # Create feature matrix in base-weight space for adaptive scaling
+            order_base_weights = self._calculate_base_weights(
+                order_stats["percent_genomes_with_marker"].values
+            ).reshape(-1, 1)
 
-            # Fit scaler on order-specific data
+            # Fit scaler on order-specific base weights
             order_scaler = RobustScaler()
-            order_scaler.fit(order_conservations)
+            order_scaler.fit(order_base_weights)
 
             # Scale weights based on order context
             weights_reshaped = weights.reshape(-1, 1)
@@ -273,6 +273,10 @@ class WeightedCompletenessCalculator:
                         f"No marker stats found for {taxonomic_order}, using uniform weights. Requested markers: {marker_names[:5]}..."
                     )
                     return {marker: 1.0 for marker in marker_names}
+
+                order_markers = order_markers.groupby(
+                    "marker_name", as_index=False
+                ).mean(numeric_only=True)
 
             # Detect and handle outliers
             outliers = self._detect_outliers(order_markers)

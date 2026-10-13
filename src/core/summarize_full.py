@@ -21,7 +21,10 @@ from src.core.summarize import (
 )
 from src.core.weighted_completeness import create_weighted_calculator
 from src.core.novelty_completeness import create_novelty_completeness_scorer
-from src.core.contamination_scoring import create_contamination_scorer
+from src.core.contamination_scoring import (
+    ContaminationScorer,
+    create_contamination_scorer,
+)
 from src.utils.resource_store import ResourceStore
 
 logger = logging.getLogger(__name__)
@@ -197,15 +200,25 @@ class FullSummarizer:
         tree_nn_results: Optional[Dict[str, Dict[str, Dict[str, float]]]] = None,
     ) -> None:
         """Populate contamination metrics (rule-based, then ML override if available)."""
-        try:
-            result.update(
-                self.contamination_scorer.score_rule_based(
-                    result=result,
-                    marker_counts=marker_counts,
-                    tax_counters=tax_counters,
-                    query_output_dir=query_output_dir,
+        precomputed_blast = None
+        if type(self.contamination_scorer) is ContaminationScorer:
+            try:
+                precomputed_blast = self.contamination_scorer._scan_blast_dir(
+                    query_output_dir / "blastp_out"
                 )
-            )
+            except Exception as exc:
+                logger.warning("Failed to pre-scan blast directory: %s", exc)
+
+        try:
+            rule_kwargs: Dict[str, Any] = {
+                "result": result,
+                "marker_counts": marker_counts,
+                "tax_counters": tax_counters,
+                "query_output_dir": query_output_dir,
+            }
+            if precomputed_blast is not None:
+                rule_kwargs["best_hits"] = precomputed_blast[0]
+            result.update(self.contamination_scorer.score_rule_based(**rule_kwargs))
         except Exception as exc:
             logger.error("Error calculating contamination metrics: %s", exc)
             result.update(
@@ -229,13 +242,18 @@ class FullSummarizer:
             primary_family = order_completeness._extract_family_taxonomy(tax_counters)
             query_fna = paths_stats._resolve_query_fna_path(query_id, query_output_dir)
             query_faa = paths_stats._resolve_query_faa_path(query_id, query_output_dir)
+            contig_kwargs: Dict[str, Any] = {
+                "tree_nn_results": tree_nn_results or {},
+            }
+            if precomputed_blast is not None:
+                contig_kwargs["_precomputed_blast"] = precomputed_blast
             contig_features_raw = self.contamination_scorer.collect_contig_features(
                 query_fna,
                 query_faa,
                 query_output_dir / "blastp_out",
                 primary_order,
                 primary_family,
-                tree_nn_results=tree_nn_results or {},
+                **contig_kwargs,
             )
             contig_features = {
                 "suspicious_bp_fraction_v2": contig_features_raw[

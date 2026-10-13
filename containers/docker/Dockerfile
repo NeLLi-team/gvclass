@@ -1,7 +1,7 @@
 # Use the official Pixi base image (includes Pixi pre-installed)
 FROM ghcr.io/prefix-dev/pixi:latest
 
-ARG GVCLASS_VERSION=2.0.3
+ARG GVCLASS_VERSION=2.1.0
 
 # Install build dependencies needed for pyrodigal compilation
 USER root
@@ -17,7 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /opt/gvclass
 
 # Copy the tracked project files; runtime resources are downloaded during build.
-COPY LICENCE README.md pixi.lock pixi.toml pyproject.toml gvclass gvclass-a /opt/gvclass/
+COPY LICENCE README.md pixi.lock pixi.toml pyproject.toml gvclass /opt/gvclass/
 COPY config /opt/gvclass/config
 COPY containers /opt/gvclass/containers
 COPY example /opt/gvclass/example
@@ -35,7 +35,7 @@ RUN pixi clean cache -y || true && \
 
 # Publish a stable executable and keep the app readable/executable for non-root users.
 RUN chmod -R a+rX /opt/gvclass && \
-    chmod a+rx /opt/gvclass/gvclass /opt/gvclass/gvclass-a && \
+    chmod a+rx /opt/gvclass/gvclass && \
     ln -sf /opt/gvclass/gvclass /usr/local/bin/gvclass
 
 # Set environment variables
@@ -49,6 +49,9 @@ RUN mkdir -p /data /results /resource-cache && chmod 777 /data /results /resourc
 # Create an entrypoint script
 RUN printf '%s\n' \
         '#!/bin/bash' \
+        'if [ "$1" = "-h" ] || [ "$1" = "--help" ] || [ "$1" = "--version" ]; then' \
+        '    cd /opt/gvclass && exec ./gvclass "$@"' \
+        'fi' \
         'if [ -z "$1" ] || [[ "$1" == -* ]]; then' \
         '    echo "Error: Please provide input directory as first argument"' \
         "    echo \"Usage: docker run -v /your/data:/data gvclass:${GVCLASS_VERSION} /data/input_dir [options]\"" \

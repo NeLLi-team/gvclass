@@ -3,11 +3,11 @@ version: '3.8'
 services:
   gvclass:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: containers/docker/Dockerfile
       args:
         PIXI_VERSION: 0.40.2
-    image: gvclass:2.0.3
+    image: gvclass:2.1.0
     container_name: gvclass
     volumes:
       # Mount input data directory

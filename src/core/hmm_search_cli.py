@@ -47,7 +47,9 @@ def _write_empty_outputs(models: list[str], countout: str, scoreout: str) -> Non
     )
 
 
-def _write_populated_outputs(count_matrix, score_matrix, countout: str, scoreout: str) -> None:
+def _write_populated_outputs(
+    count_matrix, score_matrix, countout: str, scoreout: str
+) -> None:
     count_matrix.reset_index().rename(columns={"index": "genomeid"}).to_csv(
         countout, sep="\t", index=False
     )
@@ -127,9 +129,13 @@ def main(
 
     models = get_models(modelscombined)
     cutoffs = (
-        load_cutoffs(cutoff_file) if cutoff_file else {model: (0.0, 0.0) for model in models}
+        load_cutoffs(cutoff_file)
+        if cutoff_file
+        else {model: (0.0, 0.0) for model in models}
     )
-    count_matrix, score_matrix = process_hmmout(models, hmmout, filtered_hmmout, cutoffs)
+    count_matrix, score_matrix = process_hmmout(
+        models, hmmout, filtered_hmmout, cutoffs
+    )
 
     if count_matrix.empty or score_matrix.empty:
         _write_empty_outputs(models, countout, scoreout)

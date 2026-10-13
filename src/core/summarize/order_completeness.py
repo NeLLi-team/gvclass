@@ -39,7 +39,9 @@ def calculate_order_metrics(
         Dictionary of raw and normalized order completeness metrics.
     """
     try:
-        order_ogs = _load_order_orthogroups(completeness_table, order_tax)
+        order_ogs = _load_order_orthogroups(
+            completeness_table, order_tax, order_stats_df=order_stats_df
+        )
         if not order_ogs:
             return _default_order_metrics(order_tax)
 
@@ -112,12 +114,25 @@ def _default_order_metrics(order_tax: str = "") -> Dict[str, Any]:
         "order_completeness_v2_informative_fraction": 0.0,
         "estimated_completeness": 0.0,
         "estimated_completeness_strategy": "order_baseline_ratio_v1",
+        "completeness_model_reliability": "advisory_only",
     }
 
 
-def _load_order_orthogroups(completeness_table: Path, order_tax: str) -> List[str]:
+def _load_order_orthogroups(
+    completeness_table: Path,
+    order_tax: str,
+    order_stats_df: pd.DataFrame | None = None,
+) -> List[str]:
     """Load expected orthogroups for a specific taxonomic order."""
-    comp_df = pd.read_csv(completeness_table, sep="\t")
+    if (
+        order_stats_df is not None
+        and not order_stats_df.empty
+        and "Order" in order_stats_df.columns
+        and "Orthogroups" in order_stats_df.columns
+    ):
+        comp_df = order_stats_df
+    else:
+        comp_df = pd.read_csv(completeness_table, sep="\t")
     order_row = comp_df[comp_df["Order"] == order_tax]
     if order_row.empty:
         return []
@@ -189,7 +204,9 @@ def _extract_order_taxonomy(tax_counters: Dict[str, Counter]) -> str:
     if not tax_counters["order"]:
         return ""
 
-    most_common_order = tax_counters["order"].most_common(1)[0][0]
+    most_common_order = min(
+        tax_counters["order"].items(), key=lambda kv: (-kv[1], kv[0])
+    )[0]
     if "__" not in most_common_order:
         return ""
     parts = most_common_order.split("__")
@@ -201,7 +218,9 @@ def _extract_family_taxonomy(tax_counters: Dict[str, Counter]) -> str:
     if not tax_counters["family"]:
         return ""
 
-    most_common_family = tax_counters["family"].most_common(1)[0][0]
+    most_common_family = min(
+        tax_counters["family"].items(), key=lambda kv: (-kv[1], kv[0])
+    )[0]
     if "__" not in most_common_family:
         return ""
     parts = most_common_family.split("__")

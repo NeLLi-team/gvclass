@@ -19,7 +19,11 @@ from typing import Dict, List, Tuple
 
 import pandas as pd
 from joblib import dump
-from sklearn.ensemble import ExtraTreesRegressor, HistGradientBoostingRegressor, RandomForestRegressor
+from sklearn.ensemble import (
+    ExtraTreesRegressor,
+    HistGradientBoostingRegressor,
+    RandomForestRegressor,
+)
 from sklearn.metrics import mean_absolute_error, r2_score
 from sklearn.model_selection import train_test_split
 
@@ -69,7 +73,9 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def load_order_table(resources_dir: Path) -> Tuple[Dict[str, List[str]], Dict[str, float]]:
+def load_order_table(
+    resources_dir: Path,
+) -> Tuple[Dict[str, List[str]], Dict[str, float]]:
     order_markers: Dict[str, List[str]] = {}
     order_baselines: Dict[str, float] = {}
     # v1.5.0 moved order_completeness.tab under markers/; fall back to the
@@ -81,7 +87,9 @@ def load_order_table(resources_dir: Path) -> Tuple[Dict[str, List[str]], Dict[st
         for row in csv.DictReader(handle, delimiter="\t"):
             order_name = row["Order"]
             order_markers[order_name] = [
-                marker.strip() for marker in row["Orthogroups"].split(",") if marker.strip()
+                marker.strip()
+                for marker in row["Orthogroups"].split(",")
+                if marker.strip()
             ]
             order_baselines[order_name] = float(row["Average_Percent"])
     return order_markers, order_baselines
@@ -121,9 +129,15 @@ def parse_reference_marker_profiles(
     Dict[str, Dict[str, Dict[str, int]]],
     Dict[Tuple[str, str], Dict[str, Dict[str, int]]],
 ]:
-    relevant_markers = sorted({marker for markers in order_markers.values() for marker in markers})
-    order_profiles: Dict[str, Dict[str, Dict[str, int]]] = defaultdict(lambda: defaultdict(dict))
-    family_profiles: Dict[Tuple[str, str], Dict[str, Dict[str, int]]] = defaultdict(lambda: defaultdict(dict))
+    relevant_markers = sorted(
+        {marker for markers in order_markers.values() for marker in markers}
+    )
+    order_profiles: Dict[str, Dict[str, Dict[str, int]]] = defaultdict(
+        lambda: defaultdict(dict)
+    )
+    family_profiles: Dict[Tuple[str, str], Dict[str, Dict[str, int]]] = defaultdict(
+        lambda: defaultdict(dict)
+    )
     faa_dir = resources_dir / "database" / "faa"
 
     for marker in relevant_markers:
@@ -152,7 +166,9 @@ def parse_reference_marker_profiles(
     return order_profiles, family_profiles
 
 
-def marker_stats_for_group(genome_profiles: Dict[str, Dict[str, int]], markers: List[str]) -> pd.DataFrame:
+def marker_stats_for_group(
+    genome_profiles: Dict[str, Dict[str, int]], markers: List[str]
+) -> pd.DataFrame:
     rows: List[Dict[str, float]] = []
     genome_count = len(genome_profiles)
     if genome_count == 0:
@@ -210,7 +226,9 @@ def presence_fraction(marker_counts: Dict[str, int], markers: Tuple[str, ...]) -
     return present / len(markers)
 
 
-def score_tier_set(marker_counts: Dict[str, int], tier_set: TierSet) -> Dict[str, float]:
+def score_tier_set(
+    marker_counts: Dict[str, int], tier_set: TierSet
+) -> Dict[str, float]:
     core_fraction = presence_fraction(marker_counts, tier_set.core)
     shared_fraction = presence_fraction(marker_counts, tier_set.shared)
     accessory_fraction = presence_fraction(marker_counts, tier_set.accessory)
@@ -271,7 +289,9 @@ def build_group_resources(
     for (order_name, family_name), genome_profiles in family_profiles.items():
         if len(genome_profiles) < CONFIG.family_min_ref_genomes:
             continue
-        family_stats = marker_stats_for_group(genome_profiles, order_markers[order_name])
+        family_stats = marker_stats_for_group(
+            genome_profiles, order_markers[order_name]
+        )
         tier_set = build_tier_set(family_stats)
         if informative_marker_count(tier_set) < CONFIG.family_min_informative_markers:
             continue
@@ -326,7 +346,9 @@ def simulate_samples(
     for order_name, genome_profiles in order_profiles.items():
         markers = order_markers[order_name]
         for genome_id, profile in genome_profiles.items():
-            present_markers = [marker for marker in markers if profile.get(marker, 0) > 0]
+            present_markers = [
+                marker for marker in markers if profile.get(marker, 0) > 0
+            ]
             if not present_markers:
                 continue
             family_name = labels.get(genome_id, {}).get("family", "")
@@ -347,17 +369,25 @@ def simulate_samples(
 
 
 def downsample_training_order_df(order_df: pd.DataFrame) -> pd.DataFrame:
-    family_names = [family for family in sorted(order_df["family_name"].unique()) if family]
+    family_names = [
+        family for family in sorted(order_df["family_name"].unique()) if family
+    ]
     if len(family_names) >= 2:
         parts = []
         for _, family_df in order_df.groupby("family_name", sort=False):
             if len(family_df) > MAX_SYNTHETIC_SAMPLES_PER_FAMILY:
-                parts.append(family_df.sample(n=MAX_SYNTHETIC_SAMPLES_PER_FAMILY, random_state=RANDOM_SEED))
+                parts.append(
+                    family_df.sample(
+                        n=MAX_SYNTHETIC_SAMPLES_PER_FAMILY, random_state=RANDOM_SEED
+                    )
+                )
             else:
                 parts.append(family_df)
         return pd.concat(parts, ignore_index=True)
     if len(order_df) > MAX_SYNTHETIC_SAMPLES_SINGLE_FAMILY:
-        return order_df.sample(n=MAX_SYNTHETIC_SAMPLES_SINGLE_FAMILY, random_state=RANDOM_SEED).reset_index(drop=True)
+        return order_df.sample(
+            n=MAX_SYNTHETIC_SAMPLES_SINGLE_FAMILY, random_state=RANDOM_SEED
+        ).reset_index(drop=True)
     return order_df.reset_index(drop=True)
 
 
@@ -374,16 +404,22 @@ def build_training_df(
         order_name = str(sample["order_name"])
         family_name = str(sample["family_name"])
         group_def, tier_set = select_group(tiers, order_name, family_name)
-        raw_score = 100.0 * (len(sample["present_markers"]) / len(order_markers[order_name]))
+        raw_score = 100.0 * (
+            len(sample["present_markers"]) / len(order_markers[order_name])
+        )
         baseline = order_baselines[order_name]
-        strategy1_score = 0.0 if baseline <= 0 else min(100.0, (raw_score / baseline) * 100.0)
+        strategy1_score = (
+            0.0 if baseline <= 0 else min(100.0, (raw_score / baseline) * 100.0)
+        )
         marker_counts = {marker: 1 for marker in sample["present_markers"]}
         tier_scores = score_tier_set(marker_counts, tier_set)
         strategy2_raw_score = float(tier_scores["strategy2_raw"])
-        strategy2_norm_score, strategy2_baseline_mean, strategy2_baseline_n_refs = normalize_strategy2_score(
-            strategy2_raw_score,
-            group_def,
-            baselines,
+        strategy2_norm_score, strategy2_baseline_mean, strategy2_baseline_n_refs = (
+            normalize_strategy2_score(
+                strategy2_raw_score,
+                group_def,
+                baselines,
+            )
         )
         rows.append(
             {
@@ -418,21 +454,31 @@ def train_models(training_df: pd.DataFrame) -> Tuple[Dict[str, object], pd.DataF
             continue
         X = model_order_df[FEATURE_NAMES]
         y = model_order_df["true_completeness"]
-        family_names = [family for family in sorted(model_order_df["family_name"].unique()) if family]
+        family_names = [
+            family
+            for family in sorted(model_order_df["family_name"].unique())
+            if family
+        ]
         use_lofo = len(family_names) >= 2
 
         candidate_models = [
             (
                 "random_forest",
-                lambda: RandomForestRegressor(n_estimators=400, random_state=RANDOM_SEED, min_samples_leaf=2),
+                lambda: RandomForestRegressor(
+                    n_estimators=400, random_state=RANDOM_SEED, min_samples_leaf=2
+                ),
             ),
             (
                 "extra_trees",
-                lambda: ExtraTreesRegressor(n_estimators=500, random_state=RANDOM_SEED, min_samples_leaf=2),
+                lambda: ExtraTreesRegressor(
+                    n_estimators=500, random_state=RANDOM_SEED, min_samples_leaf=2
+                ),
             ),
             (
                 "hist_gbm",
-                lambda: HistGradientBoostingRegressor(random_state=RANDOM_SEED, max_depth=8, min_samples_leaf=10),
+                lambda: HistGradientBoostingRegressor(
+                    random_state=RANDOM_SEED, max_depth=8, min_samples_leaf=10
+                ),
             ),
         ]
 
@@ -456,13 +502,20 @@ def train_models(training_df: pd.DataFrame) -> Tuple[Dict[str, object], pd.DataF
                     if not train_mask.any() or not test_mask.any():
                         continue
                     model = model_factory()
-                    model.fit(model_order_df.loc[train_mask, FEATURE_NAMES], model_order_df.loc[train_mask, "true_completeness"])
+                    model.fit(
+                        model_order_df.loc[train_mask, FEATURE_NAMES],
+                        model_order_df.loc[train_mask, "true_completeness"],
+                    )
                     pred = model.predict(model_order_df.loc[test_mask, FEATURE_NAMES])
                     preds.extend(pred.tolist())
-                    truth.extend(model_order_df.loc[test_mask, "true_completeness"].tolist())
+                    truth.extend(
+                        model_order_df.loc[test_mask, "true_completeness"].tolist()
+                    )
                     validation_families += 1
             if not preds:
-                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=RANDOM_SEED)
+                X_train, X_test, y_train, y_test = train_test_split(
+                    X, y, test_size=0.2, random_state=RANDOM_SEED
+                )
                 model = model_factory()
                 model.fit(X_train, y_train)
                 pred = model.predict(X_test)
@@ -561,7 +614,9 @@ def write_resources(
     config_payload = {
         "resource_version": "v1",
         "strategy2_config": asdict(CONFIG),
-        "order_expected_marker_counts": {order: len(markers) for order, markers in order_markers.items()},
+        "order_expected_marker_counts": {
+            order: len(markers) for order, markers in order_markers.items()
+        },
     }
     config_path.write_text(json.dumps(config_payload, indent=2, sort_keys=True) + "\n")
 
@@ -569,12 +624,22 @@ def write_resources(
     with tiers_path.open("w", newline="") as handle:
         writer = csv.DictWriter(
             handle,
-            fieldnames=["group_level", "group_name", "order_name", "tier", "marker_name"],
+            fieldnames=[
+                "group_level",
+                "group_name",
+                "order_name",
+                "tier",
+                "marker_name",
+            ],
             delimiter="\t",
         )
         writer.writeheader()
         for (group_level, group_name, order_name), tier_set in sorted(tiers.items()):
-            for tier_name, markers in (("core", tier_set.core), ("shared", tier_set.shared), ("accessory", tier_set.accessory)):
+            for tier_name, markers in (
+                ("core", tier_set.core),
+                ("shared", tier_set.shared),
+                ("accessory", tier_set.accessory),
+            ):
                 for marker_name in markers:
                     writer.writerow(
                         {
@@ -590,11 +655,20 @@ def write_resources(
     with baselines_path.open("w", newline="") as handle:
         writer = csv.DictWriter(
             handle,
-            fieldnames=["group_level", "group_name", "order_name", "baseline_mean", "baseline_median", "n_refs"],
+            fieldnames=[
+                "group_level",
+                "group_name",
+                "order_name",
+                "baseline_mean",
+                "baseline_median",
+                "n_refs",
+            ],
             delimiter="\t",
         )
         writer.writeheader()
-        for (group_level, group_name, order_name), baseline in sorted(baselines.items()):
+        for (group_level, group_name, order_name), baseline in sorted(
+            baselines.items()
+        ):
             writer.writerow(
                 {
                     "group_level": group_level,
@@ -604,7 +678,9 @@ def write_resources(
                 }
             )
 
-    model_metadata.to_csv(resources_dir / "completeness/model_metadata.tsv", sep="\t", index=False)
+    model_metadata.to_csv(
+        resources_dir / "completeness/model_metadata.tsv", sep="\t", index=False
+    )
     dump(
         {"models": models, "feature_names": FEATURE_NAMES},
         resources_dir / "completeness/model.joblib",
@@ -617,14 +693,22 @@ def main() -> None:
     resources_dir = Path(args.resources_dir).resolve()
     order_markers, order_baselines = load_order_table(resources_dir)
     labels = load_labels(resources_dir)
-    order_profiles, family_profiles = parse_reference_marker_profiles(resources_dir, labels, order_markers)
+    order_profiles, family_profiles = parse_reference_marker_profiles(
+        resources_dir, labels, order_markers
+    )
     write_marker_conservation(
         resources_dir, compute_marker_conservation(order_markers, order_profiles)
     )
-    tiers, baselines = build_group_resources(order_markers, order_profiles, family_profiles)
-    training_df = build_training_df(labels, order_profiles, order_markers, order_baselines, tiers, baselines)
+    tiers, baselines = build_group_resources(
+        order_markers, order_profiles, family_profiles
+    )
+    training_df = build_training_df(
+        labels, order_profiles, order_markers, order_baselines, tiers, baselines
+    )
     models, model_metadata = train_models(training_df)
-    write_resources(resources_dir, order_markers, tiers, baselines, models, model_metadata)
+    write_resources(
+        resources_dir, order_markers, tiers, baselines, models, model_metadata
+    )
     print(f"strategy2_groups\t{len(tiers)}")
     print(f"strategy3_models\t{len(models)}")
 

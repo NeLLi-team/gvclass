@@ -26,7 +26,7 @@ from Bio import SeqIO
 from ete3 import Tree
 
 from src.core.species_tree.neighbor_selection import NCLDV_PREFIX, NeighborHit
-from src.core.tree_analysis import TreeAnalyzer
+from src.core.tree_analysis import TreeAnalyzer, _is_query_leaf
 
 logger = logging.getLogger(__name__)
 
@@ -130,13 +130,13 @@ def select_query_representative_from_tree(
         return None
 
     query_nodes = [
-        leaf for leaf in tree.iter_leaves() if leaf.name.startswith(query_id)
+        leaf for leaf in tree.iter_leaves() if _is_query_leaf(leaf.name, query_id)
     ]
     prefixes = _prefix_tuple(keep_prefix)
     ref_nodes = [
         leaf
         for leaf in tree.iter_leaves()
-        if leaf.name.startswith(prefixes) and not leaf.name.startswith(query_id)
+        if leaf.name.startswith(prefixes) and not _is_query_leaf(leaf.name, query_id)
     ]
     if not query_nodes or not ref_nodes:
         return None

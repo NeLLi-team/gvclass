@@ -183,7 +183,9 @@ class SpeciesTreeClassifier:
 
         # Re-fetch node objects after rooting and rebuild distance precompute.
         query_leaves = [leaf for leaf in tree.get_leaves() if is_query_leaf(leaf.name)]
-        ref_leaves = [leaf for leaf in tree.get_leaves() if not is_query_leaf(leaf.name)]
+        ref_leaves = [
+            leaf for leaf in tree.get_leaves() if not is_query_leaf(leaf.name)
+        ]
         patristic = _Patristic(tree)
 
         clade_root_of = self._maximal_query_clades(tree)
@@ -212,9 +214,7 @@ class SpeciesTreeClassifier:
 
         clade_root_of: Dict[TreeNode, TreeNode] = {}
         for node in tree.traverse("preorder"):
-            if all_query.get(node) and (
-                node.up is None or not all_query.get(node.up)
-            ):
+            if all_query.get(node) and (node.up is None or not all_query.get(node.up)):
                 for leaf in node.get_leaves():
                     clade_root_of[leaf] = node
         return clade_root_of

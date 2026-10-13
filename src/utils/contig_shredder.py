@@ -35,7 +35,6 @@ import numpy as np
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 
-
 DEFAULT_MIN_FRAGMENT_BP = 2_000
 DEFAULT_MAX_FRAGMENT_BP = 200_000
 DEFAULT_MEAN_FRAGMENT_BP = 20_000
@@ -87,9 +86,7 @@ class ShredConfig:
         if self.max_fragment_bp <= self.min_fragment_bp:
             raise ValueError("max_fragment_bp must exceed min_fragment_bp")
         if self.long_fragment_min_bp < self.min_fragment_bp:
-            raise ValueError(
-                "long_fragment_min_bp must be >= min_fragment_bp"
-            )
+            raise ValueError("long_fragment_min_bp must be >= min_fragment_bp")
 
 
 def _draw_fragment_lengths(
@@ -156,9 +153,7 @@ def _draw_fragment_lengths(
         merged.append(big)
 
     # Sanity: preserve total bp.
-    assert sum(merged) == genome_bp, (
-        f"shredded bp {sum(merged)} != source {genome_bp}"
-    )
+    assert sum(merged) == genome_bp, f"shredded bp {sum(merged)} != source {genome_bp}"
     return merged
 
 

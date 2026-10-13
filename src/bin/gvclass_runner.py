@@ -248,8 +248,8 @@ def execute_cli_flow(
     help="Completeness estimator to surface as the primary estimate",
 )
 @click.option(
-    "--sensitive",
-    is_flag=True,
+    "--sensitive/--no-sensitive",
+    default=False,
     help="Sensitive HMM mode: use E-value 1e-5 instead of GA cutoffs",
 )
 @click.option(
@@ -310,7 +310,30 @@ def execute_cli_flow(
     show_default=True,
     help="Supermatrix column trimming for --species-tree: witchi (rigorous), pytrimal (fast), or none.",
 )
-def main(querydir, output_dir, database, threads, max_workers, threads_per_worker, tree_method, iqtree_mode, mode_fast, completeness_mode, sensitive, cluster_type, cluster_queue, cluster_project, cluster_walltime, verbose, resume, allow_short, min_length, species_tree, species_tree_combined, species_tree_trim):
+def main(
+    querydir,
+    output_dir,
+    database,
+    threads,
+    max_workers,
+    threads_per_worker,
+    tree_method,
+    iqtree_mode,
+    mode_fast,
+    completeness_mode,
+    sensitive,
+    cluster_type,
+    cluster_queue,
+    cluster_project,
+    cluster_walltime,
+    verbose,
+    resume,
+    allow_short,
+    min_length,
+    species_tree,
+    species_tree_combined,
+    species_tree_trim,
+):
     log_level = "DEBUG" if verbose else "INFO"
     logger = setup_logging("gvclass_runner", level=log_level)
 
@@ -333,7 +356,27 @@ def main(querydir, output_dir, database, threads, max_workers, threads_per_worke
             sensitive=sensitive,
             min_sequence_length=min_length,
         )
-        execute_cli_flow(query_path, output_path, db_path, threads, max_workers, threads_per_worker, tree_method, iqtree_mode, mode_fast, completeness_mode, sensitive, cluster_type, cluster_config, resume, allow_short=allow_short, min_sequence_length=min_length, species_tree=species_tree, species_tree_combined=species_tree_combined, species_tree_trim=species_tree_trim)
+        execute_cli_flow(
+            query_path,
+            output_path,
+            db_path,
+            threads,
+            max_workers,
+            threads_per_worker,
+            tree_method,
+            iqtree_mode,
+            mode_fast,
+            completeness_mode,
+            sensitive,
+            cluster_type,
+            cluster_config,
+            resume,
+            allow_short=allow_short,
+            min_sequence_length=min_length,
+            species_tree=species_tree,
+            species_tree_combined=species_tree_combined,
+            species_tree_trim=species_tree_trim,
+        )
     except FileNotFoundError as exc:
         click.echo(f"Error: {exc}", err=True)
         sys.exit(1)

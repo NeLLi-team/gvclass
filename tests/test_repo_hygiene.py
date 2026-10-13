@@ -54,7 +54,6 @@ def test_readme_uses_runtime_resource_model_path() -> None:
 def test_release_version_matches_user_facing_wrappers() -> None:
     version = _software_version()
     pixi = tomllib.loads((REPO_ROOT / "pixi.toml").read_text())
-    expected_image_ref = re.compile(rf"(?:gvclass/)?gvclass:{re.escape(version)}")
     expected_apptainer_ref = re.compile(rf"gvclass:{re.escape(version)}")
     stale_image_ref = re.compile(
         rf"(?:gvclass/)?gvclass:(?!{re.escape(version)}\b)\d+\.\d+\.\d+"
@@ -62,35 +61,38 @@ def test_release_version_matches_user_facing_wrappers() -> None:
 
     assert pixi["workspace"]["version"] == version
     for path in [
-        "gvclass-a",
+        "gvclass",
         "src/bin/gvclass_apptainer.py",
-        "src/bin/gvclass_apptainer.sh",
+        "containers/apptainer/gvclass.def",
+        "containers/docker/Dockerfile",
+        "containers/docker/docker-compose.yml",
+        "containers/build.sh",
     ]:
         text = (REPO_ROOT / path).read_text()
-        assert expected_apptainer_ref.search(text) or "gvclass-a" in text, path
-        assert not stale_image_ref.search(text), path
-
-    for path in ["src/bin/gvclass_docker.sh", "src/bin/gvclass_shifter.sh"]:
-        text = (REPO_ROOT / path).read_text()
-        assert expected_image_ref.search(text), path
+        assert expected_apptainer_ref.search(text) or f"Version {version}" in text or f"GVCLASS_VERSION={version}" in text, path
         assert not stale_image_ref.search(text), path
 
 
 def test_apptainer_wrapper_copies_stay_in_sync() -> None:
-    """``gvclass-a`` and ``src/bin/gvclass_apptainer.py`` are the same program.
+    """``gvclass`` embeds the standalone Apptainer runner from ``src/bin/gvclass_apptainer.py``.
 
-    ``gvclass-a`` is what users ``wget`` from the repo, so it has to stay a
-    standalone script; ``src/bin/gvclass_apptainer.py`` is what the tests
-    import. Nothing generates one from the other, so without this check a fix
-    applied to one silently misses the other.
+    ``gvclass`` can be downloaded standalone via ``wget`` without a repo checkout,
+    while ``src/bin/gvclass_apptainer.py`` is the importable module inside ``src/``.
+    Verify both files declare the same default image URI, resource cache version,
+    and container helper definitions.
     """
-    wrapper = (REPO_ROOT / "gvclass-a").read_text()
+    wrapper = (REPO_ROOT / "gvclass").read_text()
     module = (REPO_ROOT / "src" / "bin" / "gvclass_apptainer.py").read_text()
 
-    assert wrapper == module, (
-        "gvclass-a and src/bin/gvclass_apptainer.py have diverged; "
-        "apply the change to both."
-    )
+    for line in [
+        f'DEFAULT_IMAGE = "library://nelligroup-jgi/gvclass/gvclass:{_software_version()}"',
+        f'SYLABS_IMAGE = "library://nelligroup-jgi/gvclass/gvclass:{_software_version()}"',
+        'Path.home() / ".cache" / "gvclass" / "resource-cache" / "v2.0.0"',
+        "def ensure_local_image(image: str) -> str:",
+        "def run_container(",
+    ]:
+        assert line in wrapper, f"Missing {line!r} in gvclass"
+        assert line in module, f"Missing {line!r} in src/bin/gvclass_apptainer.py"
 
 
 def test_gitmodules_does_not_reference_missing_submodules() -> None:
@@ -126,7 +128,6 @@ def test_no_pixi_run_gvclass_in_container_assets() -> None:
         "containers/docker/docker-compose.yml",
         "containers/docker/build_containers.sh",
         "containers/docker/Dockerfile",
-        "src/bin/gvclass_docker.sh",
     ]:
         text = (REPO_ROOT / rel).read_text()
         assert "pixi run gvclass" not in text, rel

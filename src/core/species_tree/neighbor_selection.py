@@ -141,19 +141,25 @@ def build_ncldv_reference_subset(
     # prefix, so ``startswith(">" + prefix)`` is exactly the id-token test. Written
     # atomically (tmp -> os.replace) so one subset file can be shared across the
     # parallel per-query workers without a torn read.
+    import threading
+
     tokens = tuple(">" + p for p in _prefix_tuple(prefix))
     count = 0
-    tmp = out_faa.with_name(out_faa.name + ".tmp")
-    with open(group_faa) as in_handle, open(tmp, "w") as out_handle:
-        keep = False
-        for line in in_handle:
-            if line.startswith(">"):
-                keep = line.startswith(tokens)
+    tmp = out_faa.with_name(f"{out_faa.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    try:
+        with open(group_faa) as in_handle, open(tmp, "w") as out_handle:
+            keep = False
+            for line in in_handle:
+                if line.startswith(">"):
+                    keep = line.startswith(tokens)
+                    if keep:
+                        count += 1
                 if keep:
-                    count += 1
-            if keep:
-                out_handle.write(line)
-    os.replace(tmp, out_faa)
+                    out_handle.write(line)
+        os.replace(tmp, out_faa)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
     return count
 
 

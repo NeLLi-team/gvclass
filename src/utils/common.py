@@ -168,7 +168,7 @@ def validate_file_path(file_path: Union[str, Path], must_exist: bool = True) -> 
     path = Path(file_path).resolve()
 
     # Check for path traversal attempts
-    if ".." in str(file_path):
+    if ".." in Path(file_path).parts:
         raise ValidationError(
             f"Path traversal detected in: {file_path}",
             field="file_path",

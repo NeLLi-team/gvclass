@@ -215,7 +215,11 @@ class RunStatusRecorder:
                     log_lines.append(
                         f"{started_at}\tQUERY_RESUME_SKIPPED\t{query_name}\n"
                     )
-            self.log_path.write_text("".join(log_lines))
+            if self.settings.get("resume") and self.log_path.exists():
+                with self.log_path.open("a") as log_handle:
+                    log_handle.write("".join(log_lines))
+            else:
+                self.log_path.write_text("".join(log_lines))
             _atomic_write_json(self.path, self.status)
 
     def record_query_started(self, query_name: str) -> None:
@@ -310,12 +314,19 @@ class RunStatusRecorder:
         summary_file = self.output_dir / f"{query_name}.summary.tab"
         final_summary_file = self.output_dir / f"{query_name}.final_summary.tsv"
         archive_file = self.output_dir / f"{query_name}.tar.gz"
-        if summary_file.exists():
-            artifacts["summary"] = _artifact_payload(summary_file, checksum=False)
-        if final_summary_file.exists():
-            artifacts["final_summary"] = _artifact_payload(
-                final_summary_file, checksum=False
-            )
+        summary_artifact = self._query_summary_artifact(
+            query_name, summary_file, archive_file
+        )
+        if summary_artifact is not None:
+            artifacts["summary"] = summary_artifact
+        final_summary_artifact = self._query_summary_artifact(
+            query_name,
+            final_summary_file,
+            archive_file,
+            suffix="final_summary.tsv",
+        )
+        if final_summary_artifact is not None:
+            artifacts["final_summary"] = final_summary_artifact
         if archive_file.exists():
             artifacts["archive"] = _artifact_payload(archive_file, checksum=False)
         return {

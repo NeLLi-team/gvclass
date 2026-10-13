@@ -19,7 +19,15 @@ PLAIN_BANNER_LINES = (
 
 def _build_color_banner_lines(software_version: str) -> list[str]:
     reset = "\033[0m"
-    c = ["\033[95m", "\033[95m", "\033[91m", "\033[31m", "\033[31m", "\033[38;5;208m", "\033[93m"]
+    c = [
+        "\033[95m",
+        "\033[95m",
+        "\033[91m",
+        "\033[31m",
+        "\033[31m",
+        "\033[38;5;208m",
+        "\033[93m",
+    ]
     return [
         f"  {c[0]}██████╗{reset} {c[1]}██╗   ██╗{reset}{c[2]} ██████╗{reset}{c[3]}██╗{reset}      {c[4]}█████╗{reset} {c[5]}███████╗{reset}{c[6]}███████╗{reset}",
         f" {c[0]}██╔════╝{reset} {c[1]}██║   ██║{reset}{c[2]}██╔════╝{reset}{c[3]}██║{reset}     {c[4]}██╔══██╗{reset}{c[5]}██╔════╝{reset}{c[6]}██╔════╝{reset}",
@@ -46,6 +54,7 @@ def print_banner(plain_output: bool, software_version: str) -> None:
         print(f"    ║{line}{' ' * padding}║")
     print(f"    ╚{'═' * width}╝")
 
+
 def print_configuration(
     args,
     query_dir_abs: Path,
@@ -62,6 +71,7 @@ def print_configuration(
     input_min_length: int,
     contigs_min_length: int,
     validation_min_length: int,
+    tree_method: str | None = None,
 ) -> None:
     print()
     print("=" * 60)
@@ -89,7 +99,12 @@ def print_configuration(
         f"Threads: {threads_used} used / {threads} requested "
         f"(Workers: {workers.workers} × {workers.threads_per_worker} threads)"
     )
-    print(f"Tree method: {args.tree_method if args.tree_method else 'veryfasttree'}")
+    resolved_tree_method = (
+        tree_method
+        if tree_method
+        else (args.tree_method if args.tree_method else "veryfasttree")
+    )
+    print(f"Tree method: {resolved_tree_method}")
     print(f"Fast mode: {mode_fast}")
     print(f"Sensitive mode: {sensitive_mode}")
     if args.resume:

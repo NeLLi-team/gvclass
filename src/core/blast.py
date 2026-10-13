@@ -446,20 +446,22 @@ def reduce_ref(
         top_per_query (int): Maximum number of hits to keep per query (default: 100).
     """
     run_blastp(queryfaa, refdb, blastpout, top_per_query=top_per_query)
-    besthits = parse_blastp(blastpout, max_hits_per_query=top_per_query)
+    besthits_set = set(parse_blastp(blastpout, max_hits_per_query=top_per_query))
 
-    seenids: List[str] = []
+    seenids: set[str] = set()
     outseqs: List[SeqIO.SeqRecord] = []
 
     for seq_record in SeqIO.parse(queryfaa, "fasta"):
         if seq_record.id not in seenids:
             outseqs.append(seq_record)
-            seenids.append(seq_record.id)
+            seenids.add(seq_record.id)
 
     for seq_record in SeqIO.parse(reffaa, "fasta"):
-        if seq_record.description in besthits and seq_record.id not in seenids:
+        if (
+            seq_record.id in besthits_set or seq_record.description in besthits_set
+        ) and seq_record.id not in seenids:
             outseqs.append(seq_record)
-            seenids.append(seq_record.id)
+            seenids.add(seq_record.id)
 
     SeqIO.write(outseqs, reduced_reffaa_merged, "fasta")
 

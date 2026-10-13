@@ -15,7 +15,7 @@ def main() -> int:
     config_dir.mkdir(parents=True, exist_ok=True)
     repo_path_file = config_dir / "repo_path"
 
-    targets = ["gvclass", "gvclass-a"]
+    targets = ["gvclass"]
     installed = []
     for name in targets:
         src = repo_dir / name

@@ -15,6 +15,38 @@ compatible bundle is noted per release.
 
 No unreleased changes.
 
+## [2.1.0] - 2026-10-13
+
+Compatible resource bundle: v2.0.0 (Zenodo DOI 10.5281/zenodo.21225457),
+unchanged from 2.0.3.
+
+### Changed
+
+- Unified `gvclass` and `gvclass-a` into a single `gvclass` entrypoint supporting
+  both local execution and Apptainer containers (`--apptainer`, `--image`, and
+  standalone `wget` fallback) with full CLI flag forwarding.
+- Consolidated `src/test/` into `tests/`, moved benchmark helpers to `scripts/`,
+  and removed legacy `src/bin/gvclass_*.sh` wrappers.
+
+### Fixed
+
+- Species-tree placement no longer misclassifies `|`-delimited reference leaves as
+  queries; top-down consensus filters strictly along the winning parent lineage;
+  `witchi` pruning guards `<4`-column/taxon matrices; marker hit ties break
+  deterministically by protein ID.
+- Contigs-mode contamination resolves `{parent}__{contig}` query names; cellular
+  contig density cap reads `max_len=200.0` from model metadata; novelty-aware
+  completeness preserves `completeness_strategy` and logs fallbacks.
+- `TreeBuilder` passes per-call thread budgets instead of mutating shared instance
+  state across worker threads; IQ-TREE cleans up stale files before non-`-fast`
+  retries; empty `.faa` inputs fail fast; YAML `species_tree` settings are
+  preserved when CLI flags are omitted.
+
+### Performance
+
+- Cut peak worker RSS by ~28% via lazy PyArrow predicate pushdown and narrow
+  2-column label projection in `CompactResourceStore`, plus bounded HMM LRU caching.
+
 ## [2.0.3] - 2026-07-27
 
 Compatible resource bundle: v2.0.0 (Zenodo DOI 10.5281/zenodo.21225457),

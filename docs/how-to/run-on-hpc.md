@@ -53,35 +53,37 @@ The CLI options `--cluster-type`, `--cluster-queue`, `--cluster-project` and `--
 
 ## Use the Apptainer image
 
-The image includes GVClass, its dependencies and database. The wrapper requires Apptainer and Python 3.10 or later on the host. If your cluster uses environment modules, load Apptainer before running the wrapper.
+The image includes GVClass, its dependencies and database. The `gvclass` entrypoint requires Apptainer and Python 3.10 or later on the host when used in container mode. If your cluster uses environment modules, load Apptainer before running `gvclass`.
 
-### 1. Download the wrapper and image
+### 1. Download the launcher and image
+
+If you do not have a repository checkout on the cluster, download the standalone `gvclass` launcher and pull the SIF image:
 
 ```bash
-wget https://raw.githubusercontent.com/NeLLi-team/gvclass/main/gvclass-a
-chmod +x gvclass-a
+wget https://raw.githubusercontent.com/NeLLi-team/gvclass/main/gvclass
+chmod +x gvclass
 apptainer pull --library https://library.sylabs.io \
-  gvclass_2.0.3.sif library://nelligroup-jgi/gvclass/gvclass:2.0.3
+  gvclass_2.1.0.sif library://nelligroup-jgi/gvclass/gvclass:2.1.0
 ```
 
-Pass the downloaded image to the wrapper with `--image` in each run.
+Pass the downloaded image to `gvclass` with `--image` (or pass `--apptainer` to pull and cache the default image automatically).
 
 ### 2. Run within a compute allocation
 
 Put one `.fna` or `.faa` file per genome in `query_genomes/`, then run:
 
 ```bash
-./gvclass-a query_genomes apptainer_results -t 8 --image "$PWD/gvclass_2.0.3.sif"
+./gvclass query_genomes -o apptainer_results -t 8 --image "$PWD/gvclass_2.1.0.sif"
 ```
 
 For a Slurm job, replace the `pixi run gvclass` line in the batch script with:
 
 ```bash
-./gvclass-a query_genomes apptainer_results -t "$SLURM_CPUS_PER_TASK" \
-  --image "$PWD/gvclass_2.0.3.sif"
+./gvclass query_genomes -o apptainer_results -t "$SLURM_CPUS_PER_TASK" \
+  --image "$PWD/gvclass_2.1.0.sif"
 ```
 
-The wrapper accepts the output as a second positional path or with `-o`.
+The container mode accepts the output with `-o` / `--output-dir` (or as a second positional path).
 
 ### 3. Set the cache location if needed
 
@@ -92,7 +94,8 @@ The database cache is stored in `~/.cache/gvclass/resource-cache/v2.0.0/`. To pu
 | `-t N` | Total threads; match the CPU allocation |
 | `-j N` | Number of queries processed concurrently |
 | `--contigs` | Classify input contigs separately |
-| `--image PATH_OR_URI` | Select a local SIF or another image URI |
+| `--apptainer` | Run inside the Apptainer SIF image |
+| `--image PATH_OR_URI` | Select a local SIF or another image URI (implies `--apptainer`) |
 | `--resource-cache-dir PATH` | Select a writable database cache directory |
 
-For species trees, use the Pixi steps above; the wrapper does not accept species-tree flags. See the [CLI reference](../reference/cli.md) for supported options.
+All standard pipeline and species-tree flags (`--species-tree`, `--species-tree-combined`, `--resume`, etc.) are forwarded into the container. See the [CLI reference](../reference/cli.md) for supported options.

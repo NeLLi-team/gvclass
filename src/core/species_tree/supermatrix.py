@@ -43,7 +43,7 @@ def is_query_leaf(name: str) -> bool:
 def denamespace(name: str) -> str:
     """Reverse leaf namespacing for output (queries lose the prefix; refs keep id)."""
     if name.startswith(QUERY_PREFIX):
-        return name[len(QUERY_PREFIX):]
+        return name[len(QUERY_PREFIX) :]
     return name
 
 
@@ -82,18 +82,25 @@ def _witchi_prune(aln_path: Path, threads: int, timeout: int = 1200) -> Optional
     try:
         proc = subprocess.run(
             [
-                witchi, "prune",
-                "--file", str(aln_path),
-                "--format", "fasta",
-                "--num_workers_chisq", str(max(1, threads)),
-                "--num_workers_permute", str(max(1, threads)),
+                witchi,
+                "prune",
+                "--file",
+                str(aln_path),
+                "--format",
+                "fasta",
+                "--num_workers_chisq",
+                str(max(1, threads)),
+                "--num_workers_permute",
+                str(max(1, threads)),
                 # Speed: 20 permutations (vs default 100) for the stopping null and
                 # 10 columns removed per iteration (vs 1) cut the recursive pruning
                 # cost ~50x on the large supermatrix blocks with negligible effect
                 # on the kept-column set. Output name becomes <stem>_wasserstein_s10
                 # _pruned.fasta, still matched by the <stem>_*_pruned.fasta glob.
-                "--permutations", "20",
-                "--top_n", "10",
+                "--permutations",
+                "20",
+                "--top_n",
+                "10",
             ],
             capture_output=True,
             text=True,
@@ -239,7 +246,9 @@ def build_supermatrix(
             for leaf, seq in aligned:
                 handle.write(f">{leaf}\n{seq.replace('*', '-')}\n")
 
-        block = _trim_group_alignment(aln_path, threads, set(block_in), method=trim_method)
+        block = _trim_group_alignment(
+            aln_path, threads, set(block_in), method=trim_method
+        )
         if not _uniform_nonempty(block):
             dropped_groups.append(group)
             logger.warning("Group %s produced an empty/ragged block; dropped", group)
@@ -286,7 +295,8 @@ def build_supermatrix(
 
     if dropped_leaves:
         logger.info(
-            "Excluded %d taxa absent from every surviving group block", len(dropped_leaves)
+            "Excluded %d taxa absent from every surviving group block",
+            len(dropped_leaves),
         )
 
     return SupermatrixResult(

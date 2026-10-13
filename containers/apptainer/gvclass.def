@@ -8,7 +8,6 @@ From: ghcr.io/prefix-dev/pixi:latest
     containers /opt/gvclass/containers
     example /opt/gvclass/example
     gvclass /opt/gvclass/gvclass
-    gvclass-a /opt/gvclass/gvclass-a
     images /opt/gvclass/images
     pixi.lock /opt/gvclass/pixi.lock
     pixi.toml /opt/gvclass/pixi.toml
@@ -61,9 +60,13 @@ From: ghcr.io/prefix-dev/pixi:latest
 
     # Make the application tree usable by non-root Apptainer/Singularity users.
     chmod -R a+rX /opt/gvclass
-    chmod a+rx /opt/gvclass/gvclass /opt/gvclass/gvclass-a
+    chmod a+rx /opt/gvclass/gvclass
     ln -sf /opt/gvclass/gvclass /usr/local/bin/gvclass
 %runscript
+    if [ "$1" = "-h" ] || [ "$1" = "--help" ] || [ "$1" = "--version" ]; then
+        cd /opt/gvclass
+        exec ./gvclass "$@"
+    fi
     # Check if first argument looks like a path
     if [ -z "$1" ] || [ "$(echo "$1" | cut -c1)" = "-" ]; then
         echo "Error: Please provide input directory as first argument"
@@ -77,13 +80,13 @@ From: ghcr.io/prefix-dev/pixi:latest
 
 %labels
     Author fschulz
-    Version 2.0.3
+    Version 2.1.0
     Description GVClass - Giant Virus Classification Pipeline with Pixi
     Database v2.0.0
     ResourceCache /resource-cache
 
 %help
-    GVClass Pipeline 2.0.3
+    GVClass Pipeline 2.1.0
     
     IMPORTANT: Input data must be bind-mounted!
     

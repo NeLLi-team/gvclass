@@ -204,7 +204,7 @@ def build():
         (10.5, 1.80, "Completeness\nnovelty-aware model", TRACKS["quality"], -0.34, False, 9.2, "center"),
         (12.0, 1.80, "Contamination\ntrained model", TRACKS["quality"], -0.34, False, 9.2, "center"),
         # Runner rail.
-        (1.0, 0.55, "pixi run gvclass ·\ngvclass-a (Apptainer)", TRACKS["runner"], -0.22, False, 8.8, "center"),
+        (1.0, 0.55, "pixi run gvclass ·\ngvclass --apptainer", TRACKS["runner"], -0.22, False, 8.8, "center"),
         (5.5, 0.55, "Parallel per-query workers\n-j workers · -t threads", TRACKS["runner"], -0.22, False, 8.8, "center"),
         (9.3, 0.55, "--resume\nrun_status.json", TRACKS["runner"], -0.22, False, 8.8, "center"),
         (13.72, 0.55, "run.log ·\nper-query archives", TRACKS["runner"], -0.22, False, 8.8, "center"),

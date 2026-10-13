@@ -263,7 +263,7 @@ class ContaminationScorer:
     def _extract_tax_token(counter: Counter) -> str:
         if not counter:
             return ""
-        value = counter.most_common(1)[0][0]
+        value = min(counter.items(), key=lambda kv: (-kv[1], kv[0]))[0]
         if "__" not in value:
             return ""
         parts = value.split("__")
@@ -293,7 +293,11 @@ class ContaminationScorer:
     @staticmethod
     def protein_to_contig_id(protein_id: str) -> str:
         token = protein_id.split("|", 1)[1] if "|" in protein_id else protein_id
-        return token.rsplit("_", 1)[0] if "_" in token else token
+        if "_" in token:
+            prefix, suffix = token.rsplit("_", 1)
+            if suffix.isdigit():
+                return prefix
+        return token
 
     def _subject_taxonomy(self, subject_id: str) -> Dict[str, str]:
         genome_id = self._parse_subject_genome_id(subject_id)
@@ -306,12 +310,16 @@ class ContaminationScorer:
             },
         )
 
-    def collect_best_blast_hits(self, blast_dir: Path) -> Dict[str, BlastHit]:
+    def _scan_blast_dir(
+        self, blast_dir: Path
+    ) -> Tuple[Dict[str, BlastHit], Dict[str, set[str]]]:
         best_hits: Dict[str, BlastHit] = {}
+        protein_markers: Dict[str, set[str]] = defaultdict(set)
         if not blast_dir.exists():
-            return best_hits
+            return best_hits, protein_markers
 
         for blast_file in sorted(blast_dir.glob("*.m8")):
+            marker = blast_file.stem
             try:
                 with blast_file.open() as handle:
                     for line in handle:
@@ -325,6 +333,7 @@ class ContaminationScorer:
                             score = float(parts[11])
                         except ValueError:
                             continue
+                        protein_markers[query_id].add(marker)
                         tax = self._subject_taxonomy(subject_id)
                         hit = BlastHit(
                             query_id=query_id,
@@ -336,10 +345,17 @@ class ContaminationScorer:
                             subject_family=tax.get("family", ""),
                         )
                         current = best_hits.get(query_id)
-                        if current is None or (hit.score, hit.identity) > (current.score, current.identity):
+                        if current is None or (hit.score, hit.identity) > (
+                            current.score,
+                            current.identity,
+                        ):
                             best_hits[query_id] = hit
             except Exception as exc:
                 logger.warning("Failed to parse blast file %s: %s", blast_file, exc)
+        return best_hits, protein_markers
+
+    def collect_best_blast_hits(self, blast_dir: Path) -> Dict[str, BlastHit]:
+        best_hits, _ = self._scan_blast_dir(blast_dir)
         return best_hits
 
     @staticmethod
@@ -366,7 +382,11 @@ class ContaminationScorer:
         primary_order: str,
         primary_family: str,
     ) -> Dict[str, float | int | str]:
-        strong_hits = [hit for hit in best_hits.values() if hit.identity >= 60.0 and hit.score >= 80.0]
+        strong_hits = [
+            hit
+            for hit in best_hits.values()
+            if hit.identity >= 60.0 and hit.score >= 80.0
+        ]
         if not strong_hits:
             return {
                 "strong_best_hit_count": 0,
@@ -399,10 +419,18 @@ class ContaminationScorer:
                 nonviral.append(hit)
                 nonviral_lineages[hit.subject_family or domain] += 1
             elif domain in GIANT_VIRUS_PREFIXES:
-                if primary_order and hit.subject_order and hit.subject_order != primary_order:
+                if (
+                    primary_order
+                    and hit.subject_order
+                    and hit.subject_order != primary_order
+                ):
                     foreign_viral_order.append(hit)
                     foreign_orders[hit.subject_order] += 1
-                if primary_family and hit.subject_family and hit.subject_family != primary_family:
+                if (
+                    primary_family
+                    and hit.subject_family
+                    and hit.subject_family != primary_family
+                ):
                     foreign_viral_family.append(hit)
 
         strong_count = len(strong_hits)
@@ -410,10 +438,14 @@ class ContaminationScorer:
         nonviral_fraction = nonviral_count / strong_count
         dominant_nonviral_fraction = 0.0
         if nonviral_lineages and nonviral_count > 0:
-            dominant_nonviral_fraction = nonviral_lineages.most_common(1)[0][1] / nonviral_count
+            dominant_nonviral_fraction = (
+                nonviral_lineages.most_common(1)[0][1] / nonviral_count
+            )
         dominant_foreign_order_fraction = 0.0
         if foreign_orders and foreign_viral_order:
-            dominant_foreign_order_fraction = foreign_orders.most_common(1)[0][1] / len(foreign_viral_order)
+            dominant_foreign_order_fraction = foreign_orders.most_common(1)[0][1] / len(
+                foreign_viral_order
+            )
 
         return {
             "strong_best_hit_count": strong_count,
@@ -423,11 +455,17 @@ class ContaminationScorer:
             "strong_phage_hit_count": len(phage),
             "foreign_viral_order_hit_count": len(foreign_viral_order),
             "foreign_viral_family_hit_count": len(foreign_viral_family),
-            "dominant_nonviral_lineage_fraction": round(dominant_nonviral_fraction * 100.0, 2),
-            "dominant_foreign_viral_order_fraction": round(dominant_foreign_order_fraction * 100.0, 2),
+            "dominant_nonviral_lineage_fraction": round(
+                dominant_nonviral_fraction * 100.0, 2
+            ),
+            "dominant_foreign_viral_order_fraction": round(
+                dominant_foreign_order_fraction * 100.0, 2
+            ),
         }
 
-    def compute_tree_features(self, tax_counters: Dict[str, Counter]) -> Dict[str, float]:
+    def compute_tree_features(
+        self, tax_counters: Dict[str, Counter]
+    ) -> Dict[str, float]:
         order_majority = self._majority_fraction(tax_counters.get("order", Counter()))
         family_majority = self._majority_fraction(tax_counters.get("family", Counter()))
         order_second = self._second_fraction(tax_counters.get("order", Counter()))
@@ -449,6 +487,7 @@ class ContaminationScorer:
         marker_counts: Dict[str, int],
         tax_counters: Dict[str, Counter],
         query_output_dir: Path,
+        best_hits: Dict[str, BlastHit] | None = None,
     ) -> Dict[str, Any]:
         marker_hits = {}
         hmmout_file = query_output_dir / "hmmout" / "models.out.filtered"
@@ -456,7 +495,9 @@ class ContaminationScorer:
             try:
                 marker_hits = parse_hmm_output(hmmout_file)
             except Exception as exc:
-                logger.warning("Failed to parse marker hits from %s: %s", hmmout_file, exc)
+                logger.warning(
+                    "Failed to parse marker hits from %s: %s", hmmout_file, exc
+                )
 
         cellular_unique = sum(1 for m in CELLULAR_MODELS if marker_counts.get(m, 0) > 0)
         phage_unique = sum(1 for m in PHAGE_MODELS_SET if marker_counts.get(m, 0) > 0)
@@ -475,8 +516,11 @@ class ContaminationScorer:
 
         primary_order = self._extract_tax_token(tax_counters.get("order", Counter()))
         primary_family = self._extract_tax_token(tax_counters.get("family", Counter()))
-        best_hits = self.collect_best_blast_hits(query_output_dir / "blastp_out")
-        blast_features = self.compute_blast_features(best_hits, primary_order, primary_family)
+        if best_hits is None:
+            best_hits = self.collect_best_blast_hits(query_output_dir / "blastp_out")
+        blast_features = self.compute_blast_features(
+            best_hits, primary_order, primary_family
+        )
         tree_features = self.compute_tree_features(tax_counters)
 
         cellular_signal = 0.0
@@ -486,7 +530,9 @@ class ContaminationScorer:
         cellular_signal += float(blast_features["strong_cellular_hit_count"]) * 3.0
         cellular_signal += float(blast_features["nonviral_best_hit_fraction"]) * 0.20
         if float(blast_features["strong_cellular_hit_count"]) >= 3:
-            cellular_signal += float(blast_features["dominant_nonviral_lineage_fraction"]) * 0.10
+            cellular_signal += (
+                float(blast_features["dominant_nonviral_lineage_fraction"]) * 0.10
+            )
         cellular_signal = self._clip(cellular_signal)
 
         phage_signal = 0.0
@@ -496,15 +542,27 @@ class ContaminationScorer:
         phage_signal += float(blast_features["strong_phage_hit_count"]) * 4.0
         phage_signal = self._clip(phage_signal)
 
-        duplication_signal = self._clip(max(0.0, order_dup - 1.20) * 45.0 + max(0.0, gvog8_dup - 1.30) * 30.0)
+        duplication_signal = self._clip(
+            max(0.0, order_dup - 1.20) * 45.0 + max(0.0, gvog8_dup - 1.30) * 30.0
+        )
 
         viral_mixture_signal = 0.0
-        viral_mixture_signal += max(0.0, float(tree_features["order_secondary_fraction"]) - 10.0) * 1.3
-        viral_mixture_signal += max(0.0, float(tree_features["family_secondary_fraction"]) - 15.0) * 0.8
-        viral_mixture_signal += float(blast_features["foreign_viral_order_hit_count"]) * 5.0
-        viral_mixture_signal += float(blast_features["foreign_viral_family_hit_count"]) * 2.5
+        viral_mixture_signal += (
+            max(0.0, float(tree_features["order_secondary_fraction"]) - 10.0) * 1.3
+        )
+        viral_mixture_signal += (
+            max(0.0, float(tree_features["family_secondary_fraction"]) - 15.0) * 0.8
+        )
+        viral_mixture_signal += (
+            float(blast_features["foreign_viral_order_hit_count"]) * 5.0
+        )
+        viral_mixture_signal += (
+            float(blast_features["foreign_viral_family_hit_count"]) * 2.5
+        )
         if float(blast_features["foreign_viral_order_hit_count"]) >= 3:
-            viral_mixture_signal += float(blast_features["dominant_foreign_viral_order_fraction"]) * 0.15
+            viral_mixture_signal += (
+                float(blast_features["dominant_foreign_viral_order_fraction"]) * 0.15
+            )
         viral_mixture_signal = self._clip(viral_mixture_signal)
 
         contamination_score = self._clip(
@@ -541,7 +599,9 @@ class ContaminationScorer:
             "contamination_phage_signal_v1": round(phage_signal, 2),
             "contamination_duplication_signal_v1": round(duplication_signal, 2),
             "contamination_viral_mixture_signal_v1": round(viral_mixture_signal, 2),
-            "contamination_nonviral_hit_fraction_v1": float(blast_features["nonviral_best_hit_fraction"]),
+            "contamination_nonviral_hit_fraction_v1": float(
+                blast_features["nonviral_best_hit_fraction"]
+            ),
             "estimated_contamination": round(contamination_score, 2),
             "estimated_contamination_strategy": "rule_based_v1",
         }
@@ -573,8 +633,7 @@ class ContaminationScorer:
         n_distinct = len(set(protein_to_contig.values()))
         if (
             n_proteins >= MIN_MARKER_PROTEINS_FOR_FRACTION
-            and (n_distinct / n_proteins)
-            >= WEAK_ATTRIBUTION_UNIQUE_CONTIG_FRACTION
+            and (n_distinct / n_proteins) >= WEAK_ATTRIBUTION_UNIQUE_CONTIG_FRACTION
         ):
             return "faa_weak_per_protein"
         return "faa_contig_encoded"
@@ -631,9 +690,7 @@ class ContaminationScorer:
         cellular_identities: List[float] = []
 
         for protein_id in contig_proteins:
-            lineage = self._per_protein_dominant_lineage(
-                protein_id, tree_nn_results
-            )
+            lineage = self._per_protein_dominant_lineage(protein_id, tree_nn_results)
             if lineage is None:
                 continue
             domain = lineage["domain"]
@@ -641,9 +698,7 @@ class ContaminationScorer:
                 viral_proteins.append(protein_id)
             elif domain in CELLULAR_PREFIXES:
                 cellular_proteins.append(protein_id)
-                cellular_order_keys.append(
-                    (domain, lineage.get("order", ""))
-                )
+                cellular_order_keys.append((domain, lineage.get("order", "")))
                 hit = best_hits.get(protein_id)
                 if hit is not None and hit.subject_domain in CELLULAR_PREFIXES:
                     cellular_identities.append(hit.identity)
@@ -661,9 +716,7 @@ class ContaminationScorer:
             top_count = order_counter.most_common(1)[0][1]
             lineage_purity = top_count / n_cellular
             median_identity = (
-                float(np.median(cellular_identities))
-                if cellular_identities
-                else 0.0
+                float(np.median(cellular_identities)) if cellular_identities else 0.0
             )
             if (
                 lineage_purity >= PURITY_THRESHOLD
@@ -683,9 +736,7 @@ class ContaminationScorer:
             "n_cellular_proteins": n_cellular,
             "cellular_lineage_purity": lineage_purity,
             "cellular_hit_median_identity": (
-                float(np.median(cellular_identities))
-                if cellular_identities
-                else 0.0
+                float(np.median(cellular_identities)) if cellular_identities else 0.0
             ),
         }
 
@@ -696,6 +747,7 @@ class ContaminationScorer:
         tree_nn_results: Dict[str, Dict[str, Dict[str, float]]],
         best_hits: Dict[str, BlastHit],
         attribution_mode: str,
+        _out_coherent_contig_ids: set[str] | None = None,
     ) -> Dict[str, Any]:
         """Aggregate per-contig classifications into the six features the
         v1.4.3 contamination model consumes. Emits neutral values under
@@ -734,6 +786,8 @@ class ContaminationScorer:
                 viral_bearing_count += 1
             elif result["classification"] == "cellular_coherent":
                 cellular_coherent.append(result)
+                if _out_coherent_contig_ids is not None:
+                    _out_coherent_contig_ids.add(contig_id)
 
         cellular_protein_ids = {
             protein
@@ -750,8 +804,7 @@ class ContaminationScorer:
 
         total_bp = sum(contig_lengths.values()) or 1
         cellular_bp = sum(
-            contig_lengths.get(record["contig_id"], 0)
-            for record in cellular_coherent
+            contig_lengths.get(record["contig_id"], 0) for record in cellular_coherent
         )
         bp_fraction = (cellular_bp / total_bp) * 100.0
 
@@ -784,8 +837,13 @@ class ContaminationScorer:
         primary_order: str,
         primary_family: str,
         tree_nn_results: Dict[str, Dict[str, Dict[str, float]]] | None = None,
+        _precomputed_blast: (
+            Tuple[Dict[str, BlastHit], Dict[str, set[str]]] | None
+        ) = None,
     ) -> Dict[str, Any]:
-        query_file_kind = "fna" if query_fna and query_fna.exists() and query_fna.is_file() else "faa"
+        query_file_kind = (
+            "fna" if query_fna and query_fna.exists() and query_fna.is_file() else "faa"
+        )
         contig_lengths: Dict[str, int] = {}
         if query_file_kind == "fna":
             for record in SeqIO.parse(str(query_fna), "fasta"):
@@ -803,45 +861,20 @@ class ContaminationScorer:
         contig_markers: Dict[str, set[str]] = defaultdict(set)
         contig_cellular_markers: Dict[str, set[str]] = defaultdict(set)
         contig_phage_markers: Dict[str, set[str]] = defaultdict(set)
-        best_hits: Dict[str, BlastHit] = {}
+        if _precomputed_blast is not None:
+            best_hits, protein_markers = _precomputed_blast
+        else:
+            best_hits, protein_markers = self._scan_blast_dir(blast_dir)
 
-        for blast_file in sorted(blast_dir.glob("*.m8")):
-            marker = blast_file.stem
-            try:
-                with blast_file.open() as handle:
-                    for line in handle:
-                        parts = line.rstrip("\n").split("\t")
-                        if len(parts) < 12:
-                            continue
-                        query_id = parts[0]
-                        subject_id = parts[1]
-                        try:
-                            identity = float(parts[2])
-                            score = float(parts[11])
-                        except ValueError:
-                            continue
-                        contig_id = protein_to_contig.get(query_id)
-                        if contig_id:
-                            contig_markers[contig_id].add(marker)
-                            if marker in CELLULAR_MODELS:
-                                contig_cellular_markers[contig_id].add(marker)
-                            if marker in PHAGE_MODELS_SET:
-                                contig_phage_markers[contig_id].add(marker)
-                        tax = self._subject_taxonomy(subject_id)
-                        hit = BlastHit(
-                            query_id=query_id,
-                            subject_id=subject_id,
-                            identity=identity,
-                            score=score,
-                            subject_domain=tax.get("domain", "NA"),
-                            subject_order=tax.get("order", ""),
-                            subject_family=tax.get("family", ""),
-                        )
-                        current = best_hits.get(query_id)
-                        if current is None or (hit.score, hit.identity) > (current.score, current.identity):
-                            best_hits[query_id] = hit
-            except Exception as exc:
-                logger.warning("Failed to parse contig blast file %s: %s", blast_file, exc)
+        for query_id, markers in protein_markers.items():
+            contig_id = protein_to_contig.get(query_id)
+            if contig_id:
+                for marker in markers:
+                    contig_markers[contig_id].add(marker)
+                    if marker in CELLULAR_MODELS:
+                        contig_cellular_markers[contig_id].add(marker)
+                    if marker in PHAGE_MODELS_SET:
+                        contig_phage_markers[contig_id].add(marker)
 
         contig_query_hits: Dict[str, List[BlastHit]] = defaultdict(list)
         for query_id, hit in best_hits.items():
@@ -874,28 +907,15 @@ class ContaminationScorer:
         # consumes the same marker_bearing_proteins set and attribution
         # mode that we just computed, so the feature values and the
         # user-facing mode always agree.
+        coherent_contig_ids: set[str] = set()
         purity_features = self.compute_contig_purity_features(
             protein_to_contig=marker_bearing_proteins,
             contig_lengths=contig_lengths,
             tree_nn_results=tree_nn_results or {},
             best_hits=best_hits,
             attribution_mode=attribution_mode,
+            _out_coherent_contig_ids=coherent_contig_ids,
         )
-        coherent_contig_ids: set[str] = set()
-        if purity_features.get("per_contig_classifier_active"):
-            # Re-run the classifier per contig so we can fill the
-            # suspicious_contigs list with cellular_coherent_lineage
-            # entries (replacing the legacy cellular_markers /
-            # cellular_hits triggers per the plan).
-            contig_to_proteins: Dict[str, List[str]] = defaultdict(list)
-            for protein_id, contig_id in marker_bearing_proteins.items():
-                contig_to_proteins[contig_id].append(protein_id)
-            for contig_id, proteins in contig_to_proteins.items():
-                classification = self._classify_contig_purity(
-                    contig_id, proteins, tree_nn_results or {}, best_hits
-                )
-                if classification["classification"] == "cellular_coherent":
-                    coherent_contig_ids.add(contig_id)
 
         total_bp = sum(contig_lengths.values()) or 1
         suspicious_bp = 0
@@ -903,18 +923,32 @@ class ContaminationScorer:
         for contig_id, length in contig_lengths.items():
             hits = contig_query_hits.get(contig_id, [])
             strong = [hit for hit in hits if hit.identity >= 60.0 and hit.score >= 80.0]
-            cellular_hits = [hit for hit in strong if hit.subject_domain in CELLULAR_PREFIXES]
+            cellular_hits = [
+                hit for hit in strong if hit.subject_domain in CELLULAR_PREFIXES
+            ]
             phage_hits = [hit for hit in strong if hit.subject_domain in PHAGE_PREFIXES]
-            viral_hits = [hit for hit in strong if hit.subject_domain in GIANT_VIRUS_PREFIXES]
+            viral_hits = [
+                hit for hit in strong if hit.subject_domain in GIANT_VIRUS_PREFIXES
+            ]
             foreign_viral = [
-                hit for hit in viral_hits if primary_order and hit.subject_order and hit.subject_order != primary_order
+                hit
+                for hit in viral_hits
+                if primary_order
+                and hit.subject_order
+                and hit.subject_order != primary_order
             ]
             markers = contig_markers.get(contig_id, set())
             viral_marker_count = len(markers - CELLULAR_MODELS - PHAGE_MODELS_SET)
             cellular_marker_count = len(contig_cellular_markers.get(contig_id, set()))
             phage_marker_count = len(contig_phage_markers.get(contig_id, set()))
-            nonviral_fraction = 0.0 if not strong else (len(cellular_hits) + len(phage_hits)) / len(strong)
-            foreign_viral_fraction = 0.0 if not viral_hits else len(foreign_viral) / len(viral_hits)
+            nonviral_fraction = (
+                0.0
+                if not strong
+                else (len(cellular_hits) + len(phage_hits)) / len(strong)
+            )
+            foreign_viral_fraction = (
+                0.0 if not viral_hits else len(foreign_viral) / len(viral_hits)
+            )
 
             suspicious = False
             reason = ""
@@ -971,7 +1005,9 @@ class ContaminationScorer:
                         "phage_marker_count": phage_marker_count,
                         "viral_marker_count": viral_marker_count,
                         "nonviral_fraction": round(nonviral_fraction * 100.0, 2),
-                        "foreign_viral_fraction": round(foreign_viral_fraction * 100.0, 2),
+                        "foreign_viral_fraction": round(
+                            foreign_viral_fraction * 100.0, 2
+                        ),
                     }
                 )
 

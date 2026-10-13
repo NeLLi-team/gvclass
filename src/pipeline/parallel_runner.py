@@ -47,7 +47,7 @@ def validate_and_setup_task(
     # directory of .fasta inputs would validate but yield zero queries
     # (Codex-audit finding).
     query_files = []
-    for ext in (".fna", ".faa", ".fasta", ".fas"):
+    for ext in (".fna", ".faa", ".fasta", ".fas", ".fa"):
         query_files.extend(query_path.glob(f"*{ext}"))
     query_files = sorted(query_files)
 
@@ -88,8 +88,8 @@ def process_query_task(
     genetic_codes: List[int],
     tree_method: str,
     mode_fast: bool,
-    completeness_mode: str = "legacy",
-    sensitive_mode: bool = False,
+    completeness_mode: str = "novelty-aware",
+    sensitive_mode: bool = True,
     threads: int = 4,
     species_tree: bool = False,
     species_tree_trim: str = "witchi",
@@ -423,8 +423,8 @@ def gvclass_flow(
     tree_method: str = "veryfasttree",
     iqtree_mode: str = "fast",
     mode_fast: bool = True,
-    completeness_mode: str = "legacy",
-    sensitive_mode: bool = False,
+    completeness_mode: str = "novelty-aware",
+    sensitive_mode: bool = True,
     cluster_type: str = "local",
     cluster_config: Optional[Dict[str, Any]] = None,
     resume: bool = False,
@@ -477,134 +477,144 @@ def gvclass_flow(
         },
     )
     run_status.start()
+    run_status_finished = False
 
-    # When --resume is set and every query is already complete in the manifest
-    # (or a valid legacy marker), we have nothing to process. Creating a
-    # ThreadPoolExecutor with max_workers=0 would raise ValueError, so short-
-    # circuit and emit the summary from whatever is already on disk.
-    if n_queries == 0:
-        logger.info(
-            "No queries remaining after resume filter; skipping parallel processing."
-        )
-        if species_tree_combined:
+    try:
+        # When --resume is set and every query is already complete in the manifest
+        # (or a valid legacy marker), we have nothing to process. Creating a
+        # ThreadPoolExecutor with max_workers=0 would raise ValueError, so short-
+        # circuit and emit the summary from whatever is already on disk.
+        if n_queries == 0:
             logger.info(
-                "All queries resume-skipped; the combined species tree is built only "
-                "from this run's queries, so it is not regenerated. Re-run without "
-                "--resume to rebuild out/species_tree/combined.*"
+                "No queries remaining after resume filter; skipping parallel processing."
             )
-        all_results = _combine_with_resume_skipped_results(config, [], logger)
+            if species_tree_combined:
+                logger.info(
+                    "All queries resume-skipped; the combined species tree is built only "
+                    "from this run's queries, so it is not regenerated. Re-run without "
+                    "--resume to rebuild out/species_tree/combined.*"
+                )
+            all_results = _combine_with_resume_skipped_results(config, [], logger)
+            summary_file = create_final_summary_task(all_results, config["output_path"])
+            failed_results = [
+                result for result in all_results if result.get("status") != "complete"
+            ]
+            run_status.finish("failed" if failed_results else "complete")
+            run_status_finished = True
+            if failed_results:
+                raise RuntimeError(
+                    f"GVClass failed to recover summaries for {len(failed_results)} "
+                    "resume-skipped queries; see run_status.json and the final summary."
+                )
+            logger.info(f"Pipeline completed! Results in: {config['output_path']}")
+            logger.info(f"Summary written to: {summary_file}")
+            _ = cluster_type
+            _ = cluster_config
+            return summary_file
+
+        n_workers, threads_per_worker = _resolve_worker_distribution(
+            n_queries, total_threads, max_workers, threads_per_worker
+        )
+        logger.info(
+            f"Parallelization strategy: {n_workers} workers × {threads_per_worker} threads"
+        )
+
+        # Clear any previous species-tree scratch + outputs and record this run's
+        # queries so the per-query hook and the opt-in combined step read exactly this
+        # run's sidecars. Wrapped so a scratch/filesystem failure disables the feature
+        # rather than aborting the run.
+        if species_tree:
+            skipped = config.get("resume_skipped_query_names", [])
+            if resume and skipped:
+                logger.warning(
+                    "%d resume-skipped queries will have no species-tree placement this run "
+                    "(per-query trees + species_tree_* columns are produced only for queries "
+                    "processed this run); re-run those without --resume to place them.",
+                    len(skipped),
+                )
+            try:
+                from src.core.species_tree.handoff import init_handoff
+
+                init_handoff(
+                    Path(config["output_path"]),
+                    [query_file.stem for query_file in config["query_files"]],
+                    resume=resume,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Species-tree handoff init failed (%s); disabling --species-tree for this run",
+                    exc,
+                )
+                species_tree = False
+                species_tree_combined = False
+
+        logger.info("Starting parallel query processing")
+        results, total_queries = _process_queries_in_parallel(
+            config,
+            n_workers,
+            list(DEFAULT_GENETIC_CODES),
+            tree_method,
+            mode_fast,
+            completeness_mode,
+            sensitive_mode,
+            threads_per_worker,
+            logger,
+            species_tree=species_tree,
+            species_tree_trim=species_tree_trim,
+            run_status=run_status,
+        )
+        completed_count = _count_completed(results)
+        logger.info(
+            f"All queries complete. Successfully processed {completed_count}/{total_queries} queries"
+        )
+
+        # Opt-in combined species tree from this run's sidecars (--species-tree-combined).
+        # The per-query hook already owns the summary columns, so this writes only the
+        # additional <out>/species_tree/ combined artifacts. Never blocks the summary
+        # (internally wrapped). Resume-skipped queries are excluded (they have no
+        # sidecar this run) — a documented limitation.
+        if species_tree_combined:
+            try:
+                from src.core.species_tree.orchestration import (
+                    run_combined_species_tree,
+                )
+
+                run_combined_species_tree(
+                    Path(config["output_path"]),
+                    Path(config["database_path"]),
+                    results,
+                    total_threads,
+                    species_tree_trim,
+                    tree_method,
+                )
+            except Exception as exc:
+                logger.warning("Combined species-tree step failed: %s", exc)
+
+        logger.info("Creating final summary...")
+        all_results = _combine_with_resume_skipped_results(config, results, logger)
         summary_file = create_final_summary_task(all_results, config["output_path"])
         failed_results = [
             result for result in all_results if result.get("status") != "complete"
         ]
         run_status.finish("failed" if failed_results else "complete")
-        if failed_results:
-            raise RuntimeError(
-                f"GVClass failed to recover summaries for {len(failed_results)} "
-                "resume-skipped queries; see run_status.json and the final summary."
-            )
+        run_status_finished = True
         logger.info(f"Pipeline completed! Results in: {config['output_path']}")
         logger.info(f"Summary written to: {summary_file}")
+        logger.info(f"Successfully processed {completed_count}/{len(results)} queries")
+
         _ = cluster_type
         _ = cluster_config
+        if failed_results:
+            raise RuntimeError(
+                f"GVClass failed for {len(failed_results)} of "
+                f"{len(all_results)} queries; partial results were written to "
+                f"{config['output_path']}."
+            )
         return summary_file
-
-    n_workers, threads_per_worker = _resolve_worker_distribution(
-        n_queries, total_threads, max_workers, threads_per_worker
-    )
-    logger.info(
-        f"Parallelization strategy: {n_workers} workers × {threads_per_worker} threads"
-    )
-
-    # Clear any previous species-tree scratch + outputs and record this run's
-    # queries so the per-query hook and the opt-in combined step read exactly this
-    # run's sidecars. Wrapped so a scratch/filesystem failure disables the feature
-    # rather than aborting the run.
-    if species_tree:
-        skipped = config.get("resume_skipped_query_names", [])
-        if resume and skipped:
-            logger.warning(
-                "%d resume-skipped queries will have no species-tree placement this run "
-                "(per-query trees + species_tree_* columns are produced only for queries "
-                "processed this run); re-run those without --resume to place them.",
-                len(skipped),
-            )
-        try:
-            from src.core.species_tree.handoff import init_handoff
-
-            init_handoff(
-                Path(config["output_path"]),
-                [query_file.stem for query_file in config["query_files"]],
-                resume=resume,
-            )
-        except Exception as exc:
-            logger.warning(
-                "Species-tree handoff init failed (%s); disabling --species-tree for this run",
-                exc,
-            )
-            species_tree = False
-            species_tree_combined = False
-
-    logger.info("Starting parallel query processing")
-    results, total_queries = _process_queries_in_parallel(
-        config,
-        n_workers,
-        list(DEFAULT_GENETIC_CODES),
-        tree_method,
-        mode_fast,
-        completeness_mode,
-        sensitive_mode,
-        threads_per_worker,
-        logger,
-        species_tree=species_tree,
-        species_tree_trim=species_tree_trim,
-        run_status=run_status,
-    )
-    completed_count = _count_completed(results)
-    logger.info(
-        f"All queries complete. Successfully processed {completed_count}/{total_queries} queries"
-    )
-
-    # Opt-in combined species tree from this run's sidecars (--species-tree-combined).
-    # The per-query hook already owns the summary columns, so this writes only the
-    # additional <out>/species_tree/ combined artifacts. Never blocks the summary
-    # (internally wrapped). Resume-skipped queries are excluded (they have no
-    # sidecar this run) — a documented limitation.
-    if species_tree_combined:
-        try:
-            from src.core.species_tree.orchestration import run_combined_species_tree
-
-            run_combined_species_tree(
-                Path(config["output_path"]),
-                Path(config["database_path"]),
-                results,
-                total_threads,
-                species_tree_trim,
-                tree_method,
-            )
-        except Exception as exc:
-            logger.warning("Combined species-tree step failed: %s", exc)
-
-    logger.info("Creating final summary...")
-    all_results = _combine_with_resume_skipped_results(config, results, logger)
-    summary_file = create_final_summary_task(all_results, config["output_path"])
-    failed_results = [
-        result for result in all_results if result.get("status") != "complete"
-    ]
-    run_status.finish("failed" if failed_results else "complete")
-    logger.info(f"Pipeline completed! Results in: {config['output_path']}")
-    logger.info(f"Summary written to: {summary_file}")
-    logger.info(f"Successfully processed {completed_count}/{len(results)} queries")
-
-    _ = cluster_type
-    _ = cluster_config
-    if failed_results:
-        raise RuntimeError(
-            f"GVClass failed for {len(failed_results)} of "
-            f"{len(all_results)} queries; partial results were written to "
-            f"{config['output_path']}."
-        )
-    return summary_file
+    except Exception:
+        if not run_status_finished:
+            run_status.finish("failed")
+        raise
 
 
 # NOTE (v1.4.3 cleanup): the former create_local_deployment /

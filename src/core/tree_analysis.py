@@ -19,6 +19,20 @@ def _prefix_tuple(keep_prefix: PrefixFilter) -> Tuple[str, ...]:
     return tuple(keep_prefix)
 
 
+def _is_query_leaf(leaf_name: Optional[str], query_id: str) -> bool:
+    """Return True if ``leaf_name`` belongs to ``query_id`` rather than a reference."""
+    if not leaf_name or not query_id:
+        return False
+    return (
+        leaf_name == query_id
+        or leaf_name.startswith(f"{query_id}|")
+        or (
+            leaf_name.startswith(f"{query_id}_")
+            and not leaf_name[len(query_id) :].startswith("__")
+        )
+    )
+
+
 class TreeAnalyzer:
     """Analyze phylogenetic trees to find nearest neighbors."""
 
@@ -103,7 +117,7 @@ class TreeAnalyzer:
             # Find all query nodes in the tree
             query_nodes = []
             for node in tree.traverse():
-                if node.is_leaf() and node.name.startswith(query_id):
+                if node.is_leaf() and _is_query_leaf(node.name, query_id):
                     query_nodes.append(node)
 
             if len(query_nodes) == 0:
@@ -145,7 +159,7 @@ class TreeAnalyzer:
 
         # Get all non-query leaf nodes
         for node in tree.iter_leaves():
-            if not node.name.startswith(query_id):
+            if not _is_query_leaf(node.name, query_id):
                 try:
                     distance = tree.get_distance(query_node.name, node.name)
                     if distance < min_distance:
@@ -209,12 +223,13 @@ class TreeAnalyzer:
 
         prefixes = _prefix_tuple(keep_prefix)
         query_nodes = [
-            leaf for leaf in tree.iter_leaves() if leaf.name.startswith(query_id)
+            leaf for leaf in tree.iter_leaves() if _is_query_leaf(leaf.name, query_id)
         ]
         candidates = [
             leaf
             for leaf in tree.iter_leaves()
-            if leaf.name.startswith(prefixes) and not leaf.name.startswith(query_id)
+            if leaf.name.startswith(prefixes)
+            and not _is_query_leaf(leaf.name, query_id)
         ]
         if not query_nodes or not candidates:
             return []
@@ -321,15 +336,32 @@ class TreeAnalyzer:
                             # Handle single value or unknown format
                             tax_parts = [tax_str]
 
-                        # tax_parts: [Kingdom, Class, Order, Family, Genus, Species]
-                        # Map to correct index: kingdom=0, order=2, family=3, genus=4
-                        tax_idx_map = {
-                            "kingdom": 0,
-                            "order": 2,
-                            "family": 3,
-                            "genus": 4,
-                        }
-                        tax_idx = tax_idx_map.get(tax_level, 2)
+                        if len(tax_parts) >= 7:
+                            # 7-rank format: [Domain, Phylum, Class, Order, Family, Genus, Species]
+                            tax_idx_map = {
+                                "domain": 0,
+                                "kingdom": 0,
+                                "phylum": 1,
+                                "class": 2,
+                                "order": 3,
+                                "family": 4,
+                                "genus": 5,
+                                "species": 6,
+                            }
+                            default_idx = 3
+                        else:
+                            # Legacy 6-rank format: [Kingdom, Class, Order, Family, Genus, Species]
+                            tax_idx_map = {
+                                "domain": 0,
+                                "kingdom": 0,
+                                "class": 1,
+                                "order": 2,
+                                "family": 3,
+                                "genus": 4,
+                                "species": 5,
+                            }
+                            default_idx = 2
+                        tax_idx = tax_idx_map.get(tax_level, default_idx)
 
                         if len(tax_parts) > tax_idx and tax_parts[tax_idx].strip():
                             taxonomies.append(tax_parts[tax_idx].strip())
@@ -368,9 +400,9 @@ class TreeAnalyzer:
         logger.info(f"Processing marker trees in {tree_dir} for query {query_id}")
         logger.info(f"Output file will be: {output_file}")
 
-        # Process each tree file
-        tree_files = list(tree_dir.glob("*.treefile"))
-        skipped_files = list(tree_dir.glob("*.SKIPPED"))
+        # Process each tree file in deterministic order
+        tree_files = sorted(tree_dir.glob("*.treefile"))
+        skipped_files = sorted(tree_dir.glob("*.SKIPPED"))
         logger.info(f"Found {len(tree_files)} tree files to process")
         if skipped_files:
             logger.info(
@@ -429,7 +461,13 @@ class TreeAnalyzer:
                                 if "|" in label_str:
                                     tax_parts = label_str.split("|")
                                     # Format: kingdom;order;family;genus (skip empty values)
-                                    if len(tax_parts) >= 5:
+                                    if len(tax_parts) >= 7:
+                                        kingdom = tax_parts[0].strip() or "unknown"
+                                        order = tax_parts[3].strip()
+                                        family = tax_parts[4].strip()
+                                        genus = tax_parts[5].strip()
+                                        tax_str = f"{kingdom};{order};{family};{genus}"
+                                    elif len(tax_parts) >= 5:
                                         kingdom = tax_parts[0].strip() or "unknown"
                                         order = (
                                             tax_parts[2].strip()

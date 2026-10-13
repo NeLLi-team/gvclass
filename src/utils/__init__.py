@@ -18,14 +18,6 @@ from .common import (
 )
 from .database_manager import DatabaseManager
 
-# Apply pyrodigal patches on module import for genetic codes 106 and 129
-try:
-    from .pyrodigal_patcher import patch_pyrodigal_genetic_codes
-
-    patch_pyrodigal_genetic_codes()
-except Exception:
-    pass  # Fail silently if pyrodigal not installed
-
 __all__ = [
     # Error handling
     "ErrorHandler",

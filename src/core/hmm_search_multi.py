@@ -3,8 +3,8 @@
 Multi-file HMM search module for the pipeline.
 Processes multiple HMM files separately and combines results.
 """
+
 import os
-import tempfile
 from typing import Dict, List, Tuple, Any, Iterable, Iterator, TextIO
 from pathlib import Path
 import pyhmmer.plan7
@@ -16,37 +16,15 @@ from src.core.hmm_search import DEFAULT_EVALUE_THRESHOLD
 
 def clean_hmm_file(hmm_file: str) -> str:
     """
-    Clean HMM file by removing GA/TC/NC lines that cause pyhmmer to crash.
+    Return the HMM file path directly without stripping GA/TC/NC cutoff lines.
 
     Args:
         hmm_file: Path to HMM file
 
     Returns:
-        Path to cleaned HMM file (same as input if no cleaning needed)
+        Path to HMM file
     """
-    # Check if cleaning is needed
-    needs_cleaning = False
-    with open(hmm_file, "r") as f:
-        for line in f:
-            if line.startswith(("GA ", "TC ", "NC ")):
-                needs_cleaning = True
-                break
-
-    if not needs_cleaning:
-        return hmm_file
-
-    error_handler.log_info(
-        f"Cleaning {os.path.basename(hmm_file)} (removing GA/TC/NC lines)"
-    )
-
-    # Create cleaned version
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".hmm", delete=False) as tmp:
-        with open(hmm_file, "r") as inf:
-            for line in inf:
-                # Skip problematic lines
-                if not line.startswith(("GA ", "TC ", "NC ")):
-                    tmp.write(line)
-        return tmp.name
+    return hmm_file
 
 
 def _decode_name(value: Any) -> Any:
@@ -80,18 +58,16 @@ def _load_hmms(cleaned_hmm: str) -> List[Any]:
 
 def _has_model_cutoffs(hmm: Any) -> bool:
     return bool(
-        hasattr(hmm, "cutoffs")
-        and hmm.cutoffs
-        and (
-            hmm.cutoffs.gathering is not None
-            or hmm.cutoffs.trusted is not None
-            or hmm.cutoffs.noise is not None
-        )
+        hasattr(hmm, "cutoffs") and hmm.cutoffs and hmm.cutoffs.gathering is not None
     )
 
 
 def _run_search_for_hmms(
-    hmms: List[Any], sequences: List[Any], threads: int, sensitive_mode: bool, base_name: str
+    hmms: List[Any],
+    sequences: List[Any],
+    threads: int,
+    sensitive_mode: bool,
+    base_name: str,
 ) -> Iterable[Any]:
     all_have_cutoffs = all(_has_model_cutoffs(hmm) for hmm in hmms)
     if sensitive_mode:
@@ -115,9 +91,7 @@ def _run_search_for_hmms(
             bit_cutoffs="gathering",
         )
 
-    error_handler.log_info(
-        f"  No GA cutoffs, using E-value {DEFAULT_EVALUE_THRESHOLD}"
-    )
+    error_handler.log_info(f"  No GA cutoffs, using E-value {DEFAULT_EVALUE_THRESHOLD}")
     return pyhmmer.hmmsearch(
         hmms,
         sequences,
@@ -185,17 +159,19 @@ def run_pyhmmer_search_multi(
             error_handler.log_warning(f"HMM file not found: {hmm_file}")
             continue
 
+        cleaned_hmm = hmm_file
         try:
             base_name, cleaned_hmm, hmms, results = _process_single_hmm_file(
                 hmm_file, sequences, threads, sensitive_mode
             )
             total_models += len(hmms)
             _append_results(all_results, base_name, results)
-            _cleanup_cleaned_hmm(cleaned_hmm, hmm_file)
         except Exception as e:
             base_name = Path(hmm_file).stem
             error_handler.log_error(f"Error processing {base_name}: {e}")
             continue
+        finally:
+            _cleanup_cleaned_hmm(cleaned_hmm, hmm_file)
 
     error_handler.log_info(f"Total models processed: {total_models}")
 
@@ -282,8 +258,8 @@ def _collect_hit_rows(
         domain_count = len(hit.domains)
 
         for domain_idx, domain in enumerate(hit.domains):
-            hmm_from, hmm_to, target_from, target_to, target_length = _domain_coordinates(
-                domain, hmm_length, target_length
+            hmm_from, hmm_to, target_from, target_to, target_length = (
+                _domain_coordinates(domain, hmm_length, target_length)
             )
             line = _format_domain_line(
                 target_name,
@@ -304,9 +280,7 @@ def _collect_hit_rows(
             yield target_name, hmm_name, float(hit.score), float(domain.score), line
 
 
-def _dedup_hits(
-    rows: Iterable[Tuple[str, str, float, float, str]]
-) -> List[str]:
+def _dedup_hits(rows: Iterable[Tuple[str, str, float, float, str]]) -> List[str]:
     """Collapse to the best (seq_score, dom_score) line per (target_name, model_name).
 
     Matches the single-HMM filter path (``_collect_filtered_search_results`` in

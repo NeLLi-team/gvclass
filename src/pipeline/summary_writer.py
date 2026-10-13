@@ -282,6 +282,11 @@ LEGACY_TWO_DECIMAL_COLUMNS = {
 }
 
 
+INDIVIDUAL_FINAL_SUMMARY_COLUMNS: List[str] = FINAL_SUMMARY_COLUMNS + [
+    col for col in EXTENDED_SUMMARY_COLUMNS if col not in FINAL_SUMMARY_COLUMNS
+]
+
+
 def write_individual_summary_file(
     query_output_dir: Path, query_name: str, summary_data: Dict[str, Any], logger
 ) -> Path:
@@ -296,13 +301,14 @@ def write_individual_summary_file(
     except Exception as exc:
         logger.error(f"Failed to write summary file for {query_name}: {exc}")
         logger.error(traceback.format_exc())
+        raise
     return summary_file
 
 
 def write_individual_final_summary_file(
     query_output_dir: Path, query_name: str, summary_data: Dict[str, Any], logger
 ) -> Path:
-    """Write a per-query final-schema summary row for resume reconstruction."""
+    """Write a per-query final-schema summary row (including extended columns) for resume reconstruction."""
     summary_file = query_output_dir / f"{query_name}.final_summary.tsv"
     try:
         row_data = _build_final_summary_row(
@@ -310,10 +316,11 @@ def write_individual_final_summary_file(
                 "query": query_name,
                 "status": "complete",
                 "summary_data": summary_data,
-            }
+            },
+            columns=INDIVIDUAL_FINAL_SUMMARY_COLUMNS,
         )
         with open(summary_file, "w", newline="") as handle:
-            handle.write("\t".join(FINAL_SUMMARY_COLUMNS) + "\n")
+            handle.write("\t".join(INDIVIDUAL_FINAL_SUMMARY_COLUMNS) + "\n")
             handle.write("\t".join(row_data) + "\n")
         logger.info(f"Final-schema summary file written successfully: {summary_file}")
     except Exception as exc:
@@ -321,6 +328,7 @@ def write_individual_final_summary_file(
             f"Failed to write final-schema summary file for {query_name}: {exc}"
         )
         logger.error(traceback.format_exc())
+        raise
     return summary_file
 
 
@@ -589,13 +597,16 @@ _SPECIES_TREE_ND_COLUMNS = {
 _SPECIES_TREE_ND_VALUES = ("", None, "no-species-tree-calculated")
 
 
-def _build_final_summary_row(result: Dict[str, Any]) -> List[str]:
+def _build_final_summary_row(
+    result: Dict[str, Any], columns: Optional[List[str]] = None
+) -> List[str]:
+    target_columns = columns if columns is not None else FINAL_SUMMARY_COLUMNS
     if result["status"] != "complete" or "summary_data" not in result:
-        return [result["query"]] + [""] * (len(FINAL_SUMMARY_COLUMNS) - 1)
+        return [result["query"]] + [""] * (len(target_columns) - 1)
 
     summary_data = result["summary_data"]
     row: List[str] = []
-    for column in FINAL_SUMMARY_COLUMNS:
+    for column in target_columns:
         value = summary_data.get(column, "")
         if column in _SPECIES_TREE_ND_COLUMNS and value in _SPECIES_TREE_ND_VALUES:
             value = "nd"

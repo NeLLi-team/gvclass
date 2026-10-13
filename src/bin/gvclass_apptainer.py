@@ -7,8 +7,8 @@ import subprocess
 from pathlib import Path
 from urllib.parse import urlparse
 
-DEFAULT_IMAGE = "library://nelligroup-jgi/gvclass/gvclass:2.0.3"
-SYLABS_IMAGE = "library://nelligroup-jgi/gvclass/gvclass:2.0.3"
+DEFAULT_IMAGE = "library://nelligroup-jgi/gvclass/gvclass:2.1.0"
+SYLABS_IMAGE = "library://nelligroup-jgi/gvclass/gvclass:2.1.0"
 PUBLIC_LIBRARY_URL = "https://library.sylabs.io"
 IMAGE_CACHE_DIR = Path.home() / ".cache" / "gvclass" / "images"
 DEFAULT_RESOURCE_CACHE_DIR = (
@@ -62,13 +62,24 @@ def run_container(
     threads: int,
     image: str,
     resource_cache: Path,
-    tree_method: str = None,
-    mode_fast: bool = None,
-    max_workers: int = None,
+    tree_method: str | None = None,
+    mode_fast: bool | None = None,
+    max_workers: int | None = None,
     sensitive_mode: bool = False,
+    no_sensitive: bool = False,
     contigs_mode: bool = False,
-    min_length: int = None,
-    contigs_min_length: int = None,
+    min_length: int | None = None,
+    contigs_min_length: int | None = None,
+    threads_per_worker: int | None = None,
+    iqtree_mode: str | None = None,
+    completeness_mode: str | None = None,
+    species_tree: bool = False,
+    species_tree_combined: bool = False,
+    species_tree_trim: str | None = None,
+    resume: bool = False,
+    allow_short: bool = False,
+    plain_output: bool = False,
+    verbose: bool = False,
 ) -> int:
     query_abs = query_path.resolve()
     output_abs = output.resolve()
@@ -80,9 +91,9 @@ def run_container(
             f"Input is a file: {query_abs}. Use --contigs for per-contig mode."
         )
     if contigs_mode and query_abs.is_file():
-        if query_abs.suffix.lower() not in {".fna", ".fa", ".fasta"}:
+        if query_abs.suffix.lower() not in {".fna", ".fa", ".fasta", ".fas"}:
             raise SystemExit(
-                "--contigs requires an FNA/FA/FASTA file when input is a file."
+                "--contigs requires an FNA/FA/FASTA/FAS file when input is a file."
             )
 
     output_abs.mkdir(parents=True, exist_ok=True)
@@ -119,18 +130,40 @@ def run_container(
     # Add optional flags
     if tree_method:
         cmd.extend(["--tree-method", tree_method])
+    if iqtree_mode:
+        cmd.extend(["--iqtree-mode", iqtree_mode])
     if mode_fast is not None:
         cmd.append("--mode-fast" if mode_fast else "--extended")
     if max_workers:
         cmd.extend(["-j", str(max_workers)])
+    if threads_per_worker:
+        cmd.extend(["--threads-per-worker", str(threads_per_worker)])
     if sensitive_mode:
         cmd.append("--sensitive")
+    elif no_sensitive:
+        cmd.append("--no-sensitive")
+    if completeness_mode:
+        cmd.extend(["--completeness-mode", completeness_mode])
     if contigs_mode:
         cmd.append("--contigs")
     if min_length is not None:
         cmd.extend(["--min-length", str(min_length)])
     if contigs_min_length is not None:
         cmd.extend(["--contigs-min-length", str(contigs_min_length)])
+    if species_tree:
+        cmd.append("--species-tree")
+    if species_tree_combined:
+        cmd.append("--species-tree-combined")
+    if species_tree_trim:
+        cmd.extend(["--species-tree-trim", species_tree_trim])
+    if resume:
+        cmd.append("--resume")
+    if allow_short:
+        cmd.append("--allow-short")
+    if plain_output:
+        cmd.append("--plain-output")
+    if verbose:
+        cmd.append("--verbose")
 
     return subprocess.call(cmd)
 
@@ -138,6 +171,7 @@ def run_container(
 def _add_base_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "query_path",
+        nargs="?",
         help="Input directory containing FASTA files, or single FNA file with --contigs",
     )
     parser.add_argument(
@@ -167,14 +201,31 @@ def _add_base_args(parser: argparse.ArgumentParser) -> None:
         default=None,
         help="Maximum parallel workers (default: auto-calculated)",
     )
+    parser.add_argument(
+        "--threads-per-worker",
+        type=int,
+        default=None,
+        help="Threads per worker (default: auto-calculated)",
+    )
 
 
 def _add_mode_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--apptainer",
+        action="store_true",
+        help="Run GVClass via Apptainer container",
+    )
     parser.add_argument(
         "--tree-method",
         choices=["veryfasttree", "iqtree", "fasttree"],
         default=None,
         help="Tree building method (default: veryfasttree)",
+    )
+    parser.add_argument(
+        "--iqtree-mode",
+        choices=["fast", "ufboot"],
+        default=None,
+        help="IQ-TREE species-tree search mode (default: fast)",
     )
     parser.add_argument(
         "--mode-fast",
@@ -195,6 +246,17 @@ def _add_mode_args(parser: argparse.ArgumentParser) -> None:
         help="Sensitive HMM mode: use E-value 1e-5 instead of GA cutoffs",
     )
     parser.add_argument(
+        "--no-sensitive",
+        action="store_true",
+        help="Disable sensitive HMM mode (use model-defined GA cutoffs when available)",
+    )
+    parser.add_argument(
+        "--completeness-mode",
+        choices=["legacy", "novelty-aware"],
+        default=None,
+        help="Completeness estimator to surface as the primary estimate",
+    )
+    parser.add_argument(
         "-C",
         "--contigs",
         action="store_true",
@@ -211,6 +273,48 @@ def _add_mode_args(parser: argparse.ArgumentParser) -> None:
         type=int,
         default=None,
         help="Minimum contig length (bp) when splitting inputs with --contigs",
+    )
+    parser.add_argument(
+        "--species-tree",
+        action="store_true",
+        help="Build one supermatrix species tree per query",
+    )
+    parser.add_argument(
+        "--species-tree-combined",
+        action="store_true",
+        help="Implies --species-tree; also build a combined species tree across queries",
+    )
+    parser.add_argument(
+        "--species-tree-trim",
+        choices=["witchi", "pytrimal", "none"],
+        default=None,
+        help="Supermatrix column trimming for --species-tree",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume from previous run, skipping completed queries",
+    )
+    parser.add_argument(
+        "--allow-short",
+        action="store_true",
+        help="Bypass the nucleotide length floor",
+    )
+    parser.add_argument(
+        "--plain-output",
+        action="store_true",
+        help="Disable emojis and ANSI colors in CLI output",
+    )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Verbose output",
+    )
+    parser.add_argument(
+        "--version",
+        action="store_true",
+        help="Show version information",
     )
     parser.add_argument(
         "--image",
@@ -231,9 +335,7 @@ def _add_mode_args(parser: argparse.ArgumentParser) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="Convenience wrapper for running GVClass via Apptainer"
-    )
+    parser = argparse.ArgumentParser(description="Run GVClass via Apptainer container")
     _add_base_args(parser)
     _add_mode_args(parser)
     return parser
@@ -255,9 +357,16 @@ def resolve_output_path(
     return query_path.with_name(f"{query_name}_results")
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
+    if args.version:
+        print(f"GVClass Apptainer launcher (default image: {DEFAULT_IMAGE})")
+        return 0
+    if not args.query_path:
+        parser.print_help()
+        return 0
+
     query_path = Path(args.query_path)
     try:
         output_path = resolve_output_path(
@@ -270,18 +379,29 @@ def main() -> None:
         query_path,
         output_path,
         args.threads,
-        args.image,
-        Path(args.resource_cache_dir),
+        args.image or DEFAULT_IMAGE,
+        Path(args.resource_cache_dir or DEFAULT_RESOURCE_CACHE_DIR),
         tree_method=args.tree_method,
         mode_fast=args.mode_fast,
         max_workers=args.max_workers,
         sensitive_mode=args.sensitive,
+        no_sensitive=args.no_sensitive,
         contigs_mode=args.contigs,
         min_length=args.min_length,
         contigs_min_length=args.contigs_min_length,
+        threads_per_worker=args.threads_per_worker,
+        iqtree_mode=args.iqtree_mode,
+        completeness_mode=args.completeness_mode,
+        species_tree=args.species_tree,
+        species_tree_combined=args.species_tree_combined,
+        species_tree_trim=args.species_tree_trim,
+        resume=args.resume,
+        allow_short=args.allow_short,
+        plain_output=args.plain_output,
+        verbose=args.verbose,
     )
-    raise SystemExit(rc)
+    return rc
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

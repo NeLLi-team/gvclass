@@ -83,12 +83,12 @@ def extract_marker_sequences(
     # Extract sequences for each marker
     marker_files = {}
 
-    for marker, hit_ids in marker_hits.items():
+    for marker, hit_ids in sorted(marker_hits.items()):
         output_file = output_dir / f"{marker}.faa"
 
-        # Extract sequences that hit this marker
+        # Extract sequences that hit this marker in deterministic order
         marker_sequences = []
-        for hit_id in hit_ids:
+        for hit_id in sorted(hit_ids):
             record = sequences_by_id.get(hit_id) or sequences_by_description.get(hit_id)
             if record is not None:
                 marker_sequences.append(record)

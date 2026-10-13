@@ -2,6 +2,7 @@
 """
 Combine HMM files using pyhmmer's native reading and writing capabilities.
 """
+
 import pyhmmer.plan7
 import pyhmmer.easel
 

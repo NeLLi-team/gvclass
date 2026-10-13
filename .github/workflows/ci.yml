@@ -165,7 +165,7 @@ jobs:
           path: |
             gvclass.sbom.json
 
-      # Mirror release SIFs to the Sylabs library. The `gvclass-a` wrapper pulls
+      # Mirror release SIFs to the Sylabs library. `gvclass --apptainer` pulls
       # the versioned library:// URI by default.
       - name: Publish SIF to Sylabs library
         if: ${{ env.SYLABS_TOKEN != '' && startsWith(github.ref, 'refs/tags/v') }}

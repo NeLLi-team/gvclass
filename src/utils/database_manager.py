@@ -533,7 +533,6 @@ class DatabaseManager:
         cls.write_database_version(staging_path, version=version)
 
         cls._atomic_swap_directory(staging_path, db_path)
-        cls.DATABASE_VERSION = version
 
     @classmethod
     def _atomic_swap_directory(cls, staging_path: Path, db_path: Path) -> None:

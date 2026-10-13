@@ -5,7 +5,7 @@ This module handles the complete processing pipeline for a single marker.
 """
 
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
 from datetime import datetime
 from Bio import SeqIO, AlignIO
 import pytrimal
@@ -164,6 +164,7 @@ class MarkerProcessor:
                 f.write(f">{seq_id}\n{seq_str}\n")
 
         # Trim alignment
+        cleaned_align: Optional[Path] = None
         try:
             # First clean the alignment by replacing stop codons with gaps
             # pytrimal doesn't handle stop codons (*) well
@@ -189,9 +190,6 @@ class MarkerProcessor:
             # Write trimmed alignment
             trimmed.dump(str(trim_out))
 
-            # Clean up temp file
-            cleaned_align.unlink()
-
         except Exception as e:
             logger.warning(
                 f"Trimming failed for {self.marker}: {e}. Using untrimmed alignment."
@@ -199,12 +197,18 @@ class MarkerProcessor:
             import shutil
 
             shutil.copy(align_out, trim_out)
+        finally:
+            if cleaned_align is not None:
+                cleaned_align.unlink(missing_ok=True)
 
         return align_out, trim_out
 
     def build_tree(
-        self, trimmed_alignment: Path, tree_method: str = "veryfasttree", threads: int = 4
-    ) -> Path:
+        self,
+        trimmed_alignment: Path,
+        tree_method: str = "veryfasttree",
+        threads: int = 4,
+    ) -> Optional[Path]:
         """
         Build phylogenetic tree from alignment.
 

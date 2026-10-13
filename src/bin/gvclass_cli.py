@@ -143,7 +143,7 @@ class PipelineContext:
 #: inputs. ``.fasta`` / ``.fas`` are routed through content-alphabet
 #: inference in :class:`InputValidator` so they end up on one of the
 #: canonical branches at discovery time.
-_QUERY_FILE_EXTENSIONS = ("*.fna", "*.faa", "*.fasta", "*.fas")
+_QUERY_FILE_EXTENSIONS = ("*.fna", "*.faa", "*.fasta", "*.fas", "*.fa")
 
 
 def count_query_files(directory: Path) -> int:
@@ -206,6 +206,11 @@ def _add_mode_arguments(parser: argparse.ArgumentParser) -> None:
         "--sensitive",
         action="store_true",
         help="Force sensitive HMM mode: use E-value 1e-5 instead of GA cutoffs",
+    )
+    parser.add_argument(
+        "--no-sensitive",
+        action="store_true",
+        help="Disable sensitive HMM mode: use model GA cutoffs when available",
     )
     parser.add_argument(
         "--completeness-mode",
@@ -294,6 +299,24 @@ def _add_cluster_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_container_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--apptainer",
+        action="store_true",
+        help="Run GVClass via Apptainer container image",
+    )
+    parser.add_argument(
+        "--image",
+        default=None,
+        help="Apptainer image URI or .sif path (implies --apptainer)",
+    )
+    parser.add_argument(
+        "--resource-cache-dir",
+        default=None,
+        help="Directory for Parquet materialization cache",
+    )
+
+
 def _add_misc_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
     parser.add_argument(
@@ -308,6 +331,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_core_arguments(parser)
     _add_mode_arguments(parser)
     _add_cluster_arguments(parser)
+    _add_container_arguments(parser)
     _add_misc_arguments(parser)
     return parser
 
@@ -476,7 +500,11 @@ def resolve_mode_fast(args, config) -> bool:
 
 
 def resolve_sensitive_mode(args, config) -> bool:
-    return args.sensitive or config["pipeline"].get("sensitive_mode", True)
+    if getattr(args, "no_sensitive", False):
+        return False
+    if getattr(args, "sensitive", False):
+        return True
+    return bool(config["pipeline"].get("sensitive_mode", True))
 
 
 def resolve_completeness_mode(args, config) -> str:
@@ -544,9 +572,9 @@ def resolve_contigs_input(query_dir_abs: Path, enabled: bool) -> ContigInput:
         return ContigInput(enabled=False)
 
     if query_dir_abs.is_file():
-        if query_dir_abs.suffix.lower() not in [".fna", ".fa", ".fasta"]:
+        if query_dir_abs.suffix.lower() not in [".fna", ".fa", ".fasta", ".fas"]:
             raise ValueError(
-                f"--contigs requires FNA file(s) (.fna, .fa, .fasta): {query_dir_abs}"
+                f"--contigs requires FNA file(s) (.fna, .fa, .fasta, .fas): {query_dir_abs}"
             )
         return ContigInput(enabled=True, input_file=query_dir_abs)
 
@@ -742,7 +770,9 @@ def check_and_setup_database(db_path: Path, config, output: CliOutput) -> bool:
         return False
 
 
-def count_resume_skips(output_dir: Path) -> int:
+def count_resume_skips(
+    output_dir: Path, active_query_dir: Optional[Path] = None
+) -> int:
     """Count queries that resume will skip.
 
     The consolidated ``run_status.json`` manifest is the primary marker. Old
@@ -769,9 +799,15 @@ def count_resume_skips(output_dir: Path) -> int:
         path.name.removesuffix(".tar.gz") for path in output_dir.glob("*.tar.gz")
     }
     legacy_names = (summary_names & tar_names) - sentinel_names - manifest_names
-    return (
-        len(manifest_names) + len(sentinel_names - manifest_names) + len(legacy_names)
-    )
+    completed_names = manifest_names | sentinel_names | legacy_names
+    if active_query_dir is not None and active_query_dir.exists():
+        active_stems = {
+            path.stem
+            for pattern in _QUERY_FILE_EXTENSIONS
+            for path in active_query_dir.glob(pattern)
+        }
+        completed_names &= active_stems
+    return len(completed_names)
 
 
 def calculate_worker_plan(args, n_queries: int, threads: int) -> WorkerPlan:
@@ -1174,7 +1210,12 @@ def resolve_pipeline_context(
 
     contigs = resolve_contigs_input(query_dir, args.contigs)
     database = resolve_database_path(args, config, repo_dir)
-    configure_resource_cache(config, database)
+    if getattr(args, "resource_cache_dir", None):
+        os.environ[RESOURCE_CACHE_ENV] = str(
+            Path(args.resource_cache_dir).expanduser().resolve()
+        )
+    else:
+        configure_resource_cache(config, database)
     threads = args.threads if args.threads else config["pipeline"].get("threads", 16)
     tree_method = resolve_tree_method(args, config)
     iqtree_mode = resolve_iqtree_mode(args, config)
@@ -1213,7 +1254,7 @@ def resolve_pipeline_context(
         raise ValueError(f"No .fna or .faa files found in {active_query_dir}")
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    n_skipped = count_resume_skips(output_dir) if args.resume else 0
+    n_skipped = count_resume_skips(output_dir, active_query_dir) if args.resume else 0
     workers = calculate_worker_plan(args, n_queries, threads)
 
     return PipelineContext(
@@ -1309,6 +1350,7 @@ def display_startup_configuration(
         input_min_length=context.input_min_length,
         contigs_min_length=context.contigs_min_length,
         validation_min_length=context.validation_min_length,
+        tree_method=context.tree_method,
     )
     output.line(f"Completeness mode: {context.completeness_mode}")
 
@@ -1399,7 +1441,19 @@ def run_cli(args, repo_dir: Path, output: CliOutput) -> int:
     return 0
 
 
+def _should_use_apptainer(argv: list[str]) -> bool:
+    return any(
+        token in {"--apptainer", "--image"} or token.startswith("--image=")
+        for token in argv
+    )
+
+
 def main(repo_dir: Optional[Path] = None) -> int:
+    if _should_use_apptainer(sys.argv[1:]):
+        from src.bin.gvclass_apptainer import main as apptainer_main
+
+        return apptainer_main(sys.argv[1:])
+
     parser = build_parser()
     args = parser.parse_args()
 

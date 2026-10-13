@@ -87,8 +87,14 @@ pixi run gvclass --help
 pixi run gvclass --version
 ```
 
-## Apptainer wrapper
+## Apptainer container mode
 
-`gvclass-a` accepts an input path and either a second positional output path or `-o`/`--output-dir`. Its default output is `<query>_results`; its default thread count is `16`.
+`gvclass` supports running inside the published Apptainer SIF container via `--apptainer` or `--image` (or automatically when `gvclass` is downloaded as a standalone script without a repository checkout). It accepts an input path and `-o`/`--output-dir` (or a second positional output path).
 
-Supported options are `-t`, `-j`, `--tree-method`, `--mode-fast`, `-e`/`--extended`, `--sensitive`, `-C`/`--contigs`, `--min-length`, and `--contigs-min-length`. `--image` selects an Apptainer image; `--resource-cache-dir` sets the host resource cache. The wrapper does not expose species-tree options. See [run on HPC](../how-to/run-on-hpc.md) for container commands.
+| Option | Argument/default | Description |
+| --- | --- | --- |
+| `--apptainer` | flag | Execute inside the Apptainer SIF image (`library://nelligroup-jgi/gvclass/gvclass:2.1.0` by default). |
+| `--image` | path or URI | Local `.sif` path, `library://` URI, or `https://` URL (implies `--apptainer`). |
+| `--resource-cache-dir` | path; `~/.cache/gvclass/resource-cache/v2.0.0` | Writable host directory mounted at `/resource-cache` inside the container. |
+
+All standard pipeline, species-tree, and resume flags (`-t`, `-j`, `--threads-per-worker`, `--tree-method`, `--iqtree-mode`, `--mode-fast`, `-e`/`--extended`, `--sensitive`, `--completeness-mode`, `--species-tree`, `--species-tree-combined`, `--species-tree-trim`, `-C`/`--contigs`, `--min-length`, `--contigs-min-length`, `--allow-short`, `--resume`, `--plain-output`, `-v`/`--verbose`) are forwarded to the container. See [run on HPC](../how-to/run-on-hpc.md) for container commands.

@@ -156,8 +156,14 @@ class NoveltyAwareCompletenessScorer:
             tiers_df = pd.read_csv(self.tiers_path, sep="\t")
             tiers: Dict[Tuple[str, str, str], Dict[str, list[str]]] = {}
             for _, row in tiers_df.iterrows():
-                key = (str(row["group_level"]), str(row["group_name"]), str(row["order_name"]))
-                entry = tiers.setdefault(key, {"core": [], "shared": [], "accessory": []})
+                key = (
+                    str(row["group_level"]),
+                    str(row["group_name"]),
+                    str(row["order_name"]),
+                )
+                entry = tiers.setdefault(
+                    key, {"core": [], "shared": [], "accessory": []}
+                )
                 tier_name = str(row["tier"])
                 if tier_name in entry:
                     entry[tier_name].append(str(row["marker_name"]))
@@ -173,7 +179,11 @@ class NoveltyAwareCompletenessScorer:
             baselines_df = pd.read_csv(self.baselines_path, sep="\t")
             self.baselines = {}
             for _, row in baselines_df.iterrows():
-                key = (str(row["group_level"]), str(row["group_name"]), str(row["order_name"]))
+                key = (
+                    str(row["group_level"]),
+                    str(row["group_name"]),
+                    str(row["order_name"]),
+                )
                 self.baselines[key] = {
                     "baseline_mean": float(row["baseline_mean"]),
                     "baseline_median": float(row["baseline_median"]),
@@ -182,7 +192,8 @@ class NoveltyAwareCompletenessScorer:
 
             model_meta_df = pd.read_csv(self.model_metadata_path, sep="\t")
             self.model_metadata = {
-                str(row["order_name"]): row.to_dict() for _, row in model_meta_df.iterrows()
+                str(row["order_name"]): row.to_dict()
+                for _, row in model_meta_df.iterrows()
             }
 
             bundle = load(io.BytesIO(model_bytes))
@@ -193,23 +204,32 @@ class NoveltyAwareCompletenessScorer:
             logger.error("Failed to load novelty-aware completeness resources: %s", exc)
             self.available = False
 
-    def select_group(self, order_tax: str, family_tax: str) -> Tuple[GroupDefinition | None, TierSet]:
+    def select_group(
+        self, order_tax: str, family_tax: str
+    ) -> Tuple[GroupDefinition | None, TierSet]:
         family_key = ("family", family_tax, order_tax)
         if family_tax and family_key in self.tiers:
-            return GroupDefinition("family", family_tax, order_tax), self.tiers[family_key]
+            return (
+                GroupDefinition("family", family_tax, order_tax),
+                self.tiers[family_key],
+            )
         order_key = ("order", order_tax, order_tax)
         if order_key in self.tiers:
             return GroupDefinition("order", order_tax, order_tax), self.tiers[order_key]
         return None, TierSet((), (), ())
 
     @staticmethod
-    def _presence_fraction(marker_counts: Dict[str, int], markers: Tuple[str, ...]) -> float:
+    def _presence_fraction(
+        marker_counts: Dict[str, int], markers: Tuple[str, ...]
+    ) -> float:
         if not markers:
             return 0.0
         present = sum(1 for marker in markers if marker_counts.get(marker, 0) > 0)
         return present / len(markers)
 
-    def score_tier_set(self, marker_counts: Dict[str, int], tier_set: TierSet) -> Dict[str, float]:
+    def score_tier_set(
+        self, marker_counts: Dict[str, int], tier_set: TierSet
+    ) -> Dict[str, float]:
         if self.config is None:
             return {
                 "strategy2_raw": 0.0,
@@ -220,8 +240,16 @@ class NoveltyAwareCompletenessScorer:
                 "shared_marker_count": 0,
                 "accessory_marker_count": 0,
                 "informative_marker_count": 0,
+                "core_present_count": 0,
+                "shared_present_count": 0,
             }
 
+        core_present_count = sum(
+            1 for m in tier_set.core if marker_counts.get(m, 0) > 0
+        )
+        shared_present_count = sum(
+            1 for m in tier_set.shared if marker_counts.get(m, 0) > 0
+        )
         core_fraction = self._presence_fraction(marker_counts, tier_set.core)
         shared_fraction = self._presence_fraction(marker_counts, tier_set.shared)
         accessory_fraction = self._presence_fraction(marker_counts, tier_set.accessory)
@@ -252,6 +280,8 @@ class NoveltyAwareCompletenessScorer:
             "shared_marker_count": len(tier_set.shared),
             "accessory_marker_count": len(tier_set.accessory),
             "informative_marker_count": len(tier_set.core) + len(tier_set.shared),
+            "core_present_count": core_present_count,
+            "shared_present_count": shared_present_count,
         }
 
     def normalize_strategy2_score(
@@ -277,12 +307,24 @@ class NoveltyAwareCompletenessScorer:
         shared_fraction: float,
         baseline_n_refs: int,
         group_level: str,
+        core_present_count: int | None = None,
+        shared_present_count: int | None = None,
     ) -> Dict[str, float | int | str]:
-        core_present = round((core_fraction / 100.0) * core_marker_count)
-        shared_present = round((shared_fraction / 100.0) * shared_marker_count)
+        core_present = (
+            core_present_count
+            if core_present_count is not None
+            else round((core_fraction / 100.0) * core_marker_count)
+        )
+        shared_present = (
+            shared_present_count
+            if shared_present_count is not None
+            else round((shared_fraction / 100.0) * shared_marker_count)
+        )
         informative_present = int(core_present + shared_present)
         informative_fraction = (
-            0.0 if informative_marker_count == 0 else informative_present / informative_marker_count
+            0.0
+            if informative_marker_count == 0
+            else informative_present / informative_marker_count
         )
         ref_support = min(1.0, baseline_n_refs / 10.0)
         support_score = round((0.85 * informative_fraction) + (0.15 * ref_support), 4)
@@ -354,11 +396,15 @@ class NoveltyAwareCompletenessScorer:
         metrics = self.default_metrics(order_tax, family_tax)
         metrics["estimated_completeness"] = strategy1_score
         metrics["estimated_completeness_strategy"] = (
-            "order_baseline_ratio_v1" if selected_mode == "legacy" else fallback_strategy
+            "order_baseline_ratio_v1"
+            if selected_mode == "legacy"
+            else fallback_strategy
         )
         return metrics
 
-    def default_metrics(self, order_tax: str = "", family_tax: str = "") -> Dict[str, object]:
+    def default_metrics(
+        self, order_tax: str = "", family_tax: str = ""
+    ) -> Dict[str, object]:
         return {
             "order_completeness_v2": 0.0,
             "order_completeness_v2_strategy": "novelty_aware_v1",
@@ -417,6 +463,8 @@ class NoveltyAwareCompletenessScorer:
             shared_fraction=float(tier_scores["shared_fraction"]),
             baseline_n_refs=int(baseline_n_refs),
             group_level=group_def.level,
+            core_present_count=int(tier_scores["core_present_count"]),
+            shared_present_count=int(tier_scores["shared_present_count"]),
         )
 
         validation_mode = "fallback"
@@ -436,13 +484,17 @@ class NoveltyAwareCompletenessScorer:
                 "core_fraction": float(tier_scores["core_fraction"]),
                 "shared_fraction": float(tier_scores["shared_fraction"]),
                 "accessory_fraction": float(tier_scores["accessory_fraction"]),
-                "n_expected_markers": float(self.order_expected_marker_counts.get(order_tax, 0)),
+                "n_expected_markers": float(
+                    self.order_expected_marker_counts.get(order_tax, 0)
+                ),
                 "n_core_markers": float(tier_scores["core_marker_count"]),
                 "n_shared_markers": float(tier_scores["shared_marker_count"]),
                 "n_accessory_markers": float(tier_scores["accessory_marker_count"]),
                 "group_is_family": 1.0 if group_def.level == "family" else 0.0,
             }
-            X = pd.DataFrame([{name: features.get(name, 0.0) for name in self.feature_names}])
+            X = pd.DataFrame(
+                [{name: features.get(name, 0.0) for name in self.feature_names}]
+            )
             ml_prediction_raw = float(model.predict(X)[0])
             prediction = ml_prediction_raw
 
@@ -523,13 +575,21 @@ class NoveltyAwareCompletenessScorer:
         result: Dict[str, Any] = {
             "order_completeness_v2": novelty_score,
             "order_completeness_v2_strategy": "novelty_aware_v1",
-            "order_completeness_v2_strategy2_raw": round(float(tier_scores["strategy2_raw"]), 2),
-            "order_completeness_v2_strategy2_normalized": round(float(strategy2_norm), 2),
-            "order_completeness_v2_support_score": round(float(support_metrics["support_score"]), 2),
+            "order_completeness_v2_strategy2_raw": round(
+                float(tier_scores["strategy2_raw"]), 2
+            ),
+            "order_completeness_v2_strategy2_normalized": round(
+                float(strategy2_norm), 2
+            ),
+            "order_completeness_v2_support_score": round(
+                float(support_metrics["support_score"]), 2
+            ),
             "order_completeness_v2_ood_flag": ood_augmented,
             "order_completeness_v2_reference_group": f"{group_def.level}:{group_def.name}",
             "order_completeness_v2_validation_mode": validation_mode,
-            "order_completeness_v2_informative_fraction": round(float(support_metrics["informative_fraction"]), 2),
+            "order_completeness_v2_informative_fraction": round(
+                float(support_metrics["informative_fraction"]), 2
+            ),
             "estimated_completeness": round(float(estimated_score), 2),
             "estimated_completeness_strategy": estimated_strategy,
             "completeness_model_reliability": quality,
@@ -549,5 +609,7 @@ class NoveltyAwareCompletenessScorer:
         return f"{current},{additional}"
 
 
-def create_novelty_completeness_scorer(database_path: Path) -> NoveltyAwareCompletenessScorer:
+def create_novelty_completeness_scorer(
+    database_path: Path,
+) -> NoveltyAwareCompletenessScorer:
     return NoveltyAwareCompletenessScorer(database_path)

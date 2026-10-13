@@ -19,7 +19,7 @@ class InputValidator:
     """Comprehensive input validation for GVClass pipeline."""
 
     # Constants for validation
-    VALID_EXTENSIONS = {".fna", ".faa", ".fas", ".fasta"}
+    VALID_EXTENSIONS = {".fna", ".faa", ".fas", ".fasta", ".fa"}
     MIN_SEQUENCE_LENGTH = 20000  # 20kb minimum
     # Maximum input file size, in bytes. Was 50 MB under a constant named for
     # sequence length, which rejected the assembly FASTA files --contigs exists
@@ -200,14 +200,14 @@ class InputValidator:
                 value=0,
             )
 
-        # Determine file type if not provided. ``.fasta``/``.fas`` files
+        # Determine file type if not provided. ``.fasta``/``.fas``/``.fa`` files
         # previously fell through to an extension-based branch that skipped
         # DNA/protein validation entirely (Codex-audit finding). Now we
         # always resolve to a concrete ``fna``/``faa`` type by peeking at
         # the first informative sequence.
         if file_type is None:
             suffix_type = path.suffix.lower().replace(".", "")
-            if suffix_type in ("fas", "fasta"):
+            if suffix_type in ("fas", "fasta", "fa"):
                 file_type = cls._infer_fasta_type_from_content(sequences)
             else:
                 file_type = suffix_type
@@ -372,7 +372,7 @@ class InputValidator:
         path = Path(dirpath).resolve()
 
         # Check for path traversal
-        if ".." in str(dirpath):
+        if ".." in Path(dirpath).parts:
             raise ValidationError(
                 f"Path traversal detected in directory: {dirpath}",
                 field="dirpath",

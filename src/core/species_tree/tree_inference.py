@@ -13,7 +13,10 @@ from src.core.alignment import run_iqtree, run_veryfasttree
 
 
 def infer_species_tree(
-    supermatrix_faa: Path, out_tree: Path, threads: int = 4, tree_method: str = "veryfasttree"
+    supermatrix_faa: Path,
+    out_tree: Path,
+    threads: int = 4,
+    tree_method: str = "veryfasttree",
 ) -> Path:
     """Infer the concatenated species tree from the supermatrix; write Newick.
 
