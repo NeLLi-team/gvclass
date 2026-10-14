@@ -223,7 +223,8 @@ def _add_mode_arguments(parser: argparse.ArgumentParser) -> None:
         choices=["bundled", "experimental"],
         help=(
             "Quality model set (default: bundled). Experimental models require "
-            "candidate resources, nucleotide input, extended and sensitive mode."
+            "the quality_models files of the resource bundle, nucleotide input, "
+            "extended and sensitive mode."
         ),
     )
     parser.add_argument(
