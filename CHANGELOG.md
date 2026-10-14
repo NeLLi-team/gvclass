@@ -35,6 +35,19 @@ until the v2.1.0 archive is approved and published.
   `--config`, `--database` and the cluster options work only in native mode.
 - Consolidated `src/test/` into `tests/`, moved benchmark helpers to `scripts/`,
   and removed legacy `src/bin/gvclass_*.sh` wrappers.
+- Resource v2.1.0 removes 2,246 prokaryotic proteins (3,083 marker rows) from 319
+  eukaryotic reference genomes. A screen of 49,260 single-cell assemblies named
+  them by near-identical placement of confident prokaryotic genomes; no reference
+  genome was removed. Prokaryotic genomes had matched these references and
+  received eukaryotic or unassigned domain calls. On a panel of 44 genomes, of 9
+  gut prokaryote genomes the old resource gives 3 eukaryotic calls, 5 unassigned
+  and 1 bacterial; the new one gives 8 bacterial and 1 eukaryotic. Three bacterial
+  genomes, one archaeal genome and 31 eukaryotic genomes (19 protist single cells,
+  12 eukaryotic MAGs) keep their calls, and completeness and contamination do not
+  change. A second screen of the bundle (2,190 more proteins with a near-identical
+  bacterial or archaeal hit and no close eukaryotic homolog) changed no call on
+  that panel and is not applied; its list is not part of the archive. Marker
+  conservation tables and completeness baselines were not recomputed.
 - A eukaryotic domain is now assigned only when its markers are at least 80% of the
   markers that vote for a cellular domain. Before, a plurality of two markers was
   enough, and 59 of 1,470 prokaryotic gut genomes received a eukaryotic call
