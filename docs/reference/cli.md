@@ -34,7 +34,8 @@ CLI flags override [configuration values](configuration.md), which override buil
 | `--mode-fast` | flag; enabled by default | Skip order-level marker trees; order-level HMM searches still run. |
 | `-e`, `--extended` | flag | Include order-level marker trees. Overrides fast mode. |
 | `--sensitive` | flag; enabled by default | Use `E=1e-5` and `domE=1e-5` instead of GA cutoffs. |
-| `--completeness-mode` | `legacy`, `novelty-aware`; `novelty-aware` | Estimator used for `estimated_completeness`. |
+| `--completeness-mode` | `legacy`, `novelty-aware`; `novelty-aware` | Estimator used for `estimated_completeness`. Applies only to bundled models. |
+| `--quality-models` | `bundled`, `experimental`; `bundled` | Quality model set. `experimental` selects the candidate completeness and contamination models from `quality_models/` in the resource bundle. It requires nucleotide input, an accepted NCLDV assignment, `--extended`, and sensitive search. |
 
 See [speed and tree settings](../how-to/tune-speed-and-accuracy.md) for examples.
 
@@ -60,7 +61,7 @@ NCLDV, PPV, and MIRUS queries use separate panels. A combined tree contains only
 | `--min-length` | integer; `20000` bp | Minimum total nucleotide length per input in bin/MAG mode. `0` disables the length threshold. |
 | `--contigs-min-length` | integer; `10000` bp | Minimum contig length in `--contigs` mode. |
 | `--allow-short` | flag | Bypass the nucleotide length threshold; retain other FASTA validation. |
-| `--resume` | flag | Skip completed queries using `run_status.json`. Also accepts `.SUCCESS` files and valid summary/archive pairs from older runs. |
+| `--resume` | flag | Skip completed queries using `run_status.json`, when they match the current quality schema and the selected model set and profile. A change reprocesses the query. Also accepts `.SUCCESS` files and valid summary/archive pairs from older runs when they use bundled models. |
 | `--plain-output` | flag | Disable emojis and ANSI colors. Also set by `GVCLASS_PLAIN_OUTPUT=1`. |
 
 ## Cluster options
@@ -87,6 +88,8 @@ pixi run gvclass --help
 pixi run gvclass --version
 ```
 
+`--version` reports software version 2.1.0 and the installed database version. The public setup archive installs database v2.0.0.
+
 ## Apptainer container mode
 
 `gvclass` supports running inside the published Apptainer SIF container via `--apptainer` or `--image` (or automatically when `gvclass` is downloaded as a standalone script without a repository checkout). It accepts an input path and `-o`/`--output-dir` (or a second positional output path).
@@ -97,4 +100,4 @@ pixi run gvclass --version
 | `--image` | path or URI | Local `.sif` path, `library://` URI, or `https://` URL (implies `--apptainer`). |
 | `--resource-cache-dir` | path; `~/.cache/gvclass/resource-cache/v2.0.0` | Writable host directory mounted at `/resource-cache` inside the container. |
 
-All standard pipeline, species-tree, and resume flags (`-t`, `-j`, `--threads-per-worker`, `--tree-method`, `--iqtree-mode`, `--mode-fast`, `-e`/`--extended`, `--sensitive`, `--completeness-mode`, `--species-tree`, `--species-tree-combined`, `--species-tree-trim`, `-C`/`--contigs`, `--min-length`, `--contigs-min-length`, `--allow-short`, `--resume`, `--plain-output`, `-v`/`--verbose`) are forwarded to the container. See [run on HPC](../how-to/run-on-hpc.md) for container commands.
+All standard pipeline, species-tree, and resume flags (`-t`, `-j`, `--threads-per-worker`, `--tree-method`, `--iqtree-mode`, `--mode-fast`, `-e`/`--extended`, `--sensitive`, `--completeness-mode`, `--species-tree`, `--species-tree-combined`, `--species-tree-trim`, `-C`/`--contigs`, `--min-length`, `--contigs-min-length`, `--allow-short`, `--resume`, `--plain-output`, `-v`/`--verbose`) are forwarded to the container. `--quality-models` is not forwarded in container mode. See [run on HPC](../how-to/run-on-hpc.md) for container commands.

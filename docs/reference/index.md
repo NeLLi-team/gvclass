@@ -1,8 +1,10 @@
 # Reference
 
+These pages describe the GVClass 2.1.0 source tree. The public setup archive installs database `DB_VERSION` v2.0.0.
+
 - [CLI](cli.md): command-line options and defaults.
 - [Configuration](configuration.md): YAML keys and setting precedence.
-- [Output](output.md): result files and the 44-column summary.
+- [Output](output.md): result files and the 51-column summary.
 - [Markers](markers.md): marker panels and genetic-code selection.
 - [Marker annotations](marker-annotations.md): functional annotations for all 1671 HMM models.
 

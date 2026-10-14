@@ -27,6 +27,7 @@ pipeline:
   iqtree_mode: fast
   mode_fast: true
   completeness_mode: novelty-aware
+  quality_models: bundled
   sensitive_mode: true
   contigs_min_length: 10000
   threads: 4
@@ -48,6 +49,10 @@ quality:
 
 Database path precedence is `--database`, then `GVCLASS_DB`, then `database.path`.
 
+Setup uses one download source, chosen in this order: the `GVCLASS_DB_URL` environment variable, the `database.download_*` keys, then the built-in v2.0.0 source. An environment URL requires `GVCLASS_DB_SHA256`. The optional `GVCLASS_DB_VERSION` and `GVCLASS_DB_FILENAME` values describe the same archive. Setup uses only the selected source. It does not follow Zenodo's latest link or fall back to an older bundle. A Zenodo archive that GVClass finds automatically must have a valid SHA-256 sidecar. Set `GVCLASS_DB_ALLOW_UNVERIFIED=1` to opt in to an unverified environment archive.
+
+Compact resource bundles can store labels and reference proteins as Parquet (`parquet/labels/labels.parquet` and `parquet/faa.parquet`). Validation accepts reference proteins from `parquet/faa.parquet` or from nonempty legacy `database/faa/*.faa` files.
+
 `GVCLASS_RESOURCE_CACHE` overrides `cache_path`. The default is `<database.path>/.gvclass_cache`, with a hashed system-temporary cache used when the database directory is unwritable. See [configure the database](../how-to/configure-the-database.md).
 
 ## Pipeline keys
@@ -57,7 +62,8 @@ Database path precedence is `--database`, then `GVCLASS_DB`, then `database.path
 | `tree_method` | `veryfasttree` | Tree builder: `veryfasttree`, `iqtree`, or `fasttree` (alias for `veryfasttree`). |
 | `iqtree_mode` | `fast` | Species-tree IQ-TREE search: `fast` or `ufboot`. Per-marker trees use `--fast`. |
 | `mode_fast` | `true` | Skip order-level marker trees; retain order-level HMM searches. |
-| `completeness_mode` | `novelty-aware` | Primary completeness estimator: `novelty-aware` or `legacy`. |
+| `completeness_mode` | `novelty-aware` | Primary completeness estimator for bundled models: `novelty-aware` or `legacy`. |
+| `quality_models` | `bundled` | Quality model set: `bundled` or `experimental`. Experimental models require their candidate resources, nucleotide input, an accepted NCLDV assignment, extended mode, and sensitive search. |
 | `sensitive_mode` | `true` | Use `E=1e-5` and `domE=1e-5` instead of GA cutoffs. |
 | `contigs_min_length` | `10000` | Minimum contig length in bp for `--contigs`. |
 | `threads` | `4` | Total thread budget. |

@@ -1,6 +1,6 @@
 # GVClass Container Images
 
-This directory contains container definitions for the GVClass `2.1.0` release image.
+This directory contains container definitions prepared for the GVClass `2.1.0` release image.
 
 ## Directory Structure
 
@@ -32,11 +32,15 @@ docker build -t gvclass:2.1.0 -f containers/docker/Dockerfile .
 apptainer build --force gvclass_2.1.0.sif docker-daemon://gvclass:2.1.0
 ```
 
-This creates a self-contained image including:
+The public recipes currently create a self-contained review image including:
+
 - Complete Pixi environment
-- All Python dependencies  
+- All Python dependencies
 - Compact v2.0.0 reference database downloaded during the image build
 - GVClass source code
+
+This v2.0.0 resource image does not pass the 2.1.0 publication gate. The final
+recipe needs the approved v2.1.0 resource URL and checksum before release.
 
 ### Usage
 
@@ -63,17 +67,18 @@ the read-only SIF. GVClass materializes the TSV/FASTA views it needs under
 `/resource-cache` for a persistent warm cache; otherwise the cache
 falls back to container `/tmp` and is rebuilt on later runs.
 
-### Published SIF
+### Release SIF
 
-The release image is published in the Sylabs library:
+After the v2.1.0 resource and model checks pass, the workflow publishes the
+approved image to the Sylabs library:
 
 ```text
 library://nelligroup-jgi/gvclass/gvclass:2.1.0
 ```
 
-It embeds the v2.0.0 database. Running `./gvclass --apptainer` (or standalone `./gvclass` downloaded without a repo checkout) downloads this URI into
+It embeds the resources approved for the release. Running `./gvclass --apptainer` (or standalone `./gvclass` downloaded without a repo checkout) downloads this URI into
 `~/.cache/gvclass/images/` and
-reuses it on later runs.
+reuses it on later runs. The URI is unavailable until publication completes.
 
 ### Sylabs Publish
 
@@ -123,6 +128,9 @@ Both formats include:
 
 ## Notes
 
+- Both recipes copy only the runtime source and the bundled example. They exclude tests, host wrappers, images, and build files
+- Both recipes use the verified Pixi 0.72.0 base-image digest
+- Docker Compose builds from the repository root
 - No sudo/root required to run the published Apptainer image on a normal HPC Apptainer installation
 - Building from `containers/apptainer/gvclass.def` may require setuid/fakeroot support; Docker-to-SIF conversion is the fallback
 - The final image embeds the runtime database, but the repo checkout keeps `resources/` local-only

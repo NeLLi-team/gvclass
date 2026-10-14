@@ -63,6 +63,8 @@ The trained contamination model is shipped in the runtime resource bundle at
 The v2.0.0 runtime resource bundle is archived on Zenodo:
 https://doi.org/10.5281/zenodo.21225457
 
+The v2.1.0 candidate resource bundle is under review. Public database setup stays pinned to the v2.0.0 archive until the v2.1.0 archive is published. The 2.1.0 Apptainer image, `library://nelligroup-jgi/gvclass/gvclass:2.1.0`, is not available until the release passes the software, resource, and model checks.
+
 Reference data sources:
 
 > Medvedeva S, Guyet U, Pelletier E, et al. (2026): Widespread and intron-rich mirusviruses are predicted to reproduce in nuclei of unicellular eukaryotes. Nature Microbiology 11:228-239. https://doi.org/10.1038/s41564-025-02190-6

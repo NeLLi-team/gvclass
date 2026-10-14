@@ -35,7 +35,7 @@ prefixes each contig's name with its source filename in that case.
 ## 3. Read the per-contig results
 
 ```bash
-cut -f1,2,4 contig_results/gvclass_summary.tsv
+cut -f1,3,5 contig_results/gvclass_summary.tsv
 ```
 
 Each successfully processed contig has its own row. Completeness and

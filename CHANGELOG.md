@@ -11,10 +11,29 @@ covers releases prior to v1.2.2.
 The runtime database/resource bundle is versioned separately from the software; the
 compatible bundle is noted per release.
 
-## [Unreleased]
+## [2.1.0] - Unreleased
+
+Compatible resource bundle: the v2.1.0 candidate bundle is under review. Public
+database setup remains pinned to v2.0.0 (Zenodo DOI 10.5281/zenodo.21225457)
+until the v2.1.0 archive is approved and published.
+
+### Added
+
+- `--quality-models experimental` selects the family-union completeness and
+  composition-plus-regional contamination candidates from the resource bundle.
+  They require nucleotide input, accepted NCLDV taxonomy, extended mode and
+  sensitive search. Bundled models remain the default. Candidate estimates
+  retain support and reliability fields; experimental contamination has no
+  calibrated binary class. See the [quality assessment](docs/explanation/quality-metrics.md)
+  for development gains, complete-genome regressions and false-positive failures.
 
 ### Changed
 
+- Unified `gvclass` and `gvclass-a` into a single `gvclass` entrypoint supporting
+  both local execution and Apptainer containers (`--apptainer`, `--image`, and
+  standalone `wget` fallback) with CLI flag forwarding.
+- Consolidated `src/test/` into `tests/`, moved benchmark helpers to `scripts/`,
+  and removed legacy `src/bin/gvclass_*.sh` wrappers.
 - A eukaryotic domain is now assigned only when its markers are at least 80% of the
   markers that vote for a cellular domain. Before, a plurality of two markers was
   enough, and 59 of 1,470 prokaryotic gut genomes received a eukaryotic call
@@ -22,22 +41,28 @@ compatible bundle is noted per release.
   correct domain (5 remain; 12 of 12 eukaryotic single cells keep their call). A
   domain that fails the test is left unassigned and `taxonomy_confidence`
   reports `mixed_cellular`. Bacterial, archaeal, and viral calls are unchanged.
-
-## [2.1.0] - 2026-10-13
-
-Compatible resource bundle: v2.0.0 (Zenodo DOI 10.5281/zenodo.21225457),
-unchanged from 2.0.3.
-
-### Changed
-
-- Unified `gvclass` and `gvclass-a` into a single `gvclass` entrypoint supporting
-  both local execution and Apptainer containers (`--apptainer`, `--image`, and
-  standalone `wget` fallback) with full CLI flag forwarding.
-- Consolidated `src/test/` into `tests/`, moved benchmark helpers to `scripts/`,
-  and removed legacy `src/bin/gvclass_*.sh` wrappers.
+- Database setup uses one source: the environment override, configured archive,
+  or built-in default. It does not replace that source with a moving Zenodo
+  release or fall back to an older resource schema. An automatically discovered
+  Zenodo archive must have a valid SHA-256 sidecar.
+- Compact database validation accepts marker proteins from
+  `parquet/faa.parquet` or nonempty legacy `database/faa/*.faa` files.
+- The Apptainer and Docker definitions copy the runtime source and bundled
+  example without development tests, host wrappers, images, or build files.
+  Both definitions use the verified Pixi 0.72.0 base-image digest. Docker
+  Compose builds from the repository root.
 
 ### Fixed
 
+- Required search, tree and summary failures propagate to query failure.
+  Retried queries retain prior work in a separate directory and use only
+  current-attempt evidence. Sequence and GFF files are available
+  before quality scoring. GFF phases match the gene caller's output.
+- Resume checks the selected model hashes, support policy and search settings
+  before reusing experimental estimates.
+- Markers with two unequal-length sequences skip tree building before
+  alignment validation. Automatic worker allocation respects
+  requested thread budgets below four.
 - Species-tree placement no longer misclassifies `|`-delimited reference leaves as
   queries; top-down consensus filters strictly along the winning parent lineage;
   `witchi` pruning guards `<4`-column/taxon matrices; marker hit ties break
@@ -54,6 +79,15 @@ unchanged from 2.0.3.
 
 - Cut peak worker RSS by ~28% via lazy PyArrow predicate pushdown and narrow
   2-column label projection in `CompactResourceStore`, plus bounded HMM LRU caching.
+
+### Release checks
+
+- Container publication waits for lint, tests, repository hygiene, and the
+  resource-backed golden regression. The workflow rejects a tag that differs
+  from the software version, verifies the embedded resource and model
+  identities, and retains the SIF and its SBOM before the Sylabs push. It
+  requires resource v2.1.0 and both experimental model bundles, so the current
+  v2.0.0 public recipe cannot publish a 2.1.0 image.
 
 ## [2.0.3] - 2026-07-27
 

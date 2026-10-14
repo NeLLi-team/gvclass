@@ -48,7 +48,7 @@ budget and writes results to `example_results/`.
 Print the query names, assigned lineages, and classification confidence:
 
 ```bash
-cut -f1,2,4 example_results/gvclass_summary.tsv
+cut -f1,3,5 example_results/gvclass_summary.tsv
 ```
 
 The table should contain these three queries:
@@ -72,8 +72,12 @@ Expected output:
 ```
 
 `taxonomy_majority` contains the lineage supported by the marker gene trees.
-`taxonomy_confidence` describes its marker support. For completeness and
-contamination estimates, see [Assess genome quality](../how-to/assess-genome-quality.md).
+`taxonomy_confidence` describes its marker support. The three example queries
+have `high` taxonomy confidence and a sub-threshold `clean` contamination label.
+Their bundled quality models report `unvalidated_legacy` reliability, so the
+numeric estimates do not certify genome quality. Read the query-support fields as
+well. For completeness and contamination estimates, see
+[Assess genome quality](../how-to/assess-genome-quality.md).
 
 Open `example_results/gvclass_summary.csv` in a spreadsheet for the remaining
 columns. `PkV-RF01` is a protein input, so its `ttable` value is `no_fna`.

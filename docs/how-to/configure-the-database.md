@@ -15,6 +15,12 @@ The configured bundle is about 1.5 GB and is published on
 [Zenodo](https://doi.org/10.5281/zenodo.21225457). `DB_VERSION` records the installed
 version.
 
+Setup uses one exact source. An explicit environment URL has precedence over the
+configuration block, which has precedence over the built-in v2.0.0 source. GVClass
+does not follow Zenodo's latest release or fall back to an older bundle. See the
+[configuration reference](../reference/configuration.md#database-keys) for the
+environment variables and checksum rules.
+
 ## Use a shared database
 
 1. Set `GVCLASS_DB` to an absolute path. Replace the example path with a directory
@@ -57,7 +63,9 @@ Relative database paths are resolved from the repository directory.
 
 Compact bundles store labels and reference proteins in Parquet files. GVClass
 creates the label tables and marker FASTA files needed for a run in
-`.gvclass_cache/` under the database directory.
+`.gvclass_cache/` under the database directory. Validation accepts reference
+proteins from `parquet/faa.parquet` or from nonempty legacy `database/faa/*.faa`
+files.
 
 For a read-only shared database, set a writable cache path in the same shell or
 job script:
@@ -76,9 +84,10 @@ This variable overrides `database.cache_path` in the configuration. A relative
 pixi run setup-db
 ```
 
-Setup and normal runs compare the installed version with the available download
-source. GVClass checks the latest linked Zenodo record when available, or uses
-the configured download source.
+Setup and normal runs compare the installed `DB_VERSION` with the effective
+download source: the environment override, the configured source, or the built-in
+v2.0.0 default. When the installed bundle is older, GVClass downloads that exact
+source. A newer Zenodo release does not replace it.
 
 An interactive run asks before replacing an older complete database.
 Non-interactive runs update it automatically. Check the database before starting

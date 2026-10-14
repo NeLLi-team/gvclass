@@ -24,7 +24,9 @@ Fast mode skips order-level marker trees but still searches their HMMs. `--exten
 
 GVClass assigns each query protein the taxonomy of its nearest reference in a marker tree. Marker votes are combined from domain to species, with lower ranks restricted to the selected parent lineage. Assignments without enough distinct markers are withheld. [Taxonomy and classification](taxonomy.md) describes the support thresholds and confidence flags.
 
-Marker recovery, duplication, reference matches, and contig-level evidence contribute to the [completeness and contamination estimates](quality-metrics.md). Interpret these with the taxonomic assignment and model reliability.
+Marker recovery, duplication, reference matches, and contig-level evidence contribute to the [completeness and contamination estimates](quality-metrics.md). Quality scoring uses the accepted consensus lineage. BUSCO and UNI56 are not the only cellular inputs to the contamination model; other marker reference matches can contribute. Gene transfer and endogenous viral elements can complicate the interpretation. Interpret the estimates with the taxonomic assignment, the query-support fields, and model reliability, because the support fields keep missing evidence from looking like a clean genome.
+
+`--quality-models experimental` selects candidate completeness and contamination models instead of the bundled models. See [experimental model candidates](quality-metrics.md#experimental-model-candidates).
 
 The optional [species-tree analysis](species-tree.md) concatenates a viral marker panel to place each genome among references. `--species-tree-combined` also places eligible queries together in one tree per viral panel.
 

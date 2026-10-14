@@ -53,7 +53,7 @@ The CLI options `--cluster-type`, `--cluster-queue`, `--cluster-project` and `--
 
 ## Use the Apptainer image
 
-The image includes GVClass, its dependencies and database. The `gvclass` entrypoint requires Apptainer and Python 3.10 or later on the host when used in container mode. If your cluster uses environment modules, load Apptainer before running `gvclass`.
+The image includes GVClass, its dependencies and database. The 2.1.0 image is prepared but not yet published: publication is held until the v2.1.0 candidate resources pass the release checks. The published image will carry the approved resources. The `gvclass` entrypoint requires Apptainer and Python 3.10 or later on the host when used in container mode. If your cluster uses environment modules, load Apptainer before running `gvclass`.
 
 ### 1. Download the launcher and image
 
@@ -87,7 +87,7 @@ The container mode accepts the output with `-o` / `--output-dir` (or as a second
 
 ### 3. Set the cache location if needed
 
-The database cache is stored in `~/.cache/gvclass/resource-cache/v2.0.0/`. To put it on your allocated scratch space, set `--resource-cache-dir` to that directory.
+During release review, the database cache stays at the public v2.0.0 path, `~/.cache/gvclass/resource-cache/v2.0.0/`. To put it on your allocated scratch space, set `--resource-cache-dir` to that directory.
 
 | Option | Purpose |
 | --- | --- |

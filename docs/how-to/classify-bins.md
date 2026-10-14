@@ -46,7 +46,7 @@ for the full command and outputs.
 ## 3. Read the results
 
 ```bash
-cut -f1,2,4 bin_results/gvclass_summary.tsv
+cut -f1,3,5 bin_results/gvclass_summary.tsv
 ```
 
 The copied example contains two bins, so the summary should have two data rows.
