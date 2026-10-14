@@ -305,22 +305,25 @@ def _parse_domtbl_dedup_key(
 ) -> Tuple[str, str, float, float] | None:
     """Extract (target_name, model_name, seq_score, dom_score) from one domtbl line.
 
-    Returns None for comment lines or malformed rows. Score columns follow the
-    custom domtbl written by :func:`_format_domain_line` (parts[7] = seq score,
-    parts[13] = domain score). Rows that do not have the exact column count
-    produced by :func:`_format_domain_line` are rejected so downstream
-    consumers that assume the full 22-field schema cannot be fed structurally
-    invalid data through the dedup pipeline.
+    Returns None for comment and blank lines. Score columns follow the custom
+    domtbl written by :func:`_format_domain_line` (parts[7] = seq score,
+    parts[13] = domain score). A row that does not have the exact column count
+    produced by :func:`_format_domain_line`, or whose scores are not numbers,
+    raises ``ValueError``: a truncated search output must fail the query, not
+    shrink its evidence.
     """
-    if line.startswith("#"):
+    if line.startswith("#") or not line.strip():
         return None
     parts = line.rstrip("\n").split("\t")
     if len(parts) != _EXPECTED_DOMTBL_COLUMNS:
-        return None
+        raise ValueError(
+            f"Malformed domtbl row: expected {_EXPECTED_DOMTBL_COLUMNS} fields, "
+            f"found {len(parts)}: {line[:80]!r}"
+        )
     try:
         return parts[0], parts[3], float(parts[7]), float(parts[13])
-    except (IndexError, ValueError):
-        return None
+    except ValueError as exc:
+        raise ValueError(f"Malformed domtbl scores: {line[:80]!r}") from exc
 
 
 def dedup_domtbl_file(input_file: str, output_file: str) -> int:

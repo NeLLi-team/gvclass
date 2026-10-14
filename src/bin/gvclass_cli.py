@@ -692,7 +692,6 @@ def check_and_setup_database(db_path: Path, config, output: CliOutput) -> bool:
 
     preferred_source = resolve_database_download_source(config)
     db_state = inspect_local_database_state(db_path)
-    latest_source = DatabaseManager.get_latest_database_source(preferred_source)
     update_source = DatabaseManager.get_effective_database_source(preferred_source)
 
     if db_state["exists"] and db_state["complete"]:
@@ -752,6 +751,7 @@ def check_and_setup_database(db_path: Path, config, output: CliOutput) -> bool:
     else:
         output.line(f"\nDatabase not found at {db_path}", key="database")
 
+    latest_source = DatabaseManager.get_latest_database_source(preferred_source)
     if latest_source:
         output.line(
             f"Latest database version on Zenodo: {latest_source['version']}",
@@ -835,10 +835,11 @@ def calculate_worker_plan(args, n_queries: int, threads: int) -> WorkerPlan:
     """
     from src.pipeline.parallel_runner import calculate_optimal_workers
 
-    if args.max_workers and args.threads_per_worker:
-        return WorkerPlan(
-            workers=args.max_workers, threads_per_worker=args.threads_per_worker
-        )
+    # One worker never gets more threads than the whole run was allowed.
+    per_worker = min(args.threads_per_worker, threads) if args.threads_per_worker else 0
+
+    if args.max_workers and per_worker:
+        return WorkerPlan(workers=args.max_workers, threads_per_worker=per_worker)
 
     if args.max_workers:
         workers = args.max_workers
@@ -846,9 +847,9 @@ def calculate_worker_plan(args, n_queries: int, threads: int) -> WorkerPlan:
             workers=workers, threads_per_worker=max(1, threads // workers)
         )
 
-    if args.threads_per_worker:
-        workers = min(n_queries, max(1, threads // args.threads_per_worker))
-        return WorkerPlan(workers=workers, threads_per_worker=args.threads_per_worker)
+    if per_worker:
+        workers = min(n_queries, max(1, threads // per_worker))
+        return WorkerPlan(workers=workers, threads_per_worker=per_worker)
 
     workers, threads_per_worker = calculate_optimal_workers(
         n_queries=n_queries, total_threads=threads

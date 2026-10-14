@@ -1,4 +1,6 @@
 from pathlib import Path
+
+import pytest
 import sys
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -237,9 +239,8 @@ def test_dedup_domtbl_file_preserves_single_rows(tmp_path: Path) -> None:
 
 
 def test_dedup_domtbl_file_rejects_truncated_rows(tmp_path: Path) -> None:
-    """Rows with fewer columns than :func:`_format_domain_line` emits must be
-    rejected so ``models.out.filtered`` never carries structurally invalid
-    lines (Codex-audit finding)."""
+    """A row with fewer columns than :func:`_format_domain_line` emits means a
+    truncated search output. It must raise instead of shrinking the evidence."""
     raw_file = tmp_path / "models.out"
     filtered_file = tmp_path / "models.out.filtered"
     # Well-formed 22-column row (from _domtbl_line) + a truncated 15-column
@@ -254,14 +255,5 @@ def test_dedup_domtbl_file_rejects_truncated_rows(tmp_path: Path) -> None:
         + truncated_row
     )
 
-    written = dedup_domtbl_file(str(raw_file), str(filtered_file))
-
-    data_lines = [
-        line
-        for line in filtered_file.read_text().splitlines()
-        if line and not line.startswith("#")
-    ]
-    assert written == 1
-    assert len(data_lines) == 1
-    assert "prot_good" in data_lines[0]
-    assert "prot_bad" not in filtered_file.read_text()
+    with pytest.raises(ValueError, match="Malformed domtbl row"):
+        dedup_domtbl_file(str(raw_file), str(filtered_file))

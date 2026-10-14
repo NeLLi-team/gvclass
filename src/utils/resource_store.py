@@ -50,6 +50,7 @@ class ResourceStore:
 
     def __init__(self, database_path: Path | str):
         self.database_path = Path(database_path)
+        self._cache_identity: str | None = None
 
     @property
     def parquet_root(self) -> Path:
@@ -169,7 +170,6 @@ class ResourceStore:
                         + "\n"
                     )
             os.replace(tmp, target)
-        self._write_source_stamp(target, parquet_path)
         return target
 
     def _materialize_marker_faa(self, marker: str) -> Path:
@@ -209,16 +209,48 @@ class ResourceStore:
                     f"Marker {marker} has no usable sequences in {self.faa_parquet}"
                 )
             os.replace(tmp, target)
-        self._write_source_stamp(target, self.faa_parquet)
         return target
 
+    @property
+    def cache_identity(self) -> str:
+        """Return a short digest that changes whenever the reference tables change.
+
+        Materialized files live under one subdirectory per identity. A cache made
+        from an older resource, or shared with another resource tree through
+        ``GVCLASS_RESOURCE_CACHE``, is therefore never read for this one. The
+        digest covers the resource manifest (member digests) and the size and
+        modification time of each Parquet table. A replacement archive keeps its
+        build-time modification time, so the modification time alone cannot tell
+        a new resource from a cache of the old one.
+        """
+        if self._cache_identity is None:
+            parts: list[str] = []
+            manifest = self.database_path / "RESOURCE_MANIFEST.json"
+            try:
+                parts.append(hashlib.sha256(manifest.read_bytes()).hexdigest())
+            except OSError:
+                parts.append("no-manifest")
+            tables = [self.faa_parquet]
+            if self.label_parquet_dir.is_dir():
+                tables.extend(sorted(self.label_parquet_dir.glob("*.parquet")))
+            for table in tables:
+                try:
+                    stat = table.stat()
+                except OSError:
+                    continue
+                parts.append(f"{table.name}:{stat.st_size}:{stat.st_mtime_ns}")
+            self._cache_identity = hashlib.sha256(
+                "|".join(parts).encode("utf-8")
+            ).hexdigest()[:16]
+        return self._cache_identity
+
     def _label_cache_dir(self) -> Path:
-        path = self._cache_root() / "labels"
+        path = self._cache_root() / self.cache_identity / "labels"
         path.mkdir(parents=True, exist_ok=True)
         return path
 
     def _faa_cache_dir(self) -> Path:
-        path = self._cache_root() / "faa"
+        path = self._cache_root() / self.cache_identity / "faa"
         path.mkdir(parents=True, exist_ok=True)
         return path
 
@@ -243,40 +275,13 @@ class ResourceStore:
             fallback.mkdir(parents=True, exist_ok=True)
             return fallback
 
-    @classmethod
-    def _target_current(cls, target: Path, source: Path, allow_empty: bool) -> bool:
-        """Return whether ``target`` was materialized from this exact ``source``.
-
-        The modification time alone is not enough: a replacement archive keeps
-        its build-time mtime, which is older than a cache made from the file it
-        replaces, so the stale cache would shadow the new reference data.
-        """
+    @staticmethod
+    def _target_current(target: Path, source: Path, allow_empty: bool) -> bool:
         if not target.exists():
             return False
         if not allow_empty and target.stat().st_size == 0:
             return False
-        if target.stat().st_mtime < source.stat().st_mtime:
-            return False
-        try:
-            return cls._stamp_path(target).read_text() == cls._source_stamp(source)
-        except OSError:
-            return False
-
-    @staticmethod
-    def _source_stamp(source: Path) -> str:
-        stat = source.stat()
-        return f"{stat.st_size}:{stat.st_mtime_ns}"
-
-    @staticmethod
-    def _stamp_path(target: Path) -> Path:
-        return target.with_name(f".{target.name}.source")
-
-    @classmethod
-    def _write_source_stamp(cls, target: Path, source: Path) -> None:
-        stamp = cls._stamp_path(target)
-        with cls._temporary_path(stamp) as tmp:
-            tmp.write_text(cls._source_stamp(source))
-            os.replace(tmp, stamp)
+        return target.stat().st_mtime >= source.stat().st_mtime
 
     @staticmethod
     def _same_existing_path(source: Path, target: Path) -> bool:

@@ -172,31 +172,58 @@ def test_resource_store_materialized_dir_can_skip_missing_markers(
     assert not (materialized_dir / "MISSING.faa").exists()
 
 
+def _faa_row(seq_id: str, sequence: str = "MKK") -> dict[str, str]:
+    label_id = seq_id.split("|", 1)[0]
+    return {
+        "marker": "PRESENT.faa",
+        "seq_id": seq_id,
+        "label_id": label_id,
+        "domain": "EUK",
+        "sequence": sequence,
+    }
+
+
 def test_resource_store_rebuilds_cache_when_parquet_is_replaced_by_an_older_file(
     tmp_path: Path,
 ) -> None:
     parquet = tmp_path / "parquet" / "faa.parquet"
-    first_row = {
-        "marker": "PRESENT.faa",
-        "seq_id": "EUK__contaminated_1",
-        "label_id": "EUK__contaminated",
-        "domain": "EUK",
-        "sequence": "MKK",
-    }
-    second_row = {**first_row, "seq_id": "EUK__clean_1", "label_id": "EUK__clean"}
-    _write_parquet(parquet, [first_row])
-    store = ResourceStore(tmp_path)
-    cached = store.marker_faa_path("PRESENT")
-    assert cached.read_text() == ">EUK__contaminated_1\nMKK\n"
+    _write_parquet(parquet, [_faa_row("EUK__contaminated|1")])
+    cached = ResourceStore(tmp_path).marker_faa_path("PRESENT")
+    assert cached.read_text() == ">EUK__contaminated|1\nMKK\n"
 
     # A cleaned archive keeps its build-time mtime, which is older than the cache.
-    _write_parquet(parquet, [second_row, {**second_row, "seq_id": "EUK__clean_2"}])
+    _write_parquet(
+        parquet, [_faa_row("EUK__clean|1"), _faa_row("EUK__clean|2")]
+    )
     older = cached.stat().st_mtime - 3600
     os.utime(parquet, (older, older))
 
-    assert store.marker_faa_path("PRESENT").read_text() == (
-        ">EUK__clean_1\nMKK\n>EUK__clean_2\nMKK\n"
+    assert ResourceStore(tmp_path).marker_faa_path("PRESENT").read_text() == (
+        ">EUK__clean|1\nMKK\n>EUK__clean|2\nMKK\n"
     )
+
+
+def test_resource_store_keeps_trees_that_share_a_cache_apart(
+    tmp_path: Path, monkeypatch
+) -> None:
+    shared = tmp_path / "shared-cache"
+    monkeypatch.setenv("GVCLASS_RESOURCE_CACHE", str(shared))
+    first, second = tmp_path / "first", tmp_path / "second"
+    _write_parquet(first / "parquet" / "faa.parquet", [_faa_row("EUK__one|1")])
+    _write_parquet(second / "parquet" / "faa.parquet", [_faa_row("EUK__two|1")])
+    # Same size and the same modification time: only the manifest tells them apart.
+    stamp = (first / "parquet" / "faa.parquet").stat().st_mtime
+    os.utime(second / "parquet" / "faa.parquet", (stamp, stamp))
+    (first / "RESOURCE_MANIFEST.json").write_text('{"members": [1]}')
+    (second / "RESOURCE_MANIFEST.json").write_text('{"members": [2]}')
+
+    one = ResourceStore(first).marker_faa_path("PRESENT")
+    two = ResourceStore(second).marker_faa_path("PRESENT")
+
+    assert one.read_text() == ">EUK__one|1\nMKK\n"
+    assert two.read_text() == ">EUK__two|1\nMKK\n"
+    assert one.parent != two.parent
+    assert one.parent.parent.parent == shared
 
 
 def test_marker_processor_preserves_missing_marker_fallback(tmp_path: Path) -> None:
