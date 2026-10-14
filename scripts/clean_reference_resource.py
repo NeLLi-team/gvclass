@@ -286,9 +286,11 @@ def update_metadata(
             "markers/*, completeness/* and the model files were not recomputed."
         ),
     }
-    metadata["v2_1_0_staging_status"] = (
-        "Cleaned local release candidate; public archive publication pending approval."
+    metadata["download_archive_status"] = (
+        "Release archive of GVClass reference resources v2.1.0 on Zenodo "
+        "(concept DOI 10.5281/zenodo.18662445); the archive checksum is on the record."
     )
+    metadata["v2_1_0_staging_status"] = "Release archive."
     (out / "RESOURCE_METADATA.json").write_text(json.dumps(metadata, indent=2) + "\n")
 
 
