@@ -1,18 +1,27 @@
 Bootstrap: docker
-From: ghcr.io/prefix-dev/pixi:latest
+From: ghcr.io/prefix-dev/pixi@sha256:d2d0d941b89802e67a622e4adad68c8643f81154461028faebb60aca502db78f
 
 %files
     LICENCE /opt/gvclass/LICENCE
     README.md /opt/gvclass/README.md
     config /opt/gvclass/config
-    containers /opt/gvclass/containers
     example /opt/gvclass/example
     gvclass /opt/gvclass/gvclass
-    images /opt/gvclass/images
     pixi.lock /opt/gvclass/pixi.lock
     pixi.toml /opt/gvclass/pixi.toml
     pyproject.toml /opt/gvclass/pyproject.toml
-    src /opt/gvclass/src
+    src/__init__.py /opt/gvclass/src/__init__.py
+    src/__version__.py /opt/gvclass/src/__version__.py
+    src/bin/__init__.py /opt/gvclass/src/bin/__init__.py
+    src/bin/cli_display.py /opt/gvclass/src/bin/cli_display.py
+    src/bin/gvclass_cli.py /opt/gvclass/src/bin/gvclass_cli.py
+    src/bin/gvclass_runner.py /opt/gvclass/src/bin/gvclass_runner.py
+    src/bin/progress_monitor.py /opt/gvclass/src/bin/progress_monitor.py
+    src/bin/setup_database.py /opt/gvclass/src/bin/setup_database.py
+    src/config /opt/gvclass/src/config
+    src/core /opt/gvclass/src/core
+    src/pipeline /opt/gvclass/src/pipeline
+    src/utils /opt/gvclass/src/utils
 
 %environment
     export PATH=/usr/local/bin:/opt/gvclass/.pixi/envs/default/bin:$PATH
@@ -33,7 +42,7 @@ From: ghcr.io/prefix-dev/pixi:latest
     cd /opt/gvclass
     
     # Install the environment using pixi
-    pixi install
+    pixi install --frozen
     
     # Download the database if it doesn't exist
     if [ ! -d "/opt/gvclass/resources/database" ] || [ ! -f "/opt/gvclass/resources/hmm/combined.hmm" ]; then

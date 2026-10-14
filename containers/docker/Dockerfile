@@ -1,5 +1,5 @@
 # Use the official Pixi base image (includes Pixi pre-installed)
-FROM ghcr.io/prefix-dev/pixi:latest
+FROM ghcr.io/prefix-dev/pixi@sha256:d2d0d941b89802e67a622e4adad68c8643f81154461028faebb60aca502db78f
 
 ARG GVCLASS_VERSION=2.1.0
 
@@ -19,13 +19,17 @@ WORKDIR /opt/gvclass
 # Copy the tracked project files; runtime resources are downloaded during build.
 COPY LICENCE README.md pixi.lock pixi.toml pyproject.toml gvclass /opt/gvclass/
 COPY config /opt/gvclass/config
-COPY containers /opt/gvclass/containers
 COPY example /opt/gvclass/example
-COPY images /opt/gvclass/images
-COPY src /opt/gvclass/src
+COPY src/__init__.py src/__version__.py /opt/gvclass/src/
+COPY src/bin/__init__.py src/bin/cli_display.py src/bin/gvclass_cli.py /opt/gvclass/src/bin/
+COPY src/bin/gvclass_runner.py src/bin/progress_monitor.py src/bin/setup_database.py /opt/gvclass/src/bin/
+COPY src/config /opt/gvclass/src/config
+COPY src/core /opt/gvclass/src/core
+COPY src/pipeline /opt/gvclass/src/pipeline
+COPY src/utils /opt/gvclass/src/utils
 
 # Install GVClass dependencies using pixi
-RUN pixi install && pixi run setup-db
+RUN pixi install --frozen && pixi run setup-db
 
 # Clean up pixi cache to reduce image size
 RUN pixi clean cache -y || true && \

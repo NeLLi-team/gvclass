@@ -5,8 +5,6 @@ services:
     build:
       context: ../..
       dockerfile: containers/docker/Dockerfile
-      args:
-        PIXI_VERSION: 0.40.2
     image: gvclass:2.1.0
     container_name: gvclass
     volumes:
