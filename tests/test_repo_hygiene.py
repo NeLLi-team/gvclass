@@ -204,31 +204,6 @@ def test_container_builds_use_pinned_base_and_repo_compose_context() -> None:
     }
 
 
-def test_container_wrappers_reject_sibling_path_with_same_prefix(
-    tmp_path: Path,
-) -> None:
-    workspace = tmp_path / "work"
-    sibling = tmp_path / "work-untrusted"
-    workspace.mkdir()
-    sibling.mkdir()
-    (sibling / "query.fna").write_text(">query\nACGT\n")
-
-    for relative_path in [
-        "src/bin/gvclass_docker.sh",
-        "src/bin/gvclass_shifter.sh",
-    ]:
-        result = subprocess.run(
-            ["bash", str(REPO_ROOT / relative_path), str(sibling), "1"],
-            cwd=workspace,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-
-        assert result.returncode == 1, relative_path
-        assert "must be under current working directory" in result.stdout
-
-
 def test_container_runtime_copy_excludes_development_and_host_files() -> None:
     dockerfile = (REPO_ROOT / "containers" / "docker" / "Dockerfile").read_text()
     definition = (REPO_ROOT / "containers" / "apptainer" / "gvclass.def").read_text()

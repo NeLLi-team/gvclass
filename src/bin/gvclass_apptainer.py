@@ -2,6 +2,7 @@
 """Wrapper to run the published GVClass Apptainer image with minimal typing."""
 
 import argparse
+import hashlib
 import re
 import subprocess
 from pathlib import Path
@@ -26,8 +27,11 @@ def is_remote_image_uri(image: str) -> bool:
 
 
 def cache_filename_for_image(image: str) -> str:
+    prefix = ""
     if image.startswith(("http://", "https://")):
         slug = Path(urlparse(image).path).name
+        # Two hosts can serve the same basename; the digest keeps their caches apart.
+        prefix = hashlib.sha256(image.encode("utf-8")).hexdigest()[:12] + "_"
     else:
         slug = image.split("://", 1)[1]
     slug = re.sub(r"[^A-Za-z0-9._-]+", "_", slug).strip("_")
@@ -35,7 +39,7 @@ def cache_filename_for_image(image: str) -> str:
         slug = "gvclass_image"
     if not slug.endswith(".sif"):
         slug = f"{slug}.sif"
-    return slug
+    return prefix + slug
 
 
 def ensure_local_image(image: str) -> str:
@@ -139,10 +143,11 @@ def run_container(
         cmd.extend(["-j", str(max_workers)])
     if threads_per_worker:
         cmd.extend(["--threads-per-worker", str(threads_per_worker)])
-    if sensitive_mode:
-        cmd.append("--sensitive")
-    elif no_sensitive:
+    # Same precedence as the native CLI: --no-sensitive wins over --sensitive.
+    if no_sensitive:
         cmd.append("--no-sensitive")
+    elif sensitive_mode:
+        cmd.append("--sensitive")
     if completeness_mode:
         cmd.extend(["--completeness-mode", completeness_mode])
     if quality_models:
@@ -341,7 +346,7 @@ def _add_mode_args(parser: argparse.ArgumentParser) -> None:
         "--resource-cache-dir",
         default=str(DEFAULT_RESOURCE_CACHE_DIR),
         help=(
-            "Host directory for Parquet materialization cache " "(default: %(default)s)"
+            "Host directory for Parquet materialization cache (default: %(default)s)"
         ),
     )
 
@@ -365,8 +370,11 @@ def resolve_output_path(
     if resolved_output:
         return Path(resolved_output)
 
-    query_name = query_path.stem if query_path.is_file() else query_path.name
-    return query_path.with_name(f"{query_name}_results")
+    resolved_query = query_path.resolve()
+    query_name = (
+        resolved_query.stem if resolved_query.is_file() else resolved_query.name
+    )
+    return resolved_query.with_name(f"{query_name}_results")
 
 
 def main(argv: list[str] | None = None) -> int:

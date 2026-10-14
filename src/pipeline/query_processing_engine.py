@@ -239,6 +239,14 @@ def _emit_query_progress(
 def _initialize_query(query_file: Path, output_base: Path) -> tuple[str, Path]:
     query_name = query_file.stem
     query_output_dir = output_base / query_name
+    if query_file.resolve().is_relative_to(query_output_dir.resolve()):
+        raise ProcessingError(
+            f"The working directory {query_output_dir} for query {query_name} "
+            f"holds the input file {query_file}. Choose an output directory "
+            "outside the input directory.",
+            step="initialize_query",
+            input_file=str(query_file),
+        )
     if query_output_dir.is_dir() and any(query_output_dir.iterdir()):
         retained = Path(
             tempfile.mkdtemp(prefix=f"{query_name}.previous.", dir=output_base)
@@ -834,8 +842,9 @@ def _get_thread_summarizer(
     database_path: Path,
     completeness_mode: str,
     sensitive_mode: bool,
+    quality_models: str = "bundled",
 ) -> FullSummarizer:
-    cache: Dict[Tuple[Any, str, str, bool], FullSummarizer] = getattr(
+    cache: Dict[Tuple[Any, str, str, bool, str], FullSummarizer] = getattr(
         _THREAD_LOCAL, "summarizers", None
     )
     if cache is None:
@@ -846,12 +855,14 @@ def _get_thread_summarizer(
         str(database_path.resolve()),
         completeness_mode,
         sensitive_mode,
+        quality_models,
     )
     if key not in cache:
         cache[key] = FullSummarizer(
             database_path,
             completeness_mode=completeness_mode,
             sensitive_mode=sensitive_mode,
+            quality_models=quality_models,
         )
     return cache[key]
 

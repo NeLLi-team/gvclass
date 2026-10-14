@@ -170,11 +170,17 @@ def test_weighted_completeness_fallback_deduplicates_markers(tmp_path: Path) -> 
 def test_summary_writer_preserves_extended_columns_across_resume(
     tmp_path: Path,
 ) -> None:
-    """<query>.final_summary.tsv must persist all 51 columns so --resume retains extended columns."""
+    """<query>.final_summary.tsv must persist every summary and extended column.
+
+    --resume rebuilds the extended table from these files.
+    """
     import logging
 
-    assert len(FINAL_SUMMARY_COLUMNS) == 44
-    assert len(INDIVIDUAL_FINAL_SUMMARY_COLUMNS) == 51
+    assert (
+        INDIVIDUAL_FINAL_SUMMARY_COLUMNS[: len(FINAL_SUMMARY_COLUMNS)]
+        == FINAL_SUMMARY_COLUMNS
+    )
+    assert set(EXTENDED_SUMMARY_COLUMNS) <= set(INDIVIDUAL_FINAL_SUMMARY_COLUMNS)
 
     summary_data = {col: "0" for col in INDIVIDUAL_FINAL_SUMMARY_COLUMNS}
     summary_data["query"] = "sample_q"

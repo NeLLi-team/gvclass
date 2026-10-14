@@ -327,6 +327,8 @@ def _resolve_worker_distribution(
     if threads_per_worker <= 0:
         raise ValueError("threads_per_worker must be a positive integer")
 
+    # One worker never gets more threads than the whole run was allowed.
+    threads_per_worker = min(threads_per_worker, max(1, total_threads))
     max_by_threads = max(1, total_threads // threads_per_worker)
     n_workers = min(n_queries, max_by_threads, max_workers or n_queries)
     return n_workers, threads_per_worker
