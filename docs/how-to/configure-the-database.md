@@ -63,9 +63,10 @@ Relative database paths are resolved from the repository directory.
 
 Compact bundles store labels and reference proteins in Parquet files. GVClass
 creates the label tables and marker FASTA files needed for a run in
-`.gvclass_cache/` under the database directory. Validation accepts reference
-proteins from `parquet/faa.parquet` or from nonempty legacy `database/faa/*.faa`
-files.
+`.gvclass_cache/` under the database directory, in one subdirectory per resource
+identity. A new resource version starts a new subdirectory; old ones stay until
+you remove them. Validation accepts reference proteins from `parquet/faa.parquet`
+or from nonempty legacy `database/faa/*.faa` files.
 
 For a read-only shared database, set a writable cache path in the same shell or
 job script:

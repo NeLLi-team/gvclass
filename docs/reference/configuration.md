@@ -53,7 +53,7 @@ Setup uses one download source, chosen in this order: the `GVCLASS_DB_URL` envir
 
 Compact resource bundles can store labels and reference proteins as Parquet (`parquet/labels/labels.parquet` and `parquet/faa.parquet`). Validation accepts reference proteins from `parquet/faa.parquet` or from nonempty legacy `database/faa/*.faa` files.
 
-`GVCLASS_RESOURCE_CACHE` overrides `cache_path`. The default is `<database.path>/.gvclass_cache`, with a hashed system-temporary cache used when the database directory is unwritable. See [configure the database](../how-to/configure-the-database.md).
+`GVCLASS_RESOURCE_CACHE` overrides `cache_path`. The default is `<database.path>/.gvclass_cache`, with a hashed system-temporary cache used when the database directory is unwritable. The cache keeps one subdirectory per resource identity (the resource manifest digest and the size and modification time of each Parquet table), so a replaced resource never reads files cached from an older one, and two resources can share one cache directory. Remove old subdirectories to free space. See [configure the database](../how-to/configure-the-database.md).
 
 ## Pipeline keys
 

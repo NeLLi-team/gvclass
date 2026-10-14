@@ -42,6 +42,16 @@ until the v2.1.0 archive is approved and published.
   correct domain (5 remain; 12 of 12 eukaryotic single cells keep their call). A
   domain that fails the test is left unassigned and `taxonomy_confidence`
   reports `mixed_cellular`. Bacterial, archaeal, and viral calls are unchanged.
+- Bundled models report support explicitly. A completeness estimate for an input
+  with low reference or query support is no longer floored at the higher of the
+  two baseline estimates and can fall to the lower one. An input without an
+  informative marker reports `NaN` and `completeness_query_support`
+  `insufficient_evidence`, not 0. The bundled contamination model reports only for
+  targets accepted as NCLDV with supported evidence; MIRUS, PPV and other targets,
+  and inputs without evidence, report `NaN` and name the reason in
+  `contamination_model_applicability`. The labels `moderate` and `high` are no
+  longer emitted: the bundled validation cannot support them, so model-backed
+  values read `unvalidated_legacy`.
 - Weighted marker completeness (`weighted_order_completeness` in the per-query
   `.summary.tab`) fits its adaptive scaler on the base weights it is applied to,
   and averages repeated marker rows when it falls back to all orders. These
@@ -79,6 +89,14 @@ until the v2.1.0 archive is approved and published.
 - Marker FASTA files list their hit sequences in sorted order. Temporary files of
   marker trimming and of species-tree reference subsets are removed when a step
   fails, and subset files carry a process and thread suffix.
+- Materialized reference files are cached per resource identity, so a replaced
+  resource never reads a cache made from an older one, and two resources can share
+  one cache directory.
+- A truncated or malformed row in a multi-HMM search output fails the query. The
+  deduplication step used to drop such rows and let the run finish with less
+  evidence.
+- The database check no longer asks Zenodo for the latest release when the
+  installed database is complete.
 - A query whose working directory would contain its own input file stops with an
   error instead of moving or deleting the input.
 - Cached container images from different HTTPS addresses no longer share a file
