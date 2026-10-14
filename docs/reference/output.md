@@ -52,7 +52,7 @@ The four `species_tree_*` summary columns describe per-query trees. Combined-tre
 | `query` | Input filename for the query. |
 | `taxonomy_majority` | Accepted lineage from per-marker nearest-neighbor votes. Unsupported ranks are blank. |
 | `species_tree_nn_taxonomy` | Nearest-reference lineage from the query's concatenated-marker tree; `nd` if unavailable. |
-| `taxonomy_confidence` | `high`, or flags: `low_support` for insufficient marker support; `reduced_fastmode` for an order accepted with two markers in fast mode; `no_support` for absent taxonomy evidence. |
+| `taxonomy_confidence` | `high`, or flags: `low_support` for insufficient marker support; `mixed_cellular` when eukaryotic markers win the domain vote without 80% of the cellular-domain markers; `reduced_fastmode` for an order accepted with two markers in fast mode; `no_support` for absent taxonomy evidence. |
 | `capsid_group` | Combined capsid-type tally as `label:count` across the Nucleocytoviricota, Mirusviricota, and Bellas & Sommaruga capsid groups. |
 | `species` | Species-rank call with per-taxon counts. |
 | `genus` | Genus-rank call with per-taxon counts. |

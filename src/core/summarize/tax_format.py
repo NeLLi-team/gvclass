@@ -154,6 +154,11 @@ def _aggregate_confidence_flags(flags: List[str]) -> str:
         return "high"
     # Preserve a stable priority so the string always reports the
     # strongest caveat first.
-    priority = {"no_support": 0, "low_support": 1, "reduced_fastmode": 2}
+    priority = {
+        "no_support": 0,
+        "low_support": 1,
+        "mixed_cellular": 2,
+        "reduced_fastmode": 3,
+    }
     unique = sorted(set(flags), key=lambda flag: priority.get(flag, 99))
     return ",".join(unique)

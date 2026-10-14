@@ -53,6 +53,26 @@ _MIN_MARKERS_FOR_LEVEL_FAST: Dict[str, int] = {
 }
 
 
+# A eukaryotic domain call must hold at least this share of the markers that
+# vote for a cellular domain. Without it, a plurality of two markers decides:
+# on 1,470 prokaryotic gut genomes distant homologs and contaminated
+# eukaryotic references gave a eukaryotic call to 59 of them (median share
+# 0.58), while 12 of 12 eukaryotic single cells held at least 0.95.
+# Bacterial, archaeal and viral calls keep the plurality rule.
+MIN_CELLULAR_DOMAIN_SHARE = 0.8
+
+# Domain label -> the family it counts toward in the share test. Putative
+# endogenous viral element references count with their eukaryotic source.
+_CELLULAR_DOMAIN_FAMILY: dict[str, str] = {
+    "BAC": "BAC",
+    "ARC": "ARC",
+    "EUK": "EUK",
+    "EUK-pEVE": "EUK",
+}
+# Families whose call needs the share. Their false calls are the ones seen.
+_SHARE_REQUIRED_FAMILIES = frozenset({"EUK"})
+
+
 def _min_markers_for_level(level: str, mode_fast: bool) -> int:
     threshold_map = _MIN_MARKERS_FOR_LEVEL_FAST if mode_fast else _MIN_MARKERS_FOR_LEVEL
     return threshold_map.get(level, 2)
@@ -71,6 +91,18 @@ def _per_marker_majority(
 
     Returns ``(winning_taxon, supporting_markers, total_markers)``.
     """
+    marker_votes, total_markers = _marker_votes(per_marker_level_counters)
+    if not marker_votes:
+        return None, 0, total_markers
+
+    winning_taxon, supporting_markers = _stable_top(marker_votes)
+    return winning_taxon, supporting_markers, total_markers
+
+
+def _marker_votes(
+    per_marker_level_counters: dict[str, Counter],
+) -> tuple[Counter, int]:
+    """Return one winning taxon per marker as votes, and the marker count."""
     marker_votes: Counter = Counter()
     total_markers = 0
     for counter in per_marker_level_counters.values():
@@ -81,12 +113,28 @@ def _per_marker_majority(
         if winner_pair is None:
             continue
         marker_votes[winner_pair[0]] += 1
+    return marker_votes, total_markers
 
-    if not marker_votes:
-        return None, 0, total_markers
 
-    winning_taxon, supporting_markers = _stable_top(marker_votes)
-    return winning_taxon, supporting_markers, total_markers
+def _cellular_domain_supported(marker_votes: Counter, winner: str) -> bool:
+    """Return whether a winning eukaryotic domain holds enough cellular votes.
+
+    The share is taken among markers that vote for a cellular domain, so viral
+    markers do not dilute it. Any other winner is always supported.
+    """
+    family = _CELLULAR_DOMAIN_FAMILY.get(winner)
+    if family not in _SHARE_REQUIRED_FAMILIES:
+        return True
+    cellular_votes = 0
+    family_votes = 0
+    for domain, count in marker_votes.items():
+        domain_family = _CELLULAR_DOMAIN_FAMILY.get(domain)
+        if domain_family is None:
+            continue
+        cellular_votes += count
+        if domain_family == family:
+            family_votes += count
+    return family_votes >= MIN_CELLULAR_DOMAIN_SHARE * cellular_votes
 
 
 def _filter_counter_to_domain(counter: Counter, domain: Optional[str]) -> Counter:
@@ -140,8 +188,13 @@ def _build_consensus_taxonomies(
     confidence_flags: List[str] = []
     saw_taxonomy_evidence = False
     selected_domain: Optional[str] = None
+    withhold_lower_ranks = False
 
     for level in TAX_LEVELS:
+        if withhold_lower_ranks:
+            majority_parts.append(f"{level[0]}_")
+            strict_parts.append(f"{level[0]}_")
+            continue
         flat_counter = tax_counters[level]
         per_marker_level = per_marker_counters.get(level, {})
         if level != "domain":
@@ -154,7 +207,19 @@ def _build_consensus_taxonomies(
         if flat_counter or total > 0:
             saw_taxonomy_evidence = True
 
-        if winning is not None and supporting >= threshold:
+        supported = winning is not None and supporting >= threshold
+        mixed_cellular = (
+            supported
+            and level == "domain"
+            and not _cellular_domain_supported(
+                _marker_votes(per_marker_level)[0], winning
+            )
+        )
+        if mixed_cellular:
+            supported = False
+            withhold_lower_ranks = True
+
+        if supported:
             majority = _format_tax_label(level, winning)
             if level == "domain":
                 selected_domain = winning
@@ -172,7 +237,9 @@ def _build_consensus_taxonomies(
                 confidence_flags.append("reduced_fastmode")
         else:
             majority = f"{level[0]}_"
-            if total > 0:
+            if mixed_cellular:
+                confidence_flags.append("mixed_cellular")
+            elif total > 0:
                 confidence_flags.append("low_support")
 
         # Strict keeps the flat-counter 100% rule, but must never be more
@@ -218,6 +285,22 @@ def _per_marker_lineage_majority(
     rank_index: int,
     selected_prefix: Tuple[str, ...],
 ) -> Tuple[Optional[str], int, int]:
+    marker_votes, total_markers = _lineage_marker_votes(
+        per_marker_lineage_counters, rank_index, selected_prefix
+    )
+    if not marker_votes:
+        return None, 0, total_markers
+
+    winning_taxon, supporting_markers = _stable_top(marker_votes)
+    return winning_taxon, supporting_markers, total_markers
+
+
+def _lineage_marker_votes(
+    per_marker_lineage_counters: dict[str, Counter[tuple[str, ...]]],
+    rank_index: int,
+    selected_prefix: tuple[str, ...],
+) -> tuple[Counter, int]:
+    """Return one winning taxon per marker at a rank as votes, and the marker count."""
     marker_votes: Counter = Counter()
     total_markers = 0
 
@@ -239,11 +322,7 @@ def _per_marker_lineage_majority(
             continue
         marker_votes[winner_pair[0]] += 1
 
-    if not marker_votes:
-        return None, 0, total_markers
-
-    winning_taxon, supporting_markers = _stable_top(marker_votes)
-    return winning_taxon, supporting_markers, total_markers
+    return marker_votes, total_markers
 
 
 def _format_lineage_tax_label(
@@ -287,7 +366,16 @@ def _build_consensus_taxonomies_from_lineages(
         if flat_counter or total > 0:
             saw_taxonomy_evidence = True
 
-        if winning is not None and supporting >= threshold:
+        supported = winning is not None and supporting >= threshold
+        mixed_cellular = False
+        if supported and rank_index == 0:
+            domain_votes, _ = _lineage_marker_votes(
+                per_marker_lineage_counters, rank_index, selected_prefix
+            )
+            mixed_cellular = not _cellular_domain_supported(domain_votes, winning)
+            supported = not mixed_cellular
+
+        if supported:
             majority = _format_lineage_tax_label(level, selected_prefix, winning)
             strict = blank
             if strict_prefix is not None:
@@ -321,7 +409,9 @@ def _build_consensus_taxonomies_from_lineages(
             strict = blank
             stop_lower_ranks = True
             strict_prefix = None
-            if total > 0:
+            if mixed_cellular:
+                confidence_flags.append("mixed_cellular")
+            elif total > 0:
                 confidence_flags.append("low_support")
 
         majority_parts.append(majority)

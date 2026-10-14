@@ -13,7 +13,15 @@ compatible bundle is noted per release.
 
 ## [Unreleased]
 
-No unreleased changes.
+### Changed
+
+- A eukaryotic domain is now assigned only when its markers are at least 80% of the
+  markers that vote for a cellular domain. Before, a plurality of two markers was
+  enough, and 59 of 1,470 prokaryotic gut genomes received a eukaryotic call
+  because distant homologs and contaminated eukaryotic references outvoted the
+  correct domain (5 remain; 12 of 12 eukaryotic single cells keep their call). A
+  domain that fails the test is left unassigned and `taxonomy_confidence`
+  reports `mixed_cellular`. Bacterial, archaeal, and viral calls are unchanged.
 
 ## [2.1.0] - 2026-10-13
 
