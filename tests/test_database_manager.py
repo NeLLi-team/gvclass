@@ -2,6 +2,8 @@ import io
 import tarfile
 from pathlib import Path
 
+import pytest
+
 from src.utils import database_manager as database_manager_module
 from src.utils.database_manager import DatabaseManager
 
@@ -12,7 +14,7 @@ def _create_complete_database(db_path: Path) -> None:
         target = db_path / relative_path
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text("test\n")
-    (db_path / "DB_VERSION").write_text("v1.2.2\n")
+    (db_path / "DB_VERSION").write_text("v2.0.0\n")
 
 
 def test_setup_database_skips_download_when_database_is_complete(tmp_path, monkeypatch):
@@ -62,11 +64,32 @@ def test_database_completeness_accepts_parquet_labels(tmp_path):
     assert DatabaseManager._check_missing_files(db_path) == []
 
 
+def test_database_completeness_accepts_legacy_marker_faa(tmp_path):
+    db_path = tmp_path / "resources"
+    _create_complete_database(db_path)
+    (db_path / "parquet" / "faa.parquet").unlink()
+    legacy_faa = db_path / "database" / "faa" / "marker.faa"
+    legacy_faa.parent.mkdir(parents=True, exist_ok=True)
+    legacy_faa.write_text(">reference\nMA\n")
+
+    assert DatabaseManager._check_missing_files(db_path) == []
+
+
+def test_database_completeness_rejects_empty_marker_resources(tmp_path):
+    db_path = tmp_path / "resources"
+    _create_complete_database(db_path)
+    (db_path / "parquet" / "faa.parquet").write_text("")
+    (db_path / "database" / "faa").mkdir(parents=True, exist_ok=True)
+
+    assert "parquet/faa.parquet" in DatabaseManager._check_missing_files(db_path)
+
+
 def test_get_latest_database_source_follows_zenodo_latest_record(monkeypatch):
     preferred_source = {
         "version": "v1.2.2",
         "url": "https://zenodo.org/records/18675742/files/resources_v1_2_2.tar.gz?download=1",
         "filename": "resources_v1_2_2.tar.gz",
+        "sha256": "b" * 64,
     }
     latest_archive_url = (
         "https://zenodo.org/api/records/18926264/files/resources_v1_4_0.tar.gz/content"
@@ -99,7 +122,7 @@ def test_get_latest_database_source_follows_zenodo_latest_record(monkeypatch):
     monkeypatch.setattr(
         DatabaseManager,
         "_fetch_text",
-        staticmethod(lambda url: "abc123 resources_v1_4_0.tar.gz\n"),
+        staticmethod(lambda url: f"{'a' * 64} resources_v1_4_0.tar.gz\n"),
     )
 
     source = DatabaseManager.get_latest_database_source(preferred_source)
@@ -108,10 +131,38 @@ def test_get_latest_database_source_follows_zenodo_latest_record(monkeypatch):
         "version": "v1.4.0",
         "url": latest_archive_url,
         "filename": "resources_v1_4_0.tar.gz",
-        "sha256": "abc123",
+        "sha256": "a" * 64,
         "record_id": "18926264",
         "conceptrecid": "18662445",
     }
+
+
+def test_download_database_does_not_fallback_from_selected_source(
+    tmp_path, monkeypatch
+):
+    preferred_source = {
+        "version": "v8.0.0",
+        "url": "https://example.com/config.tar.gz",
+        "sha256": "b" * 64,
+    }
+    attempted_urls = []
+
+    def fail_install(cls, db_path, source, archive_path, staging_path):
+        attempted_urls.append(source["url"])
+        raise RuntimeError("selected source unavailable")
+
+    monkeypatch.setattr(
+        DatabaseManager,
+        "_install_database_source_atomic",
+        classmethod(fail_install),
+    )
+
+    with pytest.raises(RuntimeError, match="selected source unavailable"):
+        DatabaseManager._download_database(
+            tmp_path / "resources", preferred_source=preferred_source
+        )
+
+    assert attempted_urls == ["https://example.com/config.tar.gz"]
 
 
 def test_download_archive_streams_progress_to_stderr(tmp_path, monkeypatch):

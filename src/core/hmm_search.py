@@ -381,9 +381,10 @@ def _write_domain_result_line(
     out_handle.write(f"{domain.c_evalue:.2e}\t{domain.i_evalue:.2e}\t")
     out_handle.write(f"{domain.score:.1f}\t{domain.bias:.1f}\t")
 
-    out_handle.write(f"{hmm_from + 1}\t{hmm_to + 1}\t")
-    out_handle.write(f"{target_from + 1}\t{target_to + 1}\t")
-    out_handle.write(f"{domain.env_from + 1}\t{domain.env_to + 1}\t")
+    # PyHMMER coordinates use the domtblout 1-based, inclusive convention.
+    out_handle.write(f"{hmm_from}\t{hmm_to}\t")
+    out_handle.write(f"{target_from}\t{target_to}\t")
+    out_handle.write(f"{domain.env_from}\t{domain.env_to}\t")
     out_handle.write("0.90\n")
 
 
@@ -475,35 +476,40 @@ def generate_counts_from_output(output_file: str, counts_file: str) -> None:
         output_file: Path to HMM search output
         counts_file: Path to write counts file
     """
-    from collections import defaultdict
+    counts: dict[str, int] = defaultdict(int)
+    seen_hits: set[tuple[str, str]] = set()
 
-    counts = defaultdict(int)
-    seen_hits = set()
+    with Path(output_file).open(encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, start=1):
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            parts = stripped.split("\t")
+            if len(parts) < 4:
+                raise ValueError(
+                    f"Malformed HMM output record in {output_file} at line "
+                    f"{line_number}: expected at least 4 tab-separated fields, "
+                    f"found {len(parts)}"
+                )
+            query_name = parts[0]
+            model_name = parts[3]
+            if not query_name or not model_name:
+                raise ValueError(
+                    f"Malformed HMM output record in {output_file} at line "
+                    f"{line_number}: query and model names must be nonempty"
+                )
+            key = (query_name, model_name)
+            if key in seen_hits:
+                continue
+            seen_hits.add(key)
+            counts[model_name] += 1
 
-    try:
-        with open(output_file, "r") as f:
-            for line in f:
-                if line.startswith("#"):
-                    continue
-                parts = line.strip().split("\t")
-                if len(parts) >= 4:
-                    query_name = parts[0]
-                    model_name = parts[3]  # Query name is the model
-                    key = (query_name, model_name)
-                    if key in seen_hits:
-                        continue
-                    seen_hits.add(key)
-                    counts[model_name] += 1
+    counts_text = "".join(
+        f"{model}\t{count}\n" for model, count in sorted(counts.items())
+    )
+    Path(counts_file).write_text(counts_text, encoding="utf-8")
 
-        # Write counts
-        with open(counts_file, "w") as f:
-            for model, count in sorted(counts.items()):
-                f.write(f"{model}\t{count}\n")
-
-        error_handler.log_info(f"Generated counts file: {counts_file}")
-
-    except Exception as e:
-        error_handler.log_error(f"Error generating counts: {e}")
+    error_handler.log_info(f"Generated counts file: {counts_file}")
 
 
 def get_models(modelsin: str) -> List[str]:

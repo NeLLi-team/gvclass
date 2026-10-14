@@ -6,6 +6,8 @@ resource bundle) so the decision branches are exercised without the DB.
 
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from src.core.novelty_completeness import (
@@ -78,20 +80,46 @@ def _tiered_scorer(test_r2):
 def test_r2_gate_fires_for_low_r2_order():
     scorer = _tiered_scorer(test_r2=0.4898)  # < R2_ADVISORY_FLOOR (0.5)
     result = scorer.calculate(
-        {"OG1": 1, "OG2": 1}, "Algavirales", "", 50.0, 50.0, selected_mode="novelty-aware"
+        {"OG1": 1, "OG2": 1},
+        "Algavirales",
+        "",
+        50.0,
+        50.0,
+        selected_mode="novelty-aware",
     )
     assert result["estimated_completeness_strategy"] == "strategy2_r2_below_gate"
     assert "r2_below_gate" in result["order_completeness_v2_ood_flag"]
-    assert result["completeness_model_reliability"] == "advisory_only"
+    assert result["completeness_model_reliability"] == "unvalidated_legacy"
 
 
 def test_r2_gate_high_quality_above_floor():
     scorer = _tiered_scorer(test_r2=0.9921)  # >= R2_HIGH_QUALITY (0.7)
     result = scorer.calculate(
-        {"OG1": 1, "OG2": 1}, "Algavirales", "", 50.0, 50.0, selected_mode="novelty-aware"
+        {"OG1": 1, "OG2": 1},
+        "Algavirales",
+        "",
+        50.0,
+        50.0,
+        selected_mode="novelty-aware",
     )
-    assert result["completeness_model_reliability"] == "high"
+    assert result["completeness_model_reliability"] == "unvalidated_legacy"
     assert result["estimated_completeness_strategy"] == "novelty_aware_v1"
+
+
+def test_explicit_model_reliability_metadata_is_reported():
+    scorer = _tiered_scorer(test_r2=None)
+    scorer.model_metadata["Algavirales"]["model_reliability"] = "advisory_only"
+
+    result = scorer.calculate(
+        {"OG1": 1, "OG2": 1},
+        "Algavirales",
+        "",
+        50.0,
+        50.0,
+        selected_mode="novelty-aware",
+    )
+
+    assert result["completeness_model_reliability"] == "advisory_only"
 
 
 # --- M13: non-legacy fallback must use strategy1_score, not 0.0 -------------
@@ -100,10 +128,13 @@ def test_r2_gate_high_quality_above_floor():
 def test_untiered_order_uses_strategy1_not_zero():
     scorer = _make_scorer(models={}, metadata={}, tiers={}, baselines={})
     result = scorer.calculate(
-        {}, "Imitervirales", "", 63.5, 63.5, selected_mode="novelty-aware"
+        {"OTHER": 1}, "Imitervirales", "", 63.5, 63.5, selected_mode="novelty-aware"
     )
     assert result["estimated_completeness"] == 63.5
-    assert result["estimated_completeness_strategy"] == "order_baseline_ratio_v1_no_tier_set"
+    assert (
+        result["estimated_completeness_strategy"]
+        == "order_baseline_ratio_v1_no_tier_set"
+    )
 
 
 def test_scorer_unavailable_uses_strategy1():
@@ -111,22 +142,68 @@ def test_scorer_unavailable_uses_strategy1():
         models={}, metadata={}, tiers={}, baselines={}, available=False
     )
     result = scorer.calculate(
-        {}, "Imitervirales", "", 63.5, 63.5, selected_mode="novelty-aware"
+        {"OTHER": 1}, "Imitervirales", "", 63.5, 63.5, selected_mode="novelty-aware"
     )
     assert result["estimated_completeness"] == 63.5
-    assert result["estimated_completeness_strategy"].startswith("order_baseline_ratio_v1")
+    assert result["estimated_completeness_strategy"].startswith(
+        "order_baseline_ratio_v1"
+    )
 
 
-def test_empty_order_tax_uses_strategy1():
+def test_empty_order_tax_is_unavailable():
     scorer = _make_scorer(models={}, metadata={}, tiers={}, baselines={})
     result = scorer.calculate({}, "", "", 63.5, 63.5, selected_mode="novelty-aware")
-    assert result["estimated_completeness"] == 63.5
+    assert math.isnan(result["estimated_completeness"])
+    assert result["completeness_query_support"] == "unassigned"
 
 
 def test_legacy_mode_fallback_unchanged():
     scorer = _make_scorer(models={}, metadata={}, tiers={}, baselines={})
     result = scorer.calculate(
-        {}, "Imitervirales", "", 63.5, 63.5, selected_mode="legacy"
+        {"OTHER": 1}, "Imitervirales", "", 63.5, 63.5, selected_mode="legacy"
     )
     assert result["estimated_completeness"] == 63.5
     assert result["estimated_completeness_strategy"] == "order_baseline_ratio_v1"
+
+
+def test_zero_marker_evidence_is_unavailable():
+    scorer = _tiered_scorer(test_r2=0.9921)
+
+    result = scorer.calculate(
+        {}, "Algavirales", "", 0.0, 0.0, selected_mode="novelty-aware"
+    )
+
+    assert math.isnan(result["estimated_completeness"])
+    assert result["completeness_query_support"] == "insufficient_evidence"
+    assert result["completeness_model_reliability"] == "unvalidated_legacy"
+
+
+def test_non_panel_marker_evidence_is_unavailable():
+    scorer = _tiered_scorer(test_r2=0.9921)
+
+    result = scorer.calculate(
+        {"OTHER": 1}, "Algavirales", "", 50.0, 50.0, selected_mode="novelty-aware"
+    )
+
+    assert math.isnan(result["estimated_completeness"])
+    assert math.isnan(result["order_completeness_v2"])
+    assert math.isnan(result["order_completeness_v2_strategy2_raw"])
+    assert math.isnan(result["order_completeness_v2_strategy2_normalized"])
+    assert result["estimated_completeness_strategy"] == "unavailable"
+    assert result["completeness_query_support"] == "insufficient_evidence"
+
+
+@pytest.mark.parametrize(
+    "ood_flag", ["unassigned", "zero_informative_hits", "low_support"]
+)
+def test_ood_adjustment_never_increases_prediction(ood_flag):
+    adjusted = NoveltyAwareCompletenessScorer.apply_ood_cap(
+        prediction=20.0,
+        strategy1_score=80.0,
+        strategy2_score=30.0,
+        ood_flag=ood_flag,
+        support_score=10.0,
+        baseline_n_refs=2,
+    )
+
+    assert adjusted <= 20.0

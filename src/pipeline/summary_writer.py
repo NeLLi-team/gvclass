@@ -11,6 +11,12 @@ from typing import Any, Dict, Iterable, List, Optional
 
 LEGACY_SUMMARY_HEADERS: List[str] = [
     "query",
+    "quality_models",
+    "quality_model_profile",
+    "experimental_completeness_status",
+    "experimental_completeness_detail",
+    "experimental_contamination_status",
+    "experimental_contamination_detail",
     "taxonomy_majority",
     "taxonomy_confidence",
     "species",
@@ -39,6 +45,9 @@ LEGACY_SUMMARY_HEADERS: List[str] = [
     "order_completeness_v2_informative_fraction",
     "estimated_completeness",
     "estimated_completeness_strategy",
+    "completeness_query_support",
+    "completeness_model_group",
+    "completeness_model_reliability",
     "contamination_score_v1",
     "contamination_flag_v1",
     "contamination_source_v1",
@@ -49,6 +58,9 @@ LEGACY_SUMMARY_HEADERS: List[str] = [
     "contamination_nonviral_hit_fraction_v1",
     "estimated_contamination",
     "estimated_contamination_strategy",
+    "contamination_query_support",
+    "contamination_model_reliability",
+    "contamination_type",
     "suspicious_bp_fraction_v2",
     "suspicious_contig_count_v2",
     "gvog4_completeness",
@@ -110,6 +122,9 @@ LEGACY_SUMMARY_KEY_MAPPING: Dict[str, str] = {
     "order_completeness_v2_informative_fraction": "order_completeness_v2_informative_fraction",
     "estimated_completeness": "estimated_completeness",
     "estimated_completeness_strategy": "estimated_completeness_strategy",
+    "completeness_query_support": "completeness_query_support",
+    "completeness_model_group": "completeness_model_group",
+    "completeness_model_reliability": "completeness_model_reliability",
     "contamination_score_v1": "contamination_score_v1",
     "contamination_flag_v1": "contamination_flag_v1",
     "contamination_source_v1": "contamination_source_v1",
@@ -120,6 +135,9 @@ LEGACY_SUMMARY_KEY_MAPPING: Dict[str, str] = {
     "contamination_nonviral_hit_fraction_v1": "contamination_nonviral_hit_fraction_v1",
     "estimated_contamination": "estimated_contamination",
     "estimated_contamination_strategy": "estimated_contamination_strategy",
+    "contamination_query_support": "contamination_query_support",
+    "contamination_model_reliability": "contamination_model_reliability",
+    "contamination_type": "contamination_type",
     "suspicious_bp_fraction_v2": "suspicious_bp_fraction_v2",
     "suspicious_contig_count_v2": "suspicious_contig_count_v2",
     "gvog4_completeness": "gvog4_completeness",
@@ -153,6 +171,7 @@ LEGACY_SUMMARY_KEY_MAPPING: Dict[str, str] = {
 
 FINAL_SUMMARY_COLUMNS: List[str] = [
     "query",
+    "quality_models",
     "taxonomy_majority",
     # Concatenated-marker species-tree placement — a strong phylogenomic signal,
     # so it sits up front next to the single-gene-consensus taxonomy_majority.
@@ -172,8 +191,14 @@ FINAL_SUMMARY_COLUMNS: List[str] = [
     "avgdist",
     "order_dup",
     "estimated_completeness",
+    "completeness_query_support",
+    "estimated_completeness_strategy",
+    "completeness_model_group",
     "completeness_model_reliability",
     "estimated_contamination",
+    "contamination_query_support",
+    "estimated_contamination_strategy",
+    "contamination_model_reliability",
     "contamination_type",
     "gvog4_completeness",
     "gvog4_dup",
@@ -210,13 +235,30 @@ FINAL_SUMMARY_COLUMNS: List[str] = [
 # single-virus genomes and only meaningful under cellular contamination.
 EXTENDED_SUMMARY_COLUMNS: List[str] = [
     "query",
+    "quality_model_profile",
+    "experimental_completeness_status",
+    "experimental_completeness_detail",
+    "experimental_contamination_status",
+    "experimental_contamination_detail",
     "cellular_coherent_contig_count",
     "cellular_coherent_protein_fraction",
     "cellular_coherent_bp_fraction",
     "cellular_lineage_purity_median",
     "cellular_hit_identity_median",
     "viral_bearing_contig_count",
+    "mixed_evidence_contig_count",
+    "ambiguous_eve_contig_count",
+    "ambiguous_eve_protein_count",
+    "mixed_evidence_status",
+    "ambiguous_eve_evidence_status",
+    "contig_length_basis",
+    "protein_estimated_contig_count",
     "contig_attribution_mode",
+    "contamination_model_applicability",
+    "contamination_feature_version",
+    "contamination_feature_contract",
+    "contamination_prediction_range_status",
+    "contamination_model_prediction_upper_bound",
 ]
 
 FAILED_QUERY_COLUMNS: List[str] = ["query", "status", "error"]
@@ -245,6 +287,8 @@ TWO_DECIMAL_COLUMNS = {
 
 # Quality metrics that must keep higher precision than the default .0f fallback.
 FOUR_DECIMAL_COLUMNS: set = set()
+
+SIX_DECIMAL_COLUMNS = {"contamination_model_prediction_upper_bound"}
 
 LEGACY_TWO_DECIMAL_COLUMNS = {
     "avgdist",
@@ -621,6 +665,8 @@ def _format_final_summary_value(column: str, value: Any) -> str:
         # See _format_legacy_summary_value: preserve NaN rather than collapse
         # to 0.00, so the sensitive-mode contamination skip is visible.
         return "NaN"
+    if column in SIX_DECIMAL_COLUMNS:
+        return f"{value:.6f}"
     if column in FOUR_DECIMAL_COLUMNS:
         return f"{value:.4f}"
     if column in TWO_DECIMAL_COLUMNS:

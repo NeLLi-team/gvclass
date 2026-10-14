@@ -9,8 +9,8 @@ The reference tables and scorers these functions need
 here reads instance state.
 """
 
-from collections import Counter
 import logging
+import math
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
@@ -30,7 +30,7 @@ def calculate_order_metrics(
     novelty_scorer: NoveltyAwareCompletenessScorer,
     completeness_mode: str,
     counts_file: Path,
-    order_tax: str,
+    quality_group: str,
     family_tax: str = "",
 ) -> Dict[str, Any]:
     """Calculate order-specific completeness and duplication metrics.
@@ -40,23 +40,39 @@ def calculate_order_metrics(
     """
     try:
         order_ogs = _load_order_orthogroups(
-            completeness_table, order_tax, order_stats_df=order_stats_df
+            completeness_table, quality_group, order_stats_df=order_stats_df
         )
         if not order_ogs:
-            return _default_order_metrics(order_tax)
+            return _default_order_metrics(
+                quality_group,
+                query_support="unsupported_target",
+                model_reliability="unavailable",
+            )
 
         marker_counts = _load_marker_counts(counts_file)
+        if not any(marker_counts.get(og, 0) > 0 for og in order_ogs):
+            return _default_order_metrics(
+                quality_group,
+                query_support="insufficient_evidence",
+                model_reliability="unvalidated_legacy",
+            )
         raw_completeness, duplication = _calculate_traditional_order_metrics(
             marker_counts, order_ogs
         )
         raw_weighted_completeness, confidence_score = _calculate_weighted_order_metrics(
-            weighted_calculator, marker_counts, order_tax, order_ogs, raw_completeness
+            weighted_calculator,
+            marker_counts,
+            quality_group,
+            order_ogs,
+            raw_completeness,
         )
         normalized_completeness, baseline_mean, baseline_std = (
-            _normalize_order_completeness(order_stats_df, raw_completeness, order_tax)
+            _normalize_order_completeness(
+                order_stats_df, raw_completeness, quality_group
+            )
         )
         normalized_weighted_completeness, _, _ = _normalize_order_completeness(
-            order_stats_df, raw_weighted_completeness, order_tax
+            order_stats_df, raw_weighted_completeness, quality_group
         )
         result = {
             "order_completeness": normalized_completeness,
@@ -67,16 +83,19 @@ def calculate_order_metrics(
             "order_confidence_score": confidence_score,
             "order_completeness_baseline_mean": baseline_mean,
             "order_completeness_baseline_std": baseline_std,
-            "order_completeness_reference_order": order_tax,
+            "order_completeness_reference_order": quality_group,
             "order_completeness_strategy": "order_baseline_ratio_v1",
             "estimated_completeness": normalized_completeness,
             "estimated_completeness_strategy": "order_baseline_ratio_v1",
+            "completeness_query_support": "supported",
+            "completeness_model_group": quality_group,
+            "completeness_model_reliability": "unvalidated_legacy",
         }
         if novelty_scorer.available:
             result.update(
                 novelty_scorer.calculate(
                     marker_counts=marker_counts,
-                    order_tax=order_tax,
+                    order_tax=quality_group,
                     family_tax=family_tax,
                     strategy1_raw=raw_completeness,
                     strategy1_score=normalized_completeness,
@@ -87,34 +106,51 @@ def calculate_order_metrics(
 
     except Exception as e:
         logger.error(f"Error calculating order metrics: {e}")
-        return _default_order_metrics(order_tax)
+        return _default_order_metrics(
+            quality_group,
+            query_support="unavailable",
+            model_reliability="unavailable",
+        )
 
 
-def _default_order_metrics(order_tax: str = "") -> Dict[str, Any]:
+def _default_order_metrics(
+    quality_group: str = "",
+    query_support: str = "unassigned",
+    model_reliability: str = "unavailable",
+) -> Dict[str, Any]:
     """Return default order completeness metrics."""
+    resource_group = (
+        quality_group
+        if query_support not in {"unassigned", "unsupported_target"}
+        else ""
+    )
     return {
-        "order_completeness": 0.0,
-        "order_completeness_raw": 0.0,
-        "order_dup": 0.0,
-        "order_weighted_completeness": 0.0,
-        "order_weighted_completeness_raw": 0.0,
+        "order_completeness": math.nan,
+        "order_completeness_raw": math.nan,
+        "order_dup": math.nan,
+        "order_weighted_completeness": math.nan,
+        "order_weighted_completeness_raw": math.nan,
         "order_confidence_score": 0.0,
-        "order_completeness_baseline_mean": 0.0,
-        "order_completeness_baseline_std": 0.0,
-        "order_completeness_reference_order": order_tax,
-        "order_completeness_strategy": "order_baseline_ratio_v1",
-        "order_completeness_v2": 0.0,
-        "order_completeness_v2_strategy": "novelty_aware_v1",
-        "order_completeness_v2_strategy2_raw": 0.0,
-        "order_completeness_v2_strategy2_normalized": 0.0,
+        "order_completeness_baseline_mean": math.nan,
+        "order_completeness_baseline_std": math.nan,
+        "order_completeness_reference_order": quality_group or "unavailable",
+        "order_completeness_strategy": "unavailable",
+        "order_completeness_v2": math.nan,
+        "order_completeness_v2_strategy": "unavailable",
+        "order_completeness_v2_strategy2_raw": math.nan,
+        "order_completeness_v2_strategy2_normalized": math.nan,
         "order_completeness_v2_support_score": 0.0,
-        "order_completeness_v2_ood_flag": "unassigned",
-        "order_completeness_v2_reference_group": "unavailable",
-        "order_completeness_v2_validation_mode": "unavailable",
+        "order_completeness_v2_ood_flag": query_support,
+        "order_completeness_v2_reference_group": (
+            f"order:{resource_group}" if resource_group else "unavailable"
+        ),
+        "order_completeness_v2_validation_mode": model_reliability,
         "order_completeness_v2_informative_fraction": 0.0,
-        "estimated_completeness": 0.0,
-        "estimated_completeness_strategy": "order_baseline_ratio_v1",
-        "completeness_model_reliability": "advisory_only",
+        "estimated_completeness": math.nan,
+        "estimated_completeness_strategy": "unavailable",
+        "completeness_query_support": query_support,
+        "completeness_model_group": resource_group or "unavailable",
+        "completeness_model_reliability": model_reliability,
     }
 
 
@@ -199,32 +235,14 @@ def _normalize_order_completeness(
     return normalized, baseline_mean, baseline_std
 
 
-def _extract_order_taxonomy(tax_counters: Dict[str, Counter]) -> str:
-    """Extract most-supported order taxonomy token from counters."""
-    if not tax_counters["order"]:
-        return ""
-
-    most_common_order = min(
-        tax_counters["order"].items(), key=lambda kv: (-kv[1], kv[0])
-    )[0]
-    if "__" not in most_common_order:
-        return ""
-    parts = most_common_order.split("__")
-    return parts[1] if len(parts) > 1 else most_common_order
-
-
-def _extract_family_taxonomy(tax_counters: Dict[str, Counter]) -> str:
-    """Extract most-supported family taxonomy token from counters."""
-    if not tax_counters["family"]:
-        return ""
-
-    most_common_family = min(
-        tax_counters["family"].items(), key=lambda kv: (-kv[1], kv[0])
-    )[0]
-    if "__" not in most_common_family:
-        return ""
-    parts = most_common_family.split("__")
-    return parts[1] if len(parts) > 1 else most_common_family
+def _select_quality_group(accepted_lineage: Dict[str, str]) -> str:
+    """Map an accepted lineage to the matching completeness resource group."""
+    if (
+        accepted_lineage.get("domain") == "MIRUS"
+        or accepted_lineage.get("phylum") == "Mirusviricota"
+    ):
+        return "MIRUS"
+    return accepted_lineage.get("order", "")
 
 
 def _add_order_metrics(
@@ -235,12 +253,12 @@ def _add_order_metrics(
     completeness_mode: str,
     result: Dict[str, Any],
     counts_file: Path,
-    tax_counters: Dict[str, Counter],
+    accepted_lineage: Dict[str, str],
 ) -> None:
     """Populate order-level completeness metrics from order assignment."""
-    order_tax = _extract_order_taxonomy(tax_counters)
-    family_tax = _extract_family_taxonomy(tax_counters)
-    if order_tax:
+    quality_group = _select_quality_group(accepted_lineage)
+    family_tax = accepted_lineage.get("family", "")
+    if quality_group:
         result.update(
             calculate_order_metrics(
                 completeness_table,
@@ -249,10 +267,10 @@ def _add_order_metrics(
                 novelty_scorer,
                 completeness_mode,
                 counts_file,
-                order_tax,
+                quality_group,
                 family_tax,
             )
         )
         return
 
-    result.update(_default_order_metrics(order_tax))
+    result.update(_default_order_metrics())

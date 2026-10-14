@@ -92,6 +92,7 @@ def run_flow(
     species_tree: bool = False,
     species_tree_combined: bool = False,
     species_tree_trim: str = "witchi",
+    quality_models: str = "bundled",
 ):
     return gvclass_flow(
         query_dir=str(query_path),
@@ -113,6 +114,7 @@ def run_flow(
         species_tree=species_tree,
         species_tree_combined=species_tree_combined,
         species_tree_trim=species_tree_trim,
+        quality_models=quality_models,
     )
 
 
@@ -179,6 +181,7 @@ def execute_cli_flow(
     species_tree: bool = False,
     species_tree_combined: bool = False,
     species_tree_trim: str = "witchi",
+    quality_models: str = "bundled",
 ):
     result = run_flow(
         query_path=query_path,
@@ -200,6 +203,7 @@ def execute_cli_flow(
         species_tree=species_tree,
         species_tree_combined=species_tree_combined,
         species_tree_trim=species_tree_trim,
+        quality_models=quality_models,
     )
     click.echo("\nPipeline completed successfully!")
     click.echo(f"Results written to: {result}")
@@ -251,6 +255,13 @@ def execute_cli_flow(
     "--sensitive/--no-sensitive",
     default=False,
     help="Sensitive HMM mode: use E-value 1e-5 instead of GA cutoffs",
+)
+@click.option(
+    "--quality-models",
+    default="bundled",
+    type=click.Choice(["bundled", "experimental"]),
+    show_default=True,
+    help="Use bundled quality models or the development-only candidate pair.",
 )
 @click.option(
     "--cluster-type",
@@ -310,30 +321,33 @@ def execute_cli_flow(
     show_default=True,
     help="Supermatrix column trimming for --species-tree: witchi (rigorous), pytrimal (fast), or none.",
 )
-def main(
-    querydir,
-    output_dir,
-    database,
-    threads,
-    max_workers,
-    threads_per_worker,
-    tree_method,
-    iqtree_mode,
-    mode_fast,
-    completeness_mode,
-    sensitive,
-    cluster_type,
-    cluster_queue,
-    cluster_project,
-    cluster_walltime,
-    verbose,
-    resume,
-    allow_short,
-    min_length,
-    species_tree,
-    species_tree_combined,
-    species_tree_trim,
-):
+def main(  # noqa: PLR0913  # Click supplies one keyword per declared option.
+    *,
+    querydir: str,
+    output_dir: str | None,
+    database: str,
+    threads: int,
+    max_workers: int | None,
+    threads_per_worker: int | None,
+    tree_method: str,
+    iqtree_mode: str,
+    mode_fast: bool,
+    completeness_mode: str,
+    sensitive: bool,
+    cluster_type: str,
+    cluster_queue: str | None,
+    cluster_project: str | None,
+    cluster_walltime: str | None,
+    verbose: bool,
+    resume: bool,
+    allow_short: bool,
+    min_length: int | None,
+    species_tree: bool,
+    species_tree_combined: bool,
+    species_tree_trim: str,
+    quality_models: str,
+) -> None:
+    """Run the pipeline with resolved command-line settings."""
     log_level = "DEBUG" if verbose else "INFO"
     logger = setup_logging("gvclass_runner", level=log_level)
 
@@ -357,25 +371,26 @@ def main(
             min_sequence_length=min_length,
         )
         execute_cli_flow(
-            query_path,
-            output_path,
-            db_path,
-            threads,
-            max_workers,
-            threads_per_worker,
-            tree_method,
-            iqtree_mode,
-            mode_fast,
-            completeness_mode,
-            sensitive,
-            cluster_type,
-            cluster_config,
-            resume,
+            query_path=query_path,
+            output_path=output_path,
+            db_path=db_path,
+            threads=threads,
+            max_workers=max_workers,
+            threads_per_worker=threads_per_worker,
+            tree_method=tree_method,
+            iqtree_mode=iqtree_mode,
+            mode_fast=mode_fast,
+            completeness_mode=completeness_mode,
+            sensitive=sensitive,
+            cluster_type=cluster_type,
+            cluster_config=cluster_config,
+            resume=resume,
             allow_short=allow_short,
             min_sequence_length=min_length,
             species_tree=species_tree,
             species_tree_combined=species_tree_combined,
             species_tree_trim=species_tree_trim,
+            quality_models=quality_models,
         )
     except FileNotFoundError as exc:
         click.echo(f"Error: {exc}", err=True)

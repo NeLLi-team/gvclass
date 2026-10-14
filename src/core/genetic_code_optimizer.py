@@ -126,12 +126,9 @@ class GeneticCodeOptimizer:
                 # Create GFF line with full pyrodigal attributes
                 strand = "+" if gene.strand == 1 else "-"
 
-                # Calculate phase (0, 1, or 2) based on the start position and strand
-                # For CDS features, phase indicates the offset at the start of the feature
-                if strand == "+":
-                    phase = (3 - ((gene.begin - 1) % 3)) % 3
-                else:
-                    phase = (3 - ((len(record.seq) - gene.end) % 3)) % 3
+                # Pyrodigal calls one complete CDS per feature and its native GFF
+                # writer emits phase 0 for complete and partial genes on both strands.
+                phase = 0
 
                 # Build attributes string with all pyrodigal information
                 attributes = []
@@ -340,11 +337,13 @@ class GeneticCodeOptimizer:
             >= meta["complete_hits"] + self._COMPLETE_HITS_ABSOLUTE_MARGIN
         )
         passes_score_margin = (
-            metrics["avg_best_hit_score"]
+            metrics["avg_best_hit_score"] > meta["avg_best_hit_score"]
+            and metrics["avg_best_hit_score"]
             >= meta["avg_best_hit_score"] * self._SCORE_RELATIVE_MARGIN
         )
         passes_density_margin = (
-            metrics["coding_density"]
+            metrics["coding_density"] > meta["coding_density"]
+            and metrics["coding_density"]
             >= meta["coding_density"] * self._CODING_DENSITY_RELATIVE_MARGIN
         )
         return passes_hits_margin or passes_score_margin or passes_density_margin
@@ -517,21 +516,29 @@ class GeneticCodeOptimizer:
         with open(outputs["statsout"], "w") as f:
             f.write("# Genetic code optimization results\n")
             f.write("# * indicates the selected code\n")
-            f.write("# Selection logic: \n")
             f.write(
-                "#   1. If metagenomic (code 0) exists and has coding_density > 0:\n"
-            )
-            f.write("#      - Start with code 0 as baseline\n")
-            f.write("#      - Override only if another code has:\n")
-            f.write("#        a) More complete_hits, OR\n")
-            f.write(
-                "#        b) Same complete_hits but >5% better avg_best_hit_score than code 0, OR\n"
+                "# Rank by complete_hits, avg_best_hit_score, coding_density, "
+                "then code preference.\n"
             )
             f.write(
-                "#        c) Same complete_hits but >5% better coding_density than code 0\n"
+                "# If the top-ranked code is not meta and meta is available, "
+                "keep it only with:\n"
             )
             f.write(
-                "#   2. Otherwise: select by complete_hits, then avg_best_hit_score, then coding_density\n"
+                f"#   at least {self._COMPLETE_HITS_ABSOLUTE_MARGIN} extra "
+                "complete_hits, OR\n"
+            )
+            f.write(
+                "#   avg_best_hit_score >= meta * "
+                f"{self._SCORE_RELATIVE_MARGIN:.2f}, OR\n"
+            )
+            f.write(
+                "#   coding_density >= meta * "
+                f"{self._CODING_DENSITY_RELATIVE_MARGIN:.2f}.\n"
+            )
+            f.write(
+                "# Otherwise keep meta. Lower-ranked candidates do not override "
+                "the selected code.\n"
             )
             f.write("#\n")
 

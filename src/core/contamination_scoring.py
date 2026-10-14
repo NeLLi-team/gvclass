@@ -9,20 +9,21 @@ from __future__ import annotations
 import logging
 import re
 from collections import Counter, defaultdict
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
-from Bio import SeqIO
-
 import numpy as np
+from Bio import SeqIO
 
 from src.config.marker_sets import (
     BUSCO_MODELS,
+    GROUP_TO_MODELS,
     PHAGE_MODELS,
     UNI56_MODELS,
-    GROUP_TO_MODELS,
 )
+from src.core.blast import iter_blastp_records
 from src.core.marker_extraction import (
     count_unique_proteins_for_markers,
     parse_hmm_output,
@@ -32,6 +33,7 @@ from src.utils.resource_store import ResourceStore
 logger = logging.getLogger(__name__)
 
 CELLULAR_PREFIXES = {"BAC", "ARC", "EUK", "MITO", "PLASTID"}
+AMBIGUOUS_EVE_PREFIXES = {"EUK-pEVE"}
 # PPV = Preplasmiviricota, the unified small-virus domain (former PLV + VP, both
 # Preplasmiviricota classes) produced by scripts/relabel_ppv_preplasmiviricota.py.
 # PLV/VP are kept transitionally so an older (pre-PPV) resource bundle still scores
@@ -142,12 +144,9 @@ class ContaminationScorer:
     def __init__(self, database_path: Path, sensitive_mode: bool = False):
         """Initialize the contamination scorer.
 
-        The bundled model is trained on sensitive-mode features (see the
-        model card YAML) so it can be applied under both sensitive and
-        non-sensitive runs. The ``sensitive_mode`` argument is retained
-        for forward compatibility and to let callers distinguish the two
-        regimes in logs / diagnostics, but the SHA-256-gated model load
-        happens unconditionally.
+        The model hash gate applies in every search mode. Search settings
+        determine the reported applicability, not whether the model loads.
+        Sensitive-mode training does not validate non-sensitive predictions.
         """
         self.database_path = database_path
         self.sensitive_mode = sensitive_mode
@@ -157,18 +156,25 @@ class ContaminationScorer:
         self.ml_model_name = "hist_gbm"
         self.ml_threshold = 0.0
         self.ml_available = False
+        self.ml_prediction_lower_bound = float("nan")
+        self.ml_prediction_upper_bound = float("nan")
         self._load_ml_model()
 
     def _load_labels(self) -> Dict[str, Dict[str, str]]:
         labels: Dict[str, Dict[str, str]] = {}
         try:
-            with self.labels_file.open() as handle:
-                for line in handle:
-                    if line.startswith("#"):
+            with self.labels_file.open(encoding="utf-8") as handle:
+                for line_number, line in enumerate(handle, start=1):
+                    stripped = line.rstrip("\r\n")
+                    if not stripped or stripped.startswith("#"):
                         continue
-                    parts = line.rstrip("\n").split("\t")
-                    if len(parts) < 2:
-                        continue
+                    parts = stripped.split("\t")
+                    if len(parts) != 2 or not parts[0] or not parts[1]:
+                        raise ValueError(
+                            "Malformed required contamination label record in "
+                            f"{self.labels_file} at line {line_number}: expected "
+                            "nonempty genome ID and taxonomy separated by one tab"
+                        )
                     genome_id = parts[0]
                     tax = parts[1].split("|")
                     while len(tax) < 7:
@@ -182,8 +188,15 @@ class ContaminationScorer:
                         "genus": tax[5],
                         "species": tax[6],
                     }
-        except Exception as exc:
-            logger.error("Failed to load contamination labels: %s", exc)
+        except OSError as exc:
+            raise OSError(
+                "Failed to read required contamination labels "
+                f"{self.labels_file}: {exc}"
+            ) from exc
+        if not labels:
+            raise ValueError(
+                f"Required contamination labels file {self.labels_file} has no records"
+            )
         return labels
 
     def _load_ml_model(self) -> None:
@@ -239,13 +252,74 @@ class ContaminationScorer:
         self.ml_model = bundle["model"]
         self.ml_model_name = str(bundle.get("model_name", "hist_gbm"))
         self.ml_threshold = bundle.get("threshold", 0.0)
+
+        model_features = list(getattr(self.ml_model, "feature_names_in_", []))
+        if model_features != CONTAMINATION_MODEL_FEATURES:
+            raise RuntimeError(
+                "Contamination model feature contract mismatch: expected "
+                f"{len(CONTAMINATION_MODEL_FEATURES)} ordered features, got "
+                f"{len(model_features)}. Refusing to apply an incompatible model."
+            )
+
+        estimators = getattr(self.ml_model, "estimators_", None)
+        if not estimators:
+            raise RuntimeError(
+                "Contamination model does not expose its fitted tree ensemble; "
+                "the prediction range cannot be verified."
+            )
+        tree_minima = []
+        tree_maxima = []
+        for estimator in estimators:
+            tree = estimator.tree_
+            leaf_values = tree.value[tree.children_left == -1]
+            tree_minima.append(float(leaf_values.min()))
+            tree_maxima.append(float(leaf_values.max()))
+        self.ml_prediction_lower_bound = float(np.mean(tree_minima))
+        self.ml_prediction_upper_bound = float(np.mean(tree_maxima))
         self.ml_available = True
         logger.info("Loaded ML contamination model from %s", bundled_model_path)
 
     def predict_contamination(
         self, result: Dict[str, Any], contig_features: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Predict contamination using the ML model."""
+        """Predict contamination when the historical model is applicable.
+
+        The bundled model used 21 NCLDV-sensitive features. Corrected length,
+        pEVE, and mixed-contig semantics now define an unvalidated feature-v2
+        runtime. Keep supported NCLDV predictions visible for exploration, but
+        do not turn missing evidence or unsupported target groups into numbers.
+        """
+        support = str(
+            result.get("contamination_query_support", "insufficient_evidence")
+        )
+        target_domain = str(result.get("_contamination_target_domain", ""))
+        base_status = {
+            "contamination_query_support": support,
+            "contamination_model_reliability": "unvalidated_legacy",
+            "contamination_feature_contract": "21_features_verified",
+            "contamination_feature_version": "feature_v2_unvalidated",
+            "contamination_model_prediction_lower_bound": round(
+                self.ml_prediction_lower_bound, 6
+            ),
+            "contamination_model_prediction_upper_bound": round(
+                self.ml_prediction_upper_bound, 6
+            ),
+        }
+
+        if support != "supported" or target_domain != "NCLDV":
+            applicability = (
+                "insufficient_evidence"
+                if support == "insufficient_evidence"
+                else "unsupported_non_ncldv_target"
+            )
+            return {
+                **base_status,
+                "estimated_contamination": float("nan"),
+                "estimated_contamination_strategy": "unavailable",
+                "contamination_model_applicability": applicability,
+                "contamination_prediction_range_status": "unavailable",
+            }
+
         feature_values = []
         for feat in CONTAMINATION_MODEL_FEATURES:
             if feat in contig_features:
@@ -254,20 +328,27 @@ class ContaminationScorer:
                 feature_values.append(float(result.get(feat, 0.0) or 0.0))
         X = np.array(feature_values, dtype=np.float64).reshape(1, -1)
         prediction = float(np.clip(self.ml_model.predict(X)[0], 0.0, 100.0))
+        at_ceiling = np.isclose(
+            prediction,
+            self.ml_prediction_upper_bound,
+            rtol=0.0,
+            atol=0.005,
+        )
         return {
+            **base_status,
             "estimated_contamination": round(prediction, 2),
             "estimated_contamination_strategy": f"{self.ml_model_name}_v1",
+            "contamination_model_applicability": (
+                "exploratory_ncldv_sensitive_feature_v2"
+                if self.sensitive_mode
+                else "exploratory_ncldv_non_sensitive_feature_v2"
+            ),
+            "contamination_prediction_range_status": (
+                "at_historical_model_ceiling"
+                if at_ceiling
+                else "within_historical_model_range"
+            ),
         }
-
-    @staticmethod
-    def _extract_tax_token(counter: Counter) -> str:
-        if not counter:
-            return ""
-        value = min(counter.items(), key=lambda kv: (-kv[1], kv[0]))[0]
-        if "__" not in value:
-            return ""
-        parts = value.split("__")
-        return parts[1] if len(parts) > 1 else value
 
     def _parse_subject_genome_id(self, subject_id: str) -> str:
         """Resolve a reference leaf/subject name to a genome id in ``labels``.
@@ -310,48 +391,43 @@ class ContaminationScorer:
             },
         )
 
+    def _iter_blast_hits(self, blast_dir: Path) -> Iterator[tuple[str, BlastHit]]:
+        """Yield validated m8 evidence with its marker name."""
+        for blast_file in sorted(blast_dir.glob("*.m8")):
+            for hit in self._iter_blast_file(blast_file):
+                yield blast_file.stem, hit
+
+    def _iter_blast_file(self, blast_file: Path) -> Iterator[BlastHit]:
+        """Yield validated m8 hits from one readable file."""
+        for record in iter_blastp_records(blast_file):
+            tax = self._subject_taxonomy(record.subject_id)
+            yield BlastHit(
+                query_id=record.query_id,
+                subject_id=record.subject_id,
+                identity=record.identity,
+                score=record.score,
+                subject_domain=tax.get("domain", "NA"),
+                subject_order=tax.get("order", ""),
+                subject_family=tax.get("family", ""),
+            )
+
     def _scan_blast_dir(
         self, blast_dir: Path
     ) -> Tuple[Dict[str, BlastHit], Dict[str, set[str]]]:
+        """Return the best hit and the markers of every protein in one pass."""
         best_hits: Dict[str, BlastHit] = {}
         protein_markers: Dict[str, set[str]] = defaultdict(set)
         if not blast_dir.exists():
             return best_hits, protein_markers
 
-        for blast_file in sorted(blast_dir.glob("*.m8")):
-            marker = blast_file.stem
-            try:
-                with blast_file.open() as handle:
-                    for line in handle:
-                        parts = line.rstrip("\n").split("\t")
-                        if len(parts) < 12:
-                            continue
-                        query_id = parts[0]
-                        subject_id = parts[1]
-                        try:
-                            identity = float(parts[2])
-                            score = float(parts[11])
-                        except ValueError:
-                            continue
-                        protein_markers[query_id].add(marker)
-                        tax = self._subject_taxonomy(subject_id)
-                        hit = BlastHit(
-                            query_id=query_id,
-                            subject_id=subject_id,
-                            identity=identity,
-                            score=score,
-                            subject_domain=tax.get("domain", "NA"),
-                            subject_order=tax.get("order", ""),
-                            subject_family=tax.get("family", ""),
-                        )
-                        current = best_hits.get(query_id)
-                        if current is None or (hit.score, hit.identity) > (
-                            current.score,
-                            current.identity,
-                        ):
-                            best_hits[query_id] = hit
-            except Exception as exc:
-                logger.warning("Failed to parse blast file %s: %s", blast_file, exc)
+        for marker, hit in self._iter_blast_hits(blast_dir):
+            protein_markers[hit.query_id].add(marker)
+            current = best_hits.get(hit.query_id)
+            if current is None or (hit.score, hit.identity) > (
+                current.score,
+                current.identity,
+            ):
+                best_hits[hit.query_id] = hit
         return best_hits, protein_markers
 
     def collect_best_blast_hits(self, blast_dir: Path) -> Dict[str, BlastHit]:
@@ -390,10 +466,13 @@ class ContaminationScorer:
         if not strong_hits:
             return {
                 "strong_best_hit_count": 0,
+                "classified_best_hit_count": 0,
                 "nonviral_best_hit_count": 0,
                 "nonviral_best_hit_fraction": 0.0,
                 "strong_cellular_hit_count": 0,
                 "strong_phage_hit_count": 0,
+                "ambiguous_eve_best_hit_count": 0,
+                "ambiguous_eve_best_hit_fraction": 0.0,
                 "foreign_viral_order_hit_count": 0,
                 "foreign_viral_family_hit_count": 0,
                 "dominant_nonviral_lineage_fraction": 0.0,
@@ -403,6 +482,7 @@ class ContaminationScorer:
         nonviral = []
         cellular = []
         phage = []
+        ambiguous_eve = []
         foreign_viral_order = []
         foreign_viral_family = []
         nonviral_lineages = Counter()
@@ -418,6 +498,8 @@ class ContaminationScorer:
                 phage.append(hit)
                 nonviral.append(hit)
                 nonviral_lineages[hit.subject_family or domain] += 1
+            elif domain in AMBIGUOUS_EVE_PREFIXES:
+                ambiguous_eve.append(hit)
             elif domain in GIANT_VIRUS_PREFIXES:
                 if (
                     primary_order
@@ -434,8 +516,11 @@ class ContaminationScorer:
                     foreign_viral_family.append(hit)
 
         strong_count = len(strong_hits)
+        classified_count = strong_count - len(ambiguous_eve)
         nonviral_count = len(nonviral)
-        nonviral_fraction = nonviral_count / strong_count
+        nonviral_fraction = (
+            nonviral_count / classified_count if classified_count else 0.0
+        )
         dominant_nonviral_fraction = 0.0
         if nonviral_lineages and nonviral_count > 0:
             dominant_nonviral_fraction = (
@@ -449,10 +534,15 @@ class ContaminationScorer:
 
         return {
             "strong_best_hit_count": strong_count,
+            "classified_best_hit_count": classified_count,
             "nonviral_best_hit_count": nonviral_count,
             "nonviral_best_hit_fraction": round(nonviral_fraction * 100.0, 2),
             "strong_cellular_hit_count": len(cellular),
             "strong_phage_hit_count": len(phage),
+            "ambiguous_eve_best_hit_count": len(ambiguous_eve),
+            "ambiguous_eve_best_hit_fraction": round(
+                (len(ambiguous_eve) / strong_count) * 100.0, 2
+            ),
             "foreign_viral_order_hit_count": len(foreign_viral_order),
             "foreign_viral_family_hit_count": len(foreign_viral_family),
             "dominant_nonviral_lineage_fraction": round(
@@ -464,8 +554,9 @@ class ContaminationScorer:
         }
 
     def compute_tree_features(
-        self, tax_counters: Dict[str, Counter]
-    ) -> Dict[str, float]:
+        self, tax_counters: dict[str, Counter]
+    ) -> dict[str, float]:
+        """Summarize majority and secondary tree-vote fractions."""
         order_majority = self._majority_fraction(tax_counters.get("order", Counter()))
         family_majority = self._majority_fraction(tax_counters.get("family", Counter()))
         order_second = self._second_fraction(tax_counters.get("order", Counter()))
@@ -483,12 +574,14 @@ class ContaminationScorer:
 
     def score_rule_based(
         self,
-        result: Dict[str, Any],
-        marker_counts: Dict[str, int],
-        tax_counters: Dict[str, Counter],
+        result: dict[str, Any],
+        marker_counts: dict[str, int],
+        tax_counters: dict[str, Counter],
         query_output_dir: Path,
-        best_hits: Dict[str, BlastHit] | None = None,
-    ) -> Dict[str, Any]:
+        *,
+        accepted_lineage: dict[str, str],
+        best_hits: dict[str, BlastHit] | None = None,
+    ) -> dict[str, Any]:
         marker_hits = {}
         hmmout_file = query_output_dir / "hmmout" / "models.out.filtered"
         if hmmout_file.exists():
@@ -514,8 +607,9 @@ class ContaminationScorer:
         order_dup = float(result.get("order_dup", 0.0) or 0.0)
         gvog8_dup = float(result.get("gvog8_dup", 0.0) or 0.0)
 
-        primary_order = self._extract_tax_token(tax_counters.get("order", Counter()))
-        primary_family = self._extract_tax_token(tax_counters.get("family", Counter()))
+        primary_order = str(accepted_lineage.get("order", "") or "")
+        primary_family = str(accepted_lineage.get("family", "") or "")
+        target_domain = str(accepted_lineage.get("domain", "") or "")
         if best_hits is None:
             best_hits = self.collect_best_blast_hits(query_output_dir / "blastp_out")
         blast_features = self.compute_blast_features(
@@ -572,7 +666,27 @@ class ContaminationScorer:
             + (0.30 * viral_mixture_signal)
         )
 
-        if contamination_score >= 45.0:
+        marker_evidence_count = sum(
+            1 for count in marker_counts.values() if int(count or 0) > 0
+        )
+        taxonomy_evidence_count = sum(
+            sum(counter.values()) for counter in tax_counters.values()
+        )
+        evidence_count = max(
+            marker_evidence_count,
+            int(blast_features["strong_best_hit_count"]),
+            taxonomy_evidence_count,
+        )
+        if evidence_count == 0:
+            query_support = "insufficient_evidence"
+        elif target_domain != "NCLDV":
+            query_support = "unsupported_target"
+        else:
+            query_support = "supported"
+
+        if evidence_count == 0:
+            flag = "unknown"
+        elif contamination_score >= 45.0:
             flag = "high"
         elif contamination_score >= 20.0:
             flag = "moderate"
@@ -588,8 +702,14 @@ class ContaminationScorer:
             "viral_mixture": viral_mixture_signal,
         }
         source = max(components.items(), key=lambda item: item[1])[0]
-        if contamination_score < 8.0:
+        if evidence_count == 0 or contamination_score < 8.0:
             source = "none"
+
+        estimate = (
+            round(contamination_score, 2)
+            if query_support == "supported"
+            else float("nan")
+        )
 
         return {
             "contamination_score_v1": round(contamination_score, 2),
@@ -602,8 +722,30 @@ class ContaminationScorer:
             "contamination_nonviral_hit_fraction_v1": float(
                 blast_features["nonviral_best_hit_fraction"]
             ),
-            "estimated_contamination": round(contamination_score, 2),
-            "estimated_contamination_strategy": "rule_based_v1",
+            "ambiguous_eve_best_hit_count": int(
+                blast_features["ambiguous_eve_best_hit_count"]
+            ),
+            "ambiguous_eve_best_hit_fraction": float(
+                blast_features["ambiguous_eve_best_hit_fraction"]
+            ),
+            "ambiguous_eve_evidence_status": (
+                "ambiguous_eve_signal"
+                if int(blast_features["ambiguous_eve_best_hit_count"]) > 0
+                else "none"
+            ),
+            "contamination_query_support": query_support,
+            "contamination_model_reliability": "unvalidated_legacy",
+            "contamination_model_applicability": (
+                "exploratory_ncldv_feature_v2"
+                if query_support == "supported"
+                else query_support
+            ),
+            "contamination_feature_version": "feature_v2_unvalidated",
+            "_contamination_target_domain": target_domain,
+            "estimated_contamination": estimate,
+            "estimated_contamination_strategy": (
+                "rule_based_v1" if query_support == "supported" else "unavailable"
+            ),
         }
 
     # ------------------------------------------------------------------
@@ -676,22 +818,23 @@ class ContaminationScorer:
     def _classify_contig_purity(
         self,
         contig_id: str,
-        contig_proteins: List[str],
+        contig_proteins: list[str],
         tree_nn_results: Dict[str, Dict[str, Dict[str, float]]],
         best_hits: Dict[str, BlastHit],
     ) -> Dict[str, Any]:
-        """Classify a single contig as ``viral_bearing`` /
-        ``cellular_coherent`` / ``ambiguous`` per the v1.4.3 Phase 2
-        plan. See docs/plans/active/v1_4_3_contig_purity_contamination.md.
-        """
+        """Classify cellular, viral, mixed, and ambiguous contig evidence."""
         viral_proteins: List[str] = []
         cellular_proteins: List[str] = []
+        ambiguous_eve_proteins: list[str] = []
         cellular_order_keys: List[Tuple[str, str]] = []
         cellular_identities: List[float] = []
 
         for protein_id in contig_proteins:
             lineage = self._per_protein_dominant_lineage(protein_id, tree_nn_results)
             if lineage is None:
+                hit = best_hits.get(protein_id)
+                if hit is not None and hit.subject_domain in AMBIGUOUS_EVE_PREFIXES:
+                    ambiguous_eve_proteins.append(protein_id)
                 continue
             domain = lineage["domain"]
             if domain in GIANT_VIRUS_PREFIXES or domain in PHAGE_PREFIXES:
@@ -702,42 +845,47 @@ class ContaminationScorer:
                 hit = best_hits.get(protein_id)
                 if hit is not None and hit.subject_domain in CELLULAR_PREFIXES:
                     cellular_identities.append(hit.identity)
+            elif domain in AMBIGUOUS_EVE_PREFIXES:
+                ambiguous_eve_proteins.append(protein_id)
 
         n_viral = len(viral_proteins)
         n_cellular = len(cellular_proteins)
 
-        if n_viral >= 1:
-            classification = "viral_bearing"
-            lineage_purity = 0.0
-        elif n_cellular >= MIN_CELLULAR_MARKERS:
+        lineage_purity = 0.0
+        median_identity = (
+            float(np.median(cellular_identities)) if cellular_identities else 0.0
+        )
+        cellular_evidence_coherent = False
+        if n_cellular >= MIN_CELLULAR_MARKERS:
             # Purity = fraction of cellular proteins sharing the top-vote
             # (domain, order). Identity floor gates the whole contig.
             order_counter: Counter = Counter(cellular_order_keys)
             top_count = order_counter.most_common(1)[0][1]
             lineage_purity = top_count / n_cellular
-            median_identity = (
-                float(np.median(cellular_identities)) if cellular_identities else 0.0
-            )
             if (
                 lineage_purity >= PURITY_THRESHOLD
                 and median_identity >= MIN_CELLULAR_IDENTITY
             ):
-                classification = "cellular_coherent"
-            else:
-                classification = "ambiguous"
+                cellular_evidence_coherent = True
+
+        if n_viral >= 1 and cellular_evidence_coherent:
+            classification = "mixed_evidence"
+        elif n_viral >= 1:
+            classification = "viral_bearing"
+        elif cellular_evidence_coherent:
+            classification = "cellular_coherent"
         else:
             classification = "ambiguous"
-            lineage_purity = 0.0
 
         return {
             "contig_id": contig_id,
             "classification": classification,
             "n_viral_proteins": n_viral,
             "n_cellular_proteins": n_cellular,
+            "n_ambiguous_eve_proteins": len(ambiguous_eve_proteins),
+            "cellular_evidence_coherent": cellular_evidence_coherent,
             "cellular_lineage_purity": lineage_purity,
-            "cellular_hit_median_identity": (
-                float(np.median(cellular_identities)) if cellular_identities else 0.0
-            ),
+            "cellular_hit_median_identity": median_identity,
         }
 
     def compute_contig_purity_features(
@@ -748,6 +896,7 @@ class ContaminationScorer:
         best_hits: Dict[str, BlastHit],
         attribution_mode: str,
         _out_coherent_contig_ids: set[str] | None = None,
+        _out_mixed_contig_ids: set[str] | None = None,
     ) -> Dict[str, Any]:
         """Aggregate per-contig classifications into the six features the
         v1.4.3 contamination model consumes. Emits neutral values under
@@ -760,6 +909,9 @@ class ContaminationScorer:
             "cellular_lineage_purity_median": 0.0,
             "cellular_hit_identity_median": 0.0,
             "viral_bearing_contig_count": 0,
+            "mixed_evidence_contig_count": 0,
+            "ambiguous_eve_contig_count": 0,
+            "ambiguous_eve_protein_count": 0,
             "per_contig_classifier_active": False,
         }
 
@@ -777,12 +929,24 @@ class ContaminationScorer:
 
         cellular_coherent: List[Dict[str, Any]] = []
         viral_bearing_count = 0
+        mixed_evidence_count = 0
+        ambiguous_eve_contig_count = 0
+        ambiguous_eve_protein_count = 0
 
         for contig_id, proteins in contig_to_proteins.items():
             result = self._classify_contig_purity(
                 contig_id, proteins, tree_nn_results, best_hits
             )
-            if result["classification"] == "viral_bearing":
+            ambiguous_eve_protein_count += result["n_ambiguous_eve_proteins"]
+            if result["n_ambiguous_eve_proteins"]:
+                ambiguous_eve_contig_count += 1
+            if result["classification"] == "mixed_evidence":
+                mixed_evidence_count += 1
+                viral_bearing_count += 1
+                cellular_coherent.append(result)
+                if _out_mixed_contig_ids is not None:
+                    _out_mixed_contig_ids.add(contig_id)
+            elif result["classification"] == "viral_bearing":
                 viral_bearing_count += 1
             elif result["classification"] == "cellular_coherent":
                 cellular_coherent.append(result)
@@ -826,6 +990,9 @@ class ContaminationScorer:
                 round(float(np.median(identities)), 2) if identities else 0.0
             ),
             "viral_bearing_contig_count": viral_bearing_count,
+            "mixed_evidence_contig_count": mixed_evidence_count,
+            "ambiguous_eve_contig_count": ambiguous_eve_contig_count,
+            "ambiguous_eve_protein_count": ambiguous_eve_protein_count,
             "per_contig_classifier_active": True,
         }
 
@@ -848,15 +1015,23 @@ class ContaminationScorer:
         if query_file_kind == "fna":
             for record in SeqIO.parse(str(query_fna), "fasta"):
                 contig_lengths[record.id] = len(record.seq)
+        dna_contig_ids = set(contig_lengths)
+        protein_estimated_contig_ids: set[str] = set()
 
         protein_to_contig: Dict[str, str] = {}
         if query_faa.exists():
             for record in SeqIO.parse(str(query_faa), "fasta"):
-                contig_id = self.protein_to_contig_id(record.id)
+                full_contig_id = re.sub(r"_\d+$", "", record.id)
+                contig_id = (
+                    full_contig_id
+                    if full_contig_id in dna_contig_ids
+                    else self.protein_to_contig_id(record.id)
+                )
                 protein_to_contig[record.id] = contig_id
-                if contig_id not in contig_lengths:
-                    contig_lengths[contig_id] = 0
-                contig_lengths[contig_id] += len(record.seq) * 3
+                if contig_id not in dna_contig_ids:
+                    protein_estimated_contig_ids.add(contig_id)
+                    contig_lengths.setdefault(contig_id, 0)
+                    contig_lengths[contig_id] += len(record.seq) * 3
 
         contig_markers: Dict[str, set[str]] = defaultdict(set)
         contig_cellular_markers: Dict[str, set[str]] = defaultdict(set)
@@ -908,6 +1083,7 @@ class ContaminationScorer:
         # mode that we just computed, so the feature values and the
         # user-facing mode always agree.
         coherent_contig_ids: set[str] = set()
+        mixed_contig_ids: set[str] = set()
         purity_features = self.compute_contig_purity_features(
             protein_to_contig=marker_bearing_proteins,
             contig_lengths=contig_lengths,
@@ -915,11 +1091,25 @@ class ContaminationScorer:
             best_hits=best_hits,
             attribution_mode=attribution_mode,
             _out_coherent_contig_ids=coherent_contig_ids,
+            _out_mixed_contig_ids=mixed_contig_ids,
         )
+        ambiguous_eve_protein_ids = {
+            protein_id
+            for protein_id, hit in best_hits.items()
+            if hit.subject_domain in AMBIGUOUS_EVE_PREFIXES
+        }
+        ambiguous_eve_contig_ids = {
+            protein_to_contig[protein_id]
+            for protein_id in ambiguous_eve_protein_ids
+            if protein_id in protein_to_contig
+        }
+        purity_features["ambiguous_eve_protein_count"] = len(ambiguous_eve_protein_ids)
+        purity_features["ambiguous_eve_contig_count"] = len(ambiguous_eve_contig_ids)
 
         total_bp = sum(contig_lengths.values()) or 1
         suspicious_bp = 0
-        suspicious_contigs: List[Dict[str, Any]] = []
+        suspicious_contigs: list[dict[str, Any]] = []
+        review_contigs: list[dict[str, Any]] = []
         for contig_id, length in contig_lengths.items():
             hits = contig_query_hits.get(contig_id, [])
             strong = [hit for hit in hits if hit.identity >= 60.0 and hit.score >= 80.0]
@@ -927,6 +1117,9 @@ class ContaminationScorer:
                 hit for hit in strong if hit.subject_domain in CELLULAR_PREFIXES
             ]
             phage_hits = [hit for hit in strong if hit.subject_domain in PHAGE_PREFIXES]
+            ambiguous_eve_hits = [
+                hit for hit in strong if hit.subject_domain in AMBIGUOUS_EVE_PREFIXES
+            ]
             viral_hits = [
                 hit for hit in strong if hit.subject_domain in GIANT_VIRUS_PREFIXES
             ]
@@ -941,14 +1134,38 @@ class ContaminationScorer:
             viral_marker_count = len(markers - CELLULAR_MODELS - PHAGE_MODELS_SET)
             cellular_marker_count = len(contig_cellular_markers.get(contig_id, set()))
             phage_marker_count = len(contig_phage_markers.get(contig_id, set()))
+            classified_strong_count = len(strong) - len(ambiguous_eve_hits)
             nonviral_fraction = (
                 0.0
-                if not strong
-                else (len(cellular_hits) + len(phage_hits)) / len(strong)
+                if classified_strong_count == 0
+                else (len(cellular_hits) + len(phage_hits)) / classified_strong_count
             )
             foreign_viral_fraction = (
                 0.0 if not viral_hits else len(foreign_viral) / len(viral_hits)
             )
+
+            if contig_id in mixed_contig_ids:
+                review_contigs.append(
+                    {
+                        "contig_id": contig_id,
+                        "length_bp": length,
+                        "length_basis": (
+                            "protein_estimate"
+                            if contig_id in protein_estimated_contig_ids
+                            else "dna_exact"
+                        ),
+                        "reason": "mixed_cellular_viral_evidence",
+                        "recommended_action": "review",
+                        "cellular_marker_count": cellular_marker_count,
+                        "phage_marker_count": phage_marker_count,
+                        "viral_marker_count": viral_marker_count,
+                        "ambiguous_eve_hit_count": len(ambiguous_eve_hits),
+                        "nonviral_fraction": round(nonviral_fraction * 100.0, 2),
+                        "foreign_viral_fraction": round(
+                            foreign_viral_fraction * 100.0, 2
+                        ),
+                    }
+                )
 
             suspicious = False
             reason = ""
@@ -958,7 +1175,9 @@ class ContaminationScorer:
             # regime (classifier inactive), the legacy cellular rules
             # still govern, per the unified two-regime fallback contract
             # documented in docs/plans/active/v1_4_3_contig_purity_contamination.md.
-            if contig_id in coherent_contig_ids:
+            if contig_id in mixed_contig_ids:
+                pass
+            elif contig_id in coherent_contig_ids:
                 suspicious = True
                 reason = "cellular_coherent_lineage"
             elif not purity_features.get("per_contig_classifier_active"):
@@ -973,7 +1192,7 @@ class ContaminationScorer:
                     suspicious = True
                     reason = "cellular_hits"
 
-            if not suspicious:
+            if not suspicious and contig_id not in mixed_contig_ids:
                 # Phage and viral-mixture triggers are independent of the
                 # cellular path and stay on their legacy rules.
                 if phage_marker_count >= 2 and viral_marker_count <= 1:
@@ -1000,10 +1219,16 @@ class ContaminationScorer:
                     {
                         "contig_id": contig_id,
                         "length_bp": length,
+                        "length_basis": (
+                            "protein_estimate"
+                            if contig_id in protein_estimated_contig_ids
+                            else "dna_exact"
+                        ),
                         "reason": reason,
                         "cellular_marker_count": cellular_marker_count,
                         "phage_marker_count": phage_marker_count,
                         "viral_marker_count": viral_marker_count,
+                        "ambiguous_eve_hit_count": len(ambiguous_eve_hits),
                         "nonviral_fraction": round(nonviral_fraction * 100.0, 2),
                         "foreign_viral_fraction": round(
                             foreign_viral_fraction * 100.0, 2
@@ -1015,9 +1240,31 @@ class ContaminationScorer:
 
         return {
             "contig_count": len(contig_lengths),
+            "contig_length_basis": (
+                "unavailable"
+                if not contig_lengths
+                else (
+                    "protein_estimate"
+                    if protein_estimated_contig_ids
+                    and len(protein_estimated_contig_ids) == len(contig_lengths)
+                    else (
+                        "mixed_dna_exact_and_protein_estimate"
+                        if protein_estimated_contig_ids
+                        else "dna_exact"
+                    )
+                )
+            ),
+            "protein_estimated_contig_count": len(protein_estimated_contig_ids),
             "suspicious_contig_count": len(suspicious_contigs),
             "suspicious_bp_fraction": round(suspicious_bp_fraction, 2),
             "suspicious_contigs": suspicious_contigs,
+            "review_contigs": review_contigs,
+            "mixed_evidence_status": (
+                "review_required" if mixed_contig_ids else "none"
+            ),
+            "ambiguous_eve_evidence_status": (
+                "ambiguous_eve_signal" if ambiguous_eve_protein_ids else "none"
+            ),
             "contig_attribution_mode": attribution_mode,
             **purity_features,
         }

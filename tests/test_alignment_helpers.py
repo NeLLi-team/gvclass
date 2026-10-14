@@ -15,6 +15,7 @@ from types import SimpleNamespace
 import pytest
 
 from src.core.alignment import align_sequences_pyfamsa, run_veryfasttree
+from src.core.marker_processing import MarkerProcessor
 
 
 def _rec(seq_id: str, seq: str) -> SimpleNamespace:
@@ -81,3 +82,38 @@ def test_run_veryfasttree_emits_parseable_newick(tmp_path: Path) -> None:
         "gamma",
         "delta",
     }
+
+
+def test_build_tree_skips_two_unaligned_sequences(tmp_path: Path) -> None:
+    processor = MarkerProcessor("OG312", tmp_path / "db", tmp_path / "query")
+    alignment = tmp_path / "OG312.mafft01"
+    alignment.write_text(">query\nMKT\n>reference\nMKTAY\n", encoding="utf-8")
+    tree = processor.tree_dir / "OG312.treefile"
+    error = processor.tree_dir / "OG312.ERROR"
+    tree.write_text("stale tree", encoding="utf-8")
+    error.write_text("stale error", encoding="utf-8")
+
+    result = processor.build_tree(alignment, threads=1)
+
+    assert result is None
+    assert not tree.exists()
+    assert not error.exists()
+    skipped = processor.tree_dir / "OG312.SKIPPED"
+    assert "Sequences: 2" in skipped.read_text(encoding="utf-8")
+
+
+def test_build_tree_rejects_three_unequal_length_sequences(tmp_path: Path) -> None:
+    processor = MarkerProcessor("marker", tmp_path / "db", tmp_path / "query")
+    alignment = tmp_path / "marker.mafft01"
+    alignment.write_text(
+        ">query\nMKT\n>reference_1\nMKTAY\n>reference_2\nMKTA\n",
+        encoding="utf-8",
+    )
+    skipped = processor.tree_dir / "marker.SKIPPED"
+    skipped.write_text("stale skip", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="same length"):
+        processor.build_tree(alignment, threads=1)
+
+    assert not skipped.exists()
+    assert not (processor.tree_dir / "marker.treefile").exists()

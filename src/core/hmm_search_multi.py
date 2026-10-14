@@ -150,26 +150,22 @@ def run_pyhmmer_search_multi(
         f"Running multi-file HMM search with {len(hmm_files)} model files"
     )
 
+    missing_hmm_files = [path for path in hmm_files if not Path(path).is_file()]
+    if missing_hmm_files:
+        missing = ", ".join(missing_hmm_files)
+        raise FileNotFoundError(f"Required HMM files not found: {missing}")
+
     sequences = _load_query_sequences(query_file)
     all_results = []
     total_models = 0
 
     for hmm_file in hmm_files:
-        if not os.path.exists(hmm_file):
-            error_handler.log_warning(f"HMM file not found: {hmm_file}")
-            continue
-
-        cleaned_hmm = hmm_file
+        base_name, cleaned_hmm, hmms, results = _process_single_hmm_file(
+            hmm_file, sequences, threads, sensitive_mode
+        )
         try:
-            base_name, cleaned_hmm, hmms, results = _process_single_hmm_file(
-                hmm_file, sequences, threads, sensitive_mode
-            )
             total_models += len(hmms)
             _append_results(all_results, base_name, results)
-        except Exception as e:
-            base_name = Path(hmm_file).stem
-            error_handler.log_error(f"Error processing {base_name}: {e}")
-            continue
         finally:
             _cleanup_cleaned_hmm(cleaned_hmm, hmm_file)
 
@@ -235,9 +231,9 @@ def _format_domain_line(
         f"{domain_idx + 1}\t{domain_count}\t"
         f"{domain.c_evalue:.2e}\t{domain.i_evalue:.2e}\t"
         f"{domain.score:.1f}\t{domain.bias:.1f}\t"
-        f"{hmm_from + 1}\t{hmm_to + 1}\t"
-        f"{target_from + 1}\t{target_to + 1}\t"
-        f"{domain.env_from + 1}\t{domain.env_to + 1}\t"
+        f"{hmm_from}\t{hmm_to}\t"
+        f"{target_from}\t{target_to}\t"
+        f"{domain.env_from}\t{domain.env_to}\t"
         "0.90\n"
     )
 

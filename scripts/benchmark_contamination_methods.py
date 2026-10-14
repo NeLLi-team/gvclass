@@ -25,7 +25,15 @@ from sklearn.ensemble import (
 from sklearn.metrics import average_precision_score, mean_absolute_error, roc_auc_score
 from sklearn.model_selection import GroupKFold
 
-from scripts._contamination_features import compute_query_features
+from scripts._contamination_features import (
+    BENCHMARK_RUN_PROFILE,
+    COMPLETENESS_MODE,
+    CONTAMINATION_FEATURE_PROFILE,
+    compute_query_features,
+    contamination_feature_vector,
+    validate_source_split_contract,
+)
+from src.core.contamination_scoring import CONTAMINATION_MODEL_FEATURES
 from src.core.summarize_full import FullSummarizer
 
 RANDOM_SEED = 42
@@ -49,24 +57,7 @@ SCENARIOS = [
     ("viral_related_10", 0.10),
     ("viral_related_25", 0.25),
 ]
-METHOD3_FEATURES = [
-    "contamination_score_v1",
-    "contamination_cellular_signal_v1",
-    "contamination_phage_signal_v1",
-    "contamination_duplication_signal_v1",
-    "contamination_viral_mixture_signal_v1",
-    "contamination_nonviral_hit_fraction_v1",
-    "order_dup",
-    "gvog8_dup",
-    "cellular_unique",
-    "cellular_total",
-    "phage_unique",
-    "phage_total",
-    "contigs",
-    "suspicious_bp_fraction_v2",
-    "suspicious_contig_count_v2",
-    "estimated_completeness",
-]
+METHOD3_FEATURES = list(CONTAMINATION_MODEL_FEATURES)
 
 
 def parse_args() -> argparse.Namespace:
@@ -341,11 +332,19 @@ def generate_dataset(
 
 
 def run_gvclass(inputs_dir: Path, results_dir: Path, workers: int, force: bool) -> None:
+    profile_path = results_dir / "benchmark_run_profile.json"
     if (
         results_dir.exists()
         and (results_dir / "gvclass_summary.tsv").exists()
         and not force
     ):
+        if (
+            not profile_path.exists()
+            or json.loads(profile_path.read_text()) != BENCHMARK_RUN_PROFILE
+        ):
+            raise RuntimeError(
+                "Cached benchmark results have no matching run profile; use --force-rerun"
+            )
         return
     if results_dir.exists() and force:
         shutil.rmtree(results_dir)
@@ -361,10 +360,15 @@ def run_gvclass(inputs_dir: Path, results_dir: Path, workers: int, force: bool) 
         "--threads-per-worker",
         "1",
         "--completeness-mode",
-        "novelty-aware",
+        COMPLETENESS_MODE,
+        "--mode-fast",
+        "--sensitive",
         "--plain-output",
     ]
     subprocess.run(cmd, check=True)
+    profile_path.write_text(
+        json.dumps(BENCHMARK_RUN_PROFILE, indent=2, sort_keys=True) + "\n"
+    )
 
 
 def parse_float(value: Any) -> float:
@@ -384,7 +388,9 @@ def recompute_query_features(
     rule-based signals or the cellular/phage marker counts, so a retrained model
     would otherwise be fed silently-zeroed features.
     """
-    summarizer = FullSummarizer(database, sensitive_mode=True)
+    summarizer = FullSummarizer(
+        database, completeness_mode=COMPLETENESS_MODE, sensitive_mode=True
+    )
     wanted = ("/hmmout/", "/stats/", "/blastp_out/", "/query_fna/", "/query_faa/")
     outputs: Dict[str, Dict[str, Any]] = {}
     for sample_id in summary_rows:
@@ -401,8 +407,16 @@ def recompute_query_features(
                     tf.extractall(path=tmpdir, members=members)
                 sample_root = next(tmpdir.iterdir())
                 outputs[sample_id] = compute_query_features(
-                    sample_id, sample_root, database, summarizer=summarizer
+                    sample_id,
+                    sample_root,
+                    database,
+                    summarizer=summarizer,
+                    sensitive_mode=True,
+                    completeness_mode=COMPLETENESS_MODE,
+                    mode_fast=True,
                 )
+        except ValueError:
+            raise
         except Exception as exc:  # a bad sample must not abort the whole batch
             print(
                 f"WARNING: feature recompute failed for {sample_id}: {exc}",
@@ -412,6 +426,8 @@ def recompute_query_features(
 
 
 def choose_best_model(X: pd.DataFrame, y: pd.Series, groups: pd.Series) -> Any:
+    if len(set(groups)) < 2:
+        raise ValueError("At least two training source genomes are required")
     candidates = [
         (
             "random_forest",
@@ -539,16 +555,21 @@ def build_feature_table(
         if features is None:
             continue
         row = dict(manifest_row)
-        for key in METHOD3_FEATURES:
-            row[key] = parse_float(features.get(key, 0.0))
+        for key, value in contamination_feature_vector(features).items():
+            row[key] = parse_float(value)
+        row["contamination_feature_profile"] = features["contamination_feature_profile"]
+        row["benchmark_completeness_mode"] = features["benchmark_completeness_mode"]
+        row["benchmark_sensitive_mode"] = features["benchmark_sensitive_mode"]
+        row["contamination_model_feature_names_csv"] = features[
+            "contamination_model_feature_names_csv"
+        ]
         row["contamination_present"] = 1 if row["true_contamination_pct"] > 0 else 0
         rows.append(row)
     return pd.DataFrame(rows)
 
 
 def train_and_benchmark(feature_df: pd.DataFrame, run_dir: Path) -> Dict[str, Any]:
-    train_df = feature_df[feature_df["split"] == "train"].copy()
-    test_df = feature_df[feature_df["split"] == "test"].copy()
+    train_df, test_df = validate_source_split_contract(feature_df)
 
     method1_threshold = optimize_threshold(
         train_df["contamination_present"].astype(int).tolist(),
@@ -634,6 +655,12 @@ def train_and_benchmark(feature_df: pd.DataFrame, run_dir: Path) -> Dict[str, An
         "method1_threshold": method1_threshold,
         "method2_threshold": method2_threshold,
         "method3_threshold": method3_threshold,
+        "fit_split": "train",
+        "held_out_split": "test",
+        "feature_profile": CONTAMINATION_FEATURE_PROFILE,
+        "completeness_mode": COMPLETENESS_MODE,
+        "sensitive_mode": True,
+        "feature_names": METHOD3_FEATURES,
     }
     (run_dir / "method3_model_meta.json").write_text(
         json.dumps(model_meta, indent=2) + "\n"

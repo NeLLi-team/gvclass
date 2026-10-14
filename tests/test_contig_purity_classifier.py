@@ -36,6 +36,7 @@ def _make_scorer(tmp_path: Path):
         "EUK__Acanthocystis_A\tEuk|Centroheliozoa|Haptista|Acanthocystidae|Acanthocystidae|Acanthocystis|NA\n"
         "EUK__NA_A\tEuk|NA|NA|NA|NA|NA|NA\n"
         "EUK__Other_A\tEuk|NA|NA|OtherOrder|NA|NA|NA\n"
+        "EUK-pEVE__Host_A\tEuk-pEVE|NA|NA|NA|NA|NA|NA\n"
         "NCLDV__Mimi_1\tNCLDV|Nucleocytoviricota|Megaviricetes|Imitervirales|Mimiviridae|Mimivirus|Acanthamoeba_polyphaga_mimivirus\n"
         "BAC__Eco_A\tBac|Pseudomonadota|Gammaproteobacteria|Enterobacterales|Enterobacteriaceae|Escherichia|Escherichia_coli\n"
     )
@@ -84,10 +85,10 @@ def _blast_hit(
 # ---------------------------------------------------------------------------
 
 
-def test_viral_bearing_contig_keeps_euk_markers_unflagged(tmp_path: Path) -> None:
-    """Contig with one NCLDV marker + two EUK-resolving markers must be
-    classified as viral_bearing, not cellular_coherent, regardless of
-    how coherent the EUK markers look."""
+def test_few_cellular_genes_on_viral_contig_are_not_removal_evidence(
+    tmp_path: Path,
+) -> None:
+    """Two cellular-like genes stay below the coherent-contamination floor."""
     scorer = _make_scorer(tmp_path)
     tree = _merge(
         _tree_nn("M_NCLDV", "p_viral", "NCLDV__Mimi_1"),
@@ -107,6 +108,88 @@ def test_viral_bearing_contig_keeps_euk_markers_unflagged(tmp_path: Path) -> Non
     )
     assert result["classification"] == "viral_bearing"
     assert result["n_viral_proteins"] == 1
+    assert result["cellular_evidence_coherent"] is False
+
+
+def test_coherent_cellular_and_viral_evidence_stays_mixed(tmp_path: Path) -> None:
+    """Five coherent cellular hits plus one viral hit retain both signals."""
+    scorer = _make_scorer(tmp_path)
+    cellular = [f"p_cell_{i}" for i in range(5)]
+    tree = _merge(
+        *[
+            _tree_nn(f"M_cell_{i}", protein, "EUK__Nannochloropsis_A")
+            for i, protein in enumerate(cellular)
+        ],
+        _tree_nn("M_viral", "p_viral", "NCLDV__Mimi_1"),
+    )
+    best_hits = {
+        **{
+            protein: _blast_hit(protein, "EUK", "Eustigmatales", identity=90.0)
+            for protein in cellular
+        },
+        "p_viral": _blast_hit("p_viral", "NCLDV", "Imitervirales", identity=90.0),
+    }
+    proteins = [*cellular, "p_viral"]
+
+    result = scorer._classify_contig_purity(
+        contig_id="contig_mixed",
+        contig_proteins=proteins,
+        tree_nn_results=tree,
+        best_hits=best_hits,
+    )
+    assert result["classification"] == "mixed_evidence"
+    assert result["n_cellular_proteins"] == 5
+    assert result["n_viral_proteins"] == 1
+
+    features = scorer.compute_contig_purity_features(
+        protein_to_contig={protein: "contig_mixed" for protein in proteins},
+        contig_lengths={"contig_mixed": 1000},
+        tree_nn_results=tree,
+        best_hits=best_hits,
+        attribution_mode="fna_gene_calling",
+    )
+    assert features["cellular_coherent_contig_count"] == 1
+    assert features["viral_bearing_contig_count"] == 1
+    assert features["mixed_evidence_contig_count"] == 1
+
+
+def test_peve_hits_are_reported_without_diluting_cellular_fraction(
+    tmp_path: Path,
+) -> None:
+    """pEVE evidence is ambiguous and is not part of the classified denominator."""
+    scorer = _make_scorer(tmp_path)
+    best_hits = {
+        **{
+            f"p_cell_{i}": _blast_hit(
+                f"p_cell_{i}", "EUK", "Eustigmatales", identity=90.0
+            )
+            for i in range(3)
+        },
+        **{
+            f"p_eve_{i}": _blast_hit(f"p_eve_{i}", "EUK-pEVE", identity=90.0)
+            for i in range(5)
+        },
+    }
+    features = scorer.compute_blast_features(best_hits, "", "")
+    assert features["nonviral_best_hit_fraction"] == 100.0
+    assert features["ambiguous_eve_best_hit_count"] == 5
+    assert features["ambiguous_eve_best_hit_fraction"] == 62.5
+
+    eve_proteins = [f"p_eve_{i}" for i in range(5)]
+    tree = _merge(
+        *[
+            _tree_nn(f"M_eve_{i}", protein, "EUK-pEVE__Host_A")
+            for i, protein in enumerate(eve_proteins)
+        ]
+    )
+    classification = scorer._classify_contig_purity(
+        contig_id="contig_eve",
+        contig_proteins=eve_proteins,
+        tree_nn_results=tree,
+        best_hits={protein: best_hits[protein] for protein in eve_proteins},
+    )
+    assert classification["classification"] == "ambiguous"
+    assert classification["n_ambiguous_eve_proteins"] == 5
 
 
 def test_cellular_coherent_contig_with_consistent_order(tmp_path: Path) -> None:
@@ -290,10 +373,14 @@ def test_bp_fraction_aggregates_correctly(tmp_path: Path) -> None:
         _tree_nn("M_viral_1", "pV1_b", "NCLDV__Mimi_1"),
     )
     best_hits = {
-        **{pid: _blast_hit(pid, "EUK", "Eustigmatales", 85.0)
-           for pid in ("pC1", "pC2", "pC3")},
-        **{pid: _blast_hit(pid, "NCLDV", "Imitervirales", 90.0)
-           for pid in ("pV1_a", "pV1_b")},
+        **{
+            pid: _blast_hit(pid, "EUK", "Eustigmatales", 85.0)
+            for pid in ("pC1", "pC2", "pC3")
+        },
+        **{
+            pid: _blast_hit(pid, "NCLDV", "Imitervirales", 90.0)
+            for pid in ("pV1_a", "pV1_b")
+        },
     }
     out = scorer.compute_contig_purity_features(
         protein_to_contig=protein_to_contig,
@@ -303,4 +390,106 @@ def test_bp_fraction_aggregates_correctly(tmp_path: Path) -> None:
         attribution_mode="fna_gene_calling",
     )
     expected_fraction = round((12000 / 62000) * 100.0, 2)
-    assert out["cellular_coherent_bp_fraction"] == pytest.approx(expected_fraction, abs=0.01)
+    assert out["cellular_coherent_bp_fraction"] == pytest.approx(
+        expected_fraction, abs=0.01
+    )
+
+
+@pytest.mark.parametrize("prefix", ["", "sample|"])
+def test_dna_lengths_are_exact_and_mixed_contigs_are_review_only(
+    tmp_path: Path,
+    prefix: str,
+) -> None:
+    """Protein counts cannot inflate DNA fractions or make mixed removal candidates."""
+    scorer = _make_scorer(tmp_path)
+    query_fna = tmp_path / "query.fna"
+    query_fna.write_text(
+        f">{prefix}contig_a\n{'A' * 1000}\n>{prefix}contig_b\n{'C' * 1000}\n"
+    )
+
+    contig_a_proteins = [f"{prefix}contig_a_{i}" for i in range(1, 4)]
+    contig_b_cellular = [f"{prefix}contig_b_{i}" for i in range(1, 6)]
+    contig_b_viral = f"{prefix}contig_b_6"
+    query_faa = tmp_path / "query.faa"
+    query_faa.write_text(
+        "".join(
+            f">{protein}\n{'M' * length}\n"
+            for protein, length in [
+                *((protein, 50) for protein in contig_a_proteins),
+                *((protein, 100) for protein in contig_b_cellular),
+                (contig_b_viral, 100),
+            ]
+        )
+    )
+
+    blast_dir = tmp_path / "blast"
+    blast_dir.mkdir()
+    cellular_proteins = [*contig_a_proteins, *contig_b_cellular]
+    blast_lines = [
+        "\t".join(
+            [
+                protein,
+                "EUK__Nannochloropsis_A",
+                "90",
+                "0",
+                "0",
+                "0",
+                "0",
+                "0",
+                "0",
+                "0",
+                "0",
+                "120",
+            ]
+        )
+        for protein in cellular_proteins
+    ]
+    blast_lines.append(
+        "\t".join(
+            [
+                contig_b_viral,
+                "NCLDV__Mimi_1",
+                "90",
+                "0",
+                "0",
+                "0",
+                "0",
+                "0",
+                "0",
+                "0",
+                "0",
+                "120",
+            ]
+        )
+    )
+    (blast_dir / "M1.m8").write_text("\n".join(blast_lines) + "\n")
+
+    tree = _merge(
+        *[
+            _tree_nn(f"M_cell_{i}", protein, "EUK__Nannochloropsis_A")
+            for i, protein in enumerate(cellular_proteins)
+        ],
+        _tree_nn("M_viral", contig_b_viral, "NCLDV__Mimi_1"),
+    )
+    features = scorer.collect_contig_features(
+        query_fna=query_fna,
+        query_faa=query_faa,
+        blast_dir=blast_dir,
+        primary_order="Imitervirales",
+        primary_family="Mimiviridae",
+        tree_nn_results=tree,
+    )
+
+    assert features["contig_length_basis"] == "dna_exact"
+    assert features["protein_estimated_contig_count"] == 0
+    assert features["suspicious_bp_fraction"] == 50.0
+    assert len(features["suspicious_contigs"]) == 1
+    candidate = features["suspicious_contigs"][0]
+    assert candidate["contig_id"] == f"{prefix}contig_a"
+    assert candidate["length_bp"] == 1000
+    assert candidate["length_basis"] == "dna_exact"
+    assert features["mixed_evidence_contig_count"] == 1
+    assert [record["contig_id"] for record in features["review_contigs"]] == [
+        f"{prefix}contig_b"
+    ]
+    assert features["review_contigs"][0]["recommended_action"] == "review"

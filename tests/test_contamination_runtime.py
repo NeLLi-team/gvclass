@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 from collections import Counter
 from pathlib import Path
 from unittest.mock import Mock
@@ -10,6 +11,7 @@ import pytest
 
 from src.bin.gvclass_cli import CliOutput, combine_summary_files
 from src.core.summarize_full import FullSummarizer
+from src.pipeline.query_processing_engine import _write_contamination_candidates_file
 from src.pipeline.summary_writer import FINAL_SUMMARY_COLUMNS
 from tests.conftest import skip_if_no_runtime_resources
 
@@ -20,7 +22,6 @@ def _write_minimal_database(db_path: Path) -> None:
     from tests.conftest import stage_db_resources
 
     stage_db_resources(db_path, markers=False)
-    (db_path / "labels.tsv").write_text("")
     (db_path / "markers").mkdir(exist_ok=True)
     (db_path / "markers" / "order_completeness.tab").write_text(
         "Order\tOrthogroups\tAverage_Percent\tStd_Percent\n"
@@ -67,6 +68,7 @@ def test_add_contamination_metrics_requires_trained_model(
             query_output_dir=tmp_path / "query1",
             marker_counts={},
             tax_counters={"order": Counter(), "family": Counter()},
+            accepted_lineage={},
         )
 
 
@@ -114,6 +116,7 @@ def test_add_contamination_metrics_uses_ml_estimate_and_query_fna_path(
         query_output_dir=query_output_dir,
         marker_counts={},
         tax_counters={"order": Counter(), "family": Counter()},
+        accepted_lineage={},
     )
 
     collect_args = summarizer.contamination_scorer.collect_contig_features.call_args[0]
@@ -129,13 +132,13 @@ def test_add_contamination_metrics_uses_ml_estimate_and_query_fna_path(
 def test_combine_summary_files_preserves_existing_final_summary(tmp_path: Path) -> None:
     summary_tsv = tmp_path / "gvclass_summary.tsv"
     summary_csv = tmp_path / "gvclass_summary.csv"
-    expected_tsv = "query\ttaxonomy_majority\testimated_contamination\nq1\td_NCLDV\t4.25\n"
+    expected_tsv = (
+        "query\ttaxonomy_majority\testimated_contamination\nq1\td_NCLDV\t4.25\n"
+    )
     expected_csv = "query,taxonomy_majority,estimated_contamination\nq1,d_NCLDV,4.25\n"
     summary_tsv.write_text(expected_tsv)
     summary_csv.write_text(expected_csv)
-    (tmp_path / "q1.summary.tab").write_text(
-        "query\ttaxonomy_majority\nq1\td_NCLDV\n"
-    )
+    (tmp_path / "q1.summary.tab").write_text("query\ttaxonomy_majority\nq1\td_NCLDV\n")
 
     combine_summary_files(tmp_path, CliOutput(plain_output=True))
 
@@ -151,14 +154,12 @@ def test_final_summary_columns_surface_single_qc_estimates() -> None:
         "order_completeness",
         "order_completeness_raw",
         "order_completeness_v2",
-        "estimated_completeness_strategy",
         "order_weighted_completeness",
         "order_weighted_completeness_raw",
         "order_confidence_score",
         "contamination_score_v1",
         "contamination_flag_v1",
         "contamination_source_v1",
-        "estimated_contamination_strategy",
         "suspicious_bp_fraction_v2",
         "suspicious_contig_count_v2",
         "taxonomy_strict",
@@ -198,6 +199,12 @@ def test_final_summary_columns_surface_single_qc_estimates() -> None:
         "ncldv_mcp_total",
         "capsid_group",
         "completeness_model_reliability",
+        "completeness_query_support",
+        "completeness_model_group",
+        "estimated_completeness_strategy",
+        "estimated_contamination_strategy",
+        "contamination_query_support",
+        "contamination_model_reliability",
         "species_tree_nn_taxonomy",
     ]:
         assert column in FINAL_SUMMARY_COLUMNS
@@ -209,22 +216,32 @@ def test_classify_contamination_type_uses_threshold_and_source(
     summarizer = FullSummarizer(temp_database_dir)
     summarizer.contamination_scorer.ml_threshold = 5.0
 
-    assert summarizer._classify_contamination_type(
-        {"estimated_contamination": 2.0, "contamination_source_v1": "cellular"}
-    ) == "clean"
-    assert summarizer._classify_contamination_type(
-        {"estimated_contamination": 12.0, "contamination_source_v1": "cellular"}
-    ) == "cellular"
-    assert summarizer._classify_contamination_type(
-        {"estimated_contamination": 12.0, "contamination_source_v1": "viral_mixture"}
-    ) == "mixed_viral"
+    assert (
+        summarizer._classify_contamination_type(
+            {"estimated_contamination": 2.0, "contamination_source_v1": "cellular"}
+        )
+        == "clean"
+    )
+    assert (
+        summarizer._classify_contamination_type(
+            {"estimated_contamination": 12.0, "contamination_source_v1": "cellular"}
+        )
+        == "cellular"
+    )
+    assert (
+        summarizer._classify_contamination_type(
+            {
+                "estimated_contamination": 12.0,
+                "contamination_source_v1": "viral_mixture",
+            }
+        )
+        == "mixed_viral"
+    )
 
 
 def test_write_contamination_candidates_file_gated_by_contamination_type(
     tmp_path: Path,
 ) -> None:
-    from src.pipeline.query_processing_engine import _write_contamination_candidates_file
-
     query_output_dir = tmp_path / "query1"
     summary_data = {
         "contamination_type": "cellular",
@@ -308,6 +325,7 @@ def test_sensitive_mode_invokes_trained_model(
         query_output_dir=query_output_dir,
         marker_counts={},
         tax_counters={"order": Counter(), "family": Counter()},
+        accepted_lineage={},
     )
 
     # Trained-model path was exercised; NaN gate is gone.
@@ -348,6 +366,7 @@ def test_standard_mode_still_raises_when_model_missing(
             query_output_dir=tmp_path / "query1",
             marker_counts={},
             tax_counters={"order": Counter(), "family": Counter()},
+            accepted_lineage={},
         )
 
 
@@ -362,13 +381,18 @@ def test_classify_contamination_type_treats_nan_as_uncertain(
 
     assert (
         summarizer._classify_contamination_type(
-            {"estimated_contamination": float("nan"), "contamination_source_v1": "cellular"}
+            {
+                "estimated_contamination": float("nan"),
+                "contamination_source_v1": "cellular",
+            }
         )
         == "uncertain"
     )
 
 
-def test_final_summary_emits_nan_literal_for_skipped_contamination(tmp_path: Path) -> None:
+def test_final_summary_emits_nan_literal_for_skipped_contamination(
+    tmp_path: Path,
+) -> None:
     """NaN must survive formatting so the summary TSV clearly shows ``NaN``
     instead of collapsing to ``0.00`` under the sensitive-mode gate."""
     from src.pipeline.summary_writer import write_final_summary_files
@@ -402,11 +426,11 @@ def test_final_summary_emits_nan_literal_for_skipped_contamination(tmp_path: Pat
     assert columns["estimated_completeness"] == "73.50"
 
 
-def test_contamination_candidates_suppressed_under_sensitive_mode(tmp_path: Path) -> None:
+def test_contamination_candidates_suppressed_under_sensitive_mode(
+    tmp_path: Path,
+) -> None:
     """Candidate TSV must not be emitted when the contamination_type marker is
     ``uncertain_sensitive_mode``."""
-    from src.pipeline.query_processing_engine import _write_contamination_candidates_file
-
     query_output_dir = tmp_path / "query1"
     summary_data = {
         "contamination_type": "uncertain_sensitive_mode",
@@ -435,16 +459,18 @@ def test_contamination_candidates_suppressed_under_sensitive_mode(tmp_path: Path
 
     assert output is None
     # The stats directory must not have been created either.
-    assert not (query_output_dir / "stats" / "query1.contamination_candidates.tsv").exists()
+    assert not (
+        query_output_dir / "stats" / "query1.contamination_candidates.tsv"
+    ).exists()
 
 
-def test_stale_contamination_candidates_file_removed_on_suppression(tmp_path: Path) -> None:
+def test_stale_contamination_candidates_file_removed_on_suppression(
+    tmp_path: Path,
+) -> None:
     """On reruns (resume or mode switch) a pre-existing candidate file from a
     previous run must be deleted when the current gate suppresses emission,
     so the stale file is not copied to the output root or archived into
     the per-query tarball (Codex-audit finding)."""
-    from src.pipeline.query_processing_engine import _write_contamination_candidates_file
-
     query_output_dir = tmp_path / "query1"
     stats_dir = query_output_dir / "stats"
     stats_dir.mkdir(parents=True)
@@ -467,3 +493,38 @@ def test_stale_contamination_candidates_file_removed_on_suppression(tmp_path: Pa
 
     assert output is None
     assert not stale.exists(), "Stale candidate file should be deleted on suppression"
+
+
+def test_mixed_contigs_remain_reviewable_below_score_threshold(tmp_path: Path) -> None:
+    query_dir = tmp_path / "query1"
+    summary = {
+        "contamination_type": "uncertain",
+        "estimated_contamination": 1.0,
+        "_contamination_reviews": [
+            {
+                "contig_id": "sample|mixed_1",
+                "candidate_type": "mixed_evidence",
+                "reason": "viral_and_coherent_cellular_evidence",
+                "recommended_action": "review",
+                "length_bp": 12000,
+                "length_basis": "dna",
+                "ambiguous_eve_hit_count": 3,
+            }
+        ],
+    }
+    assert (
+        _write_contamination_candidates_file(query_dir, "query1", summary, Mock())
+        is None
+    )
+    review_path = query_dir / "stats/query1.contamination_review.tsv"
+    with review_path.open() as handle:
+        rows = list(csv.DictReader(handle, delimiter="\t"))
+    assert len(rows) == 1
+    assert rows[0]["contig_id"] == "sample|mixed_1"
+    assert rows[0]["recommended_action"] == "review"
+    assert rows[0]["length_basis"] == "dna"
+    assert rows[0]["ambiguous_eve_hit_count"] == "3"
+    assert not (query_dir / "stats/query1.contamination_candidates.tsv").exists()
+    summary["_contamination_reviews"] = []
+    _write_contamination_candidates_file(query_dir, "query1", summary, Mock())
+    assert not review_path.exists()

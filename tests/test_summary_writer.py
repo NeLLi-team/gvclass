@@ -119,6 +119,8 @@ def test_extended_summary_written(tmp_path: Path) -> None:
                     "query": "q1",
                     "cellular_coherent_contig_count": 0,
                     "contig_attribution_mode": "fna_gene_calling",
+                    "mixed_evidence_status": "review_required",
+                    "contamination_model_prediction_upper_bound": 58.20048,
                 },
             }
         ],
@@ -128,6 +130,8 @@ def test_extended_summary_written(tmp_path: Path) -> None:
         row = next(csv.DictReader(handle, delimiter="\t"))
     assert row["contig_attribution_mode"] == "fna_gene_calling"
     assert row["cellular_coherent_contig_count"] == "0"
+    assert row["mixed_evidence_status"] == "review_required"
+    assert row["contamination_model_prediction_upper_bound"] == "58.200480"
 
 
 def test_extended_summary_archive_removes_loose_files(tmp_path: Path) -> None:
@@ -169,3 +173,46 @@ def test_read_individual_summary_results_from_query_archive(tmp_path: Path) -> N
     assert len(results) == 1
     assert results[0]["query"] == "q1"
     assert results[0]["summary_data"]["taxonomy_majority"] == "final"
+
+
+def test_quality_context_survives_individual_summary_round_trip(
+    tmp_path: Path,
+) -> None:
+    from src.pipeline.summary_writer import (
+        read_individual_summary_results,
+        write_individual_final_summary_file,
+    )
+
+    class _Logger:
+        def info(self, *_args) -> None:
+            pass
+
+        def error(self, *_args) -> None:
+            pass
+
+    write_individual_final_summary_file(
+        tmp_path,
+        "q1",
+        {
+            "query": "q1",
+            "estimated_completeness": 42.5,
+            "completeness_query_support": "limited_support",
+            "estimated_completeness_strategy": "novelty_aware_v1",
+            "completeness_model_group": "MIRUS",
+            "completeness_model_reliability": "unvalidated_legacy",
+            "estimated_contamination": 12.5,
+            "contamination_query_support": "supported",
+            "estimated_contamination_strategy": "trained_model_v1",
+            "contamination_model_reliability": "unvalidated_legacy",
+        },
+        _Logger(),
+    )
+
+    result = read_individual_summary_results(tmp_path, ["q1"])[0]["summary_data"]
+
+    assert result["completeness_query_support"] == "limited_support"
+    assert result["estimated_completeness_strategy"] == "novelty_aware_v1"
+    assert result["completeness_model_group"] == "MIRUS"
+    assert result["completeness_model_reliability"] == "unvalidated_legacy"
+    assert result["contamination_query_support"] == "supported"
+    assert result["contamination_model_reliability"] == "unvalidated_legacy"

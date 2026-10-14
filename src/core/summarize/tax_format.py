@@ -6,7 +6,28 @@ strings.
 """
 
 from collections import Counter
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
+
+_TAXONOMY_PREFIX_TO_LEVEL = {
+    "d": "domain",
+    "p": "phylum",
+    "c": "class",
+    "o": "order",
+    "f": "family",
+    "g": "genus",
+    "s": "species",
+}
+
+
+def parse_taxonomy_majority(taxonomy_majority: str) -> Dict[str, str]:
+    """Return unprefixed ranks from an accepted consensus lineage."""
+    lineage = {level: "" for level in _TAXONOMY_PREFIX_TO_LEVEL.values()}
+    for token in str(taxonomy_majority or "").split(";"):
+        prefix, separator, value = token.strip().partition("_")
+        level = _TAXONOMY_PREFIX_TO_LEVEL.get(prefix)
+        if separator and level:
+            lineage[level] = value
+    return lineage
 
 
 def format_tax_level_counts(tax_counter: Counter, level: str | None = None) -> str:

@@ -29,7 +29,7 @@ from src.utils.resource_store import ResourceStore
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_inspect_local_database_state_requires_database_directory(tmp_path):
+def test_inspect_local_database_state_accepts_compact_resources(tmp_path):
     db_path = tmp_path / "resources"
     db_path.mkdir()
     for relative_path in DatabaseManager.REQUIRED_FILES:
@@ -40,8 +40,9 @@ def test_inspect_local_database_state_requires_database_directory(tmp_path):
     state = inspect_local_database_state(db_path)
 
     assert state["exists"] is True
-    assert state["complete"] is False
-    assert "database" in state["missing_files"]
+    assert state["complete"] is True
+    assert not (db_path / "database").exists()
+    assert state["missing_files"] == []
 
 
 def test_prompt_yes_no_accepts_enter_as_default_yes(monkeypatch):
@@ -155,7 +156,7 @@ def test_worker_plan_never_oversubscribes():
     rather than the numbers: never hand out more threads than the run was
     given, never start more workers than there are queries."""
     for n_queries in (1, 2, 3, 4, 5, 8, 16, 50, 100, 200, 500):
-        for threads in (4, 8, 16, 32, 64, 128):
+        for threads in (1, 2, 3, 4, 8, 16, 32, 64, 128):
             workers, per_worker = _auto_plan(n_queries, threads)
 
             assert workers >= 1 and per_worker >= 1

@@ -79,8 +79,18 @@ mypy = "*"
 pre-commit = "*"
 click = "==8.3.1"  # Force version in dev too
 
+[feature.docs.dependencies]
+python = "3.11.*"
+mkdocs = ">=1.6,<2"
+mkdocs-material = ">=9.5,<10"
+pymdown-extensions = ">=10"
+
+[feature.docs.tasks]
+docs-build = "mkdocs build --strict"
+
 [environments]
 default = ["dev"]
+docs = { features = ["docs"], no-default-feature = true }
 
 [tool.pixi.pypi-options]
 allow-pre-releases = true

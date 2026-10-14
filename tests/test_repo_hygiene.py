@@ -51,7 +51,7 @@ def test_readme_uses_runtime_resource_model_path() -> None:
     assert "resources/contamination/model.joblib" in readme
 
 
-def test_release_version_matches_user_facing_wrappers() -> None:
+def test_release_version_matches_wrappers_and_container_assets() -> None:
     version = _software_version()
     pixi = tomllib.loads((REPO_ROOT / "pixi.toml").read_text())
     expected_apptainer_ref = re.compile(rf"gvclass:{re.escape(version)}")
@@ -60,6 +60,8 @@ def test_release_version_matches_user_facing_wrappers() -> None:
     )
 
     assert pixi["workspace"]["version"] == version
+    assert f"gvclass:{version}" in pixi["tasks"]["build-docker"]
+    assert f"gvclass_{version}.sif" in pixi["tasks"]["build-apptainer"]
     for path in [
         "gvclass",
         "src/bin/gvclass_apptainer.py",
@@ -70,6 +72,17 @@ def test_release_version_matches_user_facing_wrappers() -> None:
     ]:
         text = (REPO_ROOT / path).read_text()
         assert expected_apptainer_ref.search(text) or f"Version {version}" in text or f"GVCLASS_VERSION={version}" in text, path
+        assert not stale_image_ref.search(text), path
+
+    for path in [
+        "containers/build.sh",
+        "containers/docker/Dockerfile",
+        "containers/docker/docker-compose.yml",
+        "containers/docker/build_containers.sh",
+        "containers/apptainer/gvclass.def",
+    ]:
+        text = (REPO_ROOT / path).read_text()
+        assert version in text, path
         assert not stale_image_ref.search(text), path
 
 
@@ -120,6 +133,30 @@ def test_ci_enforces_static_analysis_and_hygiene() -> None:
     assert "workflow_dispatch:" in maintenance
     assert "Stale branch report" in maintenance
 
+    container_job = jobs["container-build"]
+    assert set(container_job["needs"]) >= {
+        "lint-and-test",
+        "repo-hygiene",
+        "golden-file",
+    }
+    steps_by_name = {step["name"]: step for step in container_job["steps"]}
+    tag_step = steps_by_name["Verify release tag matches software version"]
+    assert "GITHUB_REF_NAME" in tag_step["run"]
+    assert "pyproject.toml" in tag_step["run"]
+    identity_step = steps_by_name["Verify SIF software, resource, and model identities"]
+    assert "DB_VERSION" in identity_step["run"]
+    assert 'database_version}" != "v2.1.0"' in identity_step["run"]
+    assert "CONTAMINATION_MODEL_SHA256" in identity_step["run"]
+    assert "COMPLETENESS_MODEL_SHA256" in identity_step["run"]
+    assert "create_experimental_quality_scorer" in identity_step["run"]
+    assert steps_by_name["Generate SBOM"]["with"]["image"] == "./gvclass.sif"
+    artifact_step = steps_by_name["Upload SIF and SBOM artifacts"]
+    assert "gvclass.sif" in artifact_step["with"]["path"]
+    step_names = list(steps_by_name)
+    assert step_names.index("Upload SIF and SBOM artifacts") < step_names.index(
+        "Publish SIF to Sylabs library"
+    )
+
 
 def test_no_pixi_run_gvclass_in_container_assets() -> None:
     """H5: the image ENTRYPOINT already runs `./gvclass`; a `pixi run gvclass`
@@ -144,6 +181,76 @@ def test_compose_command_is_valid_gvclass_argv() -> None:
     assert tokens, "compose command is empty"
     assert tokens[0] == "/data", tokens
     assert "pixi" not in tokens, tokens
+
+
+def test_container_builds_use_pinned_base_and_repo_compose_context() -> None:
+    dockerfile = (REPO_ROOT / "containers" / "docker" / "Dockerfile").read_text()
+    definition = (REPO_ROOT / "containers" / "apptainer" / "gvclass.def").read_text()
+    compose = yaml.safe_load(
+        (REPO_ROOT / "containers" / "docker" / "docker-compose.yml").read_text()
+    )
+    pinned_base = re.compile(r"ghcr\.io/prefix-dev/pixi@sha256:[0-9a-f]{64}")
+
+    docker_base = pinned_base.search(dockerfile)
+    definition_base = pinned_base.search(definition)
+    assert docker_base is not None
+    assert definition_base is not None
+    assert docker_base.group() == definition_base.group()
+    assert "RUN pixi install --frozen" in dockerfile
+    assert "    pixi install --frozen" in definition
+    assert compose["services"]["gvclass"]["build"] == {
+        "context": "../..",
+        "dockerfile": "containers/docker/Dockerfile",
+    }
+
+
+def test_container_wrappers_reject_sibling_path_with_same_prefix(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "work"
+    sibling = tmp_path / "work-untrusted"
+    workspace.mkdir()
+    sibling.mkdir()
+    (sibling / "query.fna").write_text(">query\nACGT\n")
+
+    for relative_path in [
+        "src/bin/gvclass_docker.sh",
+        "src/bin/gvclass_shifter.sh",
+    ]:
+        result = subprocess.run(
+            ["bash", str(REPO_ROOT / relative_path), str(sibling), "1"],
+            cwd=workspace,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        assert result.returncode == 1, relative_path
+        assert "must be under current working directory" in result.stdout
+
+
+def test_container_runtime_copy_excludes_development_and_host_files() -> None:
+    dockerfile = (REPO_ROOT / "containers" / "docker" / "Dockerfile").read_text()
+    definition = (REPO_ROOT / "containers" / "apptainer" / "gvclass.def").read_text()
+
+    assert "COPY example /opt/gvclass/example" in dockerfile
+    assert "    example /opt/gvclass/example" in definition
+    for excluded in [
+        "COPY src /opt/gvclass/src",
+        "    src /opt/gvclass/src",
+        "src/test",
+        "src/bin/build_novelty_completeness_resources.py",
+        "src/bin/install_cli.py",
+        "src/bin/gvclass_apptainer.py",
+        "src/bin/gvclass_apptainer.sh",
+        "src/bin/gvclass_docker.sh",
+        "src/bin/gvclass_shifter.sh",
+        "images /opt/gvclass/images",
+        "containers /opt/gvclass/containers",
+        "gvclass-a /opt/gvclass/gvclass-a",
+    ]:
+        assert excluded not in dockerfile, excluded
+        assert excluded not in definition, excluded
 
 
 def test_private_and_runtime_workspaces_stay_ignored() -> None:

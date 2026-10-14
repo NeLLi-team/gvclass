@@ -223,13 +223,24 @@ class MarkerProcessor:
         logger.info(f"Building tree for marker {self.marker} using {tree_method}")
 
         tree_out = self.tree_dir / f"{self.marker}.treefile"
+        for stale_output in (
+            tree_out,
+            tree_out.with_suffix(".SKIPPED"),
+            tree_out.with_suffix(".ERROR"),
+            tree_out.with_suffix(".TIMEOUT"),
+        ):
+            stale_output.unlink(missing_ok=True)
 
-        # Check if alignment has enough sequences
-        aln_records = list(AlignIO.read(str(trimmed_alignment), "fasta"))
+        # Short marker sets are intentionally copied without alignment. Count
+        # their raw FASTA records before asking AlignIO to require equal widths.
+        sequence_count = sum(1 for _ in SeqIO.parse(trimmed_alignment, "fasta"))
 
         # Critical validation for tree building
-        if len(aln_records) < 3:
-            warning_msg = f"⚠️  WARNING: Too few sequences ({len(aln_records)}) for tree building of {self.marker}"
+        if sequence_count < 3:
+            warning_msg = (
+                f"WARNING: Too few sequences ({sequence_count}) for tree building "
+                f"of {self.marker}"
+            )
             logger.warning(warning_msg)
             print(warning_msg)
             print(f"   Skipping tree building for {self.marker} - insufficient data")
@@ -239,7 +250,7 @@ class MarkerProcessor:
             with open(skip_file, "w") as f:
                 f.write(f"TREE BUILDING SKIPPED AT {datetime.now()}\n")
                 f.write(f"Marker: {self.marker}\n")
-                f.write(f"Sequences: {len(aln_records)}\n")
+                f.write(f"Sequences: {sequence_count}\n")
                 f.write("Minimum required: 3\n")
                 f.write(
                     "Phylogenetic analysis not possible with insufficient sequences.\n"
@@ -247,6 +258,8 @@ class MarkerProcessor:
 
             # Return None to indicate no tree was built
             return None
+
+        aln_records = list(AlignIO.read(str(trimmed_alignment), "fasta"))
 
         if tree_method in ("veryfasttree", "fasttree"):
             # Use VeryFastTree

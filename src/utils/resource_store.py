@@ -169,6 +169,7 @@ class ResourceStore:
                         + "\n"
                     )
             os.replace(tmp, target)
+        self._write_source_stamp(target, parquet_path)
         return target
 
     def _materialize_marker_faa(self, marker: str) -> Path:
@@ -208,6 +209,7 @@ class ResourceStore:
                     f"Marker {marker} has no usable sequences in {self.faa_parquet}"
                 )
             os.replace(tmp, target)
+        self._write_source_stamp(target, self.faa_parquet)
         return target
 
     def _label_cache_dir(self) -> Path:
@@ -241,13 +243,40 @@ class ResourceStore:
             fallback.mkdir(parents=True, exist_ok=True)
             return fallback
 
-    @staticmethod
-    def _target_current(target: Path, source: Path, allow_empty: bool) -> bool:
+    @classmethod
+    def _target_current(cls, target: Path, source: Path, allow_empty: bool) -> bool:
+        """Return whether ``target`` was materialized from this exact ``source``.
+
+        The modification time alone is not enough: a replacement archive keeps
+        its build-time mtime, which is older than a cache made from the file it
+        replaces, so the stale cache would shadow the new reference data.
+        """
         if not target.exists():
             return False
         if not allow_empty and target.stat().st_size == 0:
             return False
-        return target.stat().st_mtime >= source.stat().st_mtime
+        if target.stat().st_mtime < source.stat().st_mtime:
+            return False
+        try:
+            return cls._stamp_path(target).read_text() == cls._source_stamp(source)
+        except OSError:
+            return False
+
+    @staticmethod
+    def _source_stamp(source: Path) -> str:
+        stat = source.stat()
+        return f"{stat.st_size}:{stat.st_mtime_ns}"
+
+    @staticmethod
+    def _stamp_path(target: Path) -> Path:
+        return target.with_name(f".{target.name}.source")
+
+    @classmethod
+    def _write_source_stamp(cls, target: Path, source: Path) -> None:
+        stamp = cls._stamp_path(target)
+        with cls._temporary_path(stamp) as tmp:
+            tmp.write_text(cls._source_stamp(source))
+            os.replace(tmp, stamp)
 
     @staticmethod
     def _same_existing_path(source: Path, target: Path) -> bool:

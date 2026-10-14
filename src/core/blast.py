@@ -1,17 +1,258 @@
-import os
-from collections import defaultdict
-from typing import List, Dict
-import click
-from Bio import SeqIO
-import pyswrd
+"""Protein similarity search and reference-reduction utilities."""
+
 import logging
+import math
+import os
+import tempfile
+from collections import defaultdict
+from collections.abc import Iterator, Sequence
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Protocol, TypedDict
+
+import click
+import pyswrd
+from Bio import SeqIO
+from Bio.SeqRecord import SeqRecord
 
 from src.utils.common import validate_file_path
-from src.utils.error_handling import ErrorHandler
+from src.utils.error_handling import ErrorHandler, ProcessingError
 
 # Set up logging
 logger = logging.getLogger(__name__)
 error_handler = ErrorHandler("blast")
+
+
+class _SearchResult(Protocol):
+    query_start: int
+    query_end: int
+    target_start: int
+    target_end: int
+
+    def identity(self) -> float:
+        """Return the aligned-residue identity fraction."""
+        ...
+
+
+class _SearchHit(Protocol):
+    query_index: int
+    target_index: int
+    evalue: float
+    score: float
+    result: _SearchResult
+
+
+class _BlastRecord(TypedDict):
+    query_id: str
+    target_id: str
+    identity: float
+    aln_len: int
+    mismatches: int
+    gaps: int
+    q_start: int
+    q_end: int
+    s_start: int
+    s_end: int
+    evalue: float
+    score: float
+
+
+@dataclass(frozen=True, slots=True)
+class BlastM8Record:
+    """Fields consumed from one validated BLAST m8 record."""
+
+    query_id: str
+    subject_id: str
+    identity: float
+    score: float
+
+
+def iter_blastp_records(blastpout: str | Path) -> Iterator[BlastM8Record]:
+    """Yield validated records, accepting a zero-byte file as no hits."""
+    blast_path = Path(blastpout)
+    try:
+        with blast_path.open(encoding="utf-8") as handle:
+            for line_number, line in enumerate(handle, start=1):
+                yield _parse_blastp_record(line, blast_path, line_number)
+    except OSError as exc:
+        raise OSError(f"Failed to read BLAST m8 file {blast_path}: {exc}") from exc
+
+
+def _parse_blastp_record(
+    line: str,
+    blast_path: Path,
+    line_number: int,
+) -> BlastM8Record:
+    parts = line.rstrip("\r\n").split("\t")
+    if len(parts) < 12:
+        raise ValueError(
+            f"Malformed BLAST m8 record in {blast_path} at line {line_number}: "
+            f"expected at least 12 tab-separated fields, found {len(parts)}"
+        )
+    query_id = parts[0]
+    subject_id = parts[1]
+    if not query_id or not subject_id:
+        raise ValueError(
+            f"Malformed BLAST m8 record in {blast_path} at line {line_number}: "
+            "query and subject IDs must be nonempty"
+        )
+    try:
+        identity = float(parts[2])
+        score = float(parts[11])
+    except ValueError as exc:
+        raise ValueError(
+            f"Malformed BLAST m8 record in {blast_path} at line {line_number}: "
+            "identity and score must be numeric"
+        ) from exc
+    if not math.isfinite(identity) or not 0.0 <= identity <= 100.0:
+        raise ValueError(
+            f"Malformed BLAST m8 record in {blast_path} at line {line_number}: "
+            f"identity {identity} is outside 0--100"
+        )
+    if not math.isfinite(score):
+        raise ValueError(
+            f"Malformed BLAST m8 record in {blast_path} at line {line_number}: "
+            f"score {score} is not finite"
+        )
+    return BlastM8Record(query_id, subject_id, identity, score)
+
+
+def _write_blast_output(
+    hits_by_query: dict[str, list[_BlastRecord]],
+    output_file: Path,
+    top_per_query: int,
+) -> int:
+    """Atomically publish deterministically ordered BLAST m8 records."""
+    temp_path: Path | None = None
+    total_hits_written = 0
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=output_file.parent,
+            prefix=f".{output_file.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as out:
+            temp_path = Path(out.name)
+            for query_id in sorted(hits_by_query):
+                query_hits = hits_by_query[query_id]
+                query_hits.sort(
+                    key=lambda hit: (
+                        -hit["score"],
+                        hit["evalue"],
+                        hit["target_id"],
+                    )
+                )
+                for hit_data in query_hits[:top_per_query]:
+                    out.write(
+                        f"{hit_data['query_id']}\t{hit_data['target_id']}\t"
+                        f"{hit_data['identity']:.1f}\t{hit_data['aln_len']}\t"
+                        f"{hit_data['mismatches']}\t{hit_data['gaps']}\t"
+                        f"{hit_data['q_start']}\t{hit_data['q_end']}\t"
+                        f"{hit_data['s_start']}\t{hit_data['s_end']}\t"
+                        f"{hit_data['evalue']:.2e}\t{hit_data['score']:.1f}\n"
+                    )
+                    total_hits_written += 1
+        temp_path.replace(output_file)
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+
+    return total_hits_written
+
+
+def _validate_search_index(index: int, count: int, label: str) -> None:
+    if not 0 <= index < count:
+        raise IndexError(f"{label} index {index} out of bounds (count: {count})")
+
+
+def _parse_search_hit(
+    hit: _SearchHit,
+    query_seqs: Sequence[SeqRecord],
+    ref_seqs: Sequence[SeqRecord],
+    queries: Sequence[str],
+) -> tuple[_BlastRecord, bool, list[str]]:
+    """Convert one pyswrd hit into a validated m8 record."""
+    query_idx = hit.query_index
+    target_idx = hit.target_index
+    _validate_search_index(query_idx, len(query_seqs), "Query")
+    _validate_search_index(target_idx, len(ref_seqs), "Target")
+
+    query_id = query_seqs[query_idx].id
+    target_id = ref_seqs[target_idx].id
+    result = hit.result
+    identity_method = getattr(result, "identity", None)
+    if not callable(identity_method):
+        raise TypeError(f"Hit has no identity method for {query_id} vs {target_id}")
+
+    identity = identity_method()
+    identity_pct = identity * 100.0
+    if not math.isfinite(identity_pct) or not 0.0 <= identity_pct <= 100.0:
+        raise ValueError(
+            f"Invalid identity {identity_pct} for {query_id} vs {target_id}"
+        )
+
+    query_start = result.query_start + 1
+    query_end = result.query_end + 1
+    target_start = result.target_start + 1
+    target_end = result.target_end + 1
+    alignment_length = result.query_end - result.query_start + 1
+    gaps = 0
+    mismatches = alignment_length - int(alignment_length * identity)
+    query_alignment = getattr(hit, "query_aln", None)
+    target_alignment = getattr(hit, "target_aln", None)
+    if query_alignment is not None and target_alignment is not None:
+        gaps = query_alignment.count("-") + target_alignment.count("-")
+        mismatches = sum(
+            1
+            for query_base, target_base in zip(
+                query_alignment, target_alignment, strict=False
+            )
+            if query_base not in (target_base, "-") and target_base != "-"
+        )
+    else:
+        alignment = getattr(result, "alignment", "")
+        gaps = alignment.count("I") + alignment.count("D")
+
+    if alignment_length <= 0:
+        raise ValueError(
+            f"Invalid alignment length {alignment_length} for {query_id} vs {target_id}"
+        )
+    if mismatches < 0:
+        raise ValueError(
+            f"Invalid mismatch count {mismatches} for {query_id} vs {target_id}"
+        )
+
+    warnings = []
+    if identity_pct == 100.0 and alignment_length < 10:
+        warnings.append(
+            f"Perfect identity with very short alignment ({alignment_length}bp) "
+            f"for {query_id} vs {target_id}"
+        )
+    if alignment_length > len(queries[query_idx]) * 1.5:
+        warnings.append(
+            f"Alignment length ({alignment_length}) exceeds query length for {query_id}"
+        )
+
+    return (
+        {
+            "query_id": query_id,
+            "target_id": target_id,
+            "identity": identity_pct,
+            "aln_len": alignment_length,
+            "mismatches": mismatches,
+            "gaps": gaps,
+            "q_start": query_start,
+            "q_end": query_end,
+            "s_start": target_start,
+            "s_end": target_end,
+            "evalue": hit.evalue,
+            "score": hit.score,
+        },
+        identity_pct == 100.0 and gaps == 0,
+        warnings,
+    )
 
 
 def run_blastp(
@@ -79,13 +320,13 @@ def run_blastp(
         if not query_seqs:
             logger.warning(f"No sequences found in query file: {query_file}")
             print(f"No sequences found in query file: {query_file}")
-            open(output_file, "a").close()
+            _write_blast_output({}, output_file, top_per_query)
             return
 
         if not ref_seqs:
             logger.warning(f"No sequences found in reference file: {ref_faa}")
             print(f"No sequences found in reference file: {ref_faa}")
-            open(output_file, "a").close()
+            _write_blast_output({}, output_file, top_per_query)
             return
 
         # Validate sequences are valid
@@ -112,7 +353,6 @@ def run_blastp(
 
         # Process hits from pyswrd.search with error handling
         logger.info("Starting pyswrd search...")
-        search_completed = False
         try:
             for hit in pyswrd.search(
                 queries,
@@ -126,134 +366,25 @@ def run_blastp(
                 max_alignments=top_per_query,
                 threads=threads,
             ):
-                search_completed = True
-
                 # Apply e-value filter (1e-5)
                 if hit.evalue > 1e-5:
                     continue
 
-                try:
-                    # Get query and target info with bounds checking
-                    query_idx = hit.query_index
-                    target_idx = hit.target_index
-
-                    if query_idx >= len(query_seqs):
-                        logger.error(
-                            f"Query index {query_idx} out of bounds (max: {len(query_seqs)-1})"
-                        )
-                        continue
-                    if target_idx >= len(ref_seqs):
-                        logger.error(
-                            f"Target index {target_idx} out of bounds (max: {len(ref_seqs)-1})"
-                        )
-                        continue
-
-                    # Get sequence IDs
-                    query_id = query_seqs[query_idx].id
-                    target_id = ref_seqs[target_idx].id
-
-                    # Get alignment details from the result object with validation
-                    result = hit.result
-                    if not hasattr(result, "identity"):
-                        logger.warning(
-                            f"Hit missing identity method for {query_id} vs {target_id}"
-                        )
-                        continue
-
-                    identity_pct = result.identity() * 100.0  # Convert to percentage
-
-                    # Validate identity percentage
-                    if not (0.0 <= identity_pct <= 100.0):
-                        logger.warning(
-                            f"Invalid identity {identity_pct} for {query_id} vs {target_id}"
-                        )
-                        continue
-
-                    # Get alignment positions (pyswrd uses 0-based indexing)
-                    q_start = result.query_start + 1  # Convert to 1-based
-                    q_end = result.query_end + 1
-                    s_start = result.target_start + 1  # Convert to 1-based
-                    s_end = result.target_end + 1
-
-                    # Calculate alignment length
-                    aln_len = result.query_end - result.query_start + 1
-
-                    # Better gap and mismatch calculation
-                    gaps = 0
-                    mismatches = aln_len - int(aln_len * result.identity())
-
-                    # Try to get more accurate stats from alignment strings if available
-                    if hasattr(hit, "query_aln") and hasattr(hit, "target_aln"):
-                        # Count actual gaps from alignment strings
-                        query_aln = hit.query_aln
-                        target_aln = hit.target_aln
-                        gaps = query_aln.count("-") + target_aln.count("-")
-                        # Calculate mismatches excluding gaps
-                        mismatches = sum(
-                            1
-                            for a, b in zip(query_aln, target_aln)
-                            if a != b and a != "-" and b != "-"
-                        )
-                    elif hasattr(result, "alignment"):
-                        # Fallback to CIGAR-like notation if available
-                        gaps = result.alignment.count("I") + result.alignment.count("D")
-
-                    # Validate calculated values
-                    assert (
-                        0.0 <= identity_pct <= 100.0
-                    ), f"Invalid identity: {identity_pct}"
-                    assert aln_len > 0, f"Invalid alignment length: {aln_len}"
-                    assert mismatches >= 0, f"Invalid mismatch count: {mismatches}"
-
-                    # Track statistics for validation
-                    total_hits_processed += 1
-                    if identity_pct == 100.0 and gaps == 0:
-                        perfect_hits += 1
-
-                    # Check for suspicious patterns
-                    if identity_pct == 100.0 and aln_len < 10:
-                        suspicious_patterns.append(
-                            f"Perfect identity with very short alignment ({aln_len}bp) for {query_id} vs {target_id}"
-                        )
-                    if aln_len > len(queries[query_idx]) * 1.5:
-                        suspicious_patterns.append(
-                            f"Alignment length ({aln_len}) exceeds query length for {query_id}"
-                        )
-
-                    hits_by_query[query_id].append(
-                        {
-                            "query_id": query_id,
-                            "target_id": target_id,
-                            "identity": identity_pct,
-                            "aln_len": aln_len,
-                            "mismatches": mismatches,
-                            "gaps": gaps,
-                            "q_start": q_start,
-                            "q_end": q_end,
-                            "s_start": s_start,
-                            "s_end": s_end,
-                            "evalue": hit.evalue,
-                            "score": hit.score,
-                        }
-                    )
-
-                except AssertionError as e:
-                    logger.error(f"Validation error for {query_id} vs {target_id}: {e}")
-                    continue
-                except Exception as e:
-                    logger.error(
-                        f"Unexpected error processing hit {query_id} vs {target_id}: {e}"
-                    )
-                    continue
+                hit_data, is_perfect, hit_warnings = _parse_search_hit(
+                    hit, query_seqs, ref_seqs, queries
+                )
+                total_hits_processed += 1
+                perfect_hits += int(is_perfect)
+                suspicious_patterns.extend(hit_warnings)
+                hits_by_query[hit_data["query_id"]].append(hit_data)
 
         except Exception as e:
-            logger.error(f"Error during pyswrd search: {e}")
             error_handler.handle_error(e, {"step": "pyswrd_search"})
-            if not search_completed:
-                print(f"pyswrd search failed: {e}")
-                print("Creating empty output file to allow pipeline to continue.")
-                open(output_file, "a").close()
-                return
+            raise ProcessingError(
+                f"pyswrd search failed for {query_file} against {ref_faa}: {e}",
+                step="pyswrd_search",
+                input_file=str(query_file),
+            ) from e
 
         # Sort and filter top hits per query, then write to output file.
         #
@@ -267,25 +398,9 @@ def run_blastp(
         # in the genus and species columns. Sorting by query id, and breaking
         # score/e-value ties on target id, pins all of it. Matches
         # ``_rank_unique_subjects`` in the species-tree neighbour search.
-        with open(output_file, "w") as out:
-            total_hits_written = 0
-            for query_id in sorted(hits_by_query):
-                query_hits = hits_by_query[query_id]
-                query_hits.sort(
-                    key=lambda x: (-x["score"], x["evalue"], x["target_id"])
-                )
-
-                # Take only top N hits for this query
-                for hit_data in query_hits[:top_per_query]:
-                    out.write(
-                        f"{hit_data['query_id']}\t{hit_data['target_id']}\t"
-                        f"{hit_data['identity']:.1f}\t{hit_data['aln_len']}\t"
-                        f"{hit_data['mismatches']}\t{hit_data['gaps']}\t"
-                        f"{hit_data['q_start']}\t{hit_data['q_end']}\t"
-                        f"{hit_data['s_start']}\t{hit_data['s_end']}\t"
-                        f"{hit_data['evalue']:.2e}\t{hit_data['score']:.1f}\n"
-                    )
-                    total_hits_written += 1
+        total_hits_written = _write_blast_output(
+            hits_by_query, output_file, top_per_query
+        )
 
         # Data validation warnings
         if suspicious_patterns:
@@ -319,15 +434,19 @@ def run_blastp(
         else:
             print("pyswrd search completed. No significant hits found.")
 
+    except ProcessingError:
+        raise
     except Exception as e:
-        print(f"Error running pyswrd: {str(e)}")
-        print("Creating empty output file to allow pipeline to continue.")
-        open(output_file, "a").close()
+        raise ProcessingError(
+            f"BLAST search failed for {query_file} against {ref_faa}: {e}",
+            step="blast_search",
+            input_file=str(query_file),
+        ) from e
 
 
 def parse_blastp(
     blastpout: str, max_hits_per_query: int = 10, min_identity: float = 30.0
-) -> List[str]:
+) -> list[str]:
     """
     Parse the BLAST output and return the best hits sorted by score.
 
@@ -342,88 +461,25 @@ def parse_blastp(
     Returns:
         List[str]: List of best hit subject IDs sorted by score.
     """
-    queryids_hits_dict: Dict[str, List[tuple]] = defaultdict(list)
-    seen_subjects: set = set()
-
-    # Validation tracking
-    line_count = 0
-    invalid_lines = 0
-
-    try:
-        # Parse the sorted BLAST output
-        with open(blastpout, "r") as infile:
-            for line in infile:
-                line_count += 1
-                parts = line.strip().split("\t")
-                if len(parts) < 12:
-                    invalid_lines += 1
-                    continue
-
-                try:
-                    queryname = parts[0]
-                    subjectname = parts[1]
-                    identity = float(parts[2])
-                    score = float(parts[11])
-
-                    # Validate parsed values
-                    if not (0.0 <= identity <= 100.0):
-                        print(
-                            f"Warning: Invalid identity {identity} in line {line_count}"
-                        )
-                        invalid_lines += 1
-                        continue
-
-                except (ValueError, IndexError) as e:
-                    print(f"Warning: Could not parse line {line_count}: {e}")
-                    invalid_lines += 1
-                    continue
-
-                # Skip hits below identity threshold
-                if identity < min_identity:
-                    continue
-
-                # Store hit with score for later sorting
-                if len(queryids_hits_dict[queryname]) < max_hits_per_query:
-                    queryids_hits_dict[queryname].append((subjectname, score, identity))
-                    seen_subjects.add(subjectname)
-
-        # Collect all hits, maintaining score order
-        all_hits = []
-        for query, hits in queryids_hits_dict.items():
-            # Hits are already in score order from the file
-            for subject, score, identity in hits:
-                all_hits.append((subject, score, identity))
-
-        # Sort all hits by score (descending) to ensure best hits are selected
-        # first. list.sort is stable, so equal-scoring hits keep the order they
-        # were read in, which makes this selection only as deterministic as the
-        # .m8 file it reads. run_blastp writes that file in a fixed order
-        # (queries sorted by id, hits by score then e-value then target id) for
-        # exactly this reason. Change the write order there and the references
-        # chosen here move with it.
-        all_hits.sort(key=lambda x: -x[1])
-
-        # Return unique subject IDs in score order
-        besthits = []
-        seen = set()
-        for subject, _, _ in all_hits:
-            if subject not in seen:
-                besthits.append(subject)
-                seen.add(subject)
-
-        # Report validation issues if found
-        if invalid_lines > 0:
-            print(
-                f"⚠️  WARNING: {invalid_lines}/{line_count} lines had parsing issues in BLAST output"
+    hits_by_query: dict[str, list[tuple[str, float, float]]] = defaultdict(list)
+    for record in iter_blastp_records(blastpout):
+        if record.identity < min_identity:
+            continue
+        if len(hits_by_query[record.query_id]) < max_hits_per_query:
+            hits_by_query[record.query_id].append(
+                (record.subject_id, record.score, record.identity)
             )
-            if invalid_lines > line_count * 0.5:
-                print("   More than 50% of lines failed - check file format!")
 
-    except Exception as e:
-        print(f"Error parsing BLAST output: {e}")
-        return []
+    all_hits = [hit for hits in hits_by_query.values() for hit in hits]
+    all_hits.sort(key=lambda hit: -hit[1])
 
-    return besthits
+    best_hits = []
+    seen_subjects = set()
+    for subject, _, _ in all_hits:
+        if subject not in seen_subjects:
+            best_hits.append(subject)
+            seen_subjects.add(subject)
+    return best_hits
 
 
 def reduce_ref(
@@ -449,7 +505,7 @@ def reduce_ref(
     besthits_set = set(parse_blastp(blastpout, max_hits_per_query=top_per_query))
 
     seenids: set[str] = set()
-    outseqs: List[SeqIO.SeqRecord] = []
+    outseqs: list[SeqRecord] = []
 
     for seq_record in SeqIO.parse(queryfaa, "fasta"):
         if seq_record.id not in seenids:

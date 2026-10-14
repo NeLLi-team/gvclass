@@ -9,12 +9,18 @@ rotation is a resources-tarball concern, not a Python-package concern.
 
 from __future__ import annotations
 
+import math
+from collections import Counter
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
-from tests.conftest import skip_if_no_runtime_resources
+from src.core.contamination_scoring import (
+    CONTAMINATION_MODEL_FEATURES,
+    ContaminationScorer,
+)
+from tests.conftest import TEST_REFERENCE_LABEL, skip_if_no_runtime_resources
 
 pytestmark = skip_if_no_runtime_resources()
 
@@ -64,9 +70,8 @@ def test_load_ml_model_raises_on_sha256_mismatch_and_never_reaches_joblib(
     # Point the scorer at a tmp database with a tampered model copy.
     fake_db = tmp_path / "resources"
     (fake_db / "contamination").mkdir(parents=True)
-    shutil.copyfile(
-        _bundled_model_path(), fake_db / CONTAMINATION_MODEL_FILE
-    )
+    (fake_db / "labels.tsv").write_text(TEST_REFERENCE_LABEL, encoding="utf-8")
+    shutil.copyfile(_bundled_model_path(), fake_db / CONTAMINATION_MODEL_FILE)
     # Overwrite the last byte to change the digest without touching the path.
     target = fake_db / CONTAMINATION_MODEL_FILE
     target.write_bytes(target.read_bytes() + b"X")
@@ -80,9 +85,8 @@ def test_load_ml_model_raises_on_sha256_mismatch_and_never_reaches_joblib(
 def test_load_ml_model_raises_when_bundled_file_missing(tmp_path: Path) -> None:
     """If the model is physically missing under resources/contamination/, the
     scorer must fail loudly rather than silently degrading."""
-    from src.core.contamination_scoring import ContaminationScorer
-
-    # tmp_path has no contamination/model.joblib → must raise.
+    (tmp_path / "labels.tsv").write_text(TEST_REFERENCE_LABEL, encoding="utf-8")
+    # The labels are valid, so construction must reach the missing-model check.
     with pytest.raises(RuntimeError, match="Contamination model not found"):
         ContaminationScorer(tmp_path)
 
@@ -90,12 +94,87 @@ def test_load_ml_model_raises_when_bundled_file_missing(tmp_path: Path) -> None:
 def test_sensitive_mode_scorer_still_loads_model(tmp_path: Path) -> None:
     """Sensitive mode must NOT skip the load. Construction against the real
     resources tree should succeed with ``ml_available=True``."""
-    from src.core.contamination_scoring import ContaminationScorer
-
     scorer = ContaminationScorer(RESOURCES_DIR, sensitive_mode=True)
     assert scorer.sensitive_mode is True
     assert scorer.ml_available is True
     assert scorer.ml_model is not None
+
+
+def test_bundled_model_contract_and_prediction_bound_are_computed() -> None:
+    """The loaded estimator, not a guessed constant, defines its upper bound."""
+    scorer = ContaminationScorer(RESOURCES_DIR)
+    assert len(CONTAMINATION_MODEL_FEATURES) == 21
+    assert list(scorer.ml_model.feature_names_in_) == CONTAMINATION_MODEL_FEATURES
+    assert scorer.ml_prediction_upper_bound == pytest.approx(
+        58.20048055555555, abs=1e-10
+    )
+
+
+def test_prediction_status_separates_exploratory_unsupported_and_no_evidence(
+    tmp_path: Path,
+) -> None:
+    """Only evidenced NCLDV input keeps an exploratory numeric prediction."""
+    scorer = ContaminationScorer(RESOURCES_DIR, sensitive_mode=True)
+
+    no_evidence = scorer.score_rule_based(
+        result={},
+        marker_counts={},
+        tax_counters={},
+        query_output_dir=tmp_path,
+        accepted_lineage={},
+    )
+    no_evidence_prediction = scorer.predict_contamination(no_evidence, {})
+    assert no_evidence_prediction["contamination_query_support"] == (
+        "insufficient_evidence"
+    )
+    assert math.isnan(no_evidence_prediction["estimated_contamination"])
+    assert no_evidence_prediction["contamination_prediction_range_status"] == (
+        "unavailable"
+    )
+
+    unsupported = scorer.score_rule_based(
+        result={},
+        marker_counts={"synthetic_marker": 1},
+        tax_counters={"domain": Counter({"EUK": 1})},
+        query_output_dir=tmp_path,
+        accepted_lineage={"domain": "EUK"},
+    )
+    unsupported_prediction = scorer.predict_contamination(unsupported, {})
+    assert unsupported_prediction["contamination_query_support"] == (
+        "unsupported_target"
+    )
+    assert unsupported_prediction["contamination_model_applicability"] == (
+        "unsupported_non_ncldv_target"
+    )
+    assert math.isnan(unsupported_prediction["estimated_contamination"])
+
+    exploratory = scorer.score_rule_based(
+        result={},
+        marker_counts={"synthetic_marker": 1},
+        tax_counters={"domain": Counter({"NCLDV": 1})},
+        query_output_dir=tmp_path,
+        accepted_lineage={"domain": "NCLDV"},
+    )
+    exploratory_prediction = scorer.predict_contamination(exploratory, {})
+    assert exploratory_prediction["contamination_query_support"] == "supported"
+    assert exploratory_prediction["contamination_model_reliability"] == (
+        "unvalidated_legacy"
+    )
+    assert exploratory_prediction["contamination_model_applicability"] == (
+        "exploratory_ncldv_sensitive_feature_v2"
+    )
+    assert not math.isnan(exploratory_prediction["estimated_contamination"])
+    assert exploratory_prediction["contamination_model_prediction_upper_bound"] == (
+        pytest.approx(58.200481, abs=1e-6)
+    )
+    assert (
+        exploratory_prediction["estimated_contamination"]
+        <= (exploratory_prediction["contamination_model_prediction_upper_bound"])
+    )
+    assert exploratory_prediction["contamination_prediction_range_status"] in {
+        "within_historical_model_range",
+        "at_historical_model_ceiling",
+    }
 
 
 def test_rotate_contamination_model_script_prints_current_digest() -> None:
@@ -112,7 +191,9 @@ def test_rotate_contamination_model_script_prints_current_digest() -> None:
     from src.core.contamination_scoring import CONTAMINATION_MODEL_SHA256
 
     script_path = (
-        Path(__file__).resolve().parents[1] / "scripts" / "rotate_contamination_model.py"
+        Path(__file__).resolve().parents[1]
+        / "scripts"
+        / "rotate_contamination_model.py"
     )
     if not script_path.exists():
         pytest.skip(

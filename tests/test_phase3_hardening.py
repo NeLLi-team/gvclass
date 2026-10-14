@@ -270,12 +270,11 @@ def test_augment_ood_flag_merges_without_duplicates() -> None:
     )
 
 
-def test_r2_thresholds_are_the_plan_values() -> None:
-    """The audit plan pinned the floor at 0.5 and the high-quality bar at 0.7."""
-    from src.core.novelty_completeness import R2_ADVISORY_FLOOR, R2_HIGH_QUALITY
+def test_r2_advisory_floor_is_the_plan_value() -> None:
+    """The audit plan pinned the advisory floor at 0.5."""
+    from src.core.novelty_completeness import R2_ADVISORY_FLOOR
 
     assert R2_ADVISORY_FLOOR == 0.5
-    assert R2_HIGH_QUALITY == 0.7
 
 
 def test_r2_nan_treated_as_missing_metadata(tmp_path: Path) -> None:

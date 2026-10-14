@@ -7,6 +7,7 @@ import logging
 import os
 import shutil
 import tarfile
+import tempfile
 import threading
 import time
 import traceback
@@ -14,6 +15,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+from Bio import SeqIO
 
 from src.core.genetic_code_optimizer import GeneticCodeOptimizer
 from src.core.hmm_search import run_pyhmmer_search_with_filtering
@@ -31,8 +34,6 @@ from src.pipeline.summary_writer import (
 from src.utils.error_handling import ProcessingError
 from src.utils.input_validation import InputValidator
 from src.utils.resource_store import ResourceStore
-
-from Bio import SeqIO
 
 _THREAD_LOCAL = threading.local()
 
@@ -74,6 +75,7 @@ def process_single_query(
     species_tree: bool = False,
     species_tree_trim: str = "witchi",
     run_status: Optional[RunStatusRecorder] = None,
+    quality_models: str = "bundled",
 ) -> Dict[str, Any]:
     """Run the complete pipeline for one query."""
     logger = _pipeline_logger()
@@ -97,6 +99,7 @@ def process_single_query(
         sensitive_mode=sensitive_mode,
         threads=threads,
         logger=logger,
+        quality_models=quality_models,
     )
 
     # Species-tree per-query hook (the default product): runs while the per-query
@@ -126,17 +129,6 @@ def process_single_query(
             )
     _emit_query_progress(query_name, 95, "writing_outputs")
 
-    _create_output_dirs(query_output_dir)
-    _copy_final_sequence_outputs(
-        query_file,
-        query_name,
-        query_output_dir,
-        prepared_input.reformatted_file,
-        prepared_input.protein_file,
-        prepared_input.best_code,
-        prepared_input.is_nucleotide,
-        logger,
-    )
     _write_contamination_candidates_file(
         query_output_dir, query_name, summary_data, logger
     )
@@ -169,9 +161,21 @@ def _run_query_stages(
     sensitive_mode: bool,
     threads: int,
     logger,
+    quality_models: str = "bundled",
 ) -> Tuple[PreparedQueryInput, Dict[str, Any]]:
     prepared_input = _prepare_query_input(
         query_file, query_output_dir, database_path, genetic_codes, threads, logger
+    )
+    _create_output_dirs(query_output_dir)
+    _copy_final_sequence_outputs(
+        query_file,
+        query_name,
+        query_output_dir,
+        prepared_input.reformatted_file,
+        prepared_input.protein_file,
+        prepared_input.best_code,
+        prepared_input.is_nucleotide,
+        logger,
     )
     _emit_query_progress(query_name, 15, "input_prepared")
     models_out_filtered = _run_hmm_and_blast(
@@ -209,6 +213,7 @@ def _run_query_stages(
         completeness_mode,
         sensitive_mode,
         logger,
+        quality_models=quality_models,
     )
     _emit_query_progress(query_name, 92, "summary_complete")
     return prepared_input, summary_data
@@ -231,11 +236,15 @@ def _emit_query_progress(
     )
 
 
-def _initialize_query(query_file: Path, output_base: Path) -> Tuple[str, Path]:
+def _initialize_query(query_file: Path, output_base: Path) -> tuple[str, Path]:
     query_name = query_file.stem
     query_output_dir = output_base / query_name
-    if query_output_dir.exists():
-        shutil.rmtree(query_output_dir, ignore_errors=True)
+    if query_output_dir.is_dir() and any(query_output_dir.iterdir()):
+        retained = Path(
+            tempfile.mkdtemp(prefix=f"{query_name}.previous.", dir=output_base)
+        )
+        query_output_dir.rename(retained)
+        _pipeline_logger().info("Previous query working files retained at %s", retained)
     query_output_dir.mkdir(parents=True, exist_ok=True)
     return query_name, query_output_dir
 
@@ -407,7 +416,7 @@ def _iter_sorted_genecalling_rows(
                 "bases": metrics.get("total_bases", 0),
                 "coding_density": metrics.get("coding_density", 0.0),
                 "complete_hits": metrics.get("complete_hits", 0),
-                "avg_best_hit_score": metrics.get("avg_score", 0.0),
+                "avg_best_hit_score": metrics.get("avg_best_hit_score", 0.0),
             }
         )
     return sorted(
@@ -502,20 +511,31 @@ def _run_hmm_and_blast(
         threads,
         sensitive_mode,
     )
+    for required_output in (models_out, models_out_filtered, models_counts):
+        if not required_output.is_file():
+            raise ProcessingError(
+                f"HMM search did not create {required_output}", step="hmm_search"
+            )
     return models_out_filtered
 
 
 def _resolve_hmm_files(database_path: Path) -> List[str]:
     model_dir = database_path / "hmm"
     hmm_files = [str(model_dir / model_name) for model_name in HMM_MODEL_FILES]
-    existing_hmm_files = [hmm_file for hmm_file in hmm_files if Path(hmm_file).exists()]
-    if existing_hmm_files:
+    existing_hmm_files = [
+        hmm_file for hmm_file in hmm_files if Path(hmm_file).is_file()
+    ]
+    if len(existing_hmm_files) == len(hmm_files):
         return existing_hmm_files
     combined_hmm = model_dir / "combined.hmm"
-    if combined_hmm.exists():
+    if combined_hmm.is_file():
         _pipeline_logger().info("Using fallback combined.hmm file")
         return [str(combined_hmm)]
-    raise ProcessingError("No HMM model files found", step="hmm_search")
+    missing = [Path(path).name for path in hmm_files if not Path(path).is_file()]
+    raise ProcessingError(
+        "No combined HMM and incomplete individual HMM set: " + ", ".join(missing),
+        step="hmm_search",
+    )
 
 
 def _get_hmm_output_paths(hmmout_dir: Path) -> Tuple[Path, Path, Path, Path]:
@@ -678,28 +698,18 @@ def _run_marker_tasks(
         ]
         for future in as_completed(futures):
             completed_markers += 1
-            try:
-                marker, result = future.result()
-                if marker and result:
-                    marker_results[marker] = result
-                    logger.info(f"Completed marker: {marker}")
-                _emit_query_progress(
-                    query_name,
-                    45 + (30 * completed_markers / total_markers),
-                    "building_marker_trees",
-                    marker=marker,
-                    completed_markers=completed_markers,
-                    total_markers=total_markers,
-                )
-            except Exception as exc:
-                logger.error(f"Error processing marker: {exc}")
-                _emit_query_progress(
-                    query_name,
-                    45 + (30 * completed_markers / total_markers),
-                    "building_marker_trees",
-                    completed_markers=completed_markers,
-                    total_markers=total_markers,
-                )
+            marker, result = future.result()
+            if marker and result:
+                marker_results[marker] = result
+                logger.info("Completed marker: %s", marker)
+            _emit_query_progress(
+                query_name,
+                45 + (30 * completed_markers / total_markers),
+                "building_marker_trees",
+                marker=marker,
+                completed_markers=completed_markers,
+                total_markers=total_markers,
+            )
     return marker_results
 
 
@@ -714,10 +724,9 @@ def _process_single_marker(
     marker, marker_faa = marker_data
     logger.debug(f"Processing marker {marker}, file: {marker_faa}")
     if not marker_faa.exists():
-        logger.warning(f"Marker file does not exist: {marker_faa}")
-        return None, None
+        raise FileNotFoundError(f"Marker input does not exist: {marker_faa}")
     if not _marker_database_exists(marker, database_path, logger):
-        return None, None
+        raise FileNotFoundError(f"Reference proteins are missing for marker {marker}")
 
     processor = MarkerProcessor(marker, database_path, query_output_dir)
     result = processor.process_marker(
@@ -732,8 +741,12 @@ def _process_single_marker(
             f"Successfully processed marker {marker} with tree file: {result['tree']}"
         )
         return marker, result
-    logger.warning(f"Marker {marker} processing did not produce a tree file")
-    return None, None
+    if result and result.get("tree_skipped"):
+        return None, None
+    raise ProcessingError(
+        f"Marker {marker} produced neither a tree nor an explicit skip",
+        step="marker_tree",
+    )
 
 
 def _marker_database_exists(marker: str, database_path: Path, logger) -> bool:
@@ -762,16 +775,15 @@ def _analyze_marker_trees(
     logger.info(f"Looking for tree files in {tree_dir}")
     logger.info(f"Tree directory exists: {tree_dir.exists()}")
     if not tree_dir.exists():
-        logger.warning(f"Tree directory does not exist: {tree_dir}")
-        return {}
-    tree_files = list(tree_dir.glob("*.treefile"))
-    logger.info(f"Found {len(tree_files)} tree files")
-    if not tree_files:
-        logger.warning("Tree directory exists but no .treefile files found")
-        return {}
+        raise FileNotFoundError(f"Generated tree directory is missing: {tree_dir}")
+    tree_files = [Path(result["tree"]) for result in marker_results.values()]
+    for tree_file in tree_files:
+        if not tree_file.is_file():
+            raise FileNotFoundError(f"Generated marker tree is missing: {tree_file}")
+    logger.info("Analyzing %d trees from the current attempt", len(tree_files))
     _log_tree_files(tree_files, logger)
     return _run_tree_analysis(
-        query_name, query_output_dir, database_path, tree_dir, logger
+        query_name, query_output_dir, database_path, tree_dir, tree_files, logger
     )
 
 
@@ -781,7 +793,12 @@ def _log_tree_files(tree_files: List[Path], logger) -> None:
 
 
 def _run_tree_analysis(
-    query_name: str, query_output_dir: Path, database_path: Path, tree_dir: Path, logger
+    query_name: str,
+    query_output_dir: Path,
+    database_path: Path,
+    tree_dir: Path,
+    tree_files: list[Path],
+    logger: logging.Logger,
 ) -> Dict[str, Any]:
     labels_file = ResourceStore(database_path).label_path("labels.tsv")
     logger.info(f"Labels file: {labels_file}, exists: {labels_file.exists()}")
@@ -794,13 +811,13 @@ def _run_tree_analysis(
         logger.info(f"Created stats directory: {stats_dir}")
         logger.info(f"Will write tree_nn results to {tree_nn_file}")
         tree_nn_results = analyzer.process_marker_trees(
-            tree_dir, query_name, tree_nn_file
+            tree_dir, query_name, tree_nn_file, tree_paths=tree_files
         )
         logger.info(f"Tree analysis complete. Results: {len(tree_nn_results)} markers")
     except Exception as exc:
         logger.error(f"Tree analysis failed: {exc}")
         logger.error(f"Traceback: {traceback.format_exc()}")
-        tree_nn_results = {}
+        raise
     _log_tree_nn_output(tree_nn_file, logger)
     return tree_nn_results
 
@@ -848,6 +865,7 @@ def _generate_summary_data(
     completeness_mode: str,
     sensitive_mode: bool,
     logger,
+    quality_models: str = "bundled",
 ) -> Dict[str, Any]:
     logger.info(f"Generating full summary: {query_name}")
     try:
@@ -855,6 +873,7 @@ def _generate_summary_data(
             database_path,
             completeness_mode=completeness_mode,
             sensitive_mode=sensitive_mode,
+            quality_models=quality_models,
         )
         summary_data = summarizer.summarize_query_full(
             query_id=query_name,
@@ -875,50 +894,23 @@ def _create_output_dirs(query_output_dir: Path) -> None:
         (query_output_dir / dir_name).mkdir(exist_ok=True, parents=True)
 
 
-def _remove_stale_candidate_file(
-    query_output_dir: Path, query_name: str, logger
-) -> None:
-    """Delete any pre-existing candidate TSV from a prior run.
-
-    Reruns on a partial query directory (e.g. resume, or a prior non-sensitive
-    run followed by a sensitive run) would otherwise carry the old
-    ``*.contamination_candidates.tsv`` forward into the copy/archive stages
-    even when the current gate suppresses a fresh write.
-    """
-    stale = query_output_dir / "stats" / f"{query_name}.contamination_candidates.tsv"
-    if stale.exists():
-        try:
-            stale.unlink()
-            logger.info(f"Removed stale contamination candidates file: {stale}")
-        except OSError as exc:
-            logger.warning(f"Could not remove stale {stale}: {exc}")
-
-
 def _write_contamination_candidates_file(
     query_output_dir: Path,
     query_name: str,
     summary_data: Dict[str, Any],
     logger,
 ) -> Optional[Path]:
-    candidates = summary_data.get("_contamination_candidates", [])
-    # ``uncertain_sensitive_mode`` is the marker emitted when the trained
-    # contamination model is bypassed under sensitive_mode; suppress
-    # candidate emission in that regime alongside the regular ``clean`` /
-    # ``uncertain`` cases. Any stale candidate file from a previous run must
-    # also be removed so the downstream copy/archive path does not carry it
-    # forward.
+    """Write review evidence independently of the contamination score gate."""
     suppressed_type = summary_data.get("contamination_type", "clean") in {
         "clean",
         "uncertain",
         "uncertain_sensitive_mode",
     }
-    if not candidates or suppressed_type:
-        _remove_stale_candidate_file(query_output_dir, query_name, logger)
-        return None
-
+    candidates = (
+        [] if suppressed_type else summary_data.get("_contamination_candidates", [])
+    )
+    reviews = summary_data.get("_contamination_reviews", [])
     stats_dir = query_output_dir / "stats"
-    stats_dir.mkdir(exist_ok=True, parents=True)
-    candidate_file = stats_dir / f"{query_name}.contamination_candidates.tsv"
     fieldnames = [
         "query",
         "contamination_type",
@@ -926,38 +918,45 @@ def _write_contamination_candidates_file(
         "contig_id",
         "candidate_type",
         "reason",
+        "recommended_action",
         "length_bp",
+        "length_basis",
         "cellular_marker_count",
         "phage_marker_count",
         "viral_marker_count",
+        "ambiguous_eve_hit_count",
         "nonviral_fraction",
         "foreign_viral_fraction",
     ]
-    with open(candidate_file, "w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames, delimiter="\t")
-        writer.writeheader()
-        for candidate in candidates:
-            writer.writerow(
-                {
-                    "query": query_name,
-                    "contamination_type": summary_data.get("contamination_type", ""),
-                    "estimated_contamination": summary_data.get(
+    candidate_file = None
+    for suffix, rows in (
+        ("contamination_review", reviews),
+        ("contamination_candidates", candidates),
+    ):
+        path = stats_dir / f"{query_name}.{suffix}.tsv"
+        if not rows:
+            if path.exists():
+                path.unlink()
+                logger.info("Removed stale contamination evidence file: %s", path)
+            continue
+        stats_dir.mkdir(exist_ok=True, parents=True)
+        with path.open("w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=fieldnames, delimiter="\t")
+            writer.writeheader()
+            for record in rows:
+                row = {field: record.get(field, "") for field in fieldnames}
+                row.update(
+                    query=query_name,
+                    contamination_type=summary_data.get("contamination_type", ""),
+                    estimated_contamination=summary_data.get(
                         "estimated_contamination", ""
                     ),
-                    "contig_id": candidate.get("contig_id", ""),
-                    "candidate_type": candidate.get("candidate_type", ""),
-                    "reason": candidate.get("reason", ""),
-                    "length_bp": candidate.get("length_bp", ""),
-                    "cellular_marker_count": candidate.get("cellular_marker_count", ""),
-                    "phage_marker_count": candidate.get("phage_marker_count", ""),
-                    "viral_marker_count": candidate.get("viral_marker_count", ""),
-                    "nonviral_fraction": candidate.get("nonviral_fraction", ""),
-                    "foreign_viral_fraction": candidate.get(
-                        "foreign_viral_fraction", ""
-                    ),
-                }
-            )
-    logger.info("Contamination candidate file written: %s", candidate_file)
+                    recommended_action=record.get("recommended_action", "review"),
+                )
+                writer.writerow(row)
+        logger.info("Contamination evidence file written: %s", path)
+        if suffix == "contamination_candidates":
+            candidate_file = path
     return candidate_file
 
 

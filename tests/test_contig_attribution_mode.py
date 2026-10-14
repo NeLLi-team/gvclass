@@ -10,20 +10,17 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-import pytest
-
-from tests.conftest import skip_if_no_runtime_resources
+from src.core.contamination_scoring import ContaminationScorer
+from src.core.summarize_full import FullSummarizer
+from tests.conftest import skip_if_no_runtime_resources, stage_db_resources
 
 pytestmark = skip_if_no_runtime_resources()
 
 
 def _make_scorer(tmp_path: Path):
-    from src.core.contamination_scoring import ContaminationScorer
-    from tests.conftest import stage_db_resources
 
     db = tmp_path / "db"
     stage_db_resources(db, markers=False)
-    (db / "labels.tsv").write_text("")
     (db / "order_completeness.tab").write_text(
         "Order\tOrthogroups\tAverage_Percent\tStd_Percent\n"
     )
@@ -77,8 +74,6 @@ def test_faa_weak_per_protein_fallback_preserves_legacy_cellular_trigger(
     """With neutral per-contig features AND a non-zero rule-based cellular
     source, the legacy `cellular` label still fires from
     ``_classify_contamination_type``."""
-    from src.core.summarize_full import FullSummarizer
-    from tests.conftest import stage_db_resources
 
     stage_db_resources(tmp_path, markers=False)
     summarizer = FullSummarizer(tmp_path)
@@ -117,8 +112,6 @@ def test_novel_virus_downgrade_to_uncertain(tmp_path: Path) -> None:
     contigs AND the rule-based source is viral_mixture, the label
     downgrades from ``mixed_viral`` to ``uncertain`` — this is the
     novel-virus-with-HGT-scatter pattern, not real multi-viral mixing."""
-    from src.core.summarize_full import FullSummarizer
-    from tests.conftest import stage_db_resources
 
     stage_db_resources(tmp_path, markers=False)
     summarizer = FullSummarizer(tmp_path)
@@ -132,6 +125,24 @@ def test_novel_virus_downgrade_to_uncertain(tmp_path: Path) -> None:
     }
     assert summarizer._classify_contamination_type(result) == "uncertain"
 
+def test_mixed_evidence_only_is_not_labeled_cellular(tmp_path: Path) -> None:
+
+    stage_db_resources(tmp_path, markers=False)
+    summarizer = FullSummarizer(tmp_path)
+    summarizer.contamination_scorer.ml_threshold = 5.0
+
+    result = {
+        "estimated_contamination": 27.0,
+        "contamination_source_v1": "cellular",
+        "cellular_coherent_contig_count": 1,
+        "mixed_evidence_contig_count": 1,
+    }
+    assert summarizer._classify_contamination_type(result) == "uncertain"
+
+    # Mixed evidence still requires review below the historical model threshold.
+    result["estimated_contamination"] = 1.0
+    assert summarizer._classify_contamination_type(result) == "uncertain"
+
 
 def test_mixed_viral_preserved_when_multi_giant_virus_with_no_viral_bearing_contigs(
     tmp_path: Path,
@@ -139,8 +150,6 @@ def test_mixed_viral_preserved_when_multi_giant_virus_with_no_viral_bearing_cont
     """The downgrade ONLY fires when viral_bearing >= 3. A bin that looks
     multi-viral-order but has too few viral_bearing contigs keeps the
     legacy ``mixed_viral`` label."""
-    from src.core.summarize_full import FullSummarizer
-    from tests.conftest import stage_db_resources
 
     stage_db_resources(tmp_path, markers=False)
     summarizer = FullSummarizer(tmp_path)
@@ -165,15 +174,13 @@ def test_weak_attribution_emits_info_log(tmp_path: Path, caplog) -> None:
     # IDs where the portion before the trailing "_X" is unique per
     # protein — that way every protein maps to its own pseudo-contig and
     # the weak-attribution heuristic fires.
-    query_faa.write_text(
-        "\n".join(f">stateless{i}_A\nMQ" for i in range(10)) + "\n"
-    )
+    query_faa.write_text("\n".join(f">stateless{i}_A\nMQ" for i in range(10)) + "\n")
     blast_dir = tmp_path / "blastp_out"
     blast_dir.mkdir()
 
     caplog.set_level(logging.INFO, logger="src.core.contamination_scoring")
 
-    scorer.collect_contig_features(
+    features = scorer.collect_contig_features(
         query_fna=Path("/nonexistent.fna"),
         query_faa=query_faa,
         blast_dir=blast_dir,
@@ -181,8 +188,13 @@ def test_weak_attribution_emits_info_log(tmp_path: Path, caplog) -> None:
         primary_family="",
         tree_nn_results={},
     )
-    messages = [rec.getMessage() for rec in caplog.records if rec.levelno == logging.INFO]
+    assert features["contig_length_basis"] == "protein_estimate"
+    assert features["protein_estimated_contig_count"] == 10
+    messages = [
+        rec.getMessage() for rec in caplog.records if rec.levelno == logging.INFO
+    ]
     assert any(
-        "faa_weak_per_protein" in msg.lower() or "weak contig attribution" in msg.lower()
+        "faa_weak_per_protein" in msg.lower()
+        or "weak contig attribution" in msg.lower()
         for msg in messages
     ), messages

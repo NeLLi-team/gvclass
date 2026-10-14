@@ -158,23 +158,30 @@ def test_protein_nearest_domain_min_distance_and_label_lookup():
 def test_rule_based_contamination_uses_unique_proteins_for_category_totals(tmp_path):
     scorer = ContaminationScorer.__new__(ContaminationScorer)
     scorer.collect_best_blast_hits = lambda blast_dir: {}
-    scorer.compute_blast_features = lambda best_hits, primary_order, primary_family: {
-        "strong_cellular_hit_count": 0,
-        "nonviral_best_hit_fraction": 0.0,
-        "strong_phage_hit_count": 0,
-        "foreign_viral_order_hit_count": 0,
-        "foreign_viral_family_hit_count": 0,
-        "dominant_nonviral_lineage_fraction": 0.0,
-        "dominant_foreign_viral_order_fraction": 0.0,
-    }
+    accepted_context = {}
+
+    def compute_blast_features(best_hits, primary_order, primary_family):
+        accepted_context.update(order=primary_order, family=primary_family)
+        return {
+            "strong_best_hit_count": 0,
+            "strong_cellular_hit_count": 0,
+            "nonviral_best_hit_fraction": 0.0,
+            "strong_phage_hit_count": 0,
+            "ambiguous_eve_best_hit_count": 0,
+            "ambiguous_eve_best_hit_fraction": 0.0,
+            "foreign_viral_order_hit_count": 0,
+            "foreign_viral_family_hit_count": 0,
+            "dominant_nonviral_lineage_fraction": 0.0,
+            "dominant_foreign_viral_order_fraction": 0.0,
+        }
+
+    scorer.compute_blast_features = compute_blast_features
     scorer.compute_tree_features = lambda tax_counters: {
         "order_majority_fraction": 0.0,
         "family_majority_fraction": 0.0,
         "order_secondary_fraction": 0.0,
         "family_secondary_fraction": 0.0,
     }
-    scorer._extract_tax_token = lambda counter: ""
-
     query_output_dir = Path(tmp_path)
     hmmout_dir = query_output_dir / "hmmout"
     hmmout_dir.mkdir()
@@ -202,10 +209,20 @@ def test_rule_based_contamination_uses_unique_proteins_for_category_totals(tmp_p
     result = scorer.score_rule_based(
         result={"order_dup": 1.0, "gvog8_dup": 1.0},
         marker_counts=marker_counts,
-        tax_counters={"order": Counter(), "family": Counter()},
+        tax_counters={
+            "domain": Counter({"NCLDV": 10}),
+            "order": Counter({"NCLDV__Imitervirales": 10}),
+            "family": Counter({"NCLDV__Mimiviridae": 10}),
+        },
         query_output_dir=query_output_dir,
+        accepted_lineage={
+            "domain": "NCLDV",
+            "order": "Asfuvirales",
+            "family": "Asfarviridae",
+        },
     )
 
+    assert accepted_context == {"order": "Asfuvirales", "family": "Asfarviridae"}
     assert result["contamination_cellular_signal_v1"] == 9.0
     assert result["contamination_phage_signal_v1"] == 10.0
     assert result["contamination_score_v1"] == 4.62

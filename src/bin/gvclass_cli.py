@@ -137,6 +137,7 @@ class PipelineContext:
     n_input_files: int
     n_skipped: int
     workers: WorkerPlan
+    quality_models: str = "bundled"
 
 
 #: FASTA extensions (nucleotide + protein) that GVClass accepts as query
@@ -216,6 +217,14 @@ def _add_mode_arguments(parser: argparse.ArgumentParser) -> None:
         "--completeness-mode",
         choices=["legacy", "novelty-aware"],
         help="Completeness estimator to surface as the primary estimate",
+    )
+    parser.add_argument(
+        "--quality-models",
+        choices=["bundled", "experimental"],
+        help=(
+            "Quality model set (default: bundled). Experimental models require "
+            "candidate resources, nucleotide input, extended and sensitive mode."
+        ),
     )
     parser.add_argument(
         "--plain-output",
@@ -358,6 +367,7 @@ BUILTIN_CONFIG_DEFAULTS = {
         "iqtree_mode": "fast",
         "mode_fast": True,
         "completeness_mode": "novelty-aware",
+        "quality_models": "bundled",
         "sensitive_mode": True,
         "contigs_min_length": DEFAULT_CONTIGS_MIN_LENGTH,
         "threads": 4,
@@ -518,6 +528,16 @@ def resolve_completeness_mode(args, config) -> str:
     return config["pipeline"].get("completeness_mode", "novelty-aware")
 
 
+def resolve_quality_models(args: argparse.Namespace, config: dict) -> str:
+    """Select bundled defaults or the development-only candidate pair."""
+    selected = args.quality_models or config["pipeline"].get(
+        "quality_models", "bundled"
+    )
+    if selected not in ("bundled", "experimental"):
+        raise ValueError(f"Unknown quality model set: {selected!r}")
+    return selected
+
+
 def _resolve_nonnegative_int(raw_value, setting_name: str) -> int:
     try:
         value = int(raw_value)
@@ -631,8 +651,6 @@ def inspect_local_database_state(db_path: Path) -> dict:
         }
 
     missing_files = DatabaseManager._check_missing_files(db_path)
-    if not (db_path / "database").exists():
-        missing_files = [*missing_files, "database"]
     return {
         "exists": True,
         "complete": not missing_files,
@@ -675,11 +693,7 @@ def check_and_setup_database(db_path: Path, config, output: CliOutput) -> bool:
     preferred_source = resolve_database_download_source(config)
     db_state = inspect_local_database_state(db_path)
     latest_source = DatabaseManager.get_latest_database_source(preferred_source)
-    # Prefer a Zenodo-resolved "latest" when available; otherwise fall back to the
-    # version pinned in the config (e.g. the gvclass-dev tunnel bundle). Without this
-    # fallback a config version bump (v1.7.0 -> v1.7.1) on a non-Zenodo source never
-    # triggers a re-download, leaving testers on the stale bundle.
-    update_source = latest_source or preferred_source
+    update_source = DatabaseManager.get_effective_database_source(preferred_source)
 
     if db_state["exists"] and db_state["complete"]:
         output.line(f"Database found at: {db_path}", key="success")
@@ -744,14 +758,12 @@ def check_and_setup_database(db_path: Path, config, output: CliOutput) -> bool:
             key="download",
         )
 
-    install_source = latest_source or preferred_source
-    if (
-        db_state["exists"]
-        and latest_source
-        and should_offer_database_update(db_state["version"], latest_source)
+    if db_state["exists"] and should_offer_database_update(
+        db_state["version"], update_source
     ):
         output.line(
-            f"Updating database from {db_state['version']} to {latest_source['version']}...",
+            f"Updating database from {db_state['version']} "
+            f"to {update_source['version']}...",
             key="download",
         )
     else:
@@ -760,7 +772,7 @@ def check_and_setup_database(db_path: Path, config, output: CliOutput) -> bool:
     try:
         DatabaseManager.setup_database(
             str(db_path),
-            preferred_source=install_source,
+            preferred_source=update_source,
         )
         output.line("Database setup complete!", key="success")
         return True
@@ -968,6 +980,8 @@ def build_pipeline_command(
             args.cluster_type,
             "--min-length",
             str(context.validation_min_length),
+            "--quality-models",
+            context.quality_models,
         ]
     )
     _append_optional_pipeline_flags(
@@ -1221,7 +1235,12 @@ def resolve_pipeline_context(
     iqtree_mode = resolve_iqtree_mode(args, config)
     mode_fast = resolve_mode_fast(args, config)
     completeness_mode = resolve_completeness_mode(args, config)
+    quality_models = resolve_quality_models(args, config)
     sensitive_mode = resolve_sensitive_mode(args, config)
+    if quality_models == "experimental" and (mode_fast or not sensitive_mode):
+        raise ValueError(
+            "Experimental quality models require --extended and sensitive HMM search."
+        )
     input_min_length = resolve_input_min_length(args, config)
     contigs_min_length = resolve_contigs_min_length(args, config)
     validation_min_length = resolve_validation_min_length(
@@ -1277,6 +1296,7 @@ def resolve_pipeline_context(
         n_input_files=n_input_files,
         n_skipped=n_skipped,
         workers=workers,
+        quality_models=quality_models,
     )
 
 
@@ -1353,6 +1373,7 @@ def display_startup_configuration(
         tree_method=context.tree_method,
     )
     output.line(f"Completeness mode: {context.completeness_mode}")
+    output.line(f"Quality models: {context.quality_models}")
 
 
 def build_runtime_command(

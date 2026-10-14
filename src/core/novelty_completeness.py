@@ -11,6 +11,7 @@ import hashlib
 import io
 import json
 import logging
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Tuple
@@ -47,19 +48,10 @@ OOD_STRICT_FLAGS = {
     "r2_below_gate",
 }
 
-#: R² thresholds for the Phase 3.3 gate on the novelty-aware regressor.
-#:
-#: * ``r2_holdout < R2_ADVISORY_FLOOR`` — the regressor is worse than a
-#:   trivial baseline; surface the strategy-2 tier score as the primary
-#:   estimate, emit the ML score as ``estimated_completeness_advisory``
-#:   only, and tag the record with OOD flag ``r2_below_gate``.
-#: * ``R2_ADVISORY_FLOOR <= r2_holdout < R2_HIGH_QUALITY`` — surface the ML
-#:   estimate but label quality as ``moderate``.
-#: * ``r2_holdout >= R2_HIGH_QUALITY`` — quality ``high``.
-#: * missing metadata — fall back to strategy-2 tiers with quality
-#:   ``advisory_only`` and an OOD flag.
+#: Historical R² threshold for selection between two exploratory estimates.
+#: The bundled validation used weak splits, so these values do not establish
+#: model reliability. Runtime output labels the old model ``unvalidated_legacy``.
 R2_ADVISORY_FLOOR = 0.5
-R2_HIGH_QUALITY = 0.7
 
 
 @dataclass(frozen=True)
@@ -359,23 +351,29 @@ class NoveltyAwareCompletenessScorer:
         support_score: float,
         baseline_n_refs: int,
     ) -> float:
-        conservative_floor = max(strategy1_score, strategy2_score)
+        conservative_target = min(strategy1_score, strategy2_score)
         support = max(0.0, min(1.0, support_score / 100.0))
         ref_support = max(0.0, min(1.0, baseline_n_refs / 20.0))
         if ood_flag in OOD_STRICT_FLAGS:
             if ood_flag == "unassigned":
-                return conservative_floor
+                return min(prediction, conservative_target)
             shrink = 0.20 + (0.40 * ref_support) + (0.20 * support)
-            adjusted = conservative_floor + ((prediction - conservative_floor) * shrink)
-            return max(conservative_floor, min(prediction, adjusted))
+            adjusted = conservative_target + (
+                (prediction - conservative_target) * shrink
+            )
+            return min(prediction, adjusted)
         if ood_flag == "low_support":
             shrink = 0.45 + (0.30 * ref_support) + (0.20 * support)
-            adjusted = conservative_floor + ((prediction - conservative_floor) * shrink)
-            return max(conservative_floor, min(prediction, adjusted))
+            adjusted = conservative_target + (
+                (prediction - conservative_target) * shrink
+            )
+            return min(prediction, adjusted)
         if ood_flag == "low_reference_support":
             shrink = 0.60 + (0.15 * ref_support) + (0.10 * support)
-            adjusted = conservative_floor + ((prediction - conservative_floor) * shrink)
-            return max(conservative_floor, min(prediction, adjusted))
+            adjusted = conservative_target + (
+                (prediction - conservative_target) * shrink
+            )
+            return min(prediction, adjusted)
         return prediction
 
     def _degraded_metrics(
@@ -400,26 +398,37 @@ class NoveltyAwareCompletenessScorer:
             if selected_mode == "legacy"
             else fallback_strategy
         )
+        metrics["completeness_query_support"] = "limited_support"
+        metrics["completeness_model_group"] = order_tax
+        metrics["completeness_model_reliability"] = "unvalidated_legacy"
+        metrics["order_completeness_v2_ood_flag"] = "model_or_tier_unavailable"
+        metrics["order_completeness_v2_validation_mode"] = "unvalidated_legacy"
         return metrics
 
     def default_metrics(
-        self, order_tax: str = "", family_tax: str = ""
+        self,
+        order_tax: str = "",
+        family_tax: str = "",
+        query_support: str = "unassigned",
+        model_reliability: str = "unavailable",
     ) -> Dict[str, object]:
         return {
-            "order_completeness_v2": 0.0,
-            "order_completeness_v2_strategy": "novelty_aware_v1",
-            "order_completeness_v2_strategy2_raw": 0.0,
-            "order_completeness_v2_strategy2_normalized": 0.0,
+            "order_completeness_v2": math.nan,
+            "order_completeness_v2_strategy": "unavailable",
+            "order_completeness_v2_strategy2_raw": math.nan,
+            "order_completeness_v2_strategy2_normalized": math.nan,
             "order_completeness_v2_support_score": 0.0,
-            "order_completeness_v2_ood_flag": "unassigned",
-            "order_completeness_v2_reference_group": "unavailable",
-            "order_completeness_v2_validation_mode": "unavailable",
+            "order_completeness_v2_ood_flag": query_support,
+            "order_completeness_v2_reference_group": (
+                f"order:{order_tax}" if order_tax else "unavailable"
+            ),
+            "order_completeness_v2_validation_mode": model_reliability,
             "order_completeness_v2_informative_fraction": 0.0,
-            "estimated_completeness": 0.0,
-            "estimated_completeness_strategy": "novelty_aware_v1",
-            # No usable per-order model on the degraded/no-order path -> the
-            # completeness estimate is never model-backed here.
-            "completeness_model_reliability": "advisory_only",
+            "estimated_completeness": math.nan,
+            "estimated_completeness_strategy": "unavailable",
+            "completeness_query_support": query_support,
+            "completeness_model_group": order_tax or "unavailable",
+            "completeness_model_reliability": model_reliability,
         }
 
     def calculate(
@@ -431,7 +440,16 @@ class NoveltyAwareCompletenessScorer:
         strategy1_score: float,
         selected_mode: str = "legacy",
     ) -> Dict[str, object]:
-        if not self.available or not order_tax:
+        if not order_tax:
+            return self.default_metrics()
+        if not any(count > 0 for count in marker_counts.values()):
+            return self.default_metrics(
+                order_tax,
+                family_tax,
+                query_support="insufficient_evidence",
+                model_reliability="unvalidated_legacy",
+            )
+        if not self.available:
             return self._degraded_metrics(
                 strategy1_score,
                 selected_mode,
@@ -467,13 +485,13 @@ class NoveltyAwareCompletenessScorer:
             shared_present_count=int(tier_scores["shared_present_count"]),
         )
 
-        validation_mode = "fallback"
-        ml_prediction_raw: float | None = None
         prediction = float(strategy2_norm)
         model = self.models.get(order_tax)
         meta = self.model_metadata.get(order_tax, {})
+        model_reliability = str(meta.get("model_reliability", "")).strip()
+        if not model_reliability or model_reliability.lower() == "nan":
+            model_reliability = "unvalidated_legacy"
         if model is not None:
-            validation_mode = str(meta.get("validation_type", "trained"))
             features = {
                 "raw_score": float(strategy1_raw),
                 "strategy1_score": float(strategy1_score),
@@ -495,8 +513,7 @@ class NoveltyAwareCompletenessScorer:
             X = pd.DataFrame(
                 [{name: features.get(name, 0.0) for name in self.feature_names}]
             )
-            ml_prediction_raw = float(model.predict(X)[0])
-            prediction = ml_prediction_raw
+            prediction = float(model.predict(X)[0])
 
         bounded = max(0.0, min(100.0, prediction))
         final_score = self.apply_ood_cap(
@@ -509,13 +526,9 @@ class NoveltyAwareCompletenessScorer:
         )
         novelty_score = round(final_score, 2)
 
-        # Phase 3.3: gate the ML estimate on the model's hold-out R². The
-        # shipped model_metadata.tsv stores this under the ``test_r2`` column
-        # (the output column is still named estimated_completeness_r2_holdout).
-        # Below the advisory floor we do NOT surface the ML prediction as the
-        # primary estimate — the regressor is statistically no better than
-        # strategy-2 tiers for this order. Surface the ML score as an advisory
-        # column instead so users who trust it can still read it.
+        # Keep the historical R² gate for estimator selection. The bundled
+        # validation cannot support a reliability claim, so every model-backed
+        # result remains marked ``unvalidated_legacy`` below.
         r2_raw = meta.get("test_r2")
         try:
             if r2_raw in (None, ""):
@@ -526,9 +539,7 @@ class NoveltyAwareCompletenessScorer:
                 # training run) must be treated as missing, not as a
                 # finite number that falls through to the high-quality
                 # branch (Codex audit).
-                import math as _math
-
-                if _math.isnan(r2_holdout):
+                if math.isnan(r2_holdout):
                     r2_holdout = None
         except (TypeError, ValueError):
             r2_holdout = None
@@ -537,32 +548,22 @@ class NoveltyAwareCompletenessScorer:
             # No ML regressor for this order at all.
             primary_score = float(strategy2_norm)
             primary_strategy = "strategy2_no_ml_profile"
-            quality = "advisory_only"
             ood_augmented = str(support_metrics["ood_flag"])
         elif r2_holdout is None:
-            # Model present but no metadata — trust the ML score but flag
-            # it as advisory-only since we cannot verify hold-out quality.
+            # Model present but no metadata: retain the old exploratory path.
             primary_score = novelty_score
             primary_strategy = "novelty_aware_v1"
-            quality = "advisory_only"
             ood_augmented = str(support_metrics["ood_flag"])
         elif r2_holdout < R2_ADVISORY_FLOOR:
-            # Below the hard gate — ML is worse than strategy-2 in holdout.
+            # Retain the old lower-score fallback without treating it as validation.
             primary_score = float(strategy2_norm)
             primary_strategy = "strategy2_r2_below_gate"
-            quality = "advisory_only"
             ood_augmented = self._augment_ood_flag(
                 support_metrics["ood_flag"], "r2_below_gate"
             )
-        elif r2_holdout < R2_HIGH_QUALITY:
-            primary_score = novelty_score
-            primary_strategy = "novelty_aware_v1"
-            quality = "moderate"
-            ood_augmented = str(support_metrics["ood_flag"])
         else:
             primary_score = novelty_score
             primary_strategy = "novelty_aware_v1"
-            quality = "high"
             ood_augmented = str(support_metrics["ood_flag"])
 
         estimated_score = (
@@ -571,6 +572,23 @@ class NoveltyAwareCompletenessScorer:
         estimated_strategy = (
             "order_baseline_ratio_v1" if selected_mode == "legacy" else primary_strategy
         )
+        support_flag = str(support_metrics["ood_flag"])
+        query_support = (
+            "supported"
+            if support_flag == "ok"
+            else (
+                "insufficient_evidence"
+                if support_flag
+                in {"no_informative_markers", "zero_informative_hits", "unassigned"}
+                else "limited_support"
+            )
+        )
+        if query_support == "insufficient_evidence":
+            novelty_score = math.nan
+            estimated_score = math.nan
+            estimated_strategy = "unavailable"
+            tier_scores["strategy2_raw"] = math.nan
+            strategy2_norm = math.nan
 
         result: Dict[str, Any] = {
             "order_completeness_v2": novelty_score,
@@ -586,13 +604,15 @@ class NoveltyAwareCompletenessScorer:
             ),
             "order_completeness_v2_ood_flag": ood_augmented,
             "order_completeness_v2_reference_group": f"{group_def.level}:{group_def.name}",
-            "order_completeness_v2_validation_mode": validation_mode,
+            "order_completeness_v2_validation_mode": model_reliability,
             "order_completeness_v2_informative_fraction": round(
                 float(support_metrics["informative_fraction"]), 2
             ),
             "estimated_completeness": round(float(estimated_score), 2),
             "estimated_completeness_strategy": estimated_strategy,
-            "completeness_model_reliability": quality,
+            "completeness_query_support": query_support,
+            "completeness_model_group": order_tax,
+            "completeness_model_reliability": model_reliability,
         }
         return result
 

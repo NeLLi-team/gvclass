@@ -1,3 +1,5 @@
+"""Shared fixtures for tests that need the bundled reference models."""
+
 import sys
 from pathlib import Path
 
@@ -10,6 +12,11 @@ if str(REPO_ROOT) not in sys.path:
 RESOURCES_ROOT = REPO_ROOT / "resources"
 
 _CONTAMINATION_MODEL = RESOURCES_ROOT / "contamination" / "model.joblib"
+
+TEST_REFERENCE_LABEL = (
+    "NCLDV__test_reference\tViruses|Nucleocytoviricota|Megaviricetes|"
+    "Imitervirales|Mimiviridae|Mimivirus|test_reference\n"
+)
 
 
 def skip_if_no_runtime_resources():
@@ -34,22 +41,16 @@ def skip_if_no_runtime_resources():
 
 
 def stage_db_resources(db_path: Path, *, markers: bool = True) -> None:
-    """Populate a temp database dir with the runtime resources v1.5.0 needs.
+    """Stage bundled models and a nonempty synthetic label for scorer tests.
 
-    The production scorer resolves the contamination model via
-    ``database_path / "contamination" / "model.joblib"`` and the novelty
-    scorer resolves the completeness bundle under
-    ``database_path / "completeness"``. For tests that construct a scorer
-    against a tmp directory, we symlink those two subtrees (and the
-    ``labels.tsv`` file) to the real resources tree so the SHA-256 gate
-    on the bundled model passes without copying the 7 MB joblib into
-    every tmp dir.
-
-    Callers stage their own ``labels.tsv`` or marker fixtures before or
-    after calling this helper; the symlinks only cover the dirs whose
-    contents tests do not typically customise.
+    Model directories are symlinked so byte-hash checks use the bundled files.
+    Existing labels are preserved. Callers can replace the synthetic label with
+    their own fixture. Marker resources are linked only when requested.
     """
     db_path.mkdir(parents=True, exist_ok=True)
+    labels_file = db_path / "labels.tsv"
+    if not labels_file.exists():
+        labels_file.write_text(TEST_REFERENCE_LABEL, encoding="utf-8")
     for name in ("contamination", "completeness"):
         target = RESOURCES_ROOT / name
         if target.exists():

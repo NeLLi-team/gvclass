@@ -3,8 +3,7 @@
 Rule (maintainer-confirmed): keep a non-meta code over `-p meta` iff
   complete_hits >= meta+2  OR  avg_best_hit_score >= meta*1.10
   OR (both fail) coding_density >= meta*1.05 ; else keep meta.
-All ranked non-meta candidates are evaluated, so a density-winner that is not
-the top-ranked candidate is still selected.
+Only the top-ranked non-meta candidate is compared with meta.
 """
 
 from __future__ import annotations
@@ -12,6 +11,16 @@ from __future__ import annotations
 from pathlib import Path
 
 from src.core.genetic_code_optimizer import GeneticCodeOptimizer
+
+
+def test_genecalling_table_reports_best_hit_score(tmp_path):
+    from src.pipeline.query_processing_engine import _write_genecalling_comparison_table
+
+    (tmp_path / "stats").mkdir()
+    metrics = {0: {"complete_hits": 2, "avg_score": 10.0, "avg_best_hit_score": 95.0}}
+    _write_genecalling_comparison_table(tmp_path, "query", metrics)
+    row = (tmp_path / "stats" / "query.genecalling.tab").read_text().splitlines()[1]
+    assert row.split("\t")[-1] == "95.0"
 
 
 def _metrics(complete_hits, score, density):
@@ -35,6 +44,15 @@ def test_density_override_selects_nonmeta():
         11: _metrics(5, 105.0, 53.0),  # 53 >= 50*1.05 (52.5); 105 < 110
     }
     assert _select(code_results) == 11
+
+
+def test_zero_score_and_tied_density_do_not_override_meta():
+    for density in (0.0, 50.0):
+        assert (
+            _select({0: _metrics(0, 0.0, density), 11: _metrics(0, 0.0, density)}) == 0
+        )
+
+    assert _select({0: _metrics(0, 0.0, 0.0), 11: _metrics(0, 0.0, 5.0)}) == 11
 
 
 def test_density_just_below_5pct_keeps_meta():

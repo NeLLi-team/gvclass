@@ -172,6 +172,33 @@ def test_resource_store_materialized_dir_can_skip_missing_markers(
     assert not (materialized_dir / "MISSING.faa").exists()
 
 
+def test_resource_store_rebuilds_cache_when_parquet_is_replaced_by_an_older_file(
+    tmp_path: Path,
+) -> None:
+    parquet = tmp_path / "parquet" / "faa.parquet"
+    first_row = {
+        "marker": "PRESENT.faa",
+        "seq_id": "EUK__contaminated_1",
+        "label_id": "EUK__contaminated",
+        "domain": "EUK",
+        "sequence": "MKK",
+    }
+    second_row = {**first_row, "seq_id": "EUK__clean_1", "label_id": "EUK__clean"}
+    _write_parquet(parquet, [first_row])
+    store = ResourceStore(tmp_path)
+    cached = store.marker_faa_path("PRESENT")
+    assert cached.read_text() == ">EUK__contaminated_1\nMKK\n"
+
+    # A cleaned archive keeps its build-time mtime, which is older than the cache.
+    _write_parquet(parquet, [second_row, {**second_row, "seq_id": "EUK__clean_2"}])
+    older = cached.stat().st_mtime - 3600
+    os.utime(parquet, (older, older))
+
+    assert store.marker_faa_path("PRESENT").read_text() == (
+        ">EUK__clean_1\nMKK\n>EUK__clean_2\nMKK\n"
+    )
+
+
 def test_marker_processor_preserves_missing_marker_fallback(tmp_path: Path) -> None:
     processor = MarkerProcessor(
         "MISSING",

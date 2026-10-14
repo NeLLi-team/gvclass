@@ -3,9 +3,9 @@
 Coverage:
 * run_status.json records query completion after summary + tar are durable.
 * Resume accepts the consolidated manifest.
-* Resume remains backward compatible with v1.4.3 SUCCESS sentinels.
-* Resume falls back to the legacy summary+tar pair only when the sentinel
-  is missing AND the tar is well-formed (``tarfile.is_tarfile``).
+* Resume accepts v1.4.3 SUCCESS sentinels only with a current quality schema.
+* Resume falls back to a summary+tar pair only when the sentinel is missing,
+  the tar is well-formed, and the summary has the current quality schema.
 * A corrupted or truncated tar causes the legacy fallback to reject the
   query so it re-runs.
 * ``_archive_query_output`` never leaves a truncated ``.tar.gz`` on failure.
@@ -23,6 +23,15 @@ from unittest.mock import Mock
 import pytest
 
 LOGGER = logging.getLogger("test_resume_sentinel")
+CURRENT_QUALITY_VALUES = {
+    "completeness_query_support": "supported",
+    "estimated_completeness_strategy": "novelty_aware_v1",
+    "completeness_model_group": "Algavirales",
+    "completeness_model_reliability": "unvalidated_legacy",
+    "contamination_query_support": "supported",
+    "estimated_contamination_strategy": "extra_trees_v1",
+    "contamination_model_reliability": "unvalidated_legacy",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -36,7 +45,7 @@ def _seed_post_process_artefacts(
     output_base.mkdir(parents=True, exist_ok=True)
     summary_file = output_base / f"{query_name}.summary.tab"
     tar_file = output_base / f"{query_name}.tar.gz"
-    summary_file.write_text("query\ttaxonomy_majority\nq\td_NCLDV\n")
+    _write_resume_summary(output_base, query_name, "d_NCLDV")
     # Not a real tar, but exists for sentinel payload checksum.
     tar_file.write_bytes(b"fake-tar-bytes")
     return summary_file, tar_file
@@ -189,6 +198,32 @@ def test_query_is_resume_complete_accepts_run_status(tmp_path: Path) -> None:
     logger.warning.assert_not_called()
 
 
+def test_query_is_resume_complete_reprocesses_old_manifest_summary_schema(
+    tmp_path: Path,
+) -> None:
+    from src.pipeline.parallel_runner import _query_is_resume_complete
+    from src.pipeline.run_status import RunStatusRecorder
+
+    output_path = tmp_path / "out"
+    db_path = tmp_path / "db"
+    output_path.mkdir()
+    db_path.mkdir()
+    old_headers = ["query", "taxonomy_majority"] + [
+        f"old_column_{index}" for index in range(42)
+    ]
+    (output_path / "q1.summary.tab").write_text(
+        "\t".join(old_headers) + "\n" + "\t".join(["q1", "d_NCLDV"] + [""] * 42) + "\n"
+    )
+    (output_path / "q1.tar.gz").write_bytes(b"old-archive")
+    recorder = RunStatusRecorder(output_path, db_path, ["q1"], settings={})
+    recorder.start()
+    recorder.record_query_complete("q1")
+
+    logger = Mock()
+    assert _query_is_resume_complete(output_path, "q1", logger) is False
+    logger.warning.assert_called()
+
+
 def test_query_is_resume_complete_accepts_archived_summary_manifest(
     tmp_path: Path,
 ) -> None:
@@ -202,8 +237,8 @@ def test_query_is_resume_complete_accepts_archived_summary_manifest(
     output_path.mkdir()
     work_path.mkdir(parents=True)
     db_path.mkdir()
-    (work_path / "q1.summary.tab").write_text("query\ntax\n")
-    (work_path / "q1.final_summary.tsv").write_text("query\ntax\n")
+    _write_resume_summary(work_path, "q1", "tax")
+    _write_resume_final_summary(work_path, "q1", "tax", "high")
 
     _archive_query_output("q1", work_path, output_path, LOGGER)
     recorder = RunStatusRecorder(output_path, db_path, ["q1"], settings={})
@@ -306,13 +341,14 @@ def test_query_is_resume_complete_accepts_sentinel(tmp_path: Path) -> None:
     output_path = tmp_path / "out"
     output_path.mkdir()
     (output_path / "q1.SUCCESS").write_text("{}")
+    _write_resume_summary(output_path, "q1", "d_NCLDV")
 
     logger = Mock()
     assert _query_is_resume_complete(output_path, "q1", logger) is True
     logger.warning.assert_not_called()
 
 
-def test_query_is_resume_complete_legacy_fallback_accepts_valid_pair(
+def test_query_is_resume_complete_legacy_fallback_reprocesses_old_schema(
     tmp_path: Path,
 ) -> None:
     from src.pipeline.parallel_runner import _query_is_resume_complete
@@ -323,9 +359,8 @@ def test_query_is_resume_complete_legacy_fallback_accepts_valid_pair(
     _make_tar(output_path / "q1.tar.gz")
 
     logger = Mock()
-    assert _query_is_resume_complete(output_path, "q1", logger) is True
-    # We log INFO (not warning) when falling back.
-    logger.info.assert_called()
+    assert _query_is_resume_complete(output_path, "q1", logger) is False
+    logger.warning.assert_called()
 
 
 def test_query_is_resume_complete_rejects_corrupt_tar(tmp_path: Path) -> None:
@@ -386,19 +421,37 @@ def test_count_resume_skips_counts_manifest_sentinel_and_legacy(tmp_path: Path) 
 def _write_resume_summary(output_path: Path, query_name: str, taxonomy: str) -> None:
     with open(output_path / f"{query_name}.summary.tab", "w", newline="") as handle:
         writer = csv.writer(handle, delimiter="\t")
-        writer.writerow(["query", "taxonomy_majority", "estimated_completeness"])
-        writer.writerow([query_name, taxonomy, "88.50"])
+        row = {
+            "query": query_name,
+            "taxonomy_majority": taxonomy,
+            "estimated_completeness": "88.50",
+            **CURRENT_QUALITY_VALUES,
+        }
+        writer.writerow(row)
+        writer.writerow(row.values())
 
 
 def _write_resume_final_summary(
-    output_path: Path, query_name: str, taxonomy: str, taxonomy_confidence: str
+    output_path: Path,
+    query_name: str,
+    taxonomy: str,
+    taxonomy_confidence: str,
+    extended_values: dict[str, object] | None = None,
 ) -> None:
-    with open(
-        output_path / f"{query_name}.final_summary.tsv", "w", newline=""
-    ) as handle:
-        writer = csv.writer(handle, delimiter="\t")
-        writer.writerow(["query", "taxonomy_majority", "taxonomy_confidence"])
-        writer.writerow([query_name, taxonomy, taxonomy_confidence])
+    from src.pipeline.summary_writer import write_individual_final_summary_file
+
+    write_individual_final_summary_file(
+        output_path,
+        query_name,
+        {
+            "query": query_name,
+            "taxonomy_majority": taxonomy,
+            "taxonomy_confidence": taxonomy_confidence,
+            **CURRENT_QUALITY_VALUES,
+            **(extended_values or {}),
+        },
+        LOGGER,
+    )
 
 
 def _seed_resume_complete_query(
@@ -406,11 +459,16 @@ def _seed_resume_complete_query(
     query_name: str,
     taxonomy: str,
     taxonomy_confidence: str | None = None,
+    extended_values: dict[str, object] | None = None,
 ) -> None:
     _write_resume_summary(output_path, query_name, taxonomy)
     if taxonomy_confidence is not None:
         _write_resume_final_summary(
-            output_path, query_name, taxonomy, taxonomy_confidence
+            output_path,
+            query_name,
+            taxonomy,
+            taxonomy_confidence,
+            extended_values,
         )
     (output_path / f"{query_name}.SUCCESS").write_text("{}")
 
@@ -459,7 +517,21 @@ def test_gvclass_flow_resume_summary_includes_skipped_queries(
     output_path.mkdir()
     for query_name in ("q1", "q2", "q3", "q4"):
         (query_dir / f"{query_name}.faa").write_text(">p\nM\n")
-    _seed_resume_complete_query(output_path, "q1", "skipped_q1", "strict_q1")
+    _seed_resume_complete_query(
+        output_path,
+        "q1",
+        "skipped_q1",
+        "strict_q1",
+        {
+            "mixed_evidence_contig_count": 3,
+            "mixed_evidence_status": "review",
+            "contig_length_basis": "exact_dna",
+            "protein_estimated_contig_count": 2,
+            "contamination_model_applicability": "applicable",
+            "contamination_prediction_range_status": "above_training_range",
+            "contamination_model_prediction_upper_bound": 0.8765432,
+        },
+    )
     _seed_resume_complete_query(output_path, "q2", "skipped_q2")
 
     monkeypatch.setattr(
@@ -484,10 +556,34 @@ def test_gvclass_flow_resume_summary_includes_skipped_queries(
     assert [row["query"] for row in rows] == ["q1", "q2", "q3", "q4"]
     assert rows[0]["taxonomy_majority"] == "skipped_q1"
     assert rows[0]["taxonomy_confidence"] == "strict_q1"
+    assert rows[0]["completeness_query_support"] == "supported"
+    assert rows[0]["contamination_query_support"] == "supported"
     assert rows[1]["taxonomy_majority"] == "skipped_q2"
     assert rows[1]["taxonomy_confidence"] == ""
     assert rows[2]["taxonomy_majority"] == "processed_q3"
     assert rows[3]["taxonomy_majority"] == "processed_q4"
+
+    with tarfile.open(
+        output_path / "gvclass_summary.extended.tar.gz", "r:gz"
+    ) as tar_handle:
+        member = tar_handle.extractfile("gvclass_summary.extended.tsv")
+        assert member is not None
+        extended_rows = list(
+            csv.DictReader(
+                member.read().decode().splitlines(), delimiter="\t"
+            )
+        )
+    q1_extended = next(row for row in extended_rows if row["query"] == "q1")
+    assert q1_extended["mixed_evidence_contig_count"] == "3"
+    assert q1_extended["mixed_evidence_status"] == "review"
+    assert q1_extended["contig_length_basis"] == "exact_dna"
+    assert q1_extended["protein_estimated_contig_count"] == "2"
+    assert q1_extended["contamination_model_applicability"] == "applicable"
+    assert (
+        q1_extended["contamination_prediction_range_status"]
+        == "above_training_range"
+    )
+    assert q1_extended["contamination_model_prediction_upper_bound"] == "0.876543"
 
 
 def test_gvclass_flow_resume_all_skipped_rebuilds_summary(
@@ -807,7 +903,7 @@ def test_resume_all_skipped_does_not_crash_on_zero_workers(
 
     for name in ("q1", "q2"):
         (output_dir / f"{name}.SUCCESS").write_text("{}")
-        (output_dir / f"{name}.summary.tab").write_text("query\n" + name + "\n")
+        _write_resume_summary(output_dir, name, f"skipped_{name}")
         _make_tar(output_dir / f"{name}.tar.gz")
 
     # Run with resume=True; the flow should detect zero remaining queries
@@ -876,7 +972,7 @@ def test_gvclass_flow_raises_after_writing_partial_failure_outputs(
     assert run_status["status"] == "failed"
 
 
-def test_gvclass_flow_raises_when_mixed_resume_summary_is_missing(
+def test_gvclass_flow_reprocesses_sentinel_without_current_summary(
     tmp_path: Path, monkeypatch
 ) -> None:
     from src.pipeline import parallel_runner
@@ -896,18 +992,26 @@ def test_gvclass_flow_raises_when_mixed_resume_summary_is_missing(
     )
     monkeypatch.setattr(parallel_runner, "process_query_task", _fake_query_processor)
 
-    with pytest.raises(RuntimeError, match="failed for 1 of 2 queries"):
-        parallel_runner.gvclass_flow(
-            str(query_dir),
-            str(output_path),
-            total_threads=1,
-            max_workers=1,
-            threads_per_worker=1,
-            resume=True,
-        )
+    summary_file = parallel_runner.gvclass_flow(
+        str(query_dir),
+        str(output_path),
+        total_threads=1,
+        max_workers=1,
+        threads_per_worker=1,
+        resume=True,
+    )
 
+    with open(summary_file, newline="") as handle:
+        rows = list(csv.DictReader(handle, delimiter="\t"))
+
+    assert [row["query"] for row in rows] == ["missing", "processed"]
+    assert [row["taxonomy_majority"] for row in rows] == [
+        "processed_missing",
+        "processed_processed",
+    ]
     run_status = json.loads((output_path / "run_status.json").read_text())
-    assert run_status["status"] == "failed"
+    assert run_status["status"] == "complete"
+    assert run_status["totals"]["resume_skipped"] == 0
 
 
 def test_validate_and_setup_rejects_duplicate_stems_before_side_effects(

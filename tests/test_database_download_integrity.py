@@ -29,6 +29,7 @@ def test_env_url_allow_unverified_opt_in(monkeypatch):
     assert source is not None
     assert source["sha256"] is None
     assert source["url"].startswith("https://")
+    assert source["allow_unverified"] is True
 
 
 def test_env_url_with_sha_ok(monkeypatch):
@@ -49,6 +50,91 @@ def test_non_https_scheme_rejected(url):
         DatabaseManager._normalize_source({"url": url, "sha256": "a" * 64})
 
 
-def test_no_unpinned_sources():
-    for source in DatabaseManager.DATABASE_SOURCES:
-        assert source.get("sha256"), f"unpinned source: {source.get('version')}"
+def test_source_resolution_uses_only_environment_override(monkeypatch):
+    monkeypatch.setenv("GVCLASS_DB_URL", "https://example.com/env.tar.gz")
+    monkeypatch.setenv("GVCLASS_DB_SHA256", "a" * 64)
+    preferred = {
+        "version": "v8.0.0",
+        "url": "https://example.com/config.tar.gz",
+        "sha256": "b" * 64,
+    }
+
+    sources = DatabaseManager._resolve_database_sources(preferred)
+
+    assert [source["url"] for source in sources] == ["https://example.com/env.tar.gz"]
+
+
+def test_source_resolution_uses_only_preferred_source(monkeypatch):
+    monkeypatch.delenv("GVCLASS_DB_URL", raising=False)
+    preferred = {
+        "version": "v8.0.0",
+        "url": "https://example.com/config.tar.gz",
+        "sha256": "b" * 64,
+    }
+
+    sources = DatabaseManager._resolve_database_sources(preferred)
+
+    assert sources == [
+        {
+            "version": "v8.0.0",
+            "url": "https://example.com/config.tar.gz",
+            "filename": "config.tar.gz",
+            "sha256": "b" * 64,
+        }
+    ]
+
+
+def test_source_resolution_uses_only_pinned_default(monkeypatch):
+    monkeypatch.delenv("GVCLASS_DB_URL", raising=False)
+
+    sources = DatabaseManager._resolve_database_sources()
+
+    assert sources == [DatabaseManager.DEFAULT_DATABASE_SOURCE]
+
+
+def test_preferred_source_without_checksum_is_rejected(monkeypatch):
+    monkeypatch.delenv("GVCLASS_DB_URL", raising=False)
+    preferred = {"url": "https://example.com/config.tar.gz"}
+
+    with pytest.raises(ValueError, match="no SHA-256 checksum"):
+        DatabaseManager._resolve_database_sources(preferred)
+
+
+@pytest.mark.parametrize("checksum", ["", "abc123", "g" * 64])
+def test_zenodo_record_requires_valid_sha256_sidecar(checksum, monkeypatch):
+    record = {
+        "id": 123,
+        "metadata": {"version": "2.1.0"},
+        "files": [
+            {
+                "key": "resources.tar.gz",
+                "links": {"self": "https://zenodo.org/archive"},
+            },
+            {
+                "key": "resources.tar.gz.sha256",
+                "links": {"self": "https://zenodo.org/checksum"},
+            },
+        ],
+    }
+    monkeypatch.setattr(
+        DatabaseManager, "_fetch_text", staticmethod(lambda url: checksum)
+    )
+
+    with pytest.raises(ValueError, match="invalid SHA-256 sidecar"):
+        DatabaseManager._source_from_zenodo_record(record)
+
+
+def test_zenodo_record_requires_sha256_sidecar():
+    record = {
+        "id": 123,
+        "metadata": {"version": "2.1.0"},
+        "files": [
+            {
+                "key": "resources.tar.gz",
+                "links": {"self": "https://zenodo.org/archive"},
+            }
+        ],
+    }
+
+    with pytest.raises(ValueError, match="no SHA-256 sidecar"):
+        DatabaseManager._source_from_zenodo_record(record)

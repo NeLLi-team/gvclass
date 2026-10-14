@@ -10,16 +10,20 @@ Covers:
 
 from __future__ import annotations
 
-from tests.conftest import skip_if_no_runtime_resources
+from tests.conftest import RESOURCES_ROOT, skip_if_no_runtime_resources
 
 pytestmark = skip_if_no_runtime_resources()
 
 from collections import Counter, defaultdict
+import math
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Dict, Tuple
 
-from src.core.summarize import consensus, tax_format
+import pandas as pd
+
+from src.core.summarize import consensus, order_completeness, tax_format
+from src.core.summarize_full import FullSummarizer
 
 # ---------------------------------------------------------------------------
 # 2.1 Taxonomy majority per marker.
@@ -74,6 +78,131 @@ def test_per_marker_majority_requires_distinct_marker_support() -> None:
     assert winner == "NCLDV__Imitervirales"
     assert supporting == 3
     assert total == 4
+
+
+def test_quality_group_follows_accepted_taxonomy_not_flat_paralog_counts() -> None:
+    flat_counters, per_marker, lineage_counters = _empty_taxonomy_vote_inputs()
+    asfu_lineage = (
+        "NCLDV",
+        "Nucleocytoviricota",
+        "Megaviricetes",
+        "Asfuvirales",
+        "Asfarviridae",
+        "",
+        "",
+    )
+    imiter_lineage = (
+        "NCLDV",
+        "Nucleocytoviricota",
+        "Megaviricetes",
+        "Imitervirales",
+        "Mimiviridae",
+        "",
+        "",
+    )
+    for marker in ("m1", "m2", "m3"):
+        _add_lineage_vote(
+            flat_counters, per_marker, lineage_counters, marker, asfu_lineage
+        )
+    for _ in range(10):
+        _add_lineage_vote(
+            flat_counters, per_marker, lineage_counters, "paralog", imiter_lineage
+        )
+
+    majority, _, _ = consensus._build_consensus_taxonomies(
+        flat_counters,
+        per_marker,
+        mode_fast=False,
+        per_marker_lineage_counters=lineage_counters,
+    )
+    accepted_lineage = tax_format.parse_taxonomy_majority(majority)
+
+    assert flat_counters["order"].most_common(1)[0][0].endswith("Imitervirales")
+    assert accepted_lineage["order"] == "Asfuvirales"
+    assert order_completeness._select_quality_group(accepted_lineage) == "Asfuvirales"
+
+
+def test_mirus_taxonomy_uses_broad_mirus_quality_group(tmp_path: Path) -> None:
+    accepted_lineage = tax_format.parse_taxonomy_majority(
+        "d_MIRUS;p_Mirusviricota;c_Class_04;o_Demutovirales;"
+        "f_Demuto_05;g_;s_"
+    )
+    completeness_table = tmp_path / "order_completeness.tab"
+    completeness_table.write_text(
+        "Order\tAverage_Percent\tStd_Percent\tOrthogroups\n"
+        "MIRUS\t50\t5\tOG1, OG2\n"
+    )
+    counts_file = tmp_path / "models.counts"
+    counts_file.write_text("OG1\t1\n")
+
+    class _Weighted:
+        def calculate_weighted_completeness(self, **_kwargs):
+            return 50.0, 80.0, {}
+
+    result = {}
+    order_completeness._add_order_metrics(
+        completeness_table,
+        pd.read_csv(completeness_table, sep="\t"),
+        _Weighted(),
+        SimpleNamespace(available=False),
+        "novelty-aware",
+        result,
+        counts_file,
+        accepted_lineage,
+    )
+
+    assert accepted_lineage["order"] == "Demutovirales"
+    assert result["completeness_model_group"] == "MIRUS"
+    assert result["order_completeness_reference_order"] == "MIRUS"
+    assert result["estimated_completeness"] == 100.0
+
+
+def test_supported_group_with_no_marker_evidence_is_unavailable(
+    tmp_path: Path,
+) -> None:
+    completeness_table = tmp_path / "order_completeness.tab"
+    completeness_table.write_text(
+        "Order\tAverage_Percent\tStd_Percent\tOrthogroups\n"
+        "Asfuvirales\t50\t5\tOG1, OG2\n"
+    )
+    counts_file = tmp_path / "models.counts"
+    counts_file.write_text("")
+    result = {}
+
+    order_completeness._add_order_metrics(
+        completeness_table,
+        pd.read_csv(completeness_table, sep="\t"),
+        SimpleNamespace(),
+        SimpleNamespace(available=False),
+        "novelty-aware",
+        result,
+        counts_file,
+        tax_format.parse_taxonomy_majority(
+            "d_NCLDV;p_Nucleocytoviricota;c_Megaviricetes;"
+            "o_Asfuvirales;f_Asfarviridae;g_;s_"
+        ),
+    )
+
+    assert math.isnan(result["estimated_completeness"])
+    assert result["completeness_query_support"] == "insufficient_evidence"
+
+
+def test_full_summary_with_no_evidence_has_no_quality_claim(tmp_path: Path) -> None:
+    query_dir = tmp_path / "query"
+    (query_dir / "query_faa").mkdir(parents=True)
+    (query_dir / "query_faa" / "empty.faa").write_text(">contig_1\nMMMM\n")
+
+    result = FullSummarizer(
+        RESOURCES_ROOT,
+        completeness_mode="novelty-aware",
+        sensitive_mode=True,
+    ).summarize_query_full("empty", query_dir, {})
+
+    assert math.isnan(result["estimated_completeness"])
+    assert result["completeness_query_support"] == "unassigned"
+    assert math.isnan(result["estimated_contamination"])
+    assert result["contamination_query_support"] == "insufficient_evidence"
+    assert result["contamination_type"] == "uncertain"
 
 
 def test_tax_level_counts_normalize_domain_unclassified_placeholders() -> None:

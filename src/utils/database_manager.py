@@ -126,9 +126,10 @@ class DatabaseManager:
         r"https?://(?:www\.)?zenodo\.org/(?:api/)?records/(?P<record_id>\d+)"
     )
 
-    REQUIRED_FILES = [
+    REQUIRED_FILES = (
         "hmm/combined.hmm",
         "labels.tsv",
+        "parquet/faa.parquet",
         "markers/order_completeness.tab",
         "markers/stats.tsv",
         "markers/annotations.tsv",
@@ -139,7 +140,7 @@ class DatabaseManager:
         "completeness/model.joblib",
         "contamination/model.joblib",
         "contamination/model.yaml",
-    ]
+    )
     REQUIRED_FILE_ALTERNATIVES = {
         "labels.tsv": ("labels.tsv", "parquet/labels/labels.parquet"),
     }
@@ -150,49 +151,6 @@ class DatabaseManager:
         "filename": "resources_v2_0_0.tar.gz",
         "sha256": "df1c3a9d15a90307775f42f57e2a7c89436ed523883025f6fc94013035f5e066",
     }
-    LEGACY_DATABASE_SOURCES = [
-        {
-            "version": "v1.6.0",
-            "url": "https://zenodo.org/records/20479524/files/resources_v1_6_0.tar.gz?download=1",
-            "filename": "resources_v1_6_0.tar.gz",
-            "sha256": "f744f7144ea69d6c3ccffe56e7721d6fd598685853005e0fb90d04e699d9b23f",
-        },
-        {
-            "version": "v1.5.0",
-            "url": "https://zenodo.org/records/19674504/files/resources_v1_5_0.tar.gz?download=1",
-            "filename": "resources_v1_5_0.tar.gz",
-            "sha256": "5357d96d99aa1eaf4b396ef701ed4c3b22d9015f79b7ae6c6be354c897704c80",
-        },
-        {
-            "version": "v1.5.0-nersc-mirror",
-            "url": "https://portal.nersc.gov/cfs/nelli/gvclassDB/resources_v1_5_0.tar.gz",
-            "filename": "resources_v1_5_0.tar.gz",
-            "sha256": "5357d96d99aa1eaf4b396ef701ed4c3b22d9015f79b7ae6c6be354c897704c80",
-        },
-        {
-            "version": "v1.4.0",
-            "url": "https://zenodo.org/records/18926264/files/resources_v1_4_0.tar.gz?download=1",
-            "filename": "resources_v1_4_0.tar.gz",
-            "sha256": "95e2d75b5229a33f1910e16849fc067f3a2f55db5d12fbc25fb593aa61d9f3da",
-        },
-        {
-            "version": "v1.2.2",
-            "url": "https://zenodo.org/records/18675742/files/resources_v1_2_2.tar.gz?download=1",
-            "filename": "resources_v1_2_2.tar.gz",
-            "sha256": "47bd2822b1da8a4c30db259607a0e7ae1747a9df6ce554a98cc015fd7b654ace",
-        },
-        {
-            "version": "v1.2.1",
-            "url": "https://zenodo.org/records/18662446/files/resources_v1_2_1.tar.gz?download=1",
-            "filename": "resources_v1_2_1.tar.gz",
-            "sha256": "94ad59100a158ca7ac760e9a1d35f01ff5e2eb07c270c4ca1b45fbe9e3e637eb",
-        },
-        # NOTE: the legacy v1.2.0 / v1.1.1 / v1.1.0 NERSC mirrors were dropped
-        # because they shipped with sha256=None (unverifiable downloads) and
-        # are incompatible with the current resource schema. Every retained
-        # source carries a pinned checksum so downloads are always verified.
-    ]
-    DATABASE_SOURCES = [DEFAULT_DATABASE_SOURCE, *LEGACY_DATABASE_SOURCES]
     DATABASE_VERSION = DEFAULT_DATABASE_SOURCE["version"]
 
     @classmethod
@@ -359,6 +317,19 @@ class DatabaseManager:
         """Check for missing required files."""
         missing = []
         for file_path in cls.REQUIRED_FILES:
+            if file_path == "parquet/faa.parquet":
+                parquet_faa = db_path / file_path
+                legacy_faa = db_path / "database" / "faa"
+                has_parquet_faa = (
+                    parquet_faa.is_file() and parquet_faa.stat().st_size > 0
+                )
+                has_legacy_faa = any(
+                    marker_file.is_file() and marker_file.stat().st_size > 0
+                    for marker_file in legacy_faa.glob("*.faa")
+                )
+                if not has_parquet_faa and not has_legacy_faa:
+                    missing.append(file_path)
+                continue
             alternatives = cls.REQUIRED_FILE_ALTERNATIVES.get(file_path)
             if alternatives:
                 if not any(
@@ -421,19 +392,12 @@ class DatabaseManager:
     def _resolve_database_sources(
         cls, preferred_source: Optional[dict] = None
     ) -> list[dict]:
-        """Resolve download sources in priority order with config/env overrides first."""
-        sources = []
-        for candidate in (
-            cls._source_from_env(),
-            preferred_source,
-            *cls.DATABASE_SOURCES,
-        ):
-            normalized = cls._normalize_source(candidate)
-            if normalized and all(
-                existing["url"] != normalized["url"] for existing in sources
-            ):
-                sources.append(normalized)
-        return sources
+        """Resolve the one exact source selected by env, config, or the default."""
+        candidate = (
+            cls._source_from_env() or preferred_source or cls.DEFAULT_DATABASE_SOURCE
+        )
+        normalized = cls._normalize_source(candidate)
+        return [normalized] if normalized else []
 
     @classmethod
     def _source_from_env(cls) -> Optional[dict]:
@@ -466,6 +430,7 @@ class DatabaseManager:
             "url": url,
             "filename": os.environ.get("GVCLASS_DB_FILENAME", "").strip() or None,
             "sha256": sha256,
+            "allow_unverified": allow_unverified,
         }
 
     @classmethod
@@ -499,13 +464,25 @@ class DatabaseManager:
         sha256 = source.get("sha256")
         if sha256 is not None:
             sha256 = str(sha256).strip() or None
+        allow_unverified = source.get("allow_unverified") is True
+        if sha256 is None and not allow_unverified:
+            raise ValueError(
+                f"Database source {url} has no SHA-256 checksum. "
+                "Provide the expected checksum or set "
+                "GVCLASS_DB_ALLOW_UNVERIFIED=1 for an explicit environment source."
+            )
+        if sha256 is not None and re.fullmatch(r"[0-9a-fA-F]{64}", sha256) is None:
+            raise ValueError(f"Database source {url} has an invalid SHA-256 checksum")
 
-        return {
+        normalized = {
             "version": version,
             "url": url,
             "filename": filename,
             "sha256": sha256,
         }
+        if allow_unverified:
+            normalized["allow_unverified"] = True
+        return normalized
 
     @classmethod
     def _install_database_source_atomic(
@@ -648,20 +625,20 @@ class DatabaseManager:
             ),
             None,
         )
-        sha256 = None
-        if sha256_file:
-            sha256_url = sha256_file.get("links", {}).get("self")
-            if sha256_url:
-                try:
-                    sha256_text = cls._fetch_text(sha256_url)
-                except (HTTPError, URLError, TimeoutError, ValueError) as exc:
-                    logger.warning(
-                        "Could not retrieve SHA256 sidecar for Zenodo record %s: %s",
-                        record.get("id") or record.get("recid") or "unknown",
-                        exc,
-                    )
-                else:
-                    sha256 = sha256_text.split()[0] if sha256_text else None
+        if sha256_file is None:
+            raise ValueError(f"Zenodo archive {archive_name} has no SHA-256 sidecar")
+
+        sha256_url = sha256_file.get("links", {}).get("self")
+        if not sha256_url:
+            raise ValueError(
+                f"Zenodo archive {archive_name} has no SHA-256 sidecar download link"
+            )
+        sha256_text = cls._fetch_text(sha256_url)
+        sha256 = sha256_text.split()[0] if sha256_text else ""
+        if re.fullmatch(r"[0-9a-fA-F]{64}", sha256) is None:
+            raise ValueError(
+                f"Zenodo archive {archive_name} has an invalid SHA-256 sidecar"
+            )
 
         return {
             "version": cls.normalize_version_label(

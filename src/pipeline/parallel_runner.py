@@ -1,13 +1,18 @@
 """GVClass pipeline execution engine."""
 
-from pathlib import Path
-from typing import List, Dict, Any, Optional, Tuple
 import logging
+import tarfile
 import traceback
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
+from pathlib import Path
+from typing import Any
 
-from src.pipeline.query_processor import run_query_processing
+from src.core.quality_models import (
+    create_experimental_quality_scorer,
+    experimental_model_profile,
+)
 from src.pipeline.progress_events import emit_progress_event
+from src.pipeline.query_processor import run_query_processing
 from src.pipeline.run_status import (
     RunStatusRecorder,
     query_completion_state_in_run_status,
@@ -30,10 +35,10 @@ DEFAULT_GENETIC_CODES = (0, 1, 4, 6, 11, 15, 29, 106, 129)
 def validate_and_setup_task(
     query_dir: str,
     output_dir: str,
-    database_path: Optional[str] = None,
+    database_path: str | None = None,
     allow_short: bool = False,
-    min_sequence_length: Optional[int] = None,
-) -> Dict[str, Any]:
+    min_sequence_length: int | None = None,
+) -> dict[str, Any]:
     """Validate inputs and setup directories."""
     logger = logging.getLogger("gvclass_runner")
     logger.info(f"Validating inputs - Query: {query_dir}, Output: {output_dir}")
@@ -51,7 +56,7 @@ def validate_and_setup_task(
         query_files.extend(query_path.glob(f"*{ext}"))
     query_files = sorted(query_files)
 
-    files_by_stem: Dict[str, List[Path]] = {}
+    files_by_stem: dict[str, list[Path]] = {}
     for query_file in query_files:
         files_by_stem.setdefault(query_file.stem, []).append(query_file)
     collisions = {
@@ -85,7 +90,7 @@ def process_query_task(
     query_file: Path,
     output_base: Path,
     database_path: Path,
-    genetic_codes: List[int],
+    genetic_codes: list[int],
     tree_method: str,
     mode_fast: bool,
     completeness_mode: str = "novelty-aware",
@@ -93,8 +98,9 @@ def process_query_task(
     threads: int = 4,
     species_tree: bool = False,
     species_tree_trim: str = "witchi",
-    run_status: Optional[RunStatusRecorder] = None,
-) -> Dict[str, Any]:
+    run_status: RunStatusRecorder | None = None,
+    quality_models: str = "bundled",
+) -> dict[str, Any]:
     """
     Process a single query through the entire pipeline.
     This is the main unit of parallelization.
@@ -112,10 +118,11 @@ def process_query_task(
         species_tree=species_tree,
         species_tree_trim=species_tree_trim,
         run_status=run_status,
+        quality_models=quality_models,
     )
 
 
-def create_final_summary_task(results: List[Dict[str, Any]], output_dir: Path) -> Path:
+def create_final_summary_task(results: list[dict[str, Any]], output_dir: Path) -> Path:
     """Create the final summary file combining all results."""
     logger = logging.getLogger("gvclass_runner")
     logger.info(f"Creating final summary for {len(results)} queries")
@@ -135,8 +142,8 @@ def calculate_optimal_workers(
     n_queries: int,
     total_threads: int,
     min_threads_per_worker: int = 4,
-    max_workers: Optional[int] = None,
-) -> Tuple[int, int]:
+    max_workers: int | None = None,
+) -> tuple[int, int]:
     """
     Calculate optimal number of workers and threads per worker.
 
@@ -184,54 +191,98 @@ def calculate_optimal_workers(
         n_workers = max(1, n_workers)
         threads_per_worker = total_threads // n_workers
 
-    return max(1, n_workers), max(min_threads_per_worker, threads_per_worker)
+    return max(1, n_workers), max(1, threads_per_worker)
 
 
-def _query_is_resume_complete(output_path: Path, query_name: str, logger) -> bool:
-    """Return True when ``query_name`` is safe to skip under ``--resume``.
-
-    Preferred gate: the consolidated ``run_status.json`` manifest. For
-    backward compatibility, v1.4.3+ ``<query_name>.SUCCESS`` files are still
-    accepted, followed by the pre-1.4.3 ``<query_name>.summary.tab`` +
-    ``<query_name>.tar.gz`` fallback.
-    """
-    import tarfile
-
+def _has_completed_query_artifacts(
+    output_path: Path,
+    query_name: str,
+    logger: logging.Logger,
+) -> bool:
+    """Check current manifests or legacy completion artifacts."""
     manifest_state = query_completion_state_in_run_status(output_path, query_name)
-    if manifest_state is not None:
-        return manifest_state
-
-    sentinel = output_path / f"{query_name}.SUCCESS"
-    if sentinel.exists():
-        logger.info(
-            f"Resume mode: accepting legacy SUCCESS sentinel for {query_name}. "
-            "New runs write run_status.json instead."
-        )
-        return True
-
-    summary_file = output_path / f"{query_name}.summary.tab"
-    tar_file = output_path / f"{query_name}.tar.gz"
-    if not (summary_file.exists() and tar_file.exists()):
+    if manifest_state is False:
         return False
-    try:
-        if not tarfile.is_tarfile(tar_file):
-            logger.warning(
-                f"Legacy resume fallback: tar file is malformed, re-processing {query_name}"
+
+    if manifest_state is None:
+        sentinel = output_path / f"{query_name}.SUCCESS"
+        if sentinel.exists():
+            logger.info(
+                "Found legacy SUCCESS sentinel for %s; checking the saved summary.",
+                query_name,
             )
-            return False
-    except (OSError, tarfile.TarError) as exc:
-        logger.warning(
-            f"Legacy resume fallback: cannot verify {tar_file} ({exc}); re-processing {query_name}"
-        )
-        return False
-    logger.info(
-        f"Legacy resume fallback: accepting pre-v1.4.3 outputs for {query_name} "
-        "(not recorded in run_status.json). Re-run without --resume to upgrade."
-    )
+        else:
+            summary_file = output_path / f"{query_name}.summary.tab"
+            tar_file = output_path / f"{query_name}.tar.gz"
+            if not (summary_file.exists() and tar_file.exists()):
+                return False
+            try:
+                if not tarfile.is_tarfile(tar_file):
+                    logger.warning(
+                        "Malformed legacy archive; re-processing %s", query_name
+                    )
+                    return False
+            except (OSError, tarfile.TarError) as exc:
+                logger.warning(
+                    "Cannot verify %s (%s); re-processing %s",
+                    tar_file,
+                    exc,
+                    query_name,
+                )
+                return False
+            logger.info("Found pre-manifest outputs for %s", query_name)
     return True
 
 
-def _apply_resume_filter(config: Dict[str, Any], resume: bool, logger) -> None:
+def _query_is_resume_complete(
+    output_path: Path,
+    query_name: str,
+    logger: logging.Logger,
+    quality_models: str = "bundled",
+    quality_model_profile: str = "bundled",
+) -> bool:
+    """Require completed artifacts, current support fields and the selected models."""
+    if not _has_completed_query_artifacts(output_path, query_name, logger):
+        return False
+
+    saved_results = read_individual_summary_results(output_path, [query_name])
+    required_quality_fields = {
+        "completeness_query_support",
+        "estimated_completeness_strategy",
+        "completeness_model_group",
+        "completeness_model_reliability",
+        "contamination_query_support",
+        "estimated_contamination_strategy",
+        "contamination_model_reliability",
+    }
+    if not saved_results:
+        logger.warning("No readable summary for %s; re-processing", query_name)
+        return False
+    summary_data = saved_results[0]["summary_data"]
+    if (summary_data.get("quality_models") or "bundled") != quality_models or (
+        summary_data.get("quality_model_profile") or "bundled"
+    ) != quality_model_profile:
+        logger.info("Quality model settings changed; re-processing %s", query_name)
+        return False
+    missing_fields = sorted(
+        field
+        for field in required_quality_fields
+        if not str(summary_data.get(field, "")).strip()
+    )
+    if missing_fields:
+        logger.warning(
+            "Resume mode: saved summary for %s lacks current quality fields (%s); "
+            "re-processing",
+            query_name,
+            ", ".join(missing_fields),
+        )
+        return False
+    return True
+
+
+def _apply_resume_filter(
+    config: dict[str, Any], *, resume: bool, logger: logging.Logger
+) -> None:
     config["resume_skipped_query_names"] = []
     if not resume:
         return
@@ -241,7 +292,13 @@ def _apply_resume_filter(config: Dict[str, Any], resume: bool, logger) -> None:
     skipped_count = 0
     for query_file in list(config["query_files"]):
         query_name = query_file.stem
-        if _query_is_resume_complete(output_path, query_name, logger):
+        if _query_is_resume_complete(
+            output_path,
+            query_name,
+            logger,
+            config.get("quality_models", "bundled"),
+            config.get("quality_model_profile", "bundled"),
+        ):
             logger.info(f"Skipping completed query: {query_name}")
             config["resume_skipped_query_names"].append(query_name)
             skipped_count += 1
@@ -257,9 +314,9 @@ def _apply_resume_filter(config: Dict[str, Any], resume: bool, logger) -> None:
 def _resolve_worker_distribution(
     n_queries: int,
     total_threads: int,
-    max_workers: Optional[int],
-    threads_per_worker: Optional[int],
-) -> Tuple[int, int]:
+    max_workers: int | None,
+    threads_per_worker: int | None,
+) -> tuple[int, int]:
     if threads_per_worker is None:
         return calculate_optimal_workers(
             n_queries=n_queries,
@@ -277,9 +334,9 @@ def _resolve_worker_distribution(
 
 def _submit_query_jobs(
     executor: ThreadPoolExecutor,
-    query_files: List[Path],
-    config: Dict[str, Any],
-    genetic_codes: List[int],
+    query_files: list[Path],
+    config: dict[str, Any],
+    genetic_codes: list[int],
     tree_method: str,
     mode_fast: bool,
     completeness_mode: str,
@@ -287,9 +344,10 @@ def _submit_query_jobs(
     threads_per_worker: int,
     species_tree: bool = False,
     species_tree_trim: str = "witchi",
-    run_status: Optional[RunStatusRecorder] = None,
-) -> Dict[Future, Path]:
-    future_to_query: Dict[Future, Path] = {}
+    run_status: RunStatusRecorder | None = None,
+    quality_models: str = "bundled",
+) -> dict[Future, Path]:
+    future_to_query: dict[Future, Path] = {}
     for query_file in query_files:
         future = executor.submit(
             process_query_task,
@@ -305,17 +363,18 @@ def _submit_query_jobs(
             species_tree=species_tree,
             species_tree_trim=species_tree_trim,
             run_status=run_status,
+            quality_models=quality_models,
         )
         future_to_query[future] = query_file
     return future_to_query
 
 
 def _collect_query_results(
-    future_to_query: Dict[Future, Path],
+    future_to_query: dict[Future, Path],
     logger,
-    run_status: Optional[RunStatusRecorder] = None,
-) -> List[Dict[str, Any]]:
-    results: List[Dict[str, Any]] = []
+    run_status: RunStatusRecorder | None = None,
+) -> list[dict[str, Any]]:
+    results: list[dict[str, Any]] = []
     for future in as_completed(future_to_query):
         query_file = future_to_query[future]
         try:
@@ -342,9 +401,9 @@ def _collect_query_results(
 
 
 def _process_queries_in_parallel(
-    config: Dict[str, Any],
+    config: dict[str, Any],
     n_workers: int,
-    genetic_codes: List[int],
+    genetic_codes: list[int],
     tree_method: str,
     mode_fast: bool,
     completeness_mode: str,
@@ -353,8 +412,9 @@ def _process_queries_in_parallel(
     logger,
     species_tree: bool = False,
     species_tree_trim: str = "witchi",
-    run_status: Optional[RunStatusRecorder] = None,
-) -> Tuple[List[Dict[str, Any]], int]:
+    run_status: RunStatusRecorder | None = None,
+    quality_models: str = "bundled",
+) -> tuple[list[dict[str, Any]], int]:
     query_files = list(config["query_files"])
     total_queries = len(query_files)
     logger.info(
@@ -375,19 +435,20 @@ def _process_queries_in_parallel(
             species_tree=species_tree,
             species_tree_trim=species_tree_trim,
             run_status=run_status,
+            quality_models=quality_models,
         )
         results = _collect_query_results(future_to_query, logger, run_status)
 
     return results, total_queries
 
 
-def _count_completed(results: List[Dict[str, Any]]) -> int:
+def _count_completed(results: list[dict[str, Any]]) -> int:
     return len([result for result in results if result["status"] == "complete"])
 
 
 def _combine_with_resume_skipped_results(
-    config: Dict[str, Any], results: List[Dict[str, Any]], logger
-) -> List[Dict[str, Any]]:
+    config: dict[str, Any], results: list[dict[str, Any]], logger: logging.Logger
+) -> list[dict[str, Any]]:
     skipped_names = config.get("resume_skipped_query_names", [])
     if not skipped_names:
         return results
@@ -416,26 +477,33 @@ def _combine_with_resume_skipped_results(
 def gvclass_flow(
     query_dir: str,
     output_dir: str,
-    database_path: Optional[str] = None,
+    database_path: str | None = None,
     total_threads: int = 16,
-    max_workers: Optional[int] = None,
-    threads_per_worker: Optional[int] = None,
+    max_workers: int | None = None,
+    threads_per_worker: int | None = None,
     tree_method: str = "veryfasttree",
     iqtree_mode: str = "fast",
     mode_fast: bool = True,
     completeness_mode: str = "novelty-aware",
     sensitive_mode: bool = True,
     cluster_type: str = "local",
-    cluster_config: Optional[Dict[str, Any]] = None,
+    cluster_config: dict[str, Any] | None = None,
     resume: bool = False,
     allow_short: bool = False,
-    min_sequence_length: Optional[int] = None,
+    min_sequence_length: int | None = None,
     species_tree: bool = False,
     species_tree_combined: bool = False,
     species_tree_trim: str = "witchi",
+    quality_models: str = "bundled",
 ):
     """Main GVClass pipeline."""
     logger = logging.getLogger("gvclass_runner")
+    if quality_models not in {"bundled", "experimental"}:
+        raise ValueError(f"Unknown quality model set: {quality_models!r}")
+    if quality_models == "experimental" and (mode_fast or not sensitive_mode):
+        raise ValueError(
+            "Experimental quality models require extended mode and sensitive search."
+        )
     if species_tree_combined:
         species_tree = True  # --species-tree-combined implies --species-tree
     from src.core.alignment import configure_iqtree
@@ -450,7 +518,14 @@ def gvclass_flow(
         min_sequence_length=min_sequence_length,
     )
     all_query_names = [query_file.stem for query_file in config["query_files"]]
-    _apply_resume_filter(config, resume, logger)
+    config["quality_models"] = quality_models
+    config["quality_model_profile"] = "bundled"
+    if quality_models == "experimental":
+        create_experimental_quality_scorer(config["database_path"])
+        config["quality_model_profile"] = experimental_model_profile(
+            mode_fast=mode_fast, sensitive_mode=sensitive_mode
+        )
+    _apply_resume_filter(config, resume=resume, logger=logger)
 
     n_queries = len(config["query_files"])
     logger.info(f"Found {n_queries} queries to process")
@@ -465,6 +540,8 @@ def gvclass_flow(
             "iqtree_mode": iqtree_mode,
             "mode_fast": mode_fast,
             "completeness_mode": completeness_mode,
+            "quality_models": quality_models,
+            "quality_model_profile": config["quality_model_profile"],
             "sensitive_mode": sensitive_mode,
             "total_threads": total_threads,
             "max_workers": max_workers,
@@ -562,6 +639,7 @@ def gvclass_flow(
             species_tree=species_tree,
             species_tree_trim=species_tree_trim,
             run_status=run_status,
+            quality_models=quality_models,
         )
         completed_count = _count_completed(results)
         logger.info(

@@ -48,32 +48,37 @@ class TreeAnalyzer:
 
     def load_labels(self) -> Dict[str, str]:
         """Load taxonomy labels from file."""
-        labels = {}
+        labels: dict[str, str] = {}
+        line_count = 0
         try:
-            with open(self.labels_file, "r") as f:
-                line_count = 0
-                for line in f:
-                    line_count += 1
-                    if line.startswith("#"):
+            with self.labels_file.open(encoding="utf-8") as handle:
+                for line_count, line in enumerate(handle, start=1):
+                    stripped = line.rstrip("\r\n")
+                    if not stripped or stripped.startswith("#"):
                         continue
-                    parts = line.strip().split("\t")
-                    if len(parts) >= 2:
-                        genome_id = parts[0]
-                        # Store the full taxonomy string
-                        labels[genome_id] = parts[1]
-            logger.info(
-                f"Loaded {len(labels)} labels from {line_count} lines in {self.labels_file}"
+                    parts = stripped.split("\t")
+                    if len(parts) != 2 or not parts[0] or not parts[1]:
+                        raise ValueError(
+                            f"Malformed required taxonomy label record in "
+                            f"{self.labels_file} at line {line_count}: expected "
+                            "nonempty genome ID and taxonomy separated by one tab"
+                        )
+                    labels[parts[0]] = parts[1]
+        except OSError as exc:
+            raise OSError(
+                f"Failed to read required taxonomy labels {self.labels_file}: {exc}"
+            ) from exc
+
+        if not labels:
+            raise ValueError(
+                f"Required taxonomy labels file {self.labels_file} has no records"
             )
-            if len(labels) == 0:
-                logger.warning(f"No labels were loaded from {self.labels_file}!")
-                # Show first few lines for debugging
-                with open(self.labels_file, "r") as f:
-                    first_lines = [f.readline() for _ in range(5)]
-                logger.warning(f"First 5 lines of labels file: {first_lines}")
-        except Exception as e:
-            logger.error(f"Error loading labels: {e}")
-            logger.error(f"Labels file path: {self.labels_file}")
-            logger.error(f"File exists: {self.labels_file.exists()}")
+        logger.info(
+            "Loaded %d labels from %d lines in %s",
+            len(labels),
+            line_count,
+            self.labels_file,
+        )
 
         return labels
 
@@ -135,8 +140,10 @@ class TreeAnalyzer:
                 if nearest:
                     neighbors[query_node.name] = {nearest: distance}
 
-        except Exception as e:
-            logger.error(f"Error processing tree {tree_file}: {e}")
+        except Exception as exc:
+            raise RuntimeError(
+                f"Failed to parse or search phylogenetic tree {tree_file}: {exc}"
+            ) from exc
 
         return neighbors
 
@@ -160,14 +167,10 @@ class TreeAnalyzer:
         # Get all non-query leaf nodes
         for node in tree.iter_leaves():
             if not _is_query_leaf(node.name, query_id):
-                try:
-                    distance = tree.get_distance(query_node.name, node.name)
-                    if distance < min_distance:
-                        min_distance = distance
-                        nearest_neighbor = node.name
-                except Exception:
-                    # Skip if distance calculation fails
-                    continue
+                distance = tree.get_distance(query_node.name, node.name)
+                if distance < min_distance:
+                    min_distance = distance
+                    nearest_neighbor = node.name
 
         return nearest_neighbor, min_distance
 
@@ -217,9 +220,10 @@ class TreeAnalyzer:
 
         try:
             tree = Tree(str(tree_file))
-        except Exception as exc:  # pragma: no cover - malformed newick guard
-            logger.error(f"Error loading tree {tree_file}: {exc}")
-            return []
+        except Exception as exc:
+            raise ValueError(
+                f"Failed to parse phylogenetic tree {tree_file}: {exc}"
+            ) from exc
 
         prefixes = _prefix_tuple(keep_prefix)
         query_nodes = [
@@ -239,10 +243,7 @@ class TreeAnalyzer:
         for candidate in candidates:
             min_dist = float("inf")
             for query_node in query_nodes:
-                try:
-                    dist = tree.get_distance(query_node, candidate)
-                except Exception:
-                    continue
+                dist = tree.get_distance(query_node, candidate)
                 if dist < min_dist:
                     min_dist = dist
             if min_dist == float("inf"):
@@ -382,15 +383,21 @@ class TreeAnalyzer:
         return None
 
     def process_marker_trees(
-        self, tree_dir: Path, query_id: str, output_file: Path
+        self,
+        tree_dir: Path,
+        query_id: str,
+        output_file: Path,
+        *,
+        tree_paths: Sequence[Path] | None = None,
     ) -> Dict[str, Dict[str, Dict[str, float]]]:
-        """
-        Process all marker trees for a query and write results.
+        """Process marker trees for a query and write results.
 
         Args:
             tree_dir: Directory containing tree files
             query_id: Query genome identifier
             output_file: Path to output file
+            tree_paths: Exact tree files from the current attempt. When omitted,
+                scan ``tree_dir`` for compatibility with existing callers.
 
         Returns:
             Dictionary of all neighbors by marker
@@ -401,8 +408,14 @@ class TreeAnalyzer:
         logger.info(f"Output file will be: {output_file}")
 
         # Process each tree file in deterministic order
-        tree_files = sorted(tree_dir.glob("*.treefile"))
-        skipped_files = sorted(tree_dir.glob("*.SKIPPED"))
+        tree_files = (
+            sorted(tree_paths)
+            if tree_paths is not None
+            else sorted(tree_dir.glob("*.treefile"))
+        )
+        skipped_files = (
+            [] if tree_paths is not None else sorted(tree_dir.glob("*.SKIPPED"))
+        )
         logger.info(f"Found {len(tree_files)} tree files to process")
         if skipped_files:
             logger.info(

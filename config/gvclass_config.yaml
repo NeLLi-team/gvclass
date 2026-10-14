@@ -26,6 +26,8 @@ pipeline:
   mode_fast: true
   # Completeness estimate to surface in the summary tables
   completeness_mode: novelty-aware
+  # Experimental candidates require the separate candidate resource files.
+  quality_models: bundled
   # Sensitive mode - enabled by default, uses E-value 1e-5 instead of GA cutoffs
   sensitive_mode: true
   # Minimum contig length (bp) used in --contigs mode when splitting files.
