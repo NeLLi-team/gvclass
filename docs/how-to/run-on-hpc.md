@@ -98,4 +98,4 @@ During release review, the database cache stays at the public v2.0.0 path, `~/.c
 | `--image PATH_OR_URI` | Select a local SIF or another image URI (implies `--apptainer`) |
 | `--resource-cache-dir PATH` | Select a writable database cache directory |
 
-All standard pipeline and species-tree flags (`--species-tree`, `--species-tree-combined`, `--resume`, etc.) are forwarded into the container. See the [CLI reference](../reference/cli.md) for supported options.
+All standard pipeline, quality-model and species-tree flags (`--quality-models`, `--species-tree`, `--species-tree-combined`, `--resume`, etc.) are forwarded into the container; `--config`, `--database` and the cluster options are native-only. See the [CLI reference](../reference/cli.md) for supported options.

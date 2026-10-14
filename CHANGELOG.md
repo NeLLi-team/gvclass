@@ -31,7 +31,8 @@ until the v2.1.0 archive is approved and published.
 
 - Unified `gvclass` and `gvclass-a` into a single `gvclass` entrypoint supporting
   both local execution and Apptainer containers (`--apptainer`, `--image`, and
-  standalone `wget` fallback) with CLI flag forwarding.
+  standalone `wget` fallback). Container mode forwards the analysis options;
+  `--config`, `--database` and the cluster options work only in native mode.
 - Consolidated `src/test/` into `tests/`, moved benchmark helpers to `scripts/`,
   and removed legacy `src/bin/gvclass_*.sh` wrappers.
 - A eukaryotic domain is now assigned only when its markers are at least 80% of the
@@ -41,6 +42,11 @@ until the v2.1.0 archive is approved and published.
   correct domain (5 remain; 12 of 12 eukaryotic single cells keep their call). A
   domain that fails the test is left unassigned and `taxonomy_confidence`
   reports `mixed_cellular`. Bacterial, archaeal, and viral calls are unchanged.
+- Weighted marker completeness (`weighted_order_completeness` in the per-query
+  `.summary.tab`) fits its adaptive scaler on the base weights it is applied to,
+  and averages repeated marker rows when it falls back to all orders. These
+  values can differ from 2.0.3; the headline completeness columns are not
+  computed from them.
 - Database setup uses one source: the environment override, configured archive,
   or built-in default. It does not replace that source with a moving Zenodo
   release or fall back to an older resource schema. An automatically discovered
@@ -63,22 +69,28 @@ until the v2.1.0 archive is approved and published.
 - Markers with two unequal-length sequences skip tree building before
   alignment validation. Automatic worker allocation respects
   requested thread budgets below four.
-- Species-tree placement no longer misclassifies `|`-delimited reference leaves as
-  queries; top-down consensus filters strictly along the winning parent lineage;
-  `witchi` pruning guards `<4`-column/taxon matrices; marker hit ties break
-  deterministically by protein ID.
-- Contigs-mode contamination resolves `{parent}__{contig}` query names; cellular
-  contig density cap reads `max_len=200.0` from model metadata; novelty-aware
-  completeness preserves `completeness_strategy` and logs fallbacks.
-- `TreeBuilder` passes per-call thread budgets instead of mutating shared instance
-  state across worker threads; IQ-TREE cleans up stale files before non-`-fast`
-  retries; empty `.faa` inputs fail fast; YAML `species_tree` settings are
-  preserved when CLI flags are omitted.
+- Nearest-neighbor search in marker trees and species-tree representative
+  selection no longer treat a reference leaf whose name starts with the query ID
+  (for example `G10|c_1` for query `G1`) as a query leaf.
+- A contig is counted once in the contamination features when its reformatted
+  nucleotide record (`<parent>__<contig>|<contig>`) and its protein records name
+  it differently. A single 24 kb contig with five cellular-marker proteins used to
+  count as two contigs and reported 5.9% suspicious bases instead of 100%.
+- Marker FASTA files list their hit sequences in sorted order. Temporary files of
+  marker trimming and of species-tree reference subsets are removed when a step
+  fails, and subset files carry a process and thread suffix.
+- A query whose working directory would contain its own input file stops with an
+  error instead of moving or deleting the input.
+- Cached container images from different HTTPS addresses no longer share a file
+  name. `--sensitive` with `--no-sensitive` resolves to non-sensitive in container
+  mode, as in native mode. `--apptainer .` names its output from the resolved
+  directory. An unrelated `src/` directory next to the launcher no longer counts
+  as a GVClass checkout. `--threads-per-worker` is capped at `--threads`.
 
 ### Performance
 
-- Cut peak worker RSS by ~28% via lazy PyArrow predicate pushdown and narrow
-  2-column label projection in `CompactResourceStore`, plus bounded HMM LRU caching.
+- Each worker thread reuses one summarizer, and contamination scoring parses the
+  BLAST output once per query instead of twice. No benchmark figure is claimed.
 
 ### Release checks
 
