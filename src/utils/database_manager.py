@@ -149,7 +149,7 @@ class DatabaseManager:
         "version": "v2.1.0",
         "url": "https://zenodo.org/records/23381313/files/resources_v2_1_0.tar.gz?download=1",
         "filename": "resources_v2_1_0.tar.gz",
-        "sha256": "0ae424b8bd7fb46c1873cc424ac77fee81170a5762e1df53152e6d4da0559d98",
+        "sha256": "823023a0d9af82d6b01d7beeb1a12af422432c7c1e3a11b57f04130bfa7f5ee6",
     }
     DATABASE_VERSION = DEFAULT_DATABASE_SOURCE["version"]
 
