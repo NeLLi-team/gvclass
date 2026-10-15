@@ -72,7 +72,7 @@ def test_load_config_partial_pipeline_uses_defaults(tmp_path):
     assert config["pipeline"]["mode_fast"] is True
     assert config["pipeline"]["completeness_mode"] == "novelty-aware"
     # The whole database section must still be present.
-    assert config["database"]["download_version"] == "v2.0.0"
+    assert config["database"]["download_version"] == "v2.1.0"
     assert config["database"]["cache_path"] is None
 
 
@@ -130,7 +130,7 @@ def test_configure_resource_cache_sets_configured_path_for_resource_store(
 def test_load_config_empty_file_returns_defaults(tmp_path):
     config = _load(tmp_path, "# only a comment\n")
     assert config["pipeline"]["threads"] == 4
-    assert config["database"]["download_version"] == "v2.0.0"
+    assert config["database"]["download_version"] == "v2.1.0"
     assert config["quality"]["min_length"] == 20000
 
 

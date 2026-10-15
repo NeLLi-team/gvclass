@@ -11,9 +11,9 @@ database:
   # this key. Relative paths resolve inside the selected database directory.
   cache_path:
   # Release asset used for first-time setup.
-  download_url: https://zenodo.org/records/21225457/files/resources_v2_0_0.tar.gz?download=1
-  download_version: v2.0.0
-  download_sha256: df1c3a9d15a90307775f42f57e2a7c89436ed523883025f6fc94013035f5e066
+  download_url: https://zenodo.org/records/23381313/files/resources_v2_1_0.tar.gz?download=1
+  download_version: v2.1.0
+  download_sha256: 0ae424b8bd7fb46c1873cc424ac77fee81170a5762e1df53152e6d4da0559d98
 
 # Pipeline settings
 pipeline:

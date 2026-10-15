@@ -91,7 +91,7 @@ From: ghcr.io/prefix-dev/pixi@sha256:d2d0d941b89802e67a622e4adad68c8643f81154461
     Author fschulz
     Version 2.1.0
     Description GVClass - Giant Virus Classification Pipeline with Pixi
-    Database v2.0.0
+    Database v2.1.0
     ResourceCache /resource-cache
 
 %help
@@ -104,7 +104,7 @@ From: ghcr.io/prefix-dev/pixi@sha256:d2d0d941b89802e67a622e4adad68c8643f81154461
     
     Examples:
         # Run on example directory
-        singularity run -B $(pwd):/data -B $HOME/.cache/gvclass/resource-cache/v2.0.0:/resource-cache gvclass.sif /data/example -t 8
+        singularity run -B $(pwd):/data -B $HOME/.cache/gvclass/resource-cache/v2.1.0:/resource-cache gvclass.sif /data/example -t 8
         
         # Run on any query directory
         singularity run -B /home/user/genomes:/input gvclass.sif /input/my_queries -t 32

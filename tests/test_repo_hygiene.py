@@ -100,7 +100,7 @@ def test_apptainer_wrapper_copies_stay_in_sync() -> None:
     for line in [
         f'DEFAULT_IMAGE = "library://nelligroup-jgi/gvclass/gvclass:{_software_version()}"',
         f'SYLABS_IMAGE = "library://nelligroup-jgi/gvclass/gvclass:{_software_version()}"',
-        'Path.home() / ".cache" / "gvclass" / "resource-cache" / "v2.0.0"',
+        'Path.home() / ".cache" / "gvclass" / "resource-cache" / "v2.1.0"',
         "def ensure_local_image(image: str) -> str:",
         "def run_container(",
     ]:

@@ -130,7 +130,7 @@ def add_resource_box(ax):
     ax.text(
         6.375,
         6.13,
-        "GVClass database v2.0.0 · HMMs, references, taxonomy",
+        "GVClass database v2.1.0 · HMMs, references, taxonomy",
         ha="center",
         va="center",
         fontsize=9.0,

@@ -146,10 +146,10 @@ class DatabaseManager:
     }
 
     DEFAULT_DATABASE_SOURCE = {
-        "version": "v2.0.0",
-        "url": "https://zenodo.org/records/21225457/files/resources_v2_0_0.tar.gz?download=1",
-        "filename": "resources_v2_0_0.tar.gz",
-        "sha256": "df1c3a9d15a90307775f42f57e2a7c89436ed523883025f6fc94013035f5e066",
+        "version": "v2.1.0",
+        "url": "https://zenodo.org/records/23381313/files/resources_v2_1_0.tar.gz?download=1",
+        "filename": "resources_v2_1_0.tar.gz",
+        "sha256": "0ae424b8bd7fb46c1873cc424ac77fee81170a5762e1df53152e6d4da0559d98",
     }
     DATABASE_VERSION = DEFAULT_DATABASE_SOURCE["version"]
 

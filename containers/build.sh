@@ -65,7 +65,7 @@ build_sif_from_docker() {
 
 direct_build_ok=false
 if [ -n "${CONTAINER_RUNTIME}" ]; then
-    echo -e "\n${BLUE}Building ${SIF_IMAGE} directly from Apptainer definition (includes v2.0.0 database)...${NC}"
+    echo -e "\n${BLUE}Building ${SIF_IMAGE} directly from Apptainer definition (includes v2.1.0 database)...${NC}"
     if env "${RUNTIME_TMPDIR_VAR}=${BUILD_TMPDIR}" \
         "${CONTAINER_RUNTIME}" build --force "${SIF_IMAGE}" containers/apptainer/gvclass.def; then
         direct_build_ok=true
@@ -88,4 +88,4 @@ echo -e "\n${GREEN}Container build complete!${NC}"
 echo -e "\nUsage:"
 echo -e "  Apptainer:  apptainer run -B /path/to/data:/data ${SIF_IMAGE} /data/input_dir -t 32"
 echo -e "  Docker:     docker run -v /path/to/data:/data ${DOCKER_TAG} /data -t 32"
-echo -e "\nNote: The container includes the v2.0.0 compact database."
+echo -e "\nNote: The container includes the v2.1.0 compact database."

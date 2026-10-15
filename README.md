@@ -60,10 +60,11 @@ pixi run gvclass query_genomes -o species_tree_results -t 8 --species-tree-combi
 The trained contamination model is shipped in the runtime resource bundle at
 `resources/contamination/model.joblib`.
 
-The v2.0.0 runtime resource bundle is archived on Zenodo:
-https://doi.org/10.5281/zenodo.21225457
+The v2.1.0 runtime resource bundle is archived on Zenodo:
+https://doi.org/10.5281/zenodo.23381313
+(v2.0.0: https://doi.org/10.5281/zenodo.21225457; all versions: https://doi.org/10.5281/zenodo.18662445).
 
-The v2.1.0 candidate resource bundle is under review. Public database setup stays pinned to the v2.0.0 archive until the v2.1.0 archive is published. The 2.1.0 Apptainer image, `library://nelligroup-jgi/gvclass/gvclass:2.1.0`, is not available until the release passes the software, resource, and model checks.
+Database setup downloads the v2.1.0 archive. The 2.1.0 Apptainer image is `library://nelligroup-jgi/gvclass/gvclass:2.1.0`.
 
 Reference data sources:
 

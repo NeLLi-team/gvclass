@@ -117,13 +117,13 @@ unresolved.
 
 ## 4. Use experimental estimates
 
-The experimental models need a candidate resource tree that contains
+The experimental models need a resource tree that contains
 `quality_models/completeness.joblib` and `quality_models/contamination.joblib`
-with the hashes this GVClass version accepts. The public v2.0.0 resource download
-does not contain these files.
+with the hashes this GVClass version accepts. The v2.1.0 resource download
+contains these files.
 
 ```bash
-pixi run gvclass QUERY_DIR -o OUTPUT_DIR --database CANDIDATE_DB \
+pixi run gvclass QUERY_DIR -o OUTPUT_DIR --database resources \
   --quality-models experimental --extended --sensitive -t 4
 ```
 

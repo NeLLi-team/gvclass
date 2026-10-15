@@ -1,6 +1,6 @@
 # Marker annotations
 
-The 1671 HMM models in database v2.0.0 are listed below with their member proteins' majority functional annotation.
+The 1671 HMM models in database v2.1.0 are listed below with their member proteins' majority functional annotation.
 
 The [TSV download](marker-annotations.tsv) includes support counts (`majority_count`, `total_proteins`). See [marker panels and genetic codes](markers.md) for the summary metrics.
 

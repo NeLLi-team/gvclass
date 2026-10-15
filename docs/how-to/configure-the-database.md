@@ -12,11 +12,11 @@ cat resources/DB_VERSION
 
 Setup downloads and verifies the archive, then extracts it into `resources/`.
 The configured bundle is about 1.5 GB and is published on
-[Zenodo](https://doi.org/10.5281/zenodo.21225457). `DB_VERSION` records the installed
+[Zenodo](https://doi.org/10.5281/zenodo.23381313). `DB_VERSION` records the installed
 version.
 
 Setup uses one exact source. An explicit environment URL has precedence over the
-configuration block, which has precedence over the built-in v2.0.0 source. GVClass
+configuration block, which has precedence over the built-in v2.1.0 source. GVClass
 does not follow Zenodo's latest release or fall back to an older bundle. See the
 [configuration reference](../reference/configuration.md#database-keys) for the
 environment variables and checksum rules.
@@ -87,7 +87,7 @@ pixi run setup-db
 
 Setup and normal runs compare the installed `DB_VERSION` with the effective
 download source: the environment override, the configured source, or the built-in
-v2.0.0 default. When the installed bundle is older, GVClass downloads that exact
+v2.1.0 default. When the installed bundle is older, GVClass downloads that exact
 source. A newer Zenodo release does not replace it.
 
 An interactive run asks before replacing an older complete database.

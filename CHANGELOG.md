@@ -11,11 +11,9 @@ covers releases prior to v1.2.2.
 The runtime database/resource bundle is versioned separately from the software; the
 compatible bundle is noted per release.
 
-## [2.1.0] - Unreleased
+## [2.1.0] - 2026-10-14
 
-Compatible resource bundle: the v2.1.0 candidate bundle is under review. Public
-database setup remains pinned to v2.0.0 (Zenodo DOI 10.5281/zenodo.21225457)
-until the v2.1.0 archive is approved and published.
+Compatible resource bundle: v2.1.0 (Zenodo DOI 10.5281/zenodo.23381313).
 
 ### Added
 
@@ -129,8 +127,7 @@ until the v2.1.0 archive is approved and published.
   resource-backed golden regression. The workflow rejects a tag that differs
   from the software version, verifies the embedded resource and model
   identities, and retains the SIF and its SBOM before the Sylabs push. It
-  requires resource v2.1.0 and both experimental model bundles, so the current
-  v2.0.0 public recipe cannot publish a 2.1.0 image.
+  requires resource v2.1.0 and both experimental model bundles.
 
 ## [2.0.3] - 2026-07-27
 

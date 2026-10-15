@@ -36,11 +36,8 @@ The public recipes currently create a self-contained review image including:
 
 - Complete Pixi environment
 - All Python dependencies
-- Compact v2.0.0 reference database downloaded during the image build
+- Compact v2.1.0 reference database downloaded during the image build
 - GVClass source code
-
-This v2.0.0 resource image does not pass the 2.1.0 publication gate. The final
-recipe needs the approved v2.1.0 resource URL and checksum before release.
 
 ### Usage
 
@@ -61,7 +58,7 @@ singularity run \
     gvclass.sif /input -t 16
 ```
 
-The v2.0.0 resource bundle stores labels and marker proteins as Parquet inside
+The v2.1.0 resource bundle stores labels and marker proteins as Parquet inside
 the read-only SIF. GVClass materializes the TSV/FASTA views it needs under
 `GVCLASS_RESOURCE_CACHE`. Bind a host cache directory to
 `/resource-cache` for a persistent warm cache; otherwise the cache
@@ -116,7 +113,7 @@ docker run -v /path/to/data:/data gvclass:2.1.0 /data -t 32
 ## Container Features
 
 Both formats include:
-- **Database**: compact v2.0.0 reference database embedded in the final image; fetched during image creation rather than tracked in git
+- **Database**: compact v2.1.0 reference database embedded in the final image; fetched during image creation rather than tracked in git
 - **Dependencies**: All tools installed via Pixi
 - **Python packages**: pyhmmer, pyrodigal, veryfasttree, etc.
 - **Workflow**: direct GVClass pipeline execution with multi-threaded query parallelism

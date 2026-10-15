@@ -88,7 +88,7 @@ pixi run gvclass --help
 pixi run gvclass --version
 ```
 
-`--version` reports software version 2.1.0 and the installed database version. The public setup archive installs database v2.0.0.
+`--version` reports software version 2.1.0 and the installed database version. Database setup installs v2.1.0.
 
 ## Apptainer container mode
 
@@ -98,6 +98,6 @@ pixi run gvclass --version
 | --- | --- | --- |
 | `--apptainer` | flag | Execute inside the Apptainer SIF image (`library://nelligroup-jgi/gvclass/gvclass:2.1.0` by default). |
 | `--image` | path or URI | Local `.sif` path, `library://` URI, or `https://` URL (implies `--apptainer`). |
-| `--resource-cache-dir` | path; `~/.cache/gvclass/resource-cache/v2.0.0` | Writable host directory mounted at `/resource-cache` inside the container. |
+| `--resource-cache-dir` | path; `~/.cache/gvclass/resource-cache/v2.1.0` | Writable host directory mounted at `/resource-cache` inside the container. |
 
 All standard pipeline, species-tree, and resume flags (`-t`, `-j`, `--threads-per-worker`, `--tree-method`, `--iqtree-mode`, `--mode-fast`, `-e`/`--extended`, `--sensitive`, `--no-sensitive`, `--completeness-mode`, `--quality-models`, `--species-tree`, `--species-tree-combined`, `--species-tree-trim`, `-C`/`--contigs`, `--min-length`, `--contigs-min-length`, `--allow-short`, `--resume`, `--plain-output`, `-v`/`--verbose`) are forwarded to the container. `--config`, `--database` and the `--cluster-*` options are native-only and are rejected in container mode. When both `--sensitive` and `--no-sensitive` are given, `--no-sensitive` wins in both modes. See [run on HPC](../how-to/run-on-hpc.md) for container commands.

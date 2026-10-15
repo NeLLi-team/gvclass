@@ -1,6 +1,6 @@
 # Reference
 
-These pages describe the GVClass 2.1.0 source tree. The public setup archive installs database `DB_VERSION` v2.0.0.
+These pages describe GVClass 2.1.0. Database setup installs `DB_VERSION` v2.1.0.
 
 - [CLI](cli.md): command-line options and defaults.
 - [Configuration](configuration.md): YAML keys and setting precedence.
