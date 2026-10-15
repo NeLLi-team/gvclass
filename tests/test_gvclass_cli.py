@@ -1,16 +1,19 @@
 import os
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 import yaml
 
+from src.bin import gvclass_cli
 from src.bin.gvclass_cli import (
     BUILTIN_CONFIG_DEFAULTS,
+    RESOURCE_CACHE_ENV,
     CliOutput,
     ContigInput,
     PipelineContext,
-    RESOURCE_CACHE_ENV,
     WorkerPlan,
+    build_parser,
     build_pipeline_command,
     calculate_worker_plan,
     configure_resource_cache,
@@ -301,3 +304,40 @@ def test_build_pipeline_command_forwards_effective_min_length(tmp_path):
     )
 
     assert cmd[cmd.index("--min-length") + 1] == "5000"
+
+
+def test_cli_installs_effective_pin_instead_of_zenodo_latest(tmp_path, monkeypatch):
+    pinned = {
+        "version": "v2.0.0",
+        "url": "https://example.org/pinned.tar.gz",
+        "filename": "pinned.tar.gz",
+        "sha256": "a" * 64,
+    }
+    monkeypatch.setattr(
+        gvclass_cli,
+        "inspect_local_database_state",
+        Mock(return_value={"exists": False, "complete": False, "version": "missing"}),
+    )
+    monkeypatch.setattr(
+        DatabaseManager,
+        "get_latest_database_source",
+        Mock(return_value={"version": "v9.0.0"}),
+    )
+    monkeypatch.setattr(
+        DatabaseManager, "get_effective_database_source", Mock(return_value=pinned)
+    )
+    install = Mock(return_value=tmp_path)
+    monkeypatch.setattr(DatabaseManager, "setup_database", install)
+
+    assert gvclass_cli.check_and_setup_database(
+        tmp_path, {}, gvclass_cli.CliOutput(plain_output=True)
+    )
+
+    assert install.call_args.kwargs["preferred_source"] == pinned
+
+
+def test_parser_rejects_quality_models_option():
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(
+            ["example", "-o", "out", "--quality-models", "bundled"]
+        )

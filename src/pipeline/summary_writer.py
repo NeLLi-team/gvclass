@@ -11,12 +11,6 @@ from typing import Any, Dict, Iterable, List, Optional
 
 LEGACY_SUMMARY_HEADERS: List[str] = [
     "query",
-    "quality_models",
-    "quality_model_profile",
-    "experimental_completeness_status",
-    "experimental_completeness_detail",
-    "experimental_contamination_status",
-    "experimental_contamination_detail",
     "taxonomy_majority",
     "taxonomy_confidence",
     "species",
@@ -171,7 +165,6 @@ LEGACY_SUMMARY_KEY_MAPPING: Dict[str, str] = {
 
 FINAL_SUMMARY_COLUMNS: List[str] = [
     "query",
-    "quality_models",
     "taxonomy_majority",
     # Concatenated-marker species-tree placement — a strong phylogenomic signal,
     # so it sits up front next to the single-gene-consensus taxonomy_majority.
@@ -235,11 +228,6 @@ FINAL_SUMMARY_COLUMNS: List[str] = [
 # single-virus genomes and only meaningful under cellular contamination.
 EXTENDED_SUMMARY_COLUMNS: List[str] = [
     "query",
-    "quality_model_profile",
-    "experimental_completeness_status",
-    "experimental_completeness_detail",
-    "experimental_contamination_status",
-    "experimental_contamination_detail",
     "cellular_coherent_contig_count",
     "cellular_coherent_protein_fraction",
     "cellular_coherent_bp_fraction",

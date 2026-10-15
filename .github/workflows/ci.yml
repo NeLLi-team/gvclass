@@ -175,7 +175,6 @@ jobs:
 
           from src.core.contamination_scoring import CONTAMINATION_MODEL_SHA256
           from src.core.novelty_completeness import COMPLETENESS_MODEL_SHA256
-          from src.core.quality_models import create_experimental_quality_scorer
 
           expected_models = {
               Path("/opt/gvclass/resources/contamination/model.joblib"): CONTAMINATION_MODEL_SHA256,
@@ -190,9 +189,6 @@ jobs:
                       f"expected {expected_digest}, got {observed_digest}"
                   )
               print(f"Verified {model_path}: {observed_digest}")
-
-          create_experimental_quality_scorer(Path("/opt/gvclass/resources"))
-          print("Verified both experimental quality-model candidates")
           PY
 
       - name: Generate SBOM

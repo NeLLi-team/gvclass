@@ -148,7 +148,6 @@ def test_ci_enforces_static_analysis_and_hygiene() -> None:
     assert 'database_version}" != "v2.1.0"' in identity_step["run"]
     assert "CONTAMINATION_MODEL_SHA256" in identity_step["run"]
     assert "COMPLETENESS_MODEL_SHA256" in identity_step["run"]
-    assert "create_experimental_quality_scorer" in identity_step["run"]
     assert steps_by_name["Generate SBOM"]["with"]["image"] == "./gvclass.sif"
     artifact_step = steps_by_name["Upload SIF and SBOM artifacts"]
     assert "gvclass.sif" in artifact_step["with"]["path"]

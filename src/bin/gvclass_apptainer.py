@@ -77,7 +77,6 @@ def run_container(
     threads_per_worker: int | None = None,
     iqtree_mode: str | None = None,
     completeness_mode: str | None = None,
-    quality_models: str | None = None,
     species_tree: bool = False,
     species_tree_combined: bool = False,
     species_tree_trim: str | None = None,
@@ -150,8 +149,6 @@ def run_container(
         cmd.append("--sensitive")
     if completeness_mode:
         cmd.extend(["--completeness-mode", completeness_mode])
-    if quality_models:
-        cmd.extend(["--quality-models", quality_models])
     if contigs_mode:
         cmd.append("--contigs")
     if min_length is not None:
@@ -263,15 +260,6 @@ def _add_mode_args(parser: argparse.ArgumentParser) -> None:
         choices=["legacy", "novelty-aware"],
         default=None,
         help="Completeness estimator to surface as the primary estimate",
-    )
-    parser.add_argument(
-        "--quality-models",
-        choices=["bundled", "experimental"],
-        default=None,
-        help=(
-            "Quality model set; experimental needs extended mode, sensitive "
-            "search and nucleotide NCLDV input"
-        ),
     )
     parser.add_argument(
         "-C",
@@ -412,7 +400,6 @@ def main(argv: list[str] | None = None) -> int:
         threads_per_worker=args.threads_per_worker,
         iqtree_mode=args.iqtree_mode,
         completeness_mode=args.completeness_mode,
-        quality_models=args.quality_models,
         species_tree=args.species_tree,
         species_tree_combined=args.species_tree_combined,
         species_tree_trim=args.species_tree_trim,

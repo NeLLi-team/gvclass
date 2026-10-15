@@ -34,8 +34,7 @@ CLI flags override [configuration values](configuration.md), which override buil
 | `--mode-fast` | flag; enabled by default | Skip order-level marker trees; order-level HMM searches still run. |
 | `-e`, `--extended` | flag | Include order-level marker trees. Overrides fast mode. |
 | `--sensitive` | flag; enabled by default | Use `E=1e-5` and `domE=1e-5` instead of GA cutoffs. |
-| `--completeness-mode` | `legacy`, `novelty-aware`; `novelty-aware` | Estimator used for `estimated_completeness`. Applies only to bundled models. |
-| `--quality-models` | `bundled`, `experimental`; `bundled` | Quality model set. `experimental` selects the candidate completeness and contamination models from `quality_models/` in the resource bundle. It requires nucleotide input, an accepted NCLDV assignment, `--extended`, and sensitive search. |
+| `--completeness-mode` | `legacy`, `novelty-aware`; `novelty-aware` | Estimator used for `estimated_completeness`. |
 
 See [speed and tree settings](../how-to/tune-speed-and-accuracy.md) for examples.
 
@@ -100,4 +99,4 @@ pixi run gvclass --version
 | `--image` | path or URI | Local `.sif` path, `library://` URI, or `https://` URL (implies `--apptainer`). |
 | `--resource-cache-dir` | path; `~/.cache/gvclass/resource-cache/v2.1.0` | Writable host directory mounted at `/resource-cache` inside the container. |
 
-All standard pipeline, species-tree, and resume flags (`-t`, `-j`, `--threads-per-worker`, `--tree-method`, `--iqtree-mode`, `--mode-fast`, `-e`/`--extended`, `--sensitive`, `--no-sensitive`, `--completeness-mode`, `--quality-models`, `--species-tree`, `--species-tree-combined`, `--species-tree-trim`, `-C`/`--contigs`, `--min-length`, `--contigs-min-length`, `--allow-short`, `--resume`, `--plain-output`, `-v`/`--verbose`) are forwarded to the container. `--config`, `--database` and the `--cluster-*` options are native-only and are rejected in container mode. When both `--sensitive` and `--no-sensitive` are given, `--no-sensitive` wins in both modes. See [run on HPC](../how-to/run-on-hpc.md) for container commands.
+All standard pipeline, species-tree, and resume flags (`-t`, `-j`, `--threads-per-worker`, `--tree-method`, `--iqtree-mode`, `--mode-fast`, `-e`/`--extended`, `--sensitive`, `--no-sensitive`, `--completeness-mode`, `--species-tree`, `--species-tree-combined`, `--species-tree-trim`, `-C`/`--contigs`, `--min-length`, `--contigs-min-length`, `--allow-short`, `--resume`, `--plain-output`, `-v`/`--verbose`) are forwarded to the container. `--config`, `--database` and the `--cluster-*` options are native-only and are rejected in container mode. When both `--sensitive` and `--no-sensitive` are given, `--no-sensitive` wins in both modes. See [run on HPC](../how-to/run-on-hpc.md) for container commands.

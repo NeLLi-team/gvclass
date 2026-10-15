@@ -115,30 +115,5 @@ Keep the scores, support fields, marker evidence, and the reason for each
 curation decision. If the evidence is insufficient, record the quality as
 unresolved.
 
-## 4. Use experimental estimates
-
-The experimental models need a resource tree that contains
-`quality_models/completeness.joblib` and `quality_models/contamination.joblib`
-with the hashes this GVClass version accepts. The v2.1.0 resource download
-contains these files.
-
-```bash
-pixi run gvclass QUERY_DIR -o OUTPUT_DIR --database resources \
-  --quality-models experimental --extended --sensitive -t 4
-```
-
-Supply nucleotide inputs. Both candidates need an accepted NCLDV assignment;
-other domains, including Mirusviricota, return unavailable estimates. Read
-`quality_models`, the strategy and reliability fields, and the
-`experimental_completeness_*` and `experimental_contamination_*` status and
-detail fields in the extended table.
-
-Treat experimental contamination as an amount estimate for review.
-`contamination_type` stays `uncertain`. The models improve the average
-development error but show complete-genome and false-positive failures, which
-the [quality explanation](../explanation/quality-metrics.md#experimental-model-candidates)
-describes. `--resume` reprocesses a query when the model profile or its search
-settings change.
-
 All columns and archive paths are listed in the
 [output reference](../reference/output.md).

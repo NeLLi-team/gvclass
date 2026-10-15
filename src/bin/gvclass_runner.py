@@ -92,7 +92,6 @@ def run_flow(
     species_tree: bool = False,
     species_tree_combined: bool = False,
     species_tree_trim: str = "witchi",
-    quality_models: str = "bundled",
 ):
     return gvclass_flow(
         query_dir=str(query_path),
@@ -114,7 +113,6 @@ def run_flow(
         species_tree=species_tree,
         species_tree_combined=species_tree_combined,
         species_tree_trim=species_tree_trim,
-        quality_models=quality_models,
     )
 
 
@@ -181,7 +179,6 @@ def execute_cli_flow(
     species_tree: bool = False,
     species_tree_combined: bool = False,
     species_tree_trim: str = "witchi",
-    quality_models: str = "bundled",
 ):
     result = run_flow(
         query_path=query_path,
@@ -203,7 +200,6 @@ def execute_cli_flow(
         species_tree=species_tree,
         species_tree_combined=species_tree_combined,
         species_tree_trim=species_tree_trim,
-        quality_models=quality_models,
     )
     click.echo("\nPipeline completed successfully!")
     click.echo(f"Results written to: {result}")
@@ -255,13 +251,6 @@ def execute_cli_flow(
     "--sensitive/--no-sensitive",
     default=False,
     help="Sensitive HMM mode: use E-value 1e-5 instead of GA cutoffs",
-)
-@click.option(
-    "--quality-models",
-    default="bundled",
-    type=click.Choice(["bundled", "experimental"]),
-    show_default=True,
-    help="Use bundled quality models or the development-only candidate pair.",
 )
 @click.option(
     "--cluster-type",
@@ -345,7 +334,6 @@ def main(  # noqa: PLR0913  # Click supplies one keyword per declared option.
     species_tree: bool,
     species_tree_combined: bool,
     species_tree_trim: str,
-    quality_models: str,
 ) -> None:
     """Run the pipeline with resolved command-line settings."""
     log_level = "DEBUG" if verbose else "INFO"
@@ -390,7 +378,6 @@ def main(  # noqa: PLR0913  # Click supplies one keyword per declared option.
             species_tree=species_tree,
             species_tree_combined=species_tree_combined,
             species_tree_trim=species_tree_trim,
-            quality_models=quality_models,
         )
     except FileNotFoundError as exc:
         click.echo(f"Error: {exc}", err=True)

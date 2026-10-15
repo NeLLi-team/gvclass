@@ -27,7 +27,6 @@ pipeline:
   iqtree_mode: fast
   mode_fast: true
   completeness_mode: novelty-aware
-  quality_models: bundled
   sensitive_mode: true
   contigs_min_length: 10000
   threads: 4
@@ -62,8 +61,7 @@ Compact resource bundles can store labels and reference proteins as Parquet (`pa
 | `tree_method` | `veryfasttree` | Tree builder: `veryfasttree`, `iqtree`, or `fasttree` (alias for `veryfasttree`). |
 | `iqtree_mode` | `fast` | Species-tree IQ-TREE search: `fast` or `ufboot`. Per-marker trees use `--fast`. |
 | `mode_fast` | `true` | Skip order-level marker trees; retain order-level HMM searches. |
-| `completeness_mode` | `novelty-aware` | Primary completeness estimator for bundled models: `novelty-aware` or `legacy`. |
-| `quality_models` | `bundled` | Quality model set: `bundled` or `experimental`. Experimental models require the `quality_models/` files of the resource bundle, nucleotide input, an accepted NCLDV assignment, extended mode, and sensitive search. |
+| `completeness_mode` | `novelty-aware` | Primary completeness estimator: `novelty-aware` or `legacy`. |
 | `sensitive_mode` | `true` | Use `E=1e-5` and `domE=1e-5` instead of GA cutoffs. |
 | `contigs_min_length` | `10000` | Minimum contig length in bp for `--contigs`. |
 | `threads` | `4` | Total thread budget. |

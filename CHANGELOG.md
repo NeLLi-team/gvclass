@@ -15,16 +15,6 @@ compatible bundle is noted per release.
 
 Compatible resource bundle: v2.1.0 (Zenodo DOI 10.5281/zenodo.23381313).
 
-### Added
-
-- `--quality-models experimental` selects the family-union completeness and
-  composition-plus-regional contamination candidates from the resource bundle.
-  They require nucleotide input, accepted NCLDV taxonomy, extended mode and
-  sensitive search. Bundled models remain the default. Candidate estimates
-  retain support and reliability fields; experimental contamination has no
-  calibrated binary class. See the [quality assessment](docs/explanation/quality-metrics.md)
-  for development gains, complete-genome regressions and false-positive failures.
-
 ### Changed
 
 - Unified `gvclass` and `gvclass-a` into a single `gvclass` entrypoint supporting
@@ -85,8 +75,6 @@ Compatible resource bundle: v2.1.0 (Zenodo DOI 10.5281/zenodo.23381313).
   Retried queries retain prior work in a separate directory and use only
   current-attempt evidence. Sequence and GFF files are available
   before quality scoring. GFF phases match the gene caller's output.
-- Resume checks the selected model hashes, support policy and search settings
-  before reusing experimental estimates.
 - Markers with two unequal-length sequences skip tree building before
   alignment validation. Automatic worker allocation respects
   requested thread budgets below four.
@@ -127,7 +115,7 @@ Compatible resource bundle: v2.1.0 (Zenodo DOI 10.5281/zenodo.23381313).
   resource-backed golden regression. The workflow rejects a tag that differs
   from the software version, verifies the embedded resource and model
   identities, and retains the SIF and its SBOM before the Sylabs push. It
-  requires resource v2.1.0 and both experimental model bundles.
+  requires resource v2.1.0.
 
 ## [2.0.3] - 2026-07-27
 

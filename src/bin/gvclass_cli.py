@@ -137,7 +137,6 @@ class PipelineContext:
     n_input_files: int
     n_skipped: int
     workers: WorkerPlan
-    quality_models: str = "bundled"
 
 
 #: FASTA extensions (nucleotide + protein) that GVClass accepts as query
@@ -217,15 +216,6 @@ def _add_mode_arguments(parser: argparse.ArgumentParser) -> None:
         "--completeness-mode",
         choices=["legacy", "novelty-aware"],
         help="Completeness estimator to surface as the primary estimate",
-    )
-    parser.add_argument(
-        "--quality-models",
-        choices=["bundled", "experimental"],
-        help=(
-            "Quality model set (default: bundled). Experimental models require "
-            "the quality_models files of the resource bundle, nucleotide input, "
-            "extended and sensitive mode."
-        ),
     )
     parser.add_argument(
         "--plain-output",
@@ -368,7 +358,6 @@ BUILTIN_CONFIG_DEFAULTS = {
         "iqtree_mode": "fast",
         "mode_fast": True,
         "completeness_mode": "novelty-aware",
-        "quality_models": "bundled",
         "sensitive_mode": True,
         "contigs_min_length": DEFAULT_CONTIGS_MIN_LENGTH,
         "threads": 4,
@@ -527,16 +516,6 @@ def resolve_completeness_mode(args, config) -> str:
     # silently get legacy behavior while users with no config file got
     # novelty-aware — two "defaults" that quietly disagreed.
     return config["pipeline"].get("completeness_mode", "novelty-aware")
-
-
-def resolve_quality_models(args: argparse.Namespace, config: dict) -> str:
-    """Select bundled defaults or the development-only candidate pair."""
-    selected = args.quality_models or config["pipeline"].get(
-        "quality_models", "bundled"
-    )
-    if selected not in ("bundled", "experimental"):
-        raise ValueError(f"Unknown quality model set: {selected!r}")
-    return selected
 
 
 def _resolve_nonnegative_int(raw_value, setting_name: str) -> int:
@@ -982,8 +961,6 @@ def build_pipeline_command(
             args.cluster_type,
             "--min-length",
             str(context.validation_min_length),
-            "--quality-models",
-            context.quality_models,
         ]
     )
     _append_optional_pipeline_flags(
@@ -1237,12 +1214,7 @@ def resolve_pipeline_context(
     iqtree_mode = resolve_iqtree_mode(args, config)
     mode_fast = resolve_mode_fast(args, config)
     completeness_mode = resolve_completeness_mode(args, config)
-    quality_models = resolve_quality_models(args, config)
     sensitive_mode = resolve_sensitive_mode(args, config)
-    if quality_models == "experimental" and (mode_fast or not sensitive_mode):
-        raise ValueError(
-            "Experimental quality models require --extended and sensitive HMM search."
-        )
     input_min_length = resolve_input_min_length(args, config)
     contigs_min_length = resolve_contigs_min_length(args, config)
     validation_min_length = resolve_validation_min_length(
@@ -1298,7 +1270,6 @@ def resolve_pipeline_context(
         n_input_files=n_input_files,
         n_skipped=n_skipped,
         workers=workers,
-        quality_models=quality_models,
     )
 
 
@@ -1375,7 +1346,6 @@ def display_startup_configuration(
         tree_method=context.tree_method,
     )
     output.line(f"Completeness mode: {context.completeness_mode}")
-    output.line(f"Quality models: {context.quality_models}")
 
 
 def build_runtime_command(

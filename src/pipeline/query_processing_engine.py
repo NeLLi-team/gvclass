@@ -75,7 +75,6 @@ def process_single_query(
     species_tree: bool = False,
     species_tree_trim: str = "witchi",
     run_status: Optional[RunStatusRecorder] = None,
-    quality_models: str = "bundled",
 ) -> Dict[str, Any]:
     """Run the complete pipeline for one query."""
     logger = _pipeline_logger()
@@ -99,7 +98,6 @@ def process_single_query(
         sensitive_mode=sensitive_mode,
         threads=threads,
         logger=logger,
-        quality_models=quality_models,
     )
 
     # Species-tree per-query hook (the default product): runs while the per-query
@@ -161,7 +159,6 @@ def _run_query_stages(
     sensitive_mode: bool,
     threads: int,
     logger,
-    quality_models: str = "bundled",
 ) -> Tuple[PreparedQueryInput, Dict[str, Any]]:
     prepared_input = _prepare_query_input(
         query_file, query_output_dir, database_path, genetic_codes, threads, logger
@@ -213,7 +210,6 @@ def _run_query_stages(
         completeness_mode,
         sensitive_mode,
         logger,
-        quality_models=quality_models,
     )
     _emit_query_progress(query_name, 92, "summary_complete")
     return prepared_input, summary_data
@@ -842,9 +838,8 @@ def _get_thread_summarizer(
     database_path: Path,
     completeness_mode: str,
     sensitive_mode: bool,
-    quality_models: str = "bundled",
 ) -> FullSummarizer:
-    cache: Dict[Tuple[Any, str, str, bool, str], FullSummarizer] = getattr(
+    cache: dict[tuple[Any, str, str, bool], FullSummarizer] = getattr(
         _THREAD_LOCAL, "summarizers", None
     )
     if cache is None:
@@ -855,14 +850,12 @@ def _get_thread_summarizer(
         str(database_path.resolve()),
         completeness_mode,
         sensitive_mode,
-        quality_models,
     )
     if key not in cache:
         cache[key] = FullSummarizer(
             database_path,
             completeness_mode=completeness_mode,
             sensitive_mode=sensitive_mode,
-            quality_models=quality_models,
         )
     return cache[key]
 
@@ -876,7 +869,6 @@ def _generate_summary_data(
     completeness_mode: str,
     sensitive_mode: bool,
     logger,
-    quality_models: str = "bundled",
 ) -> Dict[str, Any]:
     logger.info(f"Generating full summary: {query_name}")
     try:
@@ -884,7 +876,6 @@ def _generate_summary_data(
             database_path,
             completeness_mode=completeness_mode,
             sensitive_mode=sensitive_mode,
-            quality_models=quality_models,
         )
         summary_data = summarizer.summarize_query_full(
             query_id=query_name,

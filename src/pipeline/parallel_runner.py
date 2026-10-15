@@ -7,10 +7,6 @@ from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
-from src.core.quality_models import (
-    create_experimental_quality_scorer,
-    experimental_model_profile,
-)
 from src.pipeline.progress_events import emit_progress_event
 from src.pipeline.query_processor import run_query_processing
 from src.pipeline.run_status import (
@@ -99,7 +95,6 @@ def process_query_task(
     species_tree: bool = False,
     species_tree_trim: str = "witchi",
     run_status: RunStatusRecorder | None = None,
-    quality_models: str = "bundled",
 ) -> dict[str, Any]:
     """
     Process a single query through the entire pipeline.
@@ -118,7 +113,6 @@ def process_query_task(
         species_tree=species_tree,
         species_tree_trim=species_tree_trim,
         run_status=run_status,
-        quality_models=quality_models,
     )
 
 
@@ -238,10 +232,8 @@ def _query_is_resume_complete(
     output_path: Path,
     query_name: str,
     logger: logging.Logger,
-    quality_models: str = "bundled",
-    quality_model_profile: str = "bundled",
 ) -> bool:
-    """Require completed artifacts, current support fields and the selected models."""
+    """Require completed artifacts and current quality support fields."""
     if not _has_completed_query_artifacts(output_path, query_name, logger):
         return False
 
@@ -259,11 +251,6 @@ def _query_is_resume_complete(
         logger.warning("No readable summary for %s; re-processing", query_name)
         return False
     summary_data = saved_results[0]["summary_data"]
-    if (summary_data.get("quality_models") or "bundled") != quality_models or (
-        summary_data.get("quality_model_profile") or "bundled"
-    ) != quality_model_profile:
-        logger.info("Quality model settings changed; re-processing %s", query_name)
-        return False
     missing_fields = sorted(
         field
         for field in required_quality_fields
@@ -292,13 +279,7 @@ def _apply_resume_filter(
     skipped_count = 0
     for query_file in list(config["query_files"]):
         query_name = query_file.stem
-        if _query_is_resume_complete(
-            output_path,
-            query_name,
-            logger,
-            config.get("quality_models", "bundled"),
-            config.get("quality_model_profile", "bundled"),
-        ):
+        if _query_is_resume_complete(output_path, query_name, logger):
             logger.info(f"Skipping completed query: {query_name}")
             config["resume_skipped_query_names"].append(query_name)
             skipped_count += 1
@@ -347,7 +328,6 @@ def _submit_query_jobs(
     species_tree: bool = False,
     species_tree_trim: str = "witchi",
     run_status: RunStatusRecorder | None = None,
-    quality_models: str = "bundled",
 ) -> dict[Future, Path]:
     future_to_query: dict[Future, Path] = {}
     for query_file in query_files:
@@ -365,7 +345,6 @@ def _submit_query_jobs(
             species_tree=species_tree,
             species_tree_trim=species_tree_trim,
             run_status=run_status,
-            quality_models=quality_models,
         )
         future_to_query[future] = query_file
     return future_to_query
@@ -415,7 +394,6 @@ def _process_queries_in_parallel(
     species_tree: bool = False,
     species_tree_trim: str = "witchi",
     run_status: RunStatusRecorder | None = None,
-    quality_models: str = "bundled",
 ) -> tuple[list[dict[str, Any]], int]:
     query_files = list(config["query_files"])
     total_queries = len(query_files)
@@ -437,7 +415,6 @@ def _process_queries_in_parallel(
             species_tree=species_tree,
             species_tree_trim=species_tree_trim,
             run_status=run_status,
-            quality_models=quality_models,
         )
         results = _collect_query_results(future_to_query, logger, run_status)
 
@@ -496,16 +473,9 @@ def gvclass_flow(
     species_tree: bool = False,
     species_tree_combined: bool = False,
     species_tree_trim: str = "witchi",
-    quality_models: str = "bundled",
 ):
     """Main GVClass pipeline."""
     logger = logging.getLogger("gvclass_runner")
-    if quality_models not in {"bundled", "experimental"}:
-        raise ValueError(f"Unknown quality model set: {quality_models!r}")
-    if quality_models == "experimental" and (mode_fast or not sensitive_mode):
-        raise ValueError(
-            "Experimental quality models require extended mode and sensitive search."
-        )
     if species_tree_combined:
         species_tree = True  # --species-tree-combined implies --species-tree
     from src.core.alignment import configure_iqtree
@@ -520,13 +490,6 @@ def gvclass_flow(
         min_sequence_length=min_sequence_length,
     )
     all_query_names = [query_file.stem for query_file in config["query_files"]]
-    config["quality_models"] = quality_models
-    config["quality_model_profile"] = "bundled"
-    if quality_models == "experimental":
-        create_experimental_quality_scorer(config["database_path"])
-        config["quality_model_profile"] = experimental_model_profile(
-            mode_fast=mode_fast, sensitive_mode=sensitive_mode
-        )
     _apply_resume_filter(config, resume=resume, logger=logger)
 
     n_queries = len(config["query_files"])
@@ -542,8 +505,6 @@ def gvclass_flow(
             "iqtree_mode": iqtree_mode,
             "mode_fast": mode_fast,
             "completeness_mode": completeness_mode,
-            "quality_models": quality_models,
-            "quality_model_profile": config["quality_model_profile"],
             "sensitive_mode": sensitive_mode,
             "total_threads": total_threads,
             "max_workers": max_workers,
@@ -641,7 +602,6 @@ def gvclass_flow(
             species_tree=species_tree,
             species_tree_trim=species_tree_trim,
             run_status=run_status,
-            quality_models=quality_models,
         )
         completed_count = _count_completed(results)
         logger.info(

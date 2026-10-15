@@ -16,15 +16,6 @@ from src.core.contamination_scoring import (
     create_contamination_scorer,
 )
 from src.core.novelty_completeness import create_novelty_completeness_scorer
-from src.core.quality_models import (
-    EXPERIMENTAL_COMPLETENESS_RELIABILITY,
-    EXPERIMENTAL_COMPLETENESS_STRATEGY,
-    EXPERIMENTAL_CONTAMINATION_RELIABILITY,
-    EXPERIMENTAL_CONTAMINATION_STRATEGY,
-    CandidateQualityPredictions,
-    create_experimental_quality_scorer,
-    experimental_model_profile,
-)
 from src.core.summarize import (
     consensus,
     labels_taxonomy,
@@ -93,7 +84,6 @@ class FullSummarizer:
         database_path: Path,
         completeness_mode: str = "legacy",
         sensitive_mode: bool = False,
-        quality_models: str = "bundled",
     ):
         """Initialize with database path.
 
@@ -108,12 +98,6 @@ class FullSummarizer:
         self.database_path = database_path
         self.completeness_mode = completeness_mode
         self.sensitive_mode = sensitive_mode
-        self.quality_models = quality_models
-        self.experimental_quality_scorer = (
-            create_experimental_quality_scorer(database_path)
-            if quality_models == "experimental"
-            else None
-        )
         self.labels_file = ResourceStore(database_path).label_path("labels.tsv")
         self.completeness_table = database_path / "markers" / "order_completeness.tab"
         self.order_stats_df = self._load_order_stats()
@@ -407,8 +391,6 @@ class FullSummarizer:
         """Generate full summary for a query matching original format."""
         basic_stats = paths_stats._load_basic_stats(query_id, query_output_dir)
         result = paths_stats._initialize_summary_result(query_id, basic_stats)
-        result["quality_models"] = self.quality_models
-        result["quality_model_profile"] = "bundled"
 
         (
             tax_counters,
@@ -464,59 +446,4 @@ class FullSummarizer:
             accepted_lineage=accepted_lineage,
             tree_nn_results=tree_nn_results,
         )
-        if self.experimental_quality_scorer is not None:
-            predictions = self.experimental_quality_scorer.score_query(
-                summary=result,
-                marker_hits=marker_hits if marker_hits_file.is_file() else None,
-                query_fna=paths_stats._resolve_query_fna_path(  # noqa: SLF001  # Shared resolver within the summarization package.
-                    query_id, query_output_dir
-                ),
-                query_output_dir=query_output_dir,
-                tree_nn_results=tree_nn_results,
-                accepted_lineage=accepted_lineage,
-                mode_fast=mode_fast,
-                sensitive_mode=self.sensitive_mode,
-                contamination_scorer=self.contamination_scorer,
-            )
-            result["quality_model_profile"] = experimental_model_profile(
-                mode_fast=mode_fast, sensitive_mode=self.sensitive_mode
-            )
-            _apply_experimental_predictions(result, predictions)
         return result
-
-
-def _apply_experimental_predictions(
-    result: dict[str, Any], predictions: CandidateQualityPredictions
-) -> None:
-    """Surface candidate amounts without assigning an uncalibrated binary class."""
-    for metric, prediction, strategy, reliability in (
-        (
-            "completeness",
-            predictions.completeness,
-            EXPERIMENTAL_COMPLETENESS_STRATEGY,
-            EXPERIMENTAL_COMPLETENESS_RELIABILITY,
-        ),
-        (
-            "contamination",
-            predictions.contamination,
-            EXPERIMENTAL_CONTAMINATION_STRATEGY,
-            EXPERIMENTAL_CONTAMINATION_RELIABILITY,
-        ),
-    ):
-        result[f"estimated_{metric}"] = (
-            round(prediction.value, 2) if prediction.value is not None else math.nan
-        )
-        result[f"estimated_{metric}_strategy"] = strategy
-        result[f"{metric}_query_support"] = (
-            "supported" if prediction.value is not None else prediction.status
-        )
-        result[f"{metric}_model_reliability"] = reliability
-        result[f"experimental_{metric}_status"] = prediction.status
-        result[f"experimental_{metric}_detail"] = prediction.detail
-    result["completeness_model_group"] = "development_panel"
-    result["contamination_type"] = "uncertain"
-    result["contamination_model_applicability"] = predictions.contamination.status
-    result["contamination_feature_contract"] = "experimental_14_features"
-    result["contamination_feature_version"] = "composition_regional_v1"
-    result["contamination_prediction_range_status"] = "uncalibrated_experimental"
-    result["contamination_model_prediction_upper_bound"] = math.nan

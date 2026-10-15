@@ -4,6 +4,10 @@ import csv
 import tarfile
 from pathlib import Path
 
+import pytest
+
+from src.pipeline import summary_writer
+
 
 def test_failed_queries_are_reported_separately_from_final_summary(
     tmp_path: Path,
@@ -216,3 +220,23 @@ def test_quality_context_survives_individual_summary_round_trip(
     assert result["completeness_model_reliability"] == "unvalidated_legacy"
     assert result["contamination_query_support"] == "supported"
     assert result["contamination_model_reliability"] == "unvalidated_legacy"
+
+
+@pytest.mark.parametrize(
+    "writer_name",
+    ["write_individual_summary_file", "write_individual_final_summary_file"],
+)
+def test_required_summary_write_failure_raises(
+    tmp_path: Path, writer_name: str
+) -> None:
+    class _Logger:
+        def info(self, *_args) -> None:
+            pass
+
+        def error(self, *_args) -> None:
+            pass
+
+    writer = getattr(summary_writer, writer_name)
+
+    with pytest.raises(FileNotFoundError):
+        writer(tmp_path / "missing", "q1", {"query": "q1"}, _Logger())

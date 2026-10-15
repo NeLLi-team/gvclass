@@ -51,7 +51,6 @@ The four `species_tree_*` summary columns describe per-query trees. Combined-tre
 `gvclass_summary.tsv` and `gvclass_summary.csv` share the columns below in this order. `NaN` means an unavailable numeric estimate, not zero.
 
 Resume requires saved quality-support fields. Summaries that lack those fields are reprocessed so that old quality estimates do not enter the current output unchanged.
-Resume also compares the selected model set and experimental model profile.
 When a query runs again, any nonempty working directory is retained as a sibling
 directory, `<query>.previous.<unique>/`. The new attempt starts in an empty directory so
 old search results and sequence files cannot affect its scores.
@@ -59,7 +58,6 @@ old search results and sequence files cannot affect its scores.
 | Column | Description |
 | --- | --- |
 | `query` | Input filename for the query. |
-| `quality_models` | Selected model set: `bundled` or `experimental`. |
 | `taxonomy_majority` | Accepted lineage from per-marker nearest-neighbor votes. Unsupported ranks are blank. |
 | `species_tree_nn_taxonomy` | Nearest-reference lineage from the query's concatenated-marker tree; `nd` if unavailable. |
 | `taxonomy_confidence` | `high`, or flags: `low_support` for insufficient marker support; `mixed_cellular` when eukaryotic markers win the domain vote without 80% of the cellular-domain markers; `reduced_fastmode` for an order accepted with two markers in fast mode; `no_support` for absent taxonomy evidence. |
@@ -73,16 +71,16 @@ old search results and sequence files cannot affect its scores.
 | `domain` | Domain-rank call with per-taxon counts. |
 | `avgdist` | Average tree distance to the reference neighbors. |
 | `order_dup` | Average copy number of expected order-level markers; elevated values can indicate duplication, chimerism, or mixed bins. |
-| `estimated_completeness` | Bundled marker-recovery estimate (%) or experimental retained-source-DNA estimate. Neither certifies absolute genome completeness. Read its strategy, support, and reliability. |
-| `completeness_query_support` | Query evidence status, separate from model validation. Bundled statuses include `supported`, `limited_support`, `insufficient_evidence`, `unassigned`, `unsupported_target`, and `unavailable`. Experimental failures have a reason in `experimental_completeness_detail`. |
-| `estimated_completeness_strategy` | Calculation used: fixed-panel ratio, novelty-aware regression, tier fallback, `experimental_family_union_hgb_v1`, or `unavailable`. |
-| `completeness_model_group` | Resource group used for bundled completeness; `MIRUS` is the Mirusviricota resource group, not an order assignment. Experimental models report `development_panel`. `unavailable` means no usable group. |
-| `completeness_model_reliability` | Validation status. Bundled models report `unvalidated_legacy`; unavailable estimates can report `unavailable`. Resources validated by marker dropout only can report `advisory_only`. The candidate reports `development_only_no_untouched_refit_test`. |
-| `estimated_contamination` | Selected contamination amount estimate. The bundled method uses `extra_trees_v1`; the experimental method uses composition and regional evidence. Unsupported inputs or missing evidence produce `NaN`. |
-| `contamination_query_support` | Query evidence status. Experimental failures have a reason in `experimental_contamination_detail`. Supported evidence does not establish model calibration. |
-| `estimated_contamination_strategy` | `extra_trees_v1`, `experimental_composition_regional_et_v1`, or `unavailable`. |
-| `contamination_model_reliability` | `unvalidated_legacy` for the bundled model and its corrected feature definitions; `development_only_failed_false_positive_gate` for the candidate. |
-| `contamination_type` | `clean` below the reporting threshold (at least 10); otherwise `cellular`, `mixed_viral`, `phage`, `duplication`, or `uncertain`. `clean` is a threshold result, not proof of absence. Missing estimates, evidence limited to mixed contigs, and experimental estimates are `uncertain`. |
+| `estimated_completeness` | Marker-recovery estimate (%). It does not certify absolute genome completeness. Read its strategy, support, and reliability. |
+| `completeness_query_support` | Query evidence status, separate from model validation. Statuses include `supported`, `limited_support`, `insufficient_evidence`, `unassigned`, `unsupported_target`, and `unavailable`. |
+| `estimated_completeness_strategy` | Calculation used: fixed-panel ratio, novelty-aware regression, tier fallback, or `unavailable`. |
+| `completeness_model_group` | Resource group used for completeness; `MIRUS` is the Mirusviricota resource group, not an order assignment. `unavailable` means no usable group. |
+| `completeness_model_reliability` | Validation status. Models report `unvalidated_legacy`; unavailable estimates can report `unavailable`. Resources validated by marker dropout only can report `advisory_only`. |
+| `estimated_contamination` | Selected contamination amount estimate. The method is `extra_trees_v1`. Unsupported inputs or missing evidence produce `NaN`. |
+| `contamination_query_support` | Query evidence status. Supported evidence does not establish model calibration. |
+| `estimated_contamination_strategy` | `extra_trees_v1` or `unavailable`. |
+| `contamination_model_reliability` | `unvalidated_legacy` for the model and its corrected feature definitions. |
+| `contamination_type` | `clean` below the reporting threshold (at least 10); otherwise `cellular`, `mixed_viral`, `phage`, `duplication`, or `uncertain`. `clean` is a threshold result, not proof of absence. Missing estimates and evidence limited to mixed contigs are `uncertain`. |
 | `gvog4_completeness` | Distinct core NCLDV GVOG4 markers present, as `n/4`. |
 | `gvog4_dup` | GVOG4 duplication factor (total marker hits / distinct markers present). |
 | `gvog8_completeness` | Distinct core NCLDV GVOG8 markers present, as `n/8`. |
@@ -116,9 +114,6 @@ The table inside `gvclass_summary.extended.tar.gz` contains the query ID and the
 
 | Fields | Meaning |
 | --- | --- |
-| `quality_model_profile` | `bundled`, or a hash binding the two experimental model hashes, search settings, and NCLDV-only support policy. Prevents incompatible resume reuse. |
-| `experimental_completeness_status`, `experimental_completeness_detail` | Candidate support state and its reason; empty for bundled models. |
-| `experimental_contamination_status`, `experimental_contamination_detail` | Candidate support state and its reason; empty for bundled models. |
 | `cellular_coherent_contig_count`, `cellular_coherent_protein_fraction`, `cellular_coherent_bp_fraction` | Coherent cellular evidence, including mixed contigs. Fractions are percentages. These are evidence fractions, not validated foreign-DNA estimates. |
 | `cellular_lineage_purity_median`, `cellular_hit_identity_median` | Agreement among cellular lineage hits and their sequence identity. |
 | `viral_bearing_contig_count`, `mixed_evidence_contig_count`, `mixed_evidence_status` | Viral and mixed cellular/viral contig evidence. Mixed contigs require review. |

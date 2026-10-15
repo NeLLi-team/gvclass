@@ -20,7 +20,6 @@ def run_query_processing(
     species_tree: bool = False,
     species_tree_trim: str = "witchi",
     run_status: Optional[RunStatusRecorder] = None,
-    quality_models: str = "bundled",
 ) -> Dict[str, Any]:
     """Process a single query through the entire pipeline."""
     return process_single_query(
@@ -36,5 +35,4 @@ def run_query_processing(
         species_tree=species_tree,
         species_tree_trim=species_tree_trim,
         run_status=run_status,
-        quality_models=quality_models,
     )

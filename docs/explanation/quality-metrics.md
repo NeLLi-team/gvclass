@@ -25,7 +25,6 @@ The training target of the bundled regression model is simulated marker retentio
 | `unvalidated_legacy` | Bundled model. Its historical hold-out scores do not establish reliability. |
 | `advisory_only` | Resource metadata marks the model as validated by marker dropout only. |
 | `unavailable` | No estimate is available. |
-| `development_only_no_untouched_refit_test` | Experimental completeness candidate. |
 
 `completeness_query_support` describes the evidence in this query. A model with good validation still needs enough suitable markers to score a new query. An unassigned lineage or a query with no suitable markers cannot support a numeric estimate.
 
@@ -57,7 +56,7 @@ For nucleotide input, contig fractions use the supplied DNA lengths. For protein
 | `duplication` | Elevated marker copy numbers. |
 | `uncertain` | No source could be resolved from the available evidence. |
 
-`clean` means that the estimate is below the threshold, not that contamination has been excluded. A `mixed_viral` signal is reported as `uncertain` when at least three contigs carry viral evidence and none has a coherent cellular lineage. Sparse viral references can produce this pattern as well as mixtures. An unavailable estimate, evidence limited to mixed contigs, and every experimental estimate are also `uncertain`.
+`clean` means that the estimate is below the threshold, not that contamination has been excluded. A `mixed_viral` signal is reported as `uncertain` when at least three contigs carry viral evidence and none has a coherent cellular lineage. Sparse viral references can produce this pattern as well as mixtures. An unavailable estimate and evidence limited to mixed contigs are also `uncertain`.
 
 ### Limits of the bundled contamination model
 
@@ -72,24 +71,3 @@ Accuracy depends on the test genomes, donors, fragmentation, reference overlap, 
 `order_dup` and `gvog8_dup` report the average copies per detected marker in their respective panels. A value near 1 indicates mostly single-copy markers. Higher values can reflect mixed populations, assembly duplication, or gene duplication and need inspection. A value of 0 can indicate no detected markers. Neither field gives a direct foreign-DNA percentage.
 
 Two genomes in one bin can recover most expected markers while inflating copy counts. Review duplication together with completeness, contamination, and taxonomic support. The [output reference](../reference/output.md) lists the supporting fields.
-
-## Experimental model candidates
-
-`--quality-models experimental` selects a family-union completeness model and a composition-plus-regional contamination model. Both require nucleotide input, an accepted NCLDV assignment, extended mode and sensitive HMM search. The default remains `bundled`. `--completeness-mode` selects between bundled completeness methods. It does not change the experimental model.
-
-The completeness candidate uses 23 summary inputs and presence and protein-union counts for 494 trusted marker families observed during development. Its target is the fraction of source DNA retained in a constructed query, with the source treated as complete. The contamination candidate combines 13 marker, lineage and regional inputs with a cellular-composition score from 2-kb windows. Its target is the fraction of added DNA in the constructed query.
-
-Source-group cross-validation used 867 development queries from 56 source groups. The comparison below uses only cases where both models returned a number in that experiment. Values are changes in mean absolute error in percentage points.
-
-| Candidate | Paired cases | Error reduction versus bundled model | Source-bootstrap 95% interval |
-| --- | ---: | ---: | --- |
-| Family-union completeness | 768 | 5.24 | 2.71 to 7.86 |
-| Composition-plus-regional contamination | 823 | 12.08 | 10.56 to 13.40 |
-
-Runtime support is narrower than in the research experiment. Both candidates require an accepted NCLDV domain. Completeness also requires at least one filtered marker protein and an accepted order. These requirements retain 812 of the 867 development queries, including all 768 paired cases. Contamination requires accepted family and genus context, tree-vote coverage and supported composition windows. Only 671 development queries meet those requirements. The contamination comparison above describes the broader research population, not the subset supported by the runtime. Applying the fixed runtime support policy to saved predictions retains 671 of the 823 paired contamination cases. On those cases, source-balanced mean absolute error is 8.11 points for the candidate and 20.65 for the bundled model, a 12.53-point reduction. This is a post-hoc description of saved predictions, not independent validation of the packaged fit.
-
-On 52 complete native controls, completeness error increased by 7.60 points. The family-holdout comparison did not establish an improvement. The contamination candidate flagged 32.14% of clean constructed controls when an estimate of at least 10% was treated as positive. That exceeds the 1% false-positive target. Experimental contamination therefore reports `contamination_type=uncertain` and does not assign a binary contamination class. The legacy `contamination_*_v1` fields remain evidence diagnostics. HGT scenarios were not tested in this panel.
-
-The packaged models are fitted on all development data. Cross-validation results do not independently test those final fits. The contamination regressor is fitted with held-fold composition scores, while inference uses a classifier fitted on all development parents. This changes the score distribution. Model cards record the construction and its measured limits. Their fit-stage support counts precede the NCLDV restriction. The bundled `quality_models/runtime-policy.json` records the final 812/671 support counts. Mirusviricota and other accepted domains return `unsupported_target_domain`. Unsupported queries return unavailable estimates.
-
-Both candidate files belong in the resource bundle under `quality_models/`. They are not Python package data. The v2.1.0 resource archive provides them. A resource tree without them, such as the v2.0.0 archive, cannot run `--quality-models experimental`.
