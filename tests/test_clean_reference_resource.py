@@ -169,6 +169,7 @@ def test_cleaning_records_provenance_metadata_and_manifest(
     assert cleaning["genomes_emptied"] == ["EUK__B"]
     assert cleaning["genome_marker_pairs_without_protein"] == 2
     assert metadata["v2_1_0_staging_status"] == "Release archive."
+    assert "zenodo" not in metadata["download_archive_status"].lower()
     manifest = json.loads((out / "RESOURCE_MANIFEST.json").read_text("utf-8"))
     listed = {member["path"] for member in manifest["members"]}
     assert "provenance/v2.1.0/removed_reference_sequences.tsv" in listed

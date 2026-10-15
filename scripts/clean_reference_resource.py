@@ -308,9 +308,12 @@ def update_metadata(
             "markers/*, completeness/* and the model files were not recomputed."
         ),
     }
+    # The archive cannot name its own host: the download location and the archive
+    # checksum are set in the GVClass configuration and the release notes.
     metadata["download_archive_status"] = (
-        "Release archive of GVClass reference resources v2.1.0 on Zenodo "
-        "(concept DOI 10.5281/zenodo.18662445); the archive checksum is on the record."
+        "Release archive of GVClass reference resources v2.1.0. The GVClass "
+        "release notes and configuration give the download location and the "
+        "archive SHA-256."
     )
     metadata["v2_1_0_staging_status"] = "Release archive."
     (out / "RESOURCE_METADATA.json").write_text(json.dumps(metadata, indent=2) + "\n")
