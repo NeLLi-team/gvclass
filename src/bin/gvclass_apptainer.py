@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import re
 import subprocess
+import sys
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -367,11 +368,14 @@ def resolve_output_path(
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
+    given = sys.argv[1:] if argv is None else list(argv)
     args = parser.parse_args(argv)
     if args.version:
         print(f"GVClass Apptainer launcher (default image: {DEFAULT_IMAGE})")
         return 0
     if not args.query_path:
+        if given:
+            parser.error("the query path is required")
         parser.print_help()
         return 0
 

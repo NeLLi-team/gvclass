@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import runpy
+import sys
 from pathlib import Path
 from typing import Any
 from unittest.mock import Mock
@@ -17,7 +18,7 @@ from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 
-from src.bin import gvclass_apptainer
+from src.bin import gvclass_apptainer, gvclass_cli
 from src.core.contamination_scoring import ContaminationScorer
 from src.core.reformat import reformat_sequences
 from src.pipeline import query_processing_engine
@@ -293,3 +294,48 @@ def test_canonical_gene_outputs_exist_before_quality_scoring(tmp_path, monkeypat
     )
 
     summarize.assert_called_once()
+
+
+def test_container_mode_without_a_query_is_an_error(
+    launcher: dict[str, Any], capsys: pytest.CaptureFixture[str]
+) -> None:
+    entry = launcher.get("_standalone_apptainer_main") or launcher["main"]
+
+    with pytest.raises(SystemExit) as raised:
+        entry(["-o", "results", "--image", "gvclass.sif"])
+
+    assert raised.value.code == 2
+    assert "query path is required" in capsys.readouterr().err
+
+
+def test_container_mode_without_arguments_prints_help(
+    launcher: dict[str, Any], capsys: pytest.CaptureFixture[str]
+) -> None:
+    entry = launcher.get("_standalone_apptainer_main") or launcher["main"]
+
+    assert entry([]) == 0
+    assert "usage:" in capsys.readouterr().out
+
+
+def test_abbreviated_container_flag_runs_the_container(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    called: list[list[str]] = []
+    monkeypatch.setattr(
+        gvclass_apptainer, "main", lambda argv: called.append(list(argv)) or 0
+    )
+    monkeypatch.setattr(sys, "argv", ["gvclass", "queries", "--imag", "x.sif"])
+
+    assert gvclass_cli.main() == 0
+    assert called == [["queries", "--imag", "x.sif"]]
+
+
+def test_unrecognized_native_arguments_still_fail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sys, "argv", ["gvclass", "queries", "--no-such-option"])
+
+    with pytest.raises(SystemExit) as raised:
+        gvclass_cli.main()
+
+    assert raised.value.code == 2

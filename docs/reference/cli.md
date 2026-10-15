@@ -12,7 +12,7 @@ CLI flags override [configuration values](configuration.md), which override buil
 
 | Option | Argument/default | Description |
 | --- | --- | --- |
-| `query_dir` | path (positional) | Directory of `.fna`, `.faa`, `.fasta`, or `.fas` files. A single FASTA file is accepted with `--contigs`. |
+| `query_dir` | path (positional) | Directory of `.fna`, `.faa`, `.fa`, `.fasta`, or `.fas` files. A single FASTA file is accepted with `--contigs`. |
 | `-o`, `--output-dir` | path; `<query_dir>_results` | Output directory. |
 | `-c`, `--config` | path; `config/gvclass_config.yaml` | YAML configuration file. |
 | `-d`, `--database` | path | Database directory. Overrides `GVCLASS_DB` and `database.path`. |
@@ -91,7 +91,7 @@ pixi run gvclass --version
 
 ## Apptainer container mode
 
-`gvclass` supports running inside the published Apptainer SIF container via `--apptainer` or `--image` (or automatically when `gvclass` is downloaded as a standalone script without a repository checkout). It accepts an input path and `-o`/`--output-dir` (or a second positional output path).
+`gvclass` supports running inside the published Apptainer SIF container via `--apptainer` or `--image` (or automatically when `gvclass` is downloaded as a standalone script without a repository checkout). It accepts an input path and `-o`/`--output-dir` (or a second positional output path). Container mode differs from native mode in two defaults: `-t` is 16, and the output directory is `<input>_results` beside the input. A missing input path is an error (exit code 2).
 
 | Option | Argument/default | Description |
 | --- | --- | --- |

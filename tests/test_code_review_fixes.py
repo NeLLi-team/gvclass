@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import tarfile
+from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from src.bin.gvclass_cli import (
     BUILTIN_CONFIG_DEFAULTS,
@@ -149,22 +150,27 @@ def test_protein_to_contig_id_only_strips_numeric_cds_suffix() -> None:
     assert ContaminationScorer.protein_to_contig_id("contig_alpha") == "contig_alpha"
 
 
-def test_weighted_completeness_fallback_deduplicates_markers(tmp_path: Path) -> None:
-    """Fallback order_markers across multiple orders must deduplicate marker_name."""
-    weights_tsv = tmp_path / "marker_weights.tsv"
-    weights_tsv.write_text(
-        "order_name\tmarker_name\tpercent_genomes_with_marker\n"
-        "OrderA\tOG1\t80.0\n"
-        "OrderB\tOG1\t90.0\n"
-        "OrderA\tOG2\t70.0\n"
+def test_weighted_completeness_fallback_averages_duplicate_marker_rows(
+    tmp_path: Path,
+) -> None:
+    """Fallback rows of one marker in several orders weigh like their mean."""
+    header = "order_name\tmarker_name\tpercent_genomes_with_marker\n"
+    duplicated = tmp_path / "duplicated.tsv"
+    duplicated.write_text(
+        header + "OrderA\tOG1\t80.0\nOrderB\tOG1\t90.0\nOrderA\tOG2\t70.0\n"
     )
-    calc = WeightedCompletenessCalculator(weights_tsv, enable_adaptive_scaling=False)
-    weights = calc.get_marker_weights("UnknownOrder", ("OG1", "OG2"))
-    assert set(weights.keys()) == {"OG1", "OG2"}
-    comp, _, _ = calc.calculate_weighted_completeness(
-        {"OG1": 1, "OG2": 1}, "UnknownOrder", ["OG1", "OG2"]
-    )
-    assert abs(comp - 100.0) < 1e-6
+    averaged = tmp_path / "averaged.tsv"
+    averaged.write_text(header + "OrderA\tOG1\t85.0\nOrderA\tOG2\t70.0\n")
+    markers = ("OG1", "OG2")
+
+    from_duplicates = WeightedCompletenessCalculator(
+        duplicated, enable_adaptive_scaling=False
+    ).get_marker_weights("UnknownOrder", markers)
+    from_means = WeightedCompletenessCalculator(
+        averaged, enable_adaptive_scaling=False
+    ).get_marker_weights("UnknownOrder", markers)
+
+    assert from_duplicates == pytest.approx(from_means)
 
 
 def test_summary_writer_preserves_extended_columns_across_resume(

@@ -1441,14 +1441,27 @@ def _should_use_apptainer(argv: list[str]) -> bool:
     )
 
 
+def _run_apptainer(argv: list[str]) -> int:
+    """Run the container launcher; native runs never import it."""
+    from src.bin.gvclass_apptainer import (  # noqa: PLC0415  # native runs skip it
+        main as apptainer_main,
+    )
+
+    return apptainer_main(argv)
+
+
 def main(repo_dir: Optional[Path] = None) -> int:
     if _should_use_apptainer(sys.argv[1:]):
-        from src.bin.gvclass_apptainer import main as apptainer_main
-
-        return apptainer_main(sys.argv[1:])
+        return _run_apptainer(sys.argv[1:])
 
     parser = build_parser()
-    args = parser.parse_args()
+    args, unrecognized = parser.parse_known_args()
+    if args.apptainer or args.image:
+        # argparse accepts abbreviated flags such as --imag, which the token
+        # check above does not see.
+        return _run_apptainer(sys.argv[1:])
+    if unrecognized:
+        parser.error(f"unrecognized arguments: {' '.join(unrecognized)}")
 
     active_repo = repo_dir if repo_dir else Path(__file__).resolve().parents[2]
     if args.version:

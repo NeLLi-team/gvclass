@@ -402,11 +402,14 @@ def resolve_output_path(
 
 def _standalone_apptainer_main(argv: list[str] | None = None) -> int:
     parser = _build_apptainer_parser()
+    given = sys.argv[1:] if argv is None else list(argv)
     args = parser.parse_args(argv)
     if args.version:
         print(f"GVClass Apptainer launcher (default image: {DEFAULT_IMAGE})")
         return 0
     if not args.query_path:
+        if given:
+            parser.error("the query path is required")
         parser.print_help()
         return 0
 

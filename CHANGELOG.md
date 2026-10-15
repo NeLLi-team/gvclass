@@ -21,6 +21,10 @@ Compatible resource bundle: v2.1.0 (Zenodo DOI 10.5281/zenodo.23381313).
   both local execution and Apptainer containers (`--apptainer`, `--image`, and
   standalone `wget` fallback). Container mode forwards the analysis options;
   `--config`, `--database` and the cluster options work only in native mode.
+  `gvclass-a` is removed from `main`: a job script that downloads it must
+  download `gvclass` and keep its `--image` or `--apptainer` argument. In
+  container mode `-t` defaults to 16 and the output directory defaults to
+  `<input>_results` beside the input.
 - Consolidated `src/test/` into `tests/`, moved benchmark helpers to `scripts/`,
   and removed legacy `src/bin/gvclass_*.sh` wrappers.
 - Resource v2.1.0 removes 2,246 prokaryotic proteins (3,083 marker rows) from 319
@@ -54,10 +58,9 @@ Compatible resource bundle: v2.1.0 (Zenodo DOI 10.5281/zenodo.23381313).
   longer emitted: the bundled validation cannot support them, so model-backed
   values read `unvalidated_legacy`.
 - Weighted marker completeness (`weighted_order_completeness` in the per-query
-  `.summary.tab`) fits its adaptive scaler on the base weights it is applied to,
-  and averages repeated marker rows when it falls back to all orders. These
-  values can differ from 2.0.3; the headline completeness columns are not
-  computed from them.
+  `.summary.tab`) averages repeated marker rows when it falls back to all
+  orders, so a duplicated row no longer weighs twice. These values can differ
+  from 2.0.3; the headline completeness columns are not computed from them.
 - Database setup uses one source: the environment override, configured archive,
   or built-in default. It does not replace that source with a moving Zenodo
   release or fall back to an older resource schema. An automatically discovered
@@ -71,6 +74,15 @@ Compatible resource bundle: v2.1.0 (Zenodo DOI 10.5281/zenodo.23381313).
 
 ### Fixed
 
+- The `taxonomy` column of the per-query `.tree_nn` file took the order, family
+  and genus of 7-rank database labels from the ranks above them (class, order
+  and family). It now reads the right ranks.
+- Protein identifiers such as `q|YP_009703.1` keep their whole accession in
+  contig attribution. Before, every such protein of a `.faa` input fell into
+  one contig called `YP`.
+- GC content counts lowercase bases. Query files with the extension `.fa` are
+  accepted. The per-query archive no longer holds `<query>_reformatted.fna`,
+  which duplicated `query_fna/<query>.fna`.
 - Required search, tree and summary failures propagate to query failure.
   Retried queries retain prior work in a separate directory and use only
   current-attempt evidence. Sequence and GFF files are available
