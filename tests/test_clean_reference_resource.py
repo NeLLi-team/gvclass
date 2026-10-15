@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import random
 from pathlib import Path
 from types import ModuleType
 
@@ -30,6 +31,34 @@ def _load_script() -> ModuleType:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _compressible_rows(count: int) -> list[dict[str, str]]:
+    """Return rows of point-mutated copies of a few proteins.
+
+    Such sequences compress far better at zstd level 9 than at the default level,
+    so a rewrite at the default level is visible in the file size.
+    """
+    rng = random.Random(11)
+    alphabet = "ACDEFGHIKLMNPQRSTVWY"
+    bases = ["".join(rng.choices(alphabet, k=350)) for _ in range(300)]
+
+    def mutated(sequence: str) -> str:
+        residues = list(sequence)
+        for position in rng.sample(range(len(residues)), 12):
+            residues[position] = rng.choice(alphabet)
+        return "".join(residues)
+
+    return [
+        {
+            "marker": f"M{index % 5}.faa",
+            "seq_id": f"EUK__G{index % 50}|p{index}",
+            "label_id": f"EUK__G{index % 50}",
+            "domain": "EUK",
+            "sequence": mutated(rng.choice(bases)),
+        }
+        for index in range(count)
+    ]
 
 
 def _row(marker: str, seq_id: str, domain: str = "EUK") -> dict[str, str]:
@@ -158,3 +187,21 @@ def test_cleaning_links_unchanged_files_and_refuses_an_existing_output(
     assert (out / "markers" / "stats.tsv").samefile(source_tree / "markers/stats.tsv")
     with pytest.raises(SystemExit, match="output tree exists"):
         _run(tmp_path, source_tree)
+
+
+def test_cleaning_keeps_the_compression_level_of_the_source(
+    tmp_path: Path, source_tree: Path
+) -> None:
+    source = source_tree / "parquet" / "faa.parquet"
+    pq.write_table(
+        pa.Table.from_pylist(_compressible_rows(20_000)),
+        source,
+        compression="zstd",
+        compression_level=9,
+    )
+
+    out = _run(tmp_path, source_tree)
+
+    assert (
+        out / "parquet" / "faa.parquet"
+    ).stat().st_size <= source.stat().st_size * 1.01

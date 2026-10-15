@@ -53,6 +53,9 @@ REWRITTEN: Final = frozenset(
     }
 )
 BATCH_ROWS: Final = 100_000
+# The v2.0.0 build wrote its Parquet files at zstd level 9. The pyarrow default
+# (level 1) made faa.parquet 7% larger for the same rows.
+ZSTD_LEVEL: Final = 9
 NEW_MEMBERS: Final = (
     (
         REMOVED_TABLE,
@@ -145,7 +148,11 @@ def rewrite_faa(
     target.parent.mkdir(parents=True, exist_ok=True)
     removed: list[dict[str, str]] = []
     with pq.ParquetWriter(
-        target, reader.schema_arrow, compression="zstd", write_statistics=True
+        target,
+        reader.schema_arrow,
+        compression="zstd",
+        compression_level=ZSTD_LEVEL,
+        write_statistics=True,
     ) as writer:
         for batch in reader.iter_batches(batch_size=BATCH_ROWS):
             table = pa.Table.from_batches([batch])
@@ -203,9 +210,24 @@ def update_labels(
             pc.invert(pc.is_in(context["label_id"], value_set=gone))
         )
     (out / LABELS).parent.mkdir(parents=True, exist_ok=True)
-    pq.write_table(labels, out / LABELS, compression="zstd")
-    pq.write_table(inactive, out / INACTIVE, compression="zstd")
-    pq.write_table(context, out / CONTEXT, compression="zstd")
+    pq.write_table(
+        labels,
+        out / LABELS,
+        compression="zstd",
+        compression_level=ZSTD_LEVEL,
+    )
+    pq.write_table(
+        inactive,
+        out / INACTIVE,
+        compression="zstd",
+        compression_level=ZSTD_LEVEL,
+    )
+    pq.write_table(
+        context,
+        out / CONTEXT,
+        compression="zstd",
+        compression_level=ZSTD_LEVEL,
+    )
     return orphaned, len(lost_pairs)
 
 
