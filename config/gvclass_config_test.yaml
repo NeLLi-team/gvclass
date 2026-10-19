@@ -8,9 +8,11 @@ database:
   # <database.path>/.gvclass_cache; GVCLASS_RESOURCE_CACHE overrides this key.
   cache_path:
   # Release resources (v2.1.0) on Zenodo.
-  download_url: https://zenodo.org/records/23381313/files/resources_v2_1_0.tar.gz?download=1
+  # The built-in source (the v2.1.0 archive, stored in parts on Zenodo) is used when
+  # these two keys are empty. Set both to use a single-archive mirror.
+  download_url:
   download_version: v2.1.0
-  download_sha256: 823023a0d9af82d6b01d7beeb1a12af422432c7c1e3a11b57f04130bfa7f5ee6
+  download_sha256:
 
 # Pipeline settings - optimized for testing
 pipeline:

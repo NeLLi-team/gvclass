@@ -53,6 +53,7 @@ nav:
       - Tune speed and accuracy: how-to/tune-speed-and-accuracy.md
       - Configure the database: how-to/configure-the-database.md
       - Assess genome quality: how-to/assess-genome-quality.md
+      - Screen bins for contaminating contigs: how-to/screen-contigs.md
   - Reference:
       - reference/index.md
       - Command-line interface: reference/cli.md
@@ -65,6 +66,7 @@ nav:
       - How GVClass works: explanation/how-it-works.md
       - Taxonomy and classification: explanation/taxonomy.md
       - Completeness and contamination: explanation/quality-metrics.md
+      - The contig screen: explanation/contig-screen.md
       - The species tree: explanation/species-tree.md
 
 # Internal working docs that live under docs/ but are not part of the published site.

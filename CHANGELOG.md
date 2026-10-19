@@ -15,6 +15,16 @@ compatible bundle is noted per release.
 
 Compatible resource bundle: v2.1.0 (Zenodo DOI 10.5281/zenodo.23381313).
 
+### Added
+
+- `gvclass screen`: a cellular screen (bacterial, archaeal and eukaryotic sequence in a
+  giant-virus bin) and a giant-virus screen (contigs of a second giant virus). The
+  resources (a 10% protein reference, fitted models and ESM-2 8M weights) install
+  with `gvclass screen --install`. Torch and transformers join the pixi environment.
+  Guide: `docs/how-to/screen-contigs.md`.
+- The database installer downloads archives split into parts, checks each part and
+  the joined archive, and installs optional archives next to the database.
+
 ### Changed
 
 - Unified `gvclass` and `gvclass-a` into a single `gvclass` entrypoint supporting

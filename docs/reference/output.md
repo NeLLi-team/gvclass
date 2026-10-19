@@ -108,6 +108,20 @@ old search results and sequence files cannot affect its scores.
 | `species_tree_nn_distance` | Tree distance to that reference, rounded to two decimal places; `nd` if unavailable. |
 | `species_tree_clade_id` | Query-only clade identifier; `nd` when no such clade is present. Combined-tree clades are reported in their separate taxonomy table. |
 
+## Contig screen files
+
+`gvclass screen` writes its files to its own output directory.
+
+| File | Columns |
+| --- | --- |
+| `<bin>.cellular.tsv` | `contig_id`, `source_contig`, `source_start`, `length_bp`, `s_n_genes`, `c_gc`, `s_coding_density`, `p_cellular` (stage 1), `p_gbm`, `set_logit`, `p_context` (stage 2), `called_cellular` |
+| `<bin>.giant_virus.tsv` | `contig`, `length_bp`, `n_markers`, `n_dup_sc`, `dup_weighted`, `pair_shared`, `d_bulk`, `p_foreign`, `called_foreign` |
+| `<bin>.summary.txt` | The printed summaries of both screens. |
+| `contig_screen_summary.tsv` | `bin`, `cellular_status`, `giant_virus_status` (`ok` or `failed`). |
+
+`called_cellular` and `called_foreign` mark windows or contigs at or above the
+thresholds stored in the resource archive. A call is a review flag.
+
 ## Extended quality fields
 
 The table inside `gvclass_summary.extended.tar.gz` contains the query ID and these diagnostic groups:

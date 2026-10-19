@@ -349,9 +349,9 @@ BUILTIN_CONFIG_DEFAULTS = {
     "database": {
         "path": "resources",
         "cache_path": None,
-        "download_url": "https://zenodo.org/records/23381313/files/resources_v2_1_0.tar.gz?download=1",
+        "download_url": None,
         "download_version": "v2.1.0",
-        "download_sha256": "823023a0d9af82d6b01d7beeb1a12af422432c7c1e3a11b57f04130bfa7f5ee6",
+        "download_sha256": None,
     },
     "pipeline": {
         "tree_method": "veryfasttree",
@@ -461,7 +461,7 @@ def configure_resource_cache(config, database: Path) -> None:
 
 def resolve_database_download_source(config) -> Optional[dict]:
     database_config = config.get("database", {})
-    url = str(database_config.get("download_url", "")).strip()
+    url = str(database_config.get("download_url") or "").strip()
     if not url:
         return None
 
@@ -1450,7 +1450,16 @@ def _run_apptainer(argv: list[str]) -> int:
     return apptainer_main(argv)
 
 
+def _run_screen(argv: list[str]) -> int:
+    """Run ``gvclass screen``; the screens import torch only when they score."""
+    from src.bin.gvclass_screen import main as screen_main  # noqa: PLC0415
+
+    return screen_main(argv)
+
+
 def main(repo_dir: Optional[Path] = None) -> int:
+    if sys.argv[1:2] == ["screen"] and not _should_use_apptainer(sys.argv[1:]):
+        return _run_screen(sys.argv[2:])
     if _should_use_apptainer(sys.argv[1:]):
         return _run_apptainer(sys.argv[1:])
 

@@ -18,9 +18,9 @@ Built-in defaults are used if no file is found.
 database:
   path: resources
   cache_path:
-  download_url: https://zenodo.org/records/23381313/files/resources_v2_1_0.tar.gz?download=1
+  download_url:
   download_version: v2.1.0
-  download_sha256: 823023a0d9af82d6b01d7beeb1a12af422432c7c1e3a11b57f04130bfa7f5ee6
+  download_sha256:
 
 pipeline:
   tree_method: veryfasttree
@@ -42,9 +42,9 @@ quality:
 | --- | --- | --- |
 | `path` | `resources` | Database directory. Relative paths resolve from the repository root. |
 | `cache_path` | unset | Cache for TSV/FASTA files materialized from Parquet. Relative paths resolve inside the database directory. |
-| `download_url` | URL above | Resource archive downloaded during setup or an update. |
+| `download_url` | unset | URL of a single resource archive, used with `download_sha256` as a mirror. When unset, setup uses the built-in source: the v2.1.0 archive in 24 parts on Zenodo, each part and the joined archive checked against pinned SHA-256 values. |
 | `download_version` | `v2.1.0` | Pinned database version. An older installed `DB_VERSION` triggers a download. |
-| `download_sha256` | SHA-256 above | Expected archive checksum. |
+| `download_sha256` | unset | Expected checksum of the archive at `download_url`. Required when `download_url` is set. |
 
 Database path precedence is `--database`, then `GVCLASS_DB`, then `database.path`.
 

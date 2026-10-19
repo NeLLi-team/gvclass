@@ -11,3 +11,4 @@ Start with [Getting started](../tutorials/getting-started.md) if GVClass is not 
 | Set threads, tree inference and HMM search options | [Tune speed and accuracy](tune-speed-and-accuracy.md) |
 | Select a database and cache directory | [Configure the database](configure-the-database.md) |
 | Review completeness and contamination estimates | [Assess genome quality](assess-genome-quality.md) |
+| Flag cellular and second-giant-virus contigs in a bin | [Screen bins for contaminating contigs](screen-contigs.md) |

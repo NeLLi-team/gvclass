@@ -68,15 +68,13 @@ jobs:
           pixi-version: v0.72.0
           cache: true
 
-      - name: Read expected DB download metadata
+      - name: Read expected DB version
         id: dbhash
         run: |
           python - <<'PY' >> $GITHUB_OUTPUT
           import re, pathlib
           txt = pathlib.Path("config/gvclass_config.yaml").read_text()
-          sha = re.search(r"^\s*download_sha256:\s*([0-9a-f]+)\s*$", txt, re.M)
           version = re.search(r"^\s*download_version:\s*(\S+)\s*$", txt, re.M)
-          print(f"sha256={sha.group(1) if sha else 'unknown'}")
           print(f"version={version.group(1) if version else 'unknown'}")
           PY
 
@@ -85,7 +83,7 @@ jobs:
         with:
           path: |
             resources
-          key: gvclass-db-${{ steps.dbhash.outputs.sha256 }}
+          key: gvclass-db-${{ steps.dbhash.outputs.version }}
 
       - name: Install pixi environment and download DB if not cached
         run: |

@@ -83,16 +83,17 @@ def test_load_config_missing_database_uses_defaults(tmp_path):
     config = _load(tmp_path, "pipeline:\n  tree_method: iqtree\n")
     assert config["pipeline"]["tree_method"] == "iqtree"
     assert "database" in config
-    assert config["database"]["download_url"].startswith("https://")
+    assert config["database"]["download_version"] == "v2.1.0"
 
 
 def test_load_config_partial_database_preserves_download_fields(tmp_path):
     config = _load(tmp_path, "database:\n  path: /custom/db\n")
     assert config["database"]["path"] == "/custom/db"
     assert config["database"]["cache_path"] is None
-    # Setting only path must not drop the download fields needed for setup-db.
-    assert config["database"]["download_url"].startswith("https://")
-    assert config["database"]["download_sha256"]
+    # Setting only path must keep the download version needed for setup-db; the
+    # source itself is built in (the archive is stored in parts).
+    assert config["database"]["download_version"] == "v2.1.0"
+    assert config["database"]["download_url"] is None
     assert config["pipeline"]["sensitive_mode"] is True
 
 
@@ -341,3 +342,9 @@ def test_parser_rejects_quality_models_option():
         build_parser().parse_args(
             ["example", "-o", "out", "--quality-models", "bundled"]
         )
+
+
+def test_empty_download_keys_leave_the_built_in_database_source(tmp_path):
+    config = _load(tmp_path, "database:\n  download_url:\n  download_sha256:\n")
+
+    assert gvclass_cli.resolve_database_download_source(config) is None

@@ -118,6 +118,102 @@ class _ProgressReporter:
         return f"{value:.1f} {units[unit_index]}"
 
 
+_BASE_PART_SHA256 = (
+    "77ca92456cda7fa7305505da0c821481e61fdbad49514a21804a39407c23a274",
+    "0772c0ebe7994dd2e71bcda4f65312a988d0936c01137921bb3d1e2d5b45753b",
+    "867f81b2830efe5c0f0a2a241e0ff8970183577e80167b83ecf2718079557c6b",
+    "cea7e47941e9fdcbc365359299f935930b45b3be65aefd28825231710ae4450a",
+    "956168746bb5e7271031fb2ce772d2a357168f8ddb5eca5ad7da366745edbe7e",
+    "491ae08cbdda457e86a979629177891e37d080effb9b049457a5248441fe92d5",
+    "ea582c563190b5c78defdeb05f52ea287725536172040980a3abb1e6938676ac",
+    "e563d0d82be563b9837e62ca5c5b9fe9d37e7e97b2bc07d9c4fdd5127cfd933d",
+    "eb026bfb98fc6598da427f3d73e9e8e5d01c30c17c1ca6c59ccd23f37dffec5a",
+    "6bb6c7152822278e1021c7b424ac13e933b0601e6ba5bf72b043e8f6e727f0da",
+    "726af269668b3a7ea574dfc3c27160d119c0fc8625fd5f820614b1b7431518ce",
+    "b0ca7600c0f4be8a62668adf11c305daaf4d252c570ed789438e4e57b6e1b8d2",
+    "962274cfe37e442b43679f05bc45a19bf43602b066449a251cb26e7ede8cb81f",
+    "1e8b5b9aa0d6727bd5e1390e8da43e6612b59c7c064688ab798cf63cb4c414d0",
+    "7c6fa8a96723784f9712debb479fac0c32ba2a1b0296febda25ac9709c42d0e3",
+    "f08d7d95ac9625900ecc5141f294f7e3ef3ef25ef677e1c50e6bcb1000d511fe",
+    "42f7fdf4e0f2d24dd1374937d603f899bbbb82604f3b46e24ce323844602e6ca",
+    "863f2525f18d40d45cd6af0ab6ec4c84cffa4aa0637cf39b16d7516957528d4e",
+    "84ecef7f7823ed4113eb8a7be7504b1dc7d6f68e245a196e59fea409c9af296e",
+    "b43d3dee217b34dcb5fcb6d0161604d7f88a2e9dd748d8035b173d605b3e4915",
+    "e743bee11b8cf0c5d31eaa447f598375323c279a459f21fa2f7a3d682e3e49f4",
+    "afd188e40c29f124c883abeda8049a4f09d83431a300ae85f2881df9c6fa79d8",
+    "59898a67cf4a9e4c8b2e85549a2dbdf734749810a53eb56009c11a2e5746a94c",
+    "f03f507f7f924420d156fcfa3aa72aebef914fc22220fa7743940af656132fa9",
+)
+_SCREEN_PART_SHA256 = (
+    "6a80f773759b1c4221c3ed81c8d14c5506066441ed5885cb1eab3eecb602ce33",
+    "c2f02bf0cf04ce401021deeef579d278975b61fc4bc9e5efc8c445a85c291898",
+    "098dfba722a63262f217e2ae3284757f16216d7ad1ccb9c8921a6b17f5409934",
+    "44145426fe9b82f53b612e6c98cfb7e2870846f5c2b7c02c11ee02050e1645ed",
+    "6dda3572cafddc6c7ecab56497243ce398705679477a8eaf06588dcf11f28b38",
+    "0c31d659ecbd4080270829435fbe5879df652b27e253a84ac662dcb1552941b7",
+    "51a771b7d1ec32a8cffc3e6045bf8352a4f9a3855b3c7ebc8adeb364dd722a3e",
+    "f247e969f493eae29d031adb358ad323dd3771d2330e71027489cfaf0916356c",
+    "935b9c4e7bc9a9e3b0e06f4dbcd72016645e4406ea6b1e7cb621aeee9e0441d7",
+    "a231c9bb74bba1354c30aa0fb90f388da3af337b101ea068e7558808d3a49475",
+    "f31cdeb38ac8901b418e01f267d5a4595b832ca4625e44c01f5b1baa080766d5",
+    "1938fd4c78c91443dc777f552f15b6ef593833a9a76658bd60479b23659e0ca4",
+    "fcb944d9933b0ed46969f7b0fbd828f6662e0c53c48006be64090043699b92d2",
+    "0e574a674b1dad842d4e615770300af38de7be4056a19252f89ff3eda912db32",
+    "c61b7c530a4131f2dae93b0caa68b8d5366c4954ae5421286bbe2050c40c5e99",
+    "553abba8e31c1d7dfa9a20deb487a49aaf3223ca11891129aed4d7b41abe6186",
+    "9c9a60a326206e031e060c0f21bead79e16c0a52e7124387209752d6ee121b42",
+    "6bd6caa35956694ae6e28f3fdbc40eea0bb18e60a2b66aaeab5d6674007099ac",
+    "784649f2b5365424d7cabf0790cc5620464c767b5be935fb1f38a89f6ce705b4",
+    "1391b2d987d900b8168e03f322fc808d70d366c301423653e4c8c23790593f86",
+    "671c14c61cb03264555027f1cdaa0120cbc79304c4efe7ad85eb8127308f4c51",
+    "01d33902ee87cf7b697f5d25f0b4dda40c93549864b305deb2b6a1cbc8d00489",
+    "b86f0a92239ff2ade2d2c8cf833af7c8c088cce14e2ddfe7d19d20b80c4371ff",
+    "572b92496e9acb1e22fbb2c7205d9144eb2dde70b002f4a751f7b888c37a1a41",
+    "3ceffbdd67d6bb43cb8a92b743e77d78c75fe366fdceef33834934f307cadf56",
+    "1495766c4ae6bfcd78512a782c24f31edee050d63fce5ae25e373b739a484aa4",
+    "f6015890a63f55250b55e3131c5366723bc41e5b12f529433051c87e98c1b805",
+    "11ed0d9424b02e76abf8902834ddff035b73cf179b0aed539b5179e6ba328cf2",
+    "3a3e84091e6557502315781401b216b9959519214f477028e35923d1289ca7c2",
+    "1e791c11bf66fd9e4fe8393365d1f9ef6544886fc6b5ba56ca8955d7121aed59",
+    "6d0dd79358a17ed3f0568652ce66e4eaf33f042696041533c1f50209599dd053",
+    "fc71bca7fc61e90462813cc7a1517f442af75b33c7fe98204bdc2b1fc9896c8b",
+    "1905df2f971940340958efdc198a7f20802d02d69e48e97dfd308069dac07fc9",
+    "7d2b8d8dd60b611871de7a1f40c0e58235d86d50b16e44afbaf6755342c2caa9",
+    "e838ba474ac152e87be721518d8d4d7233a438eb37fe2e98af3054b2e40ce681",
+    "2d06015f62b80073989e8b6e190485a96c356dc5d1c2489b2c18d41c55b4d056",
+    "d5f12b4152d5475a3eb0e71b4158aba107e467251e8ee17331f423694ac7c614",
+    "a4e68c9c9d44d904e7b41973a27a13806af58b76621d473406f345a1124b5161",
+    "dc8381e84edcf295441ab3cd9c49c3646c213d7445ecaee613ad1c8a1f79c760",
+    "53388fed6a3780d45fe6b3e72029159f64ae0b4a287ccf5e1a83a0f6ebd31439",
+    "c0af5ef2d94748bad41d9fd42d4b06a137c5f70d6302bf1cf7e81f0a4c4d8403",
+    "9f0e5f40cbcc029b52a11ce0c2910ce9857be8daf40f75cffcb6cc33670f2b76",
+    "66256abb736a8a2ecb54e40c3218e211a9e58363a5fc26b0b7219f6bf31bc64a",
+    "9082eafe02c0d2e65ccdd8b89fc9c72a7e695134b0ea98f51b8c4b8e5c491b64",
+    "3cba2c6a4263394dbb891744f4b70d8aec590c5b0c08d5def7800711014eec87",
+    "afa2871ca2313c653bcf67ab695d54a81797a515ec6892cfa731138c440580f2",
+    "f2a255f309add762ac8d9a947039326cacf8f9b6cc825797715e082d1b870486",
+    "f623825ff69666c43f7587fd557018e5ab98d1159030842e7ecb56eb6f2dee39",
+)
+
+
+def split_source(
+    *, record: int, filename: str, sha256: str, part_sha256: tuple[str, ...]
+) -> dict:
+    """Return the download source of a Zenodo archive that is stored in parts."""
+    base = f"https://zenodo.org/records/{record}/files/{filename}"
+    parts = [
+        {"url": f"{base}.part{number:03d}?download=1", "sha256": digest}
+        for number, digest in enumerate(part_sha256)
+    ]
+    return {
+        "version": "v2.1.0",
+        "url": parts[0]["url"],
+        "filename": filename,
+        "sha256": sha256,
+        "parts": parts,
+    }
+
+
 class DatabaseManager:
     """Manages GVClass reference database."""
 
@@ -145,13 +241,24 @@ class DatabaseManager:
         "labels.tsv": ("labels.tsv", "parquet/labels/labels.parquet"),
     }
 
-    DEFAULT_DATABASE_SOURCE = {
-        "version": "v2.1.0",
-        "url": "https://zenodo.org/records/23381313/files/resources_v2_1_0.tar.gz?download=1",
-        "filename": "resources_v2_1_0.tar.gz",
-        "sha256": "823023a0d9af82d6b01d7beeb1a12af422432c7c1e3a11b57f04130bfa7f5ee6",
-    }
+    #: The archive is stored as parts (the Zenodo server cuts a long request); each
+    #: part and the joined archive are checked against these hashes.
+    DEFAULT_DATABASE_SOURCE = split_source(
+        record=23381313,
+        filename="resources_v2_1_0.tar.gz",
+        sha256="823023a0d9af82d6b01d7beeb1a12af422432c7c1e3a11b57f04130bfa7f5ee6",
+        part_sha256=_BASE_PART_SHA256,
+    )
     DATABASE_VERSION = DEFAULT_DATABASE_SOURCE["version"]
+
+    #: Source of the optional contig-screen resources (``gvclass screen --install``);
+    #: pinned like the database source.
+    CONTIG_SCREEN_SOURCE: dict | None = split_source(
+        record=23464780,
+        filename="contig_screen_v2_1_0.tar.gz",
+        sha256="49183cfcd818940e17b4690f13b70caede7bab79a027f91d18183a699fe17135",
+        part_sha256=_SCREEN_PART_SHA256,
+    )
 
     @classmethod
     def get_database_version(cls, database_path: Path) -> str:
@@ -480,9 +587,67 @@ class DatabaseManager:
             "filename": filename,
             "sha256": sha256,
         }
+        if "parts" in source:
+            normalized["parts"] = cls._normalize_parts(source["parts"], url)
+            if sha256 is None:
+                raise ValueError(
+                    f"Database source {url} has parts but no SHA-256 of the "
+                    "joined archive"
+                )
         if allow_unverified:
             normalized["allow_unverified"] = True
         return normalized
+
+    @staticmethod
+    def _normalize_parts(parts: object, url: str) -> list[dict]:
+        """Validate the parts of a split archive: https URL and SHA-256 each."""
+        if not isinstance(parts, list) or not parts:
+            raise ValueError(f"Database source {url} lists no parts")
+        normalized = []
+        for part in parts:
+            part_url = str(part.get("url", "")).strip()
+            if urlparse(part_url).scheme.lower() != "https":
+                raise ValueError(
+                    f"Refusing database part with non-https URL: {part_url or 'none'}"
+                )
+            part_sha = str(part.get("sha256") or "").strip()
+            if re.fullmatch(r"[0-9a-fA-F]{64}", part_sha) is None:
+                raise ValueError(f"Database part {part_url} has no valid SHA-256")
+            normalized.append({"url": part_url, "sha256": part_sha})
+        return normalized
+
+    @classmethod
+    def _fetch_verified_part(cls, part: dict, number: int, part_path: Path) -> None:
+        """Download one part and check its SHA-256; the file is the part on success."""
+        cls._download_archive(part["url"], part_path)
+        observed = cls._compute_sha256(part_path)
+        if observed.lower() != part["sha256"].lower():
+            raise RuntimeError(
+                f"checksum mismatch in part{number:03d} "
+                f"(expected {part['sha256'].lower()}, got {observed.lower()})"
+            )
+
+    @classmethod
+    def _download_parts(cls, source: dict, archive_path: Path) -> None:
+        """Download the parts of a split archive, verify each, join them in order."""
+        part_paths: list[Path] = []
+        try:
+            with archive_path.open("wb") as joined:
+                for number, part in enumerate(source["parts"]):
+                    part_path = archive_path.with_name(
+                        f"{archive_path.name}.part{number:03d}"
+                    )
+                    part_paths.append(part_path)
+                    cls._fetch_verified_part(part, number, part_path)
+                    with part_path.open("rb") as piece:
+                        shutil.copyfileobj(piece, joined, _TRANSFER_CHUNK_SIZE)
+                    part_path.unlink()
+        except BaseException:
+            archive_path.unlink(missing_ok=True)
+            raise
+        finally:
+            for part_path in part_paths:
+                part_path.unlink(missing_ok=True)
 
     @classmethod
     def _install_database_source_atomic(
@@ -502,7 +667,10 @@ class DatabaseManager:
         url = source["url"]
 
         logger.info(f"Attempting download of database {version} from {url}")
-        cls._download_archive(url, archive_path)
+        if source.get("parts"):
+            cls._download_parts(source, archive_path)
+        else:
+            cls._download_archive(url, archive_path)
         cls._verify_archive_checksum(source, archive_path)
 
         staging_path.mkdir(parents=True, exist_ok=False)
@@ -510,6 +678,38 @@ class DatabaseManager:
         cls.write_database_version(staging_path, version=version)
 
         cls._atomic_swap_directory(staging_path, db_path)
+
+    @classmethod
+    def install_addon(cls, db_path: Path, name: str, source: dict) -> Path:
+        """Install an optional archive as ``<db_path>/<name>``, replacing it whole.
+
+        The archive holds one top-level directory. It is downloaded (in parts if the
+        source lists them), checked against its SHA-256, extracted to a staging
+        directory and swapped into place; a failure keeps the installed add-on.
+        """
+        if re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]*", name) is None:
+            raise ValueError(f"Invalid add-on name: {name!r}")
+        normalized = cls._normalize_source(source)
+        if normalized is None:
+            raise ValueError("The add-on source has no URL")
+        db_path = Path(db_path)
+        archive_path = db_path / f".{name}.download"
+        staging_path = db_path / f".{name}.new"
+        shutil.rmtree(staging_path, ignore_errors=True)
+        try:
+            if normalized.get("parts"):
+                cls._download_parts(normalized, archive_path)
+            else:
+                cls._download_archive(normalized["url"], archive_path)
+            cls._verify_archive_checksum(normalized, archive_path)
+            staging_path.mkdir(parents=True)
+            cls._extract_archive(archive_path, staging_path)
+            target = db_path / name
+            cls._atomic_swap_directory(staging_path, target)
+        finally:
+            archive_path.unlink(missing_ok=True)
+            shutil.rmtree(staging_path, ignore_errors=True)
+        return target
 
     @classmethod
     def _atomic_swap_directory(cls, staging_path: Path, db_path: Path) -> None:
@@ -598,6 +798,11 @@ class DatabaseManager:
     def _source_from_zenodo_record(cls, record: dict) -> dict:
         """Build a download source descriptor from a Zenodo record payload."""
         files = record.get("files", [])
+        if any(
+            re.search(r"\.tar\.gz\.part\d{3}$", candidate.get("key", ""))
+            for candidate in files
+        ):
+            return cls._source_from_zenodo_parts(record)
         archive_file = next(
             (
                 candidate
@@ -651,6 +856,62 @@ class DatabaseManager:
             or None,
             "conceptrecid": str(record.get("conceptrecid") or "").strip() or None,
         }
+
+    @classmethod
+    def _source_from_zenodo_parts(cls, record: dict) -> dict:
+        """Build a split-archive source from ``<name>.tar.gz.partNNN`` record files."""
+        files = {f.get("key", ""): f for f in record.get("files", [])}
+        pattern = re.compile(r"^(?P<name>.+\.tar\.gz)\.part(?P<number>\d{3})$")
+        found = {}
+        for key in files:
+            match = pattern.match(key)
+            if match:
+                found.setdefault(match["name"], {})[int(match["number"])] = key
+        if len(found) != 1:
+            raise ValueError("Zenodo record holds parts of more than one archive")
+        archive_name, numbered = next(iter(found.items()))
+        if sorted(numbered) != list(range(len(numbered))):
+            raise ValueError(
+                f"Zenodo parts of {archive_name} do not have consecutive numbers"
+            )
+        whole = cls._sidecar_hashes(files, f"{archive_name}.sha256")
+        part_hashes = cls._sidecar_hashes(files, f"{archive_name}.parts.sha256")
+        parts = []
+        for number in sorted(numbered):
+            key = numbered[number]
+            if key not in part_hashes:
+                raise ValueError(f"Zenodo part {key} has no SHA-256 in the sidecar")
+            parts.append(
+                {"url": files[key]["links"]["self"], "sha256": part_hashes[key]}
+            )
+        if archive_name not in whole:
+            raise ValueError(f"Zenodo archive {archive_name} has no SHA-256 sidecar")
+        return {
+            "version": cls.normalize_version_label(
+                record.get("metadata", {}).get("version")
+            ),
+            "url": parts[0]["url"],
+            "filename": archive_name,
+            "sha256": whole[archive_name],
+            "parts": parts,
+            "record_id": str(record.get("id") or record.get("recid") or "").strip()
+            or None,
+            "conceptrecid": str(record.get("conceptrecid") or "").strip() or None,
+        }
+
+    @classmethod
+    def _sidecar_hashes(cls, files: dict, key: str) -> dict[str, str]:
+        """Return file name to SHA-256 from a ``sha256sum`` sidecar of a record."""
+        sidecar = files.get(key)
+        link = (sidecar or {}).get("links", {}).get("self")
+        if not link:
+            raise ValueError(f"Zenodo record has no SHA-256 sidecar {key}")
+        hashes = {}
+        for line in cls._fetch_text(link).splitlines():
+            fields = line.split()
+            if len(fields) == 2 and re.fullmatch(r"[0-9a-fA-F]{64}", fields[0]):
+                hashes[fields[1].lstrip("*")] = fields[0]
+        return hashes
 
     @classmethod
     def _download_archive(cls, url: str, archive_path: Path) -> None:

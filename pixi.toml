@@ -28,6 +28,8 @@ wheel = "==0.46.2"
 pyyaml = "==6.0.2"        # For config file parsing
 psutil = "==7.2.1"        # For system monitoring
 scikit-learn = "==1.7.2"
+pytorch-cpu = ">=2.14.1,<3"
+transformers = ">=5.17.0,<6"
 
 [pypi-dependencies]
 # Bioinformatics tools (Python implementations)

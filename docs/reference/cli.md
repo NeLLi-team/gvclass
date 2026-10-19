@@ -89,6 +89,28 @@ pixi run gvclass --version
 
 `--version` reports software version 2.1.0 and the installed database version. Database setup installs v2.1.0.
 
+## `gvclass screen`
+
+```bash
+pixi run gvclass screen <bin.fna | folder> [-o DIR] [-d DATABASE] [-t THREADS]
+pixi run gvclass screen --install [-d DATABASE]
+```
+
+Runs the cellular screen and the giant-virus screen on every bin. The command runs
+natively; container mode does not forward it. See
+[Screen bins for contaminating contigs](../how-to/screen-contigs.md).
+
+| Option | Argument/default | Description |
+| --- | --- | --- |
+| `input` | FASTA file or folder | A bin, or a folder of `.fna`, `.fa`, `.fasta` or `.fas` files (also gzipped). |
+| `-o`, `--output-dir` | `<input>_screen` | Directory for the tables and summaries. |
+| `-d`, `--database` | `GVCLASS_DB`, then `resources` | Database directory that holds `contig_screen/`. |
+| `-t`, `--threads` | 4 | Threads for gene calling, DIAMOND and the embedding model. |
+| `--install` | flag | Download and install `contig_screen/` into the database, then exit. |
+
+The exit code is 1 when no FASTA file is found, when the screen resources are not
+installed, or when a screen fails for a bin; the other bins still run.
+
 ## Apptainer container mode
 
 `gvclass` supports running inside the published Apptainer SIF container via `--apptainer` or `--image` (or automatically when `gvclass` is downloaded as a standalone script without a repository checkout). It accepts an input path and `-o`/`--output-dir` (or a second positional output path). Container mode differs from native mode in two defaults: `-t` is 16, and the output directory is `<input>_results` beside the input. A missing input path is an error (exit code 2).
