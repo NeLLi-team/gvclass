@@ -96,8 +96,8 @@ pixi run gvclass screen <bin.fna | folder> [-o DIR] [-d DATABASE] [-t THREADS]
 pixi run gvclass screen --install [-d DATABASE]
 ```
 
-Runs the cellular screen and the giant-virus screen on every bin. The command runs
-natively; container mode does not forward it. See
+Runs the cellular screen and the giant-virus screen on every bin. Add `--image`
+or `--apptainer` to use the container. See
 [Screen bins for contaminating contigs](../how-to/screen-contigs.md).
 
 | Option | Argument/default | Description |
@@ -111,6 +111,16 @@ natively; container mode does not forward it. See
 The exit code is 1 when no FASTA file is found, when the screen resources are not
 installed, or when a screen fails for a bin; the other bins still run.
 
+In container mode, `--install` writes the add-on to the host resource cache when
+neither `-d` nor `GVCLASS_DB` is set. Screening mounts that add-on alongside the
+image's database. `-d`, then `GVCLASS_DB`, overrides the cache and selects a complete
+host database. Installation adds only `contig_screen/` to that directory; the base
+database must already be present for subsequent screening. Use
+`--resource-cache-dir` with `GVCLASS_DB` unset for an add-on-only cache.
+The container reads inputs and resources through read-only mounts and writes to
+the selected output directory. Screen mode keeps its default of four threads and
+`<input>_screen` output in both modes.
+
 ## Apptainer container mode
 
 `gvclass` supports running inside the published Apptainer SIF container via `--apptainer` or `--image` (or automatically when `gvclass` is downloaded as a standalone script without a repository checkout). It accepts an input path and `-o`/`--output-dir` (or a second positional output path). Container mode differs from native mode in two defaults: `-t` is 16, and the output directory is `<input>_results` beside the input. A missing input path is an error (exit code 2).
@@ -119,6 +129,6 @@ installed, or when a screen fails for a bin; the other bins still run.
 | --- | --- | --- |
 | `--apptainer` | flag | Execute inside the Apptainer SIF image (`library://nelligroup-jgi/gvclass/gvclass:2.1.1` by default). |
 | `--image` | path or URI | Local `.sif` path, `library://` URI, or `https://` URL (implies `--apptainer`). |
-| `--resource-cache-dir` | path; `~/.cache/gvclass/resource-cache/v2.1.0` | Writable host directory mounted at `/resource-cache` inside the container. |
+| `--resource-cache-dir` | path; `~/.cache/gvclass/resource-cache/v2.1.0` | Classification: writable materialization cache mounted at `/resource-cache`. Screen: host add-on cache used when neither `-d` nor `GVCLASS_DB` is set; writable during installation and mounted read-only during screening. |
 
-All standard pipeline, species-tree, and resume flags (`-t`, `-j`, `--threads-per-worker`, `--tree-method`, `--iqtree-mode`, `--mode-fast`, `-e`/`--extended`, `--sensitive`, `--no-sensitive`, `--completeness-mode`, `--species-tree`, `--species-tree-combined`, `--species-tree-trim`, `-C`/`--contigs`, `--min-length`, `--contigs-min-length`, `--allow-short`, `--resume`, `--plain-output`, `-v`/`--verbose`) are forwarded to the container. `--config`, `--database` and the `--cluster-*` options are native-only and are rejected in container mode. When both `--sensitive` and `--no-sensitive` are given, `--no-sensitive` wins in both modes. See [run on HPC](../how-to/run-on-hpc.md) for container commands.
+All standard pipeline, species-tree, and resume flags (`-t`, `-j`, `--threads-per-worker`, `--tree-method`, `--iqtree-mode`, `--mode-fast`, `-e`/`--extended`, `--sensitive`, `--no-sensitive`, `--completeness-mode`, `--species-tree`, `--species-tree-combined`, `--species-tree-trim`, `-C`/`--contigs`, `--min-length`, `--contigs-min-length`, `--allow-short`, `--resume`, `--plain-output`, `-v`/`--verbose`) are forwarded to the container. For classification, `--config`, `--database` and the `--cluster-*` options are native-only and are rejected in container mode. The `screen` command accepts `--database` as described above. When both `--sensitive` and `--no-sensitive` are given, `--no-sensitive` wins in both modes. See [run on HPC](../how-to/run-on-hpc.md) for container commands.

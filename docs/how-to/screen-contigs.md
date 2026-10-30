@@ -37,6 +37,32 @@ works. The database comes from `-d`, then `GVCLASS_DB`, then `resources`.
 DIAMOND searches against the reference dominate the run time. In a test with the
 research prototype, a bin of 90 kb took 106 s on four threads with the 10% reference.
 
+## Run with Apptainer
+
+Select a local SIF image and install the optional resources in the host cache:
+
+```bash
+./gvclass screen --install --image "$PWD/gvclass_2.1.1.sif"
+./gvclass screen bins/ -o bins_screen -t 4 --image "$PWD/gvclass_2.1.1.sif"
+```
+
+With `GVCLASS_DB` unset, the installer writes to
+`~/.cache/gvclass/resource-cache/v2.1.0/contig_screen/`. Use
+`--resource-cache-dir /path/to/cache` on both commands to select another add-on
+cache. Screening mounts that add-on read-only alongside the database inside the
+image. The input is mounted read-only; results go to the host output directory.
+
+`-d /path/to/resources`, then `GVCLASS_DB`, overrides the cache and selects a
+complete host database. When installing with either setting, select a directory
+that already holds the base database if you will use it for screening. The
+installer adds only `contig_screen/`; it does not install the base database.
+For a directory that will hold only the add-on, use `--resource-cache-dir` and
+unset `GVCLASS_DB`.
+
+Installation writes to the selected host directory without changing the SIF. The
+installer reports `/screen-resources`, which is the container mount of that host
+directory. Keep `--image` and any cache or database flags on installation commands.
+
 ## Read the results
 
 For each bin `<name>`, the output directory holds:

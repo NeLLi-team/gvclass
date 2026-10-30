@@ -18,6 +18,8 @@ From: ghcr.io/prefix-dev/pixi@sha256:d2d0d941b89802e67a622e4adad68c8643f81154461
     src/bin/gvclass_runner.py /opt/gvclass/src/bin/gvclass_runner.py
     src/bin/progress_monitor.py /opt/gvclass/src/bin/progress_monitor.py
     src/bin/setup_database.py /opt/gvclass/src/bin/setup_database.py
+    src/bin/gvclass_screen.py /opt/gvclass/src/bin/gvclass_screen.py
+    src/contig_screen /opt/gvclass/src/contig_screen
     src/config /opt/gvclass/src/config
     src/core /opt/gvclass/src/core
     src/pipeline /opt/gvclass/src/pipeline
@@ -66,6 +68,9 @@ From: ghcr.io/prefix-dev/pixi@sha256:d2d0d941b89802e67a622e4adad68c8643f81154461
     rm -rf /opt/gvclass/.pixi/cache 2>/dev/null || true
     rm -rf /opt/gvclass/__pycache__ 2>/dev/null || true
     find /opt/gvclass -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+
+    mkdir -p /input /output /resource-cache /screen-resources /opt/gvclass/resources/contig_screen
+    chmod 777 /input /output /resource-cache /screen-resources
 
     # Make the application tree usable by non-root Apptainer/Singularity users.
     chmod -R a+rX /opt/gvclass

@@ -23,6 +23,8 @@ COPY example /opt/gvclass/example
 COPY src/__init__.py src/__version__.py /opt/gvclass/src/
 COPY src/bin/__init__.py src/bin/cli_display.py src/bin/gvclass_cli.py /opt/gvclass/src/bin/
 COPY src/bin/gvclass_runner.py src/bin/progress_monitor.py src/bin/setup_database.py /opt/gvclass/src/bin/
+COPY src/bin/gvclass_screen.py /opt/gvclass/src/bin/
+COPY src/contig_screen /opt/gvclass/src/contig_screen
 COPY src/config /opt/gvclass/src/config
 COPY src/core /opt/gvclass/src/core
 COPY src/pipeline /opt/gvclass/src/pipeline
@@ -48,7 +50,8 @@ ENV PYTHONPATH="/opt/gvclass"
 ENV GVCLASS_RESOURCE_CACHE="/resource-cache"
 
 # Create mount points for input/output with proper permissions
-RUN mkdir -p /data /results /resource-cache && chmod 777 /data /results /resource-cache
+RUN mkdir -p /data /results /input /output /resource-cache /screen-resources /opt/gvclass/resources/contig_screen && \
+    chmod 777 /data /results /input /output /resource-cache /screen-resources
 
 # Create an entrypoint script
 RUN printf '%s\n' \

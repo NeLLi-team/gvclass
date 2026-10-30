@@ -218,8 +218,10 @@ def run_container(
     return subprocess.call(cmd)
 
 
-def _build_apptainer_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run GVClass via Apptainer container")
+def _build_apptainer_parser(*, add_help: bool = True) -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Run GVClass via Apptainer container", add_help=add_help
+    )
     parser.add_argument(
         "query_path",
         nargs="?",
@@ -400,10 +402,99 @@ def resolve_output_path(
     return resolved_query.with_name(f"{query_name}_results")
 
 
+def _build_screen_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Run contig screens via Apptainer")
+    parser.add_argument("command", choices=["screen"], help="Run contig screens")
+    parser.add_argument("input", nargs="?", type=Path, help="FASTA file or folder")
+    parser.add_argument(
+        "--install", action="store_true", help="Install screen resources"
+    )
+    parser.add_argument("-o", "--output-dir", type=Path, help="Default: <input>_screen")
+    parser.add_argument("-d", "--database", help="Host database (default: GVCLASS_DB)")
+    parser.add_argument(
+        "-t", "--threads", type=int, default=4, help="Threads (default: 4)"
+    )
+    parser.add_argument("--apptainer", action="store_true", help="Use Apptainer")
+    parser.add_argument(
+        "--image", default=DEFAULT_IMAGE, help="Image URI or local path"
+    )
+    parser.add_argument(
+        "--resource-cache-dir",
+        type=Path,
+        default=DEFAULT_RESOURCE_CACHE_DIR,
+        help="Host cache for the optional screen resources",
+    )
+    return parser
+
+
+def _screen_database_bind(args: argparse.Namespace) -> tuple[str, str]:
+    host_database = args.database or os.environ.get("GVCLASS_DB", "").strip()
+    root = Path(host_database or args.resource_cache_dir).expanduser().resolve()
+    if args.install:
+        root.mkdir(parents=True, exist_ok=True)
+        return f"{root}:/screen-resources", "/screen-resources"
+    if not (root / "contig_screen" / "manifest.json").is_file():
+        raise SystemExit(
+            f"No contig-screen resources in {root}; run: gvclass screen --install"
+        )
+    if host_database:
+        return f"{root}:/screen-resources:ro", "/screen-resources"
+    return (
+        f"{root}/contig_screen:/opt/gvclass/resources/contig_screen:ro",
+        "/opt/gvclass/resources",
+    )
+
+
+def _screen_main(argv: list[str]) -> int:
+    parser = _build_screen_parser()
+    args = parser.parse_intermixed_args(argv)
+    if not args.install and args.input is None:
+        parser.error("an input bin or folder is needed (or --install)")
+    database_bind, database = _screen_database_bind(args)
+    cmd = ["apptainer", "run", "-B", database_bind]
+    if args.install:
+        cmd.extend(
+            [ensure_local_image(args.image), "screen", "--install", "-d", database]
+        )
+        return subprocess.call(cmd)
+    source = args.input.expanduser().resolve()
+    if not source.exists():
+        parser.error(f"Input path not found: {source}")
+    output = args.output_dir or source.with_name(source.name + "_screen")
+    output = output.expanduser().resolve()
+    output.mkdir(parents=True, exist_ok=True)
+    bind_source = source.parent if source.is_file() else source
+    container_input = f"/input/{source.name}" if source.is_file() else "/input"
+    cmd.extend(
+        [
+            "-B",
+            f"{bind_source}:/input:ro",
+            "-B",
+            f"{output}:/output",
+            ensure_local_image(args.image),
+            "screen",
+            container_input,
+            "-o",
+            "/output",
+            "-d",
+            database,
+            "-t",
+            str(args.threads),
+        ]
+    )
+    return subprocess.call(cmd)
+
+
 def _standalone_apptainer_main(argv: list[str] | None = None) -> int:
-    parser = _build_apptainer_parser()
     given = sys.argv[1:] if argv is None else list(argv)
-    args = parser.parse_args(argv)
+    probe = _build_apptainer_parser(add_help=False)
+    probe.add_argument("-d", "--database")
+    probe.add_argument("--install", action="store_true")
+    detected, _ = probe.parse_known_args(given)
+    if detected.query_path == "screen":
+        return _screen_main(given)
+    parser = _build_apptainer_parser()
+    args = parser.parse_args(given)
     if args.version:
         print(f"GVClass Apptainer launcher (default image: {DEFAULT_IMAGE})")
         return 0

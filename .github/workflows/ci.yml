@@ -189,6 +189,79 @@ jobs:
               print(f"Verified {model_path}: {observed_digest}")
           PY
 
+      - name: Run SIF classification and screen smoke tests
+        run: |
+          apptainer run gvclass.sif screen --help
+          mkdir -p "${RUNNER_TEMP}/gvclass-results" "${RUNNER_TEMP}/gvclass-cache"
+          ./gvclass --image "${PWD}/gvclass.sif" example \
+            -o "${RUNNER_TEMP}/gvclass-results" -t 4 --mode-fast --plain-output \
+            --resource-cache-dir "${RUNNER_TEMP}/gvclass-cache"
+          apptainer exec \
+            -B "${RUNNER_TEMP}/gvclass-results:/output:ro" \
+            -B "${PWD}/tests/fixtures/expected_example_summary.tsv:/expected.tsv:ro" \
+            gvclass.sif python - <<'PYTHON'
+          import csv
+          from pathlib import Path
+
+          stable_columns = [
+              "query",
+              "taxonomy_majority",
+              "species_tree_nn_taxonomy",
+              "taxonomy_confidence",
+              "capsid_group",
+              "estimated_completeness",
+              "completeness_query_support",
+              "estimated_completeness_strategy",
+              "completeness_model_group",
+              "completeness_model_reliability",
+              "estimated_contamination",
+              "contamination_query_support",
+              "estimated_contamination_strategy",
+              "contamination_model_reliability",
+              "contamination_type",
+              "gvog4_completeness",
+              "gvog8_completeness",
+              "ncldv_mcp_total",
+              "vp_completeness",
+              "mirus_completeness",
+              "busco_completeness",
+              "cog_completeness",
+              "ttable",
+          ]
+
+          def stable_summary(path):
+              with Path(path).open() as handle:
+                  return sorted(
+                      tuple(row[column] for column in stable_columns)
+                      for row in csv.DictReader(handle, delimiter="\t")
+                  )
+
+          expected = stable_summary("/expected.tsv")
+          observed = stable_summary("/output/gvclass_summary.tsv")
+          assert expected, "The golden fixture must contain classifications"
+          assert observed == expected, (observed, expected)
+          PYTHON
+
+      - name: Verify host screen launcher rejects an invalid bundle
+        run: |
+          screen_test="$(mktemp -d "${RUNNER_TEMP}/gvclass-screen.XXXXXX")"
+          mkdir -p "${screen_test}/cache/contig_screen"
+          printf '{}\n' > "${screen_test}/cache/contig_screen/manifest.json"
+          printf '>tiny\nACGT\n' > "${screen_test}/tiny.fna"
+          status=0
+          env -u GVCLASS_DB ./gvclass screen "${screen_test}/tiny.fna" \
+            --image "${PWD}/gvclass.sif" \
+            --resource-cache-dir "${screen_test}/cache" \
+            -o "${screen_test}/output" 2> "${screen_test}/stderr.log" || status=$?
+          cat "${screen_test}/stderr.log"
+          test "${status}" -eq 1
+          grep -Fx $'tiny\tfailed\tfailed' "${screen_test}/output/contig_screen_summary.tsv"
+          test -f "${screen_test}/output/tiny.summary.txt"
+          grep -F 'manifest SHA-256 mismatch at /opt/gvclass/resources/contig_screen/manifest.json' \
+            "${screen_test}/stderr.log"
+          # This checks routing, mounts and integrity rejection. Successful screening
+          # with the pinned add-on remains a release validation requirement.
+
       - name: Generate SBOM
         uses: anchore/sbom-action@v0
         with:
