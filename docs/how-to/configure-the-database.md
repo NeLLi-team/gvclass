@@ -14,6 +14,9 @@ Setup downloads and verifies the archive, then extracts it into `resources/`.
 The bundle is about 1.5 GB and is published on
 [Zenodo](https://doi.org/10.5281/zenodo.23381313) as 24 parts of 64 MiB. Setup checks
 each part and the joined archive. `DB_VERSION` records the installed version.
+Setup preserves this file exactly as archived and checks that its version matches
+the selected source before replacing an existing database. An archive without
+`DB_VERSION` receives a marker containing the source version and a final newline.
 
 Setup uses one exact source. An explicit environment URL has precedence over the
 configuration block, which has precedence over the built-in v2.1.0 source. GVClass

@@ -279,14 +279,20 @@ class DatabaseManager:
         return "unknown"
 
     @classmethod
-    def write_database_version(
-        cls, database_path: Path, version: Optional[str] = None
-    ) -> None:
-        """Write the database version to a file."""
+    def _ensure_database_version(cls, database_path: Path, version: str) -> None:
+        """Check an archived version marker without changing its verified bytes."""
         version_file = database_path / "DB_VERSION"
-        version_file.write_text(
-            cls.normalize_version_label(version or cls.DATABASE_VERSION)
-        )
+        expected = cls.normalize_version_label(version)
+        if version_file.exists():
+            observed = cls.normalize_version_label(
+                version_file.read_text(encoding="utf-8")
+            )
+            if observed != expected:
+                raise RuntimeError(
+                    f"Database version mismatch: expected {expected}, got {observed}"
+                )
+            return
+        version_file.write_text(f"{expected}\n", encoding="utf-8")
 
     @staticmethod
     def normalize_version_label(version: Optional[str]) -> str:
@@ -454,7 +460,7 @@ class DatabaseManager:
 
         Extraction writes into ``<db_path>.new`` and only swaps into place
         after the archive is verified, fully extracted, and the DB_VERSION
-        marker is written. A mid-extraction crash leaves the prior
+        marker is checked or created if absent. A mid-extraction crash leaves the prior
         ``db_path`` (if any) untouched and the half-built staging directory
         is removed on the next attempt. The downloaded archive is parked in
         ``db_path.parent`` as a sibling so it never contaminates the
@@ -675,7 +681,7 @@ class DatabaseManager:
 
         staging_path.mkdir(parents=True, exist_ok=False)
         cls._extract_archive(archive_path, staging_path)
-        cls.write_database_version(staging_path, version=version)
+        cls._ensure_database_version(staging_path, version=version)
 
         cls._atomic_swap_directory(staging_path, db_path)
 

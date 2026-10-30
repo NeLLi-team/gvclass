@@ -1,6 +1,6 @@
 # Reference
 
-These pages describe GVClass 2.1.0. Database setup installs `DB_VERSION` v2.1.0.
+These pages describe GVClass 2.1.1. Database setup installs `DB_VERSION` v2.1.0.
 
 - [CLI](cli.md): command-line options and defaults.
 - [Configuration](configuration.md): YAML keys and setting precedence.

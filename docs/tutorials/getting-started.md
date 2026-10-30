@@ -48,7 +48,7 @@ budget and writes results to `example_results/`.
 Print the query names, assigned lineages, and classification confidence:
 
 ```bash
-cut -f1,3,5 example_results/gvclass_summary.tsv
+cut -f1,2,4 example_results/gvclass_summary.tsv
 ```
 
 The table should contain these three queries:

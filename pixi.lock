@@ -232,7 +232,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/colorama-0.4.6-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/cpython-3.11.17-py311hd8ed1ab_2.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/distlib-0.4.0-pyhd8ed1ab_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/ete3-3.1.2-pyh9f0ad1d_0.tar.bz2
+      - conda: https://conda.anaconda.org/conda-forge/noarch/ete3-3.1.3-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/exceptiongroup-1.3.1-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/filelock-3.24.3-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/flake8-7.3.0-pyhd8ed1ab_0.conda
@@ -805,7 +805,7 @@ packages:
   - zstd >=1.5.7,<1.6.0a0
   license: BSD-3-Clause AND MIT AND EPL-2.0
   purls:
-  - pkg:pypi/backports-zstd?source=compressed-mapping
+  - pkg:pypi/backports-zstd?source=hash-mapping
   run_exports: {}
   size: 249002
   timestamp: 1791654829528
@@ -4262,14 +4262,14 @@ packages:
   - pkg:pypi/distlib?source=hash-mapping
   size: 275642
   timestamp: 1752823081585
-- conda: https://conda.anaconda.org/conda-forge/noarch/ete3-3.1.2-pyh9f0ad1d_0.tar.bz2
-  sha256: c101ece5ab36eb816a3645715c2091b5238b4044f26639a5db67dbe71c086ac0
-  md5: f44995b47ebb269fe86eac590f019857
+- conda: https://conda.anaconda.org/conda-forge/noarch/ete3-3.1.3-pyhd8ed1ab_0.conda
+  sha256: 003a3f1939e89cc2e4139882030d9c329cee92aee6299d69a8d2fa671b576fb3
+  md5: 7fca9be27a33c9244676f43cc0bb792e
   depends:
   - lxml
   - numpy
-  - pyqt >=4.11.*
-  - python
+  - pyqt >=5.15.*
+  - python >=3.7
   - scipy
   - six
   - xorg-libsm
@@ -4282,8 +4282,9 @@ packages:
   license_family: GPL
   purls:
   - pkg:pypi/ete3?source=hash-mapping
-  size: 1900228
-  timestamp: 1600640012471
+  run_exports: {}
+  size: 1778742
+  timestamp: 1688510187352
 - conda: https://conda.anaconda.org/conda-forge/noarch/exceptiongroup-1.3.1-pyhd8ed1ab_0.conda
   sha256: ee6cf346d017d954255bbcbdb424cddea4d14e4ed7e9813e429db1d795d01144
   md5: 8e662bd460bda79b1ea39194e3c4c9ab

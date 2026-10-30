@@ -11,6 +11,17 @@ covers releases prior to v1.2.2.
 The runtime database/resource bundle is versioned separately from the software; the
 compatible bundle is noted per release.
 
+## [2.1.1] - 2026-10-30
+
+Compatible resource bundle: v2.1.0 (Zenodo DOI 10.5281/zenodo.23381313).
+
+### Fixed
+
+- Correct the summary column selections in the classification and quality guides.
+- Preserve the archived `DB_VERSION` bytes and reject a version mismatch before
+  replacing the installed database.
+- Update ETE to 3.1.3 to remove its parser SyntaxWarning.
+
 ## [2.1.0] - 2026-10-14
 
 Compatible resource bundle: v2.1.0 (Zenodo DOI 10.5281/zenodo.23381313).

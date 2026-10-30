@@ -11,7 +11,7 @@ with your results directory.
 ## 1. Read the assignment and estimates together
 
 ```bash
-cut -f1,3,5,16,17,20,21,22,25 example_results/gvclass_summary.tsv
+cut -f1,2,4,15,16,19,20,21,24 example_results/gvclass_summary.tsv
 ```
 
 The selected columns show the query, lineage, taxonomy confidence, completeness
@@ -61,7 +61,7 @@ heavily contaminated inputs.
 Inspect marker counts and duplication alongside the estimate:
 
 ```bash
-cut -f1,15,26-33 example_results/gvclass_summary.tsv
+cut -f1,14,25-32 example_results/gvclass_summary.tsv
 ```
 
 This includes `order_dup`, GVOG4 and GVOG8 counts and duplication, and the BUSCO

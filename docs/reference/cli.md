@@ -87,7 +87,7 @@ pixi run gvclass --help
 pixi run gvclass --version
 ```
 
-`--version` reports software version 2.1.0 and the installed database version. Database setup installs v2.1.0.
+`--version` reports software version 2.1.1 and the installed database version. Database setup installs v2.1.0.
 
 ## `gvclass screen`
 
@@ -117,7 +117,7 @@ installed, or when a screen fails for a bin; the other bins still run.
 
 | Option | Argument/default | Description |
 | --- | --- | --- |
-| `--apptainer` | flag | Execute inside the Apptainer SIF image (`library://nelligroup-jgi/gvclass/gvclass:2.1.0` by default). |
+| `--apptainer` | flag | Execute inside the Apptainer SIF image (`library://nelligroup-jgi/gvclass/gvclass:2.1.1` by default). |
 | `--image` | path or URI | Local `.sif` path, `library://` URI, or `https://` URL (implies `--apptainer`). |
 | `--resource-cache-dir` | path; `~/.cache/gvclass/resource-cache/v2.1.0` | Writable host directory mounted at `/resource-cache` inside the container. |
 
