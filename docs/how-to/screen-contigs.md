@@ -98,3 +98,20 @@ The bin may not be a giant-virus bin, or its family may be absent from training.
   weights from the resource archive and use no network.
 
 See [`gvclass screen`](../reference/cli.md#gvclass-screen) for all options.
+
+## Validate a SIF before release
+
+The container CI job for tags and manual runs installs the pinned add-on through
+`./gvclass screen --install --image ... --resource-cache-dir ...` and screens
+`example/GVMAG-S-1096109-37.fna` through the host launcher. The gate requires both
+screens to succeed, 33 cellular windows, 10 giant-virus contigs, complete input
+contig coverage, and finite probabilities between zero and one. The validation
+artifact holds the classification and screen tables for comparison with native
+results, plus logs, a disk report and the add-on manifest. Its SIF SHA-256
+identifies the tested image from that run.
+
+The job allows 180 minutes for the build, public downloads and validation. The
+installation and screening step has a 120-minute limit to leave time to save
+evidence if a download stalls. Before installing the add-on, the job requires
+12 GiB of free disk space: the joined archive and extracted files coexist during
+installation. The add-on stays in the host cache and is not included in the SIF.

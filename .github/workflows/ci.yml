@@ -115,7 +115,7 @@ jobs:
   container-build:
     name: Build Apptainer SIF and smoke-test
     runs-on: ubuntu-22.04
-    timeout-minutes: 120
+    timeout-minutes: 180
     needs: [lint-and-test, repo-hygiene, golden-file]
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     env:
@@ -147,7 +147,9 @@ jobs:
           sudo apt-get install -y apptainer
 
       - name: Build SIF
-        run: apptainer build gvclass.sif containers/apptainer/gvclass.def
+        run: |
+          apptainer build gvclass.sif containers/apptainer/gvclass.def
+          sha256sum gvclass.sif > gvclass.sif.sha256
 
       - name: Verify SIF software, resource, and model identities
         run: |
@@ -190,12 +192,14 @@ jobs:
           PY
 
       - name: Run SIF classification and screen smoke tests
+        shell: bash
         run: |
           apptainer run gvclass.sif screen --help
-          mkdir -p "${RUNNER_TEMP}/gvclass-results" "${RUNNER_TEMP}/gvclass-cache"
+          mkdir -p "${RUNNER_TEMP}/gvclass-results" "${RUNNER_TEMP}/gvclass-cache" "${RUNNER_TEMP}/gvclass-validation"
           ./gvclass --image "${PWD}/gvclass.sif" example \
             -o "${RUNNER_TEMP}/gvclass-results" -t 4 --mode-fast --plain-output \
-            --resource-cache-dir "${RUNNER_TEMP}/gvclass-cache"
+            --resource-cache-dir "${RUNNER_TEMP}/gvclass-cache" \
+            2>&1 | tee "${RUNNER_TEMP}/gvclass-validation/classification.log"
           apptainer exec \
             -B "${RUNNER_TEMP}/gvclass-results:/output:ro" \
             -B "${PWD}/tests/fixtures/expected_example_summary.tsv:/expected.tsv:ro" \
@@ -259,8 +263,111 @@ jobs:
           test -f "${screen_test}/output/tiny.summary.txt"
           grep -F 'manifest SHA-256 mismatch at /opt/gvclass/resources/contig_screen/manifest.json' \
             "${screen_test}/stderr.log"
-          # This checks routing, mounts and integrity rejection. Successful screening
-          # with the pinned add-on remains a release validation requirement.
+          # This checks routing, mounts and integrity rejection.
+
+      - name: Install pinned screen resources and screen example through SIF
+        timeout-minutes: 120
+        shell: bash
+        run: |
+          mkdir -p "${RUNNER_TEMP}/gvclass-validation"
+          df -h "${RUNNER_TEMP}" "${PWD}" | tee "${RUNNER_TEMP}/gvclass-validation/disk.txt"
+          du -h gvclass.sif | tee -a "${RUNNER_TEMP}/gvclass-validation/disk.txt"
+          apptainer exec -B "${RUNNER_TEMP}:/screen-resources:ro" \
+            gvclass.sif python - /screen-resources <<'PYTHON'
+          """Require space for the joined screen archive and extracted resources."""
+
+          import shutil
+          import sys
+
+          free = shutil.disk_usage(sys.argv[1]).free
+          if free < 12 * 1024**3:
+              raise SystemExit(
+                  f"Screen installation requires 12 GiB free; available: {free / 1024**3:.2f} GiB"
+              )
+          PYTHON
+          env -u GVCLASS_DB ./gvclass screen --install \
+            --image "${PWD}/gvclass.sif" \
+            --resource-cache-dir "${RUNNER_TEMP}/gvclass-screen-cache" \
+            2>&1 | tee "${RUNNER_TEMP}/gvclass-validation/install.log"
+          du -sh "${RUNNER_TEMP}/gvclass-screen-cache" | tee -a "${RUNNER_TEMP}/gvclass-validation/disk.txt"
+          df -h "${RUNNER_TEMP}" | tee -a "${RUNNER_TEMP}/gvclass-validation/disk.txt"
+          env -u GVCLASS_DB ./gvclass screen example/GVMAG-S-1096109-37.fna \
+            --image "${PWD}/gvclass.sif" \
+            --resource-cache-dir "${RUNNER_TEMP}/gvclass-screen-cache" \
+            -o "${RUNNER_TEMP}/gvclass-screen-results" -t 4 \
+            2>&1 | tee "${RUNNER_TEMP}/gvclass-validation/screen.log"
+
+      - name: Validate real-resource screen outputs
+        run: |
+          apptainer exec \
+            -B "${PWD}/example:/input:ro" \
+            -B "${RUNNER_TEMP}/gvclass-screen-results:/output:ro" \
+            gvclass.sif python - /input/GVMAG-S-1096109-37.fna /output <<'PYTHON'
+          """Validate the pinned example screen outputs before releasing the SIF."""
+
+          import csv
+          import math
+          import sys
+          from pathlib import Path
+
+          source, output = map(Path, sys.argv[1:])
+          bin_name = source.stem
+          with source.open(encoding="utf-8") as handle:
+              input_contigs = [line[1:].split()[0] for line in handle if line.startswith(">")]
+          assert len(input_contigs) == len(set(input_contigs)) == 10
+
+
+          def read_table(name: str) -> list[dict[str, str]]:
+              """Read a TSV from the mounted screen output directory."""
+              with (output / name).open(encoding="utf-8") as handle:
+                  return list(csv.DictReader(handle, delimiter="\t"))
+
+
+          status = read_table("contig_screen_summary.tsv")
+          assert status == [
+              {"bin": bin_name, "cellular_status": "ok", "giant_virus_status": "ok"}
+          ], status
+          cellular = read_table(f"{bin_name}.cellular.tsv")
+          giant_virus = read_table(f"{bin_name}.giant_virus.tsv")
+          assert len(cellular) == 33, len(cellular)
+          assert len(giant_virus) == 10, len(giant_virus)
+          assert len({row["contig_id"] for row in cellular}) == 33, "Duplicate cellular window"
+          assert len({(row["source_contig"], row["source_start"]) for row in cellular}) == 33, (
+              "Duplicate window position"
+          )
+          assert {row["source_contig"] for row in cellular} == set(input_contigs), (
+              "Cellular contig coverage differs"
+          )
+          assert {row["contig"] for row in giant_virus} == set(input_contigs), (
+              "Giant-virus contig coverage differs"
+          )
+          for rows, columns in [
+              (cellular, ("p_cellular", "p_gbm", "p_context")),
+              (giant_virus, ("p_foreign",)),
+          ]:
+              for row in rows:
+                  for column in columns:
+                      probability = float(row[column])
+                      assert math.isfinite(probability), (column, row)
+                      assert 0 <= probability <= 1, (column, row)
+          print(
+              "Verified both screens: 33 cellular windows, 10 giant-virus contigs, "
+              "complete coverage and valid probabilities"
+          )
+          PYTHON
+
+      - name: Upload container validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gvclass-validation-${{ github.ref_name }}
+          path: |
+            gvclass.sif.sha256
+            ${{ runner.temp }}/gvclass-validation/
+            ${{ runner.temp }}/gvclass-results/gvclass_summary.tsv
+            ${{ runner.temp }}/gvclass-screen-results/*.tsv
+            ${{ runner.temp }}/gvclass-screen-results/*.txt
+            ${{ runner.temp }}/gvclass-screen-cache/contig_screen/manifest.json
 
       - name: Generate SBOM
         uses: anchore/sbom-action@v0
