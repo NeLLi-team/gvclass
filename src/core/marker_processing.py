@@ -283,7 +283,7 @@ class MarkerProcessor:
                 )
 
             except Exception as e:
-                error_msg = f"⚠️  ERROR: VeryFastTree failed for {self.marker}: {e}"
+                error_msg = f"ERROR: VeryFastTree failed for {self.marker}: {e}"
                 logger.error(error_msg)
                 print(error_msg)
 
@@ -327,7 +327,7 @@ class MarkerProcessor:
                 )
             except subprocess.TimeoutExpired:
                 error_msg = (
-                    f"⚠️  ERROR: IQ-TREE timed out after 10 minutes for {self.marker}"
+                    f"ERROR: IQ-TREE timed out after 10 minutes for {self.marker}"
                 )
                 logger.error(error_msg)
                 print(error_msg)
@@ -344,15 +344,13 @@ class MarkerProcessor:
 
                 raise RuntimeError(f"IQ-TREE timed out for {self.marker}")
             except Exception as e:
-                error_msg = f"⚠️  ERROR: Failed to run IQ-TREE for {self.marker}: {e}"
+                error_msg = f"ERROR: Failed to run IQ-TREE for {self.marker}: {e}"
                 logger.error(error_msg)
                 print(error_msg)
                 raise RuntimeError(f"Failed to run IQ-TREE: {e}")
 
             if result.returncode != 0:
-                error_msg = (
-                    f"⚠️  ERROR: IQ-TREE failed for {self.marker}: {result.stderr}"
-                )
+                error_msg = f"ERROR: IQ-TREE failed for {self.marker}: {result.stderr}"
                 logger.error(error_msg)
                 print(error_msg)
 

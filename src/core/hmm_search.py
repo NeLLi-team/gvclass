@@ -686,7 +686,7 @@ def _print_process_hmmout_stats(
             f"Note: {proteins_with_multiple_markers} proteins matched multiple OG markers (expected behavior)"
         )
     if total_og_markers == 0 and total_non_og_markers == 0:
-        print("⚠️  WARNING: No markers detected in HMM search results!")
+        print("WARNING: No markers detected in HMM search results!")
     elif total_og_markers > 0:
         print(
             f"HMM search found {total_og_markers} OG markers and {total_non_og_markers} other markers"

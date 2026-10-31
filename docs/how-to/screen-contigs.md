@@ -110,6 +110,15 @@ artifact holds the classification and screen tables for comparison with native
 results, plus logs, a disk report and the add-on manifest. Its SIF SHA-256
 identifies the tested image from that run.
 
+Classification runs with `--plain-output --verbose`. Its combined log must contain
+marker debug messages and search diagnostics, without ANSI escapes or decorative
+warning, checkmark and error symbols. Scientific text such as `×` is allowed.
+The artifact also records host CPU information from `lscpu` and the SIF's PyTorch
+version, CPU capability, thread counts, loaded thread pools and build configuration
+from a fresh metadata process, before CLI per-task thread limits.
+These records support runtime comparisons; they do not establish the cause of a
+previous numerical difference.
+
 The job allows 180 minutes for the build, public downloads and validation. The
 installation and screening step has a 120-minute limit to leave time to save
 evidence if a download stalls. Before installing the add-on, the job requires

@@ -191,21 +191,57 @@ jobs:
               print(f"Verified {model_path}: {observed_digest}")
           PY
 
+      - name: Record CPU and frozen SIF runtime metadata
+        run: |
+          mkdir -p "${RUNNER_TEMP}/gvclass-validation"
+          lscpu --json > "${RUNNER_TEMP}/gvclass-validation/host-cpu.json"
+          apptainer exec gvclass.sif python - <<'PYTHON' > "${RUNNER_TEMP}/gvclass-validation/sif-runtime.json"
+          """Record library and CPU settings without process or environment dumps."""
+
+          import json
+
+          import numpy as np
+          import scipy
+          import sklearn
+          import threadpoolctl
+          import torch
+
+          runtime = {
+              "context": "fresh SIF process before CLI per-task thread limits",
+              "torch_version": torch.__version__,
+              "numpy_version": np.__version__,
+              "scipy_version": scipy.__version__,
+              "sklearn_version": sklearn.__version__,
+              "torch_cpu_capability": torch.backends.cpu.get_cpu_capability(),
+              "torch_num_threads": torch.get_num_threads(),
+              "torch_num_interop_threads": torch.get_num_interop_threads(),
+              "threadpools": [
+                  {key: value for key, value in pool.items() if key != "filepath"}
+                  for pool in threadpoolctl.threadpool_info()
+              ],
+              "torch_config": torch.__config__.show(),
+          }
+          print(json.dumps(runtime, indent=2))
+          PYTHON
+
       - name: Run SIF classification and screen smoke tests
         shell: bash
         run: |
           apptainer run gvclass.sif screen --help
           mkdir -p "${RUNNER_TEMP}/gvclass-results" "${RUNNER_TEMP}/gvclass-cache" "${RUNNER_TEMP}/gvclass-validation"
           ./gvclass --image "${PWD}/gvclass.sif" example \
-            -o "${RUNNER_TEMP}/gvclass-results" -t 4 --mode-fast --plain-output \
+            -o "${RUNNER_TEMP}/gvclass-results" -t 4 --mode-fast --plain-output --verbose \
             --resource-cache-dir "${RUNNER_TEMP}/gvclass-cache" \
             2>&1 | tee "${RUNNER_TEMP}/gvclass-validation/classification.log"
           apptainer exec \
             -B "${RUNNER_TEMP}/gvclass-results:/output:ro" \
+            -B "${RUNNER_TEMP}/gvclass-validation:/validation:ro" \
             -B "${PWD}/tests/fixtures/expected_example_summary.tsv:/expected.tsv:ro" \
             gvclass.sif python - <<'PYTHON'
           import csv
           from pathlib import Path
+
+          from src.bin.gvclass_cli import CliOutput
 
           stable_columns = [
               "query",
@@ -244,6 +280,17 @@ jobs:
           observed = stable_summary("/output/gvclass_summary.tsv")
           assert expected, "The golden fixture must contain classifications"
           assert observed == expected, (observed, expected)
+
+          classification_log = Path("/validation/classification.log").read_text(encoding="utf-8")
+          assert "\x1b" not in classification_log, "ANSI escape in plain output"
+          decorations = (*CliOutput.ICONS.values(), "⚠", "✓")
+          assert not any(symbol in classification_log for symbol in decorations), (
+              "Decoration in plain output"
+          )
+          assert "Running pyswrd search:" in classification_log, "Missing search diagnostics"
+          assert " - DEBUG - Processing marker " in classification_log, (
+              "Missing verbose marker diagnostics"
+          )
           PYTHON
 
       - name: Verify host screen launcher rejects an invalid bundle

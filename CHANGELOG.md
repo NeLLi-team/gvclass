@@ -169,7 +169,9 @@ from 2.0.1.
 
 ### Fixed
 
-- Runs are reproducible. The same input now produces the same output every time.
+- Made pyswrd hit ordering and reference selection deterministic for a fixed set
+  of search hits. This does not guarantee bitwise floating-point equality across
+  platforms.
   BLAST results were written in the order pyswrd's parallel search happened to
   return them, and equal-scoring hits were left in arrival order, so two runs of
   one input could select different reference sequences, build different gene

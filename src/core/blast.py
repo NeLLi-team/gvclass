@@ -404,7 +404,7 @@ def run_blastp(
 
         # Data validation warnings
         if suspicious_patterns:
-            print("⚠️  WARNING: Suspicious patterns detected in BLAST results:")
+            print("WARNING: Suspicious patterns detected in BLAST results:")
             for pattern in suspicious_patterns[:5]:  # Show first 5 warnings
                 print(f"   - {pattern}")
             if len(suspicious_patterns) > 5:
@@ -414,7 +414,8 @@ def run_blastp(
             perfect_ratio = perfect_hits / total_hits_processed
             if perfect_ratio > 0.9:
                 print(
-                    f"⚠️  WARNING: {perfect_hits}/{total_hits_processed} ({perfect_ratio:.1%}) hits show perfect identity!"
+                    f"WARNING: {perfect_hits}/{total_hits_processed} "
+                    f"({perfect_ratio:.1%}) hits show perfect identity!"
                 )
                 print(
                     "   This may indicate incorrect alignment statistics or identical sequences."
@@ -423,7 +424,7 @@ def run_blastp(
         # Warn if no hits were found despite having sequences
         if total_hits_processed == 0 and len(query_seqs) > 0 and len(ref_seqs) > 0:
             print(
-                "⚠️  WARNING: No hits found despite having query and reference sequences."
+                "WARNING: No hits found despite having query and reference sequences."
             )
             print("   Check e-value threshold or sequence compatibility.")
 

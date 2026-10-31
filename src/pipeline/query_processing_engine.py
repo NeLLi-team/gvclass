@@ -1024,13 +1024,16 @@ def _post_process_query(
         _remove_reformatted_file(query_name, query_output_dir, output_base, logger)
         _archive_query_output(query_name, query_output_dir, output_base, logger)
         shutil.rmtree(query_output_dir)
-        logger.info(f"✓ Removed original directory: {query_output_dir}")
+        logger.info("Removed original directory: %s", query_output_dir)
         elapsed = time.time() - post_process_start
-        logger.info(f"✓ Post-processing completed in {elapsed:.2f} seconds")
+        logger.info("Post-processing completed in %.2f seconds", elapsed)
     except Exception as exc:
         elapsed = time.time() - post_process_start
         logger.error(
-            f"❌ Post-processing failed for {query_name} after {elapsed:.2f} seconds: {exc}"
+            "Post-processing failed for %s after %.2f seconds: %s",
+            query_name,
+            elapsed,
+            exc,
         )
         logger.error(f"Traceback: {traceback.format_exc()}")
         _log_partial_outputs(query_name, query_output_dir, output_base, logger)
@@ -1092,7 +1095,10 @@ def _archive_query_output(
             os.close(dir_fd)
     archive_size = tar_file.stat().st_size
     logger.info(
-        f"✓ Created archive: {tar_file} ({archive_size:,} bytes, {file_count} files)"
+        "Created archive: %s (%s bytes, %s files)",
+        tar_file,
+        f"{archive_size:,}",
+        file_count,
     )
 
 
@@ -1143,7 +1149,7 @@ def _remove_reformatted_file(
         reformatted_file = base / f"{query_name}_reformatted.fna"
         if reformatted_file.exists():
             reformatted_file.unlink()
-            logger.info(f"✓ Removed reformatted file: {reformatted_file}")
+            logger.info("Removed reformatted file: %s", reformatted_file)
 
 
 def _log_partial_outputs(

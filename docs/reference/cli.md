@@ -16,6 +16,7 @@ CLI flags override [configuration values](configuration.md), which override buil
 | `-o`, `--output-dir` | path; `<query_dir>_results` | Output directory. |
 | `-c`, `--config` | path; `config/gvclass_config.yaml` | YAML configuration file. |
 | `-d`, `--database` | path | Database directory. Overrides `GVCLASS_DB` and `database.path`. |
+| `--resource-cache-dir` | path; `GVCLASS_RESOURCE_CACHE`, then `database.cache_path`, else `<database>/.gvclass_cache` | Native Parquet materialization cache. Precedence: flag, environment variable, configuration, default. A relative configured path is resolved under the database directory. If the selected directory is not writable, use `<system temp>/gvclass_resource_cache/<database-path hash>`. |
 
 ## Threads and workers
 
@@ -34,6 +35,7 @@ CLI flags override [configuration values](configuration.md), which override buil
 | `--mode-fast` | flag; enabled by default | Skip order-level marker trees; order-level HMM searches still run. |
 | `-e`, `--extended` | flag | Include order-level marker trees. Overrides `--mode-fast` regardless of argument order, natively and in container mode. |
 | `--sensitive` | flag; enabled by default | Use `E=1e-5` and `domE=1e-5` instead of GA cutoffs. |
+| `--no-sensitive` | flag | Disable sensitive HMM mode and use model GA cutoffs when available. Overrides `--sensitive` and configuration regardless of argument order. |
 | `--completeness-mode` | `legacy`, `novelty-aware`; `novelty-aware` | Estimator used for `estimated_completeness`. |
 
 See [speed and tree settings](../how-to/tune-speed-and-accuracy.md) for examples.
@@ -61,7 +63,7 @@ NCLDV, PPV, and MIRUS queries use separate panels. A combined tree contains only
 | `--contigs-min-length` | integer; `10000` bp | Minimum contig length in `--contigs` mode. |
 | `--allow-short` | flag | Bypass the nucleotide length threshold; retain other FASTA validation. |
 | `--resume` | flag | Skip completed queries using `run_status.json`, when they match the current quality schema and the selected model set and profile. A change reprocesses the query. Also accepts `.SUCCESS` files and valid summary/archive pairs from older runs when they use bundled models. |
-| `--plain-output` | flag | Disable emojis and ANSI colors. Also set by `GVCLASS_PLAIN_OUTPUT=1`. |
+| `--plain-output` | flag | Disable emojis and ANSI colors. Also set by `GVCLASS_PLAIN_OUTPUT=1`. Low-level search, tree and post-processing diagnostics use plain text in all modes. |
 
 ## Cluster options
 
