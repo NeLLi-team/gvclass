@@ -133,4 +133,14 @@ the selected output directory. Screen mode keeps its default of four threads and
 | `--image` | path or URI | Local `.sif` path, `library://` URI, or `https://` URL (implies `--apptainer`). |
 | `--resource-cache-dir` | path; `~/.cache/gvclass/resource-cache/v2.1.0` | Classification: writable materialization cache mounted at `/resource-cache`. Screen: host add-on cache used when neither `-d` nor `GVCLASS_DB` is set; writable during installation and mounted read-only during screening. |
 
+Remote images are cached under `~/.cache/gvclass/images/` as regular files;
+symlink cache entries are rejected. Before reuse, the launcher checks the SIF
+object table, primary system partition and file bounds.
+Downloads use a separate temporary path and enter the cache only after the pull
+and those checks succeed. Invalid existing cache entries are left in place; move
+the path named in the error before retrying. These checks detect malformed or
+truncated files; they do not authenticate the publisher or verify every payload
+byte. The cache filesystem must support hard links for atomic installation.
+An explicit local image path is passed directly to Apptainer.
+
 All standard pipeline, species-tree, and resume flags (`-t`, `-j`, `--threads-per-worker`, `--tree-method`, `--iqtree-mode`, `--mode-fast`, `-e`/`--extended`, `--sensitive`, `--no-sensitive`, `--completeness-mode`, `--species-tree`, `--species-tree-combined`, `--species-tree-trim`, `-C`/`--contigs`, `--min-length`, `--contigs-min-length`, `--allow-short`, `--resume`, `--plain-output`, `-v`/`--verbose`) are forwarded to the container. For classification, `--config`, `--database` and the `--cluster-*` options are native-only and are rejected in container mode. The `screen` command accepts `--database` as described above. When both `--sensitive` and `--no-sensitive` are given, `--no-sensitive` wins in both modes. See [run on HPC](../how-to/run-on-hpc.md) for container commands.

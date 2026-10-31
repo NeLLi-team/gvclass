@@ -23,6 +23,7 @@ Compatible resource bundle: v2.1.0 (Zenodo DOI 10.5281/zenodo.23381313).
 - Update ETE to 3.1.3 to remove its parser SyntaxWarning.
 - Allow four hours for either IQ-TREE species-tree mode and report inference
   failures with a nonzero exit.
+- Reject malformed cached container images and stage pulls before caching them.
 
 ## [2.1.0] - 2026-10-14
 

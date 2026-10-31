@@ -7,6 +7,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -44,21 +45,68 @@ def cache_filename_for_image(image: str) -> str:
     return prefix + slug
 
 
+def validate_cached_image(path: Path) -> None:
+    """Reject non-SIF cache entries and objects beyond the downloaded file."""
+    if path.is_symlink() or not path.is_file():
+        raise SystemExit(f"Invalid Apptainer image: {path}")
+    try:
+        inspected = subprocess.run(
+            ["apptainer", "sif", "list", str(path)],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise SystemExit(
+            f"Could not inspect Apptainer image: {path}: {error}"
+        ) from error
+    objects = re.findall(
+        r"^\s*\d+\s*\|[^|]*\|[^|]*\|\s*(\d+)-(\d+)\s*\|([^\n]+)$",
+        inspected.stdout,
+        re.MULTILINE,
+    )
+    size = path.stat().st_size
+    if (
+        inspected.returncode != 0
+        or not objects
+        or any(not 0 <= int(start) <= int(end) <= size for start, end, _ in objects)
+        or not any(
+            "FS (" in kind and "/*System/" in kind and int(start) < int(end)
+            for start, end, kind in objects
+        )
+    ):
+        raise SystemExit(f"Invalid Apptainer image: {path}")
+
+
 def ensure_local_image(image: str) -> str:
     if not is_remote_image_uri(image):
         return image
 
     IMAGE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
     local_image = IMAGE_CACHE_DIR / cache_filename_for_image(image)
-    if local_image.exists():
+    if local_image.exists() or local_image.is_symlink():
+        validate_cached_image(local_image)
         return str(local_image)
 
-    pull_cmd = ["apptainer", "pull", "-F", str(local_image)]
-    if is_library_uri(image):
-        pull_cmd.extend(["--library", PUBLIC_LIBRARY_URL])
-    pull_cmd.append(image)
-    if subprocess.call(pull_cmd) != 0:
-        raise SystemExit(f"Failed to pull Apptainer image: {image}")
+    with tempfile.TemporaryDirectory(prefix=".pull-", dir=IMAGE_CACHE_DIR) as staging:
+        staged_image = Path(staging) / "image.sif"
+        pull_cmd = ["apptainer", "pull", "-F", str(staged_image)]
+        if is_library_uri(image):
+            pull_cmd.extend(["--library", PUBLIC_LIBRARY_URL])
+        pull_cmd.append(image)
+        if subprocess.call(pull_cmd) != 0:
+            raise SystemExit(f"Failed to pull Apptainer image: {image}")
+        validate_cached_image(staged_image)
+        try:
+            # A hard link installs atomically without replacing a concurrent entry.
+            local_image.hardlink_to(staged_image)
+        except FileExistsError:
+            validate_cached_image(local_image)
+        except OSError as error:
+            raise SystemExit(
+                f"Could not install cached Apptainer image: {local_image}: {error}"
+            ) from error
     return str(local_image)
 
 
