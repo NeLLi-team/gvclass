@@ -14,8 +14,7 @@
   write ``<out>/species_tree/`` as an additional artifact. It does NOT touch the
   summary columns — the per-query placement is the single source of truth there.
 
-Both entry points are wrapped so a species-tree failure is logged and never blocks
-the standard pipeline/summary.
+Requested species-tree failures propagate to the query or run failure handler.
 """
 
 from __future__ import annotations
@@ -92,24 +91,21 @@ def run_per_query_species_tree(
     This is the default species-tree product: it builds the query's own tree and
     merges the placement into ``summary_data``.
     """
-    try:
-        panel = select_panel(summary_data.get("taxonomy_majority", ""))
-        if panel is None:
-            logger.debug("Species-tree: %s not a registered domain; no-op", query_id)
-            return
-        _run_per_query(
-            panel,
-            query_id,
-            query_output_dir,
-            database_path,
-            summary_data,
-            output_base,
-            threads,
-            trim_method,
-            tree_method,
-        )
-    except Exception as exc:  # never block the standard pipeline
-        logger.warning("Species-tree per-query step failed for %s: %s", query_id, exc)
+    panel = select_panel(summary_data.get("taxonomy_majority", ""))
+    if panel is None:
+        logger.debug("Species-tree: %s not a registered domain; no-op", query_id)
+        return
+    _run_per_query(
+        panel,
+        query_id,
+        query_output_dir,
+        database_path,
+        summary_data,
+        output_base,
+        threads,
+        trim_method,
+        tree_method,
+    )
 
 
 def _run_per_query(
@@ -233,12 +229,9 @@ def run_combined_species_tree(
     tree_method: str = "veryfasttree",
 ) -> None:
     """Combined species-tree step over this run's sidecars (one tree per panel)."""
-    try:
-        _run_combined(
-            output_base, database_path, results, threads, trim_method, tree_method
-        )
-    except Exception as exc:  # never block the final summary
-        logger.warning("Combined species-tree step failed: %s", exc)
+    _run_combined(
+        output_base, database_path, results, threads, trim_method, tree_method
+    )
 
 
 def _run_combined(

@@ -279,6 +279,8 @@ def build_species_tree_gene_tree(
     # nearest-reference lineages across runs with different reference sets). Use
     # --threads 1 if a byte-identical reference set is required.
     newick = run_veryfasttree(aln_path, threads)
+    if not newick or not newick.strip():
+        raise RuntimeError(f"VeryFastTree produced no tree for {aln_path}")
     out_tree.write_text(newick)
     return out_tree
 

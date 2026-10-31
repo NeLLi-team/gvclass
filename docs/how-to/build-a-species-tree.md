@@ -30,6 +30,12 @@ GVClass builds each query's tree, then a combined tree for each viral panel:
 
 Queries outside these panels or below the marker threshold are excluded.
 
+Requested species-tree inference errors fail the affected query and make GVClass
+exit nonzero. A combined-tree or species-tree setup error fails the run. Inputs
+without an eligible panel or enough markers remain valid exclusions.
+If combined-tree inference fails, the aggregate classification summary remains
+available alongside the completed per-query artifacts.
+
 ## 3. Find the tree and placements
 
 For a run with one eligible panel:
@@ -67,6 +73,9 @@ The default uses VeryFastTree and `witchi` trimming.
 | `--iqtree-mode ufboot` | With IQ-TREE, run 1,000 ultrafast bootstrap replicates for species trees |
 
 See [tree settings](tune-speed-and-accuracy.md#species-tree-support-values) for output details.
+
+Both IQ-TREE modes have a four-hour timeout per inference call. A timeout,
+nonzero exit or empty tree is an error, not a completed species-tree result.
 
 To use `pytrimal` instead of `witchi`:
 

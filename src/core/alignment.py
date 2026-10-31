@@ -119,9 +119,9 @@ def run_iqtree(
     threads: int = 4,
     model: str = IQTREE_MODEL,
 ) -> str:
-    """Infer a tree with IQ-TREE in ``--fast`` mode under ``model``.
+    """Infer a tree with IQ-TREE in the configured fast or ufboot mode.
 
-    Runs ``iqtree --fast -m <model> -s <aln> -pre <prefix>`` (the prefix is
+    Runs ``iqtree <search args> -m <model> -s <aln> -pre <prefix>`` (the prefix is
     derived from ``out_tree`` so IQ-TREE writes ``<prefix>.treefile == out_tree``)
     and returns the Newick string. Caller owns the too-few-sequences guard and
     result validation.
@@ -143,9 +143,8 @@ def run_iqtree(
         str(prefix),
         "-quiet",
     ]
-    # Ultrafast bootstrap (-B 1000 -bnni) is far heavier than --fast; give it a
-    # much larger ceiling so a real species-tree supermatrix can finish.
-    timeout = 14400 if _IQTREE_MODE == "ufboot" else 1800
+    # Large species-tree supermatrices need the same bounded budget in either mode.
+    timeout = 14400
     subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=timeout)
-    treefile = prefix.with_suffix(".treefile")
+    treefile = prefix.parent / f"{prefix.name}.treefile"
     return treefile.read_text() if treefile.exists() else ""

@@ -21,6 +21,8 @@ Compatible resource bundle: v2.1.0 (Zenodo DOI 10.5281/zenodo.23381313).
 - Preserve the archived `DB_VERSION` bytes and reject a version mismatch before
   replacing the installed database.
 - Update ETE to 3.1.3 to remove its parser SyntaxWarning.
+- Allow four hours for either IQ-TREE species-tree mode and report inference
+  failures with a nonzero exit.
 
 ## [2.1.0] - 2026-10-14
 

@@ -103,28 +103,23 @@ def process_single_query(
     # Species-tree per-query hook (the default product): runs while the per-query
     # gene trees still exist (before _post_process_query archives + deletes the
     # dir) and merges this query's tree-placement columns into summary_data before
-    # the per-query summary is written below. Never blocks the standard pipeline.
+    # the per-query summary is written below. Failures must reach the query collector.
     if species_tree:
         _emit_query_progress(query_name, 93, "species_tree")
-        # Guard the import too, so even a broken species-tree module can never
-        # block the standard per-query pipeline/summary.
-        try:
-            from src.core.species_tree.orchestration import run_per_query_species_tree
+        from src.core.species_tree.orchestration import (  # noqa: PLC0415  # Load optional species-tree code only when requested.
+            run_per_query_species_tree,
+        )
 
-            run_per_query_species_tree(
-                query_name,
-                query_output_dir,
-                database_path,
-                summary_data,
-                output_base,
-                threads,
-                species_tree_trim,
-                tree_method,
-            )
-        except Exception as exc:
-            logger.warning(
-                "Species-tree per-query hook failed for %s: %s", query_name, exc
-            )
+        run_per_query_species_tree(
+            query_name,
+            query_output_dir,
+            database_path,
+            summary_data,
+            output_base,
+            threads,
+            species_tree_trim,
+            tree_method,
+        )
     _emit_query_progress(query_name, 95, "writing_outputs")
 
     _write_contamination_candidates_file(

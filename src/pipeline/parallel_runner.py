@@ -561,8 +561,7 @@ def gvclass_flow(
 
         # Clear any previous species-tree scratch + outputs and record this run's
         # queries so the per-query hook and the opt-in combined step read exactly this
-        # run's sidecars. Wrapped so a scratch/filesystem failure disables the feature
-        # rather than aborting the run.
+        # run's sidecars. Setup failures must fail the requested run.
         if species_tree:
             skipped = config.get("resume_skipped_query_names", [])
             if resume and skipped:
@@ -572,21 +571,15 @@ def gvclass_flow(
                     "processed this run); re-run those without --resume to place them.",
                     len(skipped),
                 )
-            try:
-                from src.core.species_tree.handoff import init_handoff
+            from src.core.species_tree.handoff import (  # noqa: PLC0415  # Load optional species-tree code only when requested.
+                init_handoff,
+            )
 
-                init_handoff(
-                    Path(config["output_path"]),
-                    [query_file.stem for query_file in config["query_files"]],
-                    resume=resume,
-                )
-            except Exception as exc:
-                logger.warning(
-                    "Species-tree handoff init failed (%s); disabling --species-tree for this run",
-                    exc,
-                )
-                species_tree = False
-                species_tree_combined = False
+            init_handoff(
+                Path(config["output_path"]),
+                [query_file.stem for query_file in config["query_files"]],
+                resume=resume,
+            )
 
         logger.info("Starting parallel query processing")
         results, total_queries = _process_queries_in_parallel(
@@ -608,31 +601,29 @@ def gvclass_flow(
             f"All queries complete. Successfully processed {completed_count}/{total_queries} queries"
         )
 
-        # Opt-in combined species tree from this run's sidecars (--species-tree-combined).
-        # The per-query hook already owns the summary columns, so this writes only the
-        # additional <out>/species_tree/ combined artifacts. Never blocks the summary
-        # (internally wrapped). Resume-skipped queries are excluded (they have no
-        # sidecar this run) — a documented limitation.
-        if species_tree_combined:
-            try:
-                from src.core.species_tree.orchestration import (
-                    run_combined_species_tree,
-                )
-
-                run_combined_species_tree(
-                    Path(config["output_path"]),
-                    Path(config["database_path"]),
-                    results,
-                    total_threads,
-                    species_tree_trim,
-                    tree_method,
-                )
-            except Exception as exc:
-                logger.warning("Combined species-tree step failed: %s", exc)
-
         logger.info("Creating final summary...")
         all_results = _combine_with_resume_skipped_results(config, results, logger)
         summary_file = create_final_summary_task(all_results, config["output_path"])
+
+        # Opt-in combined tree from this run's sidecars (--species-tree-combined).
+        # The per-query hook already owns the summary columns, so this writes only the
+        # additional <out>/species_tree/ combined artifacts. Failures fail the run.
+        # Resume-skipped queries are excluded (they have no
+        # sidecar this run) — a documented limitation.
+        if species_tree_combined:
+            from src.core.species_tree.orchestration import (  # noqa: PLC0415  # Load optional species-tree code only when requested.
+                run_combined_species_tree,
+            )
+
+            run_combined_species_tree(
+                Path(config["output_path"]),
+                Path(config["database_path"]),
+                results,
+                total_threads,
+                species_tree_trim,
+                tree_method,
+            )
+
         failed_results = [
             result for result in all_results if result.get("status") != "complete"
         ]
