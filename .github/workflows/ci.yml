@@ -293,6 +293,185 @@ jobs:
           )
           PYTHON
 
+      - name: Set up pinned Python for host module entrypoints
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: '0.13.6'
+          enable-cache: false
+
+      - name: Verify resume through three host module entrypoints
+        shell: bash
+        run: |
+          uv venv --no-project --managed-python --python 3.11.14 "${RUNNER_TEMP}/gvclass-host"
+          uv pip install --python "${RUNNER_TEMP}/gvclass-host/bin/python" \
+            --only-binary :all: biopython==1.85 numpy==2.4.2
+          "${RUNNER_TEMP}/gvclass-host/bin/python" - \
+            "${PWD}/gvclass.sif" "${RUNNER_TEMP}/gvclass-results" \
+            "${RUNNER_TEMP}/gvclass-cache" "${RUNNER_TEMP}/gvclass-validation" <<'PYTHON'
+          """Exercise three host module resume routes against one completed SIF run."""
+
+          import hashlib
+          import json
+          import subprocess
+          import sys
+          import tarfile
+          import time
+          from pathlib import Path
+
+
+          def scientific_snapshot(output: Path) -> dict[str, str]:
+              """Hash summary bytes and archive file payloads, excluding gzip metadata."""
+              hashes = {}
+              for path in sorted(output.iterdir()):
+                  if path.suffix in {".tsv", ".csv"}:
+                      with path.open("rb") as handle:
+                          hashes[path.name] = hashlib.file_digest(handle, "sha256").hexdigest()
+                  if path.name.endswith(".tar.gz"):
+                      with tarfile.open(path) as archive:
+                          for member in archive.getmembers():
+                              if member.isfile():
+                                  handle = archive.extractfile(member)
+                                  assert handle is not None, member.name
+                                  with handle:
+                                      hashes[f"{path.name}::{member.name}"] = hashlib.file_digest(
+                                          handle, "sha256"
+                                      ).hexdigest()
+              return hashes
+
+
+          def verify_resume(
+              output: Path,
+              log: str,
+              expected: dict[str, str],
+              times: dict[str, list[str]],
+              baseline_json: str,
+              previous_run_id: str,
+          ) -> None:
+              """Require three skips, no processing diagnostics and unchanged scientific data."""
+              status = json.loads((output / "run_status.json").read_text(encoding="utf-8"))
+              baseline = json.loads(baseline_json)
+              assert status["status"] == "complete"
+              assert status["run_id"] != previous_run_id, "Resume retained the previous run ID"
+              assert status["database"] == baseline["database"]
+              assert status["software_version"] == baseline["software_version"]
+              assert status["settings"]["resume"] is True
+              ignored = {"resume", "max_workers", "threads_per_worker"}
+              assert {
+                  key: value for key, value in status["settings"].items() if key not in ignored
+              } == {
+                  key: value for key, value in baseline["settings"].items() if key not in ignored
+              }, "Resume changed stable settings"
+              assert status["totals"]["resume_skipped"] == 3
+              assert status["totals"]["queries"] == 3
+              assert status["totals"]["failed"] == 0
+              assert "Skipping 3 completed queries" in log
+              assert "Processing 0 remaining queries" in log
+              assert not any(
+                  marker in log
+                  for marker in (
+                      "Processing query:",
+                      "Running pyswrd search:",
+                      "Running HMM search:",
+                      "Optimizing genetic code for:",
+                      " - DEBUG - Processing marker ",
+                  )
+              ), "Resume started scientific processing"
+              assert scientific_snapshot(output) == expected, "Resume changed scientific output"
+              observed_times = {
+                  name: [query["started_at"], query["completed_at"]]
+                  for name, query in status["queries"].items()
+              }
+              assert observed_times == times, "Resume changed query execution timestamps"
+              assert all(query["resume_skipped"] for query in status["queries"].values())
+
+
+          image, output, cache, evidence = map(Path, sys.argv[1:])
+          status = json.loads((output / "run_status.json").read_text(encoding="utf-8"))
+          assert len(status["queries"]) == 3
+          assert (output / "gvclass_summary.tsv").is_file()
+          assert (output / "gvclass_summary.csv").is_file()
+          assert all((output / f"{name}.tar.gz").is_file() for name in status["queries"])
+          baseline_json = json.dumps(status)
+          previous_run_id = status["run_id"]
+          before = scientific_snapshot(output)
+          times = {
+              name: [query["started_at"], query["completed_at"]]
+              for name, query in status["queries"].items()
+          }
+          (evidence / "resume-before.json").write_text(
+              json.dumps(
+                  {"scientific_sha256": before, "query_times": times, "run_status": status},
+                  indent=2,
+              ),
+              encoding="utf-8",
+          )
+          routes = [
+              ("native-explicit", ["src.bin.gvclass_cli", "--apptainer", "--image", str(image)]),
+              ("native-implicit", ["src.bin.gvclass_cli", f"--image={image}"]),
+              ("container-module", ["src.bin.gvclass_apptainer", "--image", str(image)]),
+          ]
+          for name, entrypoint in routes:
+              command = [
+                  sys.executable,
+                  "-m",
+                  *entrypoint,
+                  "example",
+                  "-o",
+                  str(output),
+                  "--resource-cache-dir",
+                  str(cache),
+                  "-t",
+                  "4",
+                  "--mode-fast",
+                  "--plain-output",
+                  "--verbose",
+                  "--resume",
+              ]
+              log_path = evidence / f"resume-{name}.log"
+              time.sleep(1.1)  # Run IDs have one-second precision.
+              with log_path.open("w", encoding="utf-8") as handle:
+                  completed = subprocess.run(
+                      command, stdout=handle, stderr=subprocess.STDOUT, check=False
+                  )
+              observed_status = json.loads(
+                  (output / "run_status.json").read_text(encoding="utf-8")
+              )
+              (evidence / f"resume-{name}-observed.json").write_text(
+                  json.dumps(
+                      {
+                          "returncode": completed.returncode,
+                          "run_status": observed_status,
+                          "scientific_sha256": scientific_snapshot(output),
+                      },
+                      indent=2,
+                  ),
+                  encoding="utf-8",
+              )
+              completed.check_returncode()
+              verify_resume(
+                  output,
+                  log_path.read_text(encoding="utf-8"),
+                  before,
+                  times,
+                  baseline_json,
+                  previous_run_id,
+              )
+              previous_run_id = observed_status["run_id"]
+              (evidence / f"resume-{name}.json").write_text(
+                  json.dumps(
+                      {
+                          "route": name,
+                          "skipped_queries": 3,
+                          "reprocessed_queries": 0,
+                          "scientific_outputs_unchanged": True,
+                          "query_times_unchanged": True,
+                      }
+                  ),
+                  encoding="utf-8",
+              )
+              print(f"Verified {name}: three skips, no recomputation, unchanged outputs")
+          PYTHON
+
       - name: Verify host screen launcher rejects an invalid bundle
         run: |
           screen_test="$(mktemp -d "${RUNNER_TEMP}/gvclass-screen.XXXXXX")"

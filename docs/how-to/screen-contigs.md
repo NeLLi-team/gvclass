@@ -119,6 +119,17 @@ from a fresh metadata process, before CLI per-task thread limits.
 These records support runtime comparisons; they do not establish the cause of a
 previous numerical difference.
 
+The SIF classification results are also resumed through three host module routes:
+`src.bin.gvclass_cli --apptainer --image`, the same module with `--image=...`, and
+`src.bin.gvclass_apptainer --image`. Each must skip all three queries without
+starting scientific processing. The checks compare the TSV and CSV bytes and
+archive member contents after each route, ignoring gzip and tar header metadata. The original
+query execution timestamps must stay unchanged. Each route must have a fresh run
+ID, complete status, matching database/software versions and stable settings
+(except resume and worker allocation). Observed status, fingerprints and exit
+codes are saved before assertions, alongside per-route logs, in the validation
+artifact.
+
 The job allows 180 minutes for the build, public downloads and validation. The
 installation and screening step has a 120-minute limit to leave time to save
 evidence if a download stalls. Before installing the add-on, the job requires
