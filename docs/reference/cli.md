@@ -32,7 +32,7 @@ CLI flags override [configuration values](configuration.md), which override buil
 | `--tree-method` | `veryfasttree`, `iqtree`, `fasttree`; `veryfasttree` | Tree builder. `fasttree` is an alias for `veryfasttree`. |
 | `--iqtree-mode` | `fast`, `ufboot`; `fast` | IQ-TREE search mode for species trees. Per-marker trees use `--fast`. |
 | `--mode-fast` | flag; enabled by default | Skip order-level marker trees; order-level HMM searches still run. |
-| `-e`, `--extended` | flag | Include order-level marker trees. Overrides fast mode. |
+| `-e`, `--extended` | flag | Include order-level marker trees. Overrides `--mode-fast` regardless of argument order, natively and in container mode. |
 | `--sensitive` | flag; enabled by default | Use `E=1e-5` and `domE=1e-5` instead of GA cutoffs. |
 | `--completeness-mode` | `legacy`, `novelty-aware`; `novelty-aware` | Estimator used for `estimated_completeness`. |
 

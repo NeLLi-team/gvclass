@@ -243,8 +243,7 @@ def _add_mode_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "-e",
         "--extended",
-        action="store_false",
-        dest="mode_fast",
+        action="store_true",
         help="Extended mode: build trees for all markers (slower but more comprehensive)",
     )
     parser.add_argument(
@@ -488,7 +487,7 @@ def main(argv: list[str] | None = None) -> int:
         args.image or DEFAULT_IMAGE,
         Path(args.resource_cache_dir or DEFAULT_RESOURCE_CACHE_DIR),
         tree_method=args.tree_method,
-        mode_fast=args.mode_fast,
+        mode_fast=False if args.extended else args.mode_fast,
         max_workers=args.max_workers,
         sensitive_mode=args.sensitive,
         no_sensitive=args.no_sensitive,
