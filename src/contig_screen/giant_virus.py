@@ -22,7 +22,7 @@ import argparse
 import logging
 import sys
 import tempfile
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -40,6 +40,7 @@ from src.contig_screen.gv_model import (
 from src.contig_screen.gv_order import IdentityCache, bin_features
 from src.contig_screen.gv_order_build import Genome
 from src.contig_screen.gv_taxa import taxa_for_bin
+from src.contig_screen.tables import read_table
 from src.contig_screen.thresholds import sliding_calls
 
 logger = logging.getLogger(__name__)
@@ -64,6 +65,14 @@ class Settings:
 
     threads: int = 4
     diamond: Path | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class UnionTotals:
+    """Base pairs called cellular, and called cellular or foreign giant virus."""
+
+    cellular_bp: int
+    union_bp: int
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -185,42 +194,72 @@ def score_bin(
     return table
 
 
+def scored_contigs(table: pd.DataFrame) -> pd.DataFrame:
+    """Return the rows of the contigs of 5 kb or more, the ones that are scored."""
+    return table[table["length_bp"] >= MIN_SCORED_BP]
+
+
+def called_contigs(table: pd.DataFrame) -> pd.DataFrame:
+    """Return the scored contigs that the table calls foreign."""
+    scored = scored_contigs(table)
+    return scored[scored["called_foreign"].astype(bool)]
+
+
 def summarize(table: pd.DataFrame, threshold: float, total: float) -> set[str]:
     """Print the called share of the input; return the called contigs."""
-    scored = table[table["length_bp"] >= MIN_SCORED_BP]
-    foreign_bp = float(scored.loc[scored["called_foreign"], "length_bp"].sum())
-    print(f"contigs scored: {len(scored)} of {len(table)} (5 kb or more)")
+    called = called_contigs(table)
+    foreign_bp = float(called["length_bp"].sum())
     print(
-        f"foreign giant-virus contigs: {int(scored['called_foreign'].sum())}, "
+        f"contigs scored: {len(scored_contigs(table))} of {len(table)} (5 kb or more)"
+    )
+    print(
+        f"foreign giant-virus contigs: {len(called)}, "
         f"{foreign_bp:.0f} bp = {100 * foreign_bp / total:.1f}% of the input "
         f"(threshold {threshold:.3f})"
     )
-    return set(scored.loc[scored["called_foreign"], "contig"])
+    return set(called["contig"])
 
 
-def report_union(
+def union_totals(
     cellular: Path,
-    threshold: float | None,
+    threshold: float,
     lengths: Mapping[str, int],
-    foreign: set[str],
-    total: float,
-) -> None:
-    """Print the cellular calls of ``--cellular`` and their union with contigs."""
-    if threshold is None:
-        print("--cellular needs --cellular-threshold; union not computed")
-        return
-    windows = pd.read_csv(cellular, sep="\t")
+    foreign: Collection[str],
+) -> UnionTotals:
+    """Return the base pairs called cellular and the union with the foreign contigs.
+
+    A base pair is called cellular when the mean score of the windows over it reaches
+    ``threshold``; a foreign contig counts whole.
+    """
+    windows = read_table(cellular, ["source_contig"])
     score = "p_context" if "p_context" in windows else "p_cellular"
     calls = sliding_calls(windows.assign(p=windows[score]), dict(lengths), threshold)
     cellular_bp = union_bp = 0
     for contig, mask in calls.items():
         cellular_bp += int(mask.sum())
         union_bp += len(mask) if contig in foreign else int(mask.sum())
-    for contig in foreign - set(calls):
+    for contig in set(foreign) - set(calls):
         union_bp += lengths[contig]
+    return UnionTotals(cellular_bp, union_bp)
+
+
+def report_union(
+    cellular: Path,
+    threshold: float | None,
+    lengths: Mapping[str, int],
+    foreign: Collection[str],
+    total: float,
+) -> None:
+    """Print the cellular calls of ``--cellular`` and their union with contigs."""
+    if threshold is None:
+        print("--cellular needs --cellular-threshold; union not computed")
+        return
+    totals = union_totals(cellular, threshold, lengths, foreign)
     print(
-        f"cellular calls: {cellular_bp} bp = {100 * cellular_bp / total:.1f}%; "
-        f"union with giant-virus contigs: {union_bp} bp = {100 * union_bp / total:.1f}%"
+        f"cellular calls: {totals.cellular_bp} bp = "
+        f"{100 * totals.cellular_bp / total:.1f}%; "
+        f"union with giant-virus contigs: {totals.union_bp} bp = "
+        f"{100 * totals.union_bp / total:.1f}%"
     )
 
 

@@ -4,9 +4,11 @@ import logging
 import tarfile
 import traceback
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
+from functools import partial
 from pathlib import Path
 from typing import Any
 
+from src.pipeline.contig_screen_step import ScreenOptions, add_screen_columns
 from src.pipeline.progress_events import emit_progress_event
 from src.pipeline.query_processor import run_query_processing
 from src.pipeline.run_status import (
@@ -453,6 +455,25 @@ def _combine_with_resume_skipped_results(
     return list(combined_results.values())
 
 
+def _screen_results(
+    config: dict[str, Any],
+    all_query_files: dict[str, Path],
+    results: list[dict[str, Any]],
+    options: ScreenOptions,
+    logger: logging.Logger,
+) -> None:
+    """Add the contig-screen columns to the rows of all queries, resumed ones too."""
+    logger.info("Screening bins for contaminating contigs")
+    add_screen_columns(
+        results,
+        all_query_files,
+        config["output_path"],
+        config["database_path"],
+        options,
+        logger,
+    )
+
+
 def gvclass_flow(
     query_dir: str,
     output_dir: str,
@@ -473,8 +494,16 @@ def gvclass_flow(
     species_tree: bool = False,
     species_tree_combined: bool = False,
     species_tree_trim: str = "witchi",
+    *,
+    contig_screen: bool = True,
+    contigs_mode: bool = False,
 ):
-    """Main GVClass pipeline."""
+    """Main GVClass pipeline.
+
+    ``contig_screen`` turns the contig screen on or off; ``contigs_mode`` says that
+    the queries are single contigs split from larger inputs, which the screen does
+    not apply to.
+    """
     logger = logging.getLogger("gvclass_runner")
     if species_tree_combined:
         species_tree = True  # --species-tree-combined implies --species-tree
@@ -489,7 +518,10 @@ def gvclass_flow(
         allow_short=allow_short,
         min_sequence_length=min_sequence_length,
     )
-    all_query_names = [query_file.stem for query_file in config["query_files"]]
+    all_query_files = {
+        query_file.stem: query_file for query_file in config["query_files"]
+    }
+    all_query_names = list(all_query_files)
     _apply_resume_filter(config, resume=resume, logger=logger)
 
     n_queries = len(config["query_files"])
@@ -514,12 +546,24 @@ def gvclass_flow(
             "species_tree": species_tree,
             "species_tree_combined": species_tree_combined,
             "species_tree_trim": species_tree_trim,
+            "contig_screen": contig_screen,
         },
     )
     run_status.start()
     run_status_finished = False
 
     try:
+        screen_options = ScreenOptions(
+            enabled=contig_screen,
+            contigs_mode=contigs_mode,
+            resume=resume,
+            plan_workers=partial(
+                _resolve_worker_distribution,
+                total_threads=total_threads,
+                max_workers=max_workers,
+                threads_per_worker=threads_per_worker,
+            ),
+        )
         # When --resume is set and every query is already complete in the manifest
         # (or a valid legacy marker), we have nothing to process. Creating a
         # ThreadPoolExecutor with max_workers=0 would raise ValueError, so short-
@@ -535,6 +579,9 @@ def gvclass_flow(
                     "--resume to rebuild out/species_tree/combined.*"
                 )
             all_results = _combine_with_resume_skipped_results(config, [], logger)
+            _screen_results(
+                config, all_query_files, all_results, screen_options, logger
+            )
             summary_file = create_final_summary_task(all_results, config["output_path"])
             failed_results = [
                 result for result in all_results if result.get("status") != "complete"
@@ -603,6 +650,7 @@ def gvclass_flow(
 
         logger.info("Creating final summary...")
         all_results = _combine_with_resume_skipped_results(config, results, logger)
+        _screen_results(config, all_query_files, all_results, screen_options, logger)
         summary_file = create_final_summary_task(all_results, config["output_path"])
 
         # Opt-in combined tree from this run's sidecars (--species-tree-combined).

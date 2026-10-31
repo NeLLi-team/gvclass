@@ -505,3 +505,11 @@ def test_main_refuses_a_bundle_whose_manifest_is_not_the_pinned_one(
 
     assert code == 2
     assert "manifest SHA-256 mismatch" in capsys.readouterr().err
+
+
+def test_contig_lengths_refuses_two_records_with_one_name(tmp_path: Path) -> None:
+    fasta = tmp_path / "bin.fna"
+    fasta.write_text(">c first\nACGT\n>c second\nAC\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="duplicate FASTA identifier 'c'"):
+        cellular.contig_lengths(fasta)

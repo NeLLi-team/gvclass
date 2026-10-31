@@ -37,7 +37,7 @@ The public recipes currently create a self-contained review image including:
 - Complete Pixi environment
 - All Python dependencies
 - Compact v2.1.0 reference database downloaded during the image build
-- GVClass source code
+- GVClass source code, including the contig-screen code (the screen add-on is not in the image)
 
 ### Usage
 
@@ -56,6 +56,14 @@ singularity run \
     -B /path/to/cache:/resource-cache \
     --env GVCLASS_RESOURCE_CACHE=/resource-cache \
     gvclass.sif /input -t 16
+
+# The screen add-on is not in the image. Install it and run classifications and
+# screens through the launcher (./gvclass ... --image gvclass.sif), which mounts it:
+#   ./gvclass screen --install --image gvclass.sif
+# With a plain `singularity run`, mount it where the image looks for it:
+#   -B /path/to/cache/contig_screen:/opt/gvclass/resources/contig_screen:ro
+# The Docker container runs as root and writes the add-on into its own database
+# folder, which is lost with the container.
 ```
 
 The v2.1.0 resource bundle stores labels and marker proteins as Parquet inside
@@ -67,17 +75,26 @@ falls back to container `/tmp` and is rebuilt on later runs.
 ### Release SIF
 
 After the v2.1.0 resource and model checks pass, the workflow publishes the
-approved image to the Sylabs library:
+approved image to GHCR when a release tag is pushed, as the version and as `latest`:
 
 ```text
-library://nelligroup-jgi/gvclass/gvclass:2.1.1
+oras://ghcr.io/nelli-team/gvclass:2.1.1
 ```
 
-It embeds the resources approved for the release. Running `./gvclass --apptainer` (or standalone `./gvclass` downloaded without a repo checkout) downloads this URI into
+It embeds the resources approved for the release. Running `./gvclass --apptainer` (or standalone `./gvclass` downloaded without a repo checkout) downloads this address into
 `~/.cache/gvclass/images/` and
-reuses it on later runs. The URI is unavailable until publication completes.
+reuses it on later runs. The address is unavailable until publication completes.
+Sylabs retired its library on 2026-10-22, so older `library://` addresses no longer work.
 
-### Sylabs Publish
+The workflow then pulls the version back without credentials and compares its
+SHA-256 with the built file. A new GHCR package is private until its visibility is
+set to public once in the package settings; until then that check fails, because
+users cannot pull a private package.
+
+A manually dispatched workflow builds and tests the image without publishing,
+including when the selected ref is a release tag.
+
+### GHCR Publish
 
 To publish a release SIF manually:
 
@@ -85,14 +102,12 @@ To publish a release SIF manually:
 # Build the SIF
 apptainer build gvclass.sif containers/apptainer/gvclass.def
 
-# Authenticate to the Sylabs library (one-time)
-apptainer remote add --no-login SylabsCloud cloud.sylabs.io
-apptainer remote use SylabsCloud
-apptainer remote login SylabsCloud
+# Authenticate to GHCR (one-time): a token with the write:packages scope
+printf '%s' "$GHCR_TOKEN" | apptainer registry login \
+    --username "$GITHUB_USER" --password-stdin oras://ghcr.io
 
 # Push the image
-apptainer push -U --library https://library.sylabs.io \
-    gvclass.sif library://nelligroup-jgi/gvclass/gvclass:2.1.1
+apptainer push gvclass.sif oras://ghcr.io/nelli-team/gvclass:2.1.1
 ```
 
 ## Alternative: Docker

@@ -24,6 +24,21 @@ does not follow Zenodo's latest release or fall back to an older bundle. See the
 [configuration reference](../reference/configuration.md#database-keys) for the
 environment variables and checksum rules.
 
+## Install the contig-screen add-on
+
+The optional contig-screen add-on installs next to the database. Install it with the
+database, or afterwards:
+
+```bash
+pixi run setup-db --with-screen
+./gvclass screen --install
+```
+
+GVClass reads the add-on from `<database>/contig_screen/`. In the Apptainer image,
+which has a read-only database, the add-on sits in a host directory that the image
+mounts into the database. See
+[Screen bins for contaminating contigs](screen-contigs.md).
+
 ## Use a shared database
 
 1. Set `GVCLASS_DB` to an absolute path. Replace the example path with a directory

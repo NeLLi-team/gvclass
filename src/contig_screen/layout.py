@@ -125,11 +125,16 @@ class ScreenResources:
         entries: Mapping[str, ManifestEntry],
         *,
         verify_all: bool = False,
+        manifest_sha256: str = "",
     ) -> None:
-        """Hold the bundle root and the manifest entries keyed by relative path."""
+        """Hold the bundle root and the manifest entries keyed by relative path.
+
+        ``manifest_sha256`` is the digest of the manifest that the entries come from.
+        """
         self.root = root
         self.entries = dict(entries)
         self.verify_all = verify_all
+        self.manifest_sha256 = manifest_sha256
 
     @classmethod
     def open(
@@ -167,7 +172,9 @@ class ScreenResources:
                 f"{expected}, got {digest}; refusing to use the resources"
             )
             raise IntegrityError(msg)
-        return cls(root, parse_manifest(raw), verify_all=verify_all)
+        return cls(
+            root, parse_manifest(raw), verify_all=verify_all, manifest_sha256=digest
+        )
 
     def has(self, relative: str) -> bool:
         """Return True when the manifest lists ``relative``."""
@@ -252,6 +259,23 @@ class ScreenResources:
                 f"the file has {digest}; refusing to load it"
             )
             raise IntegrityError(msg)
+
+
+def bundle_present(database: Path) -> bool:
+    """Return True if the contig-screen add-on is installed in ``database``."""
+    return (database / MANIFEST_FILE).is_file()
+
+
+def manifest_digest(database: Path) -> str | None:
+    """Return the SHA-256 of the add-on manifest of ``database``, None if none exists.
+
+    A saved screen result carries this digest; a different digest means that the
+    add-on changed since the result was made.
+    """
+    manifest = database / MANIFEST_FILE
+    if not manifest.is_file():
+        return None
+    return hashlib.sha256(manifest.read_bytes()).hexdigest()
 
 
 def parse_manifest(raw: bytes) -> dict[str, ManifestEntry]:

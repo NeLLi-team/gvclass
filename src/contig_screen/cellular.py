@@ -420,13 +420,21 @@ def fasta_bp(path: Path) -> int:
 
 
 def contig_lengths(path: Path) -> dict[str, int]:
-    """Return contig name to length for every contig of the FASTA file."""
+    """Return contig name to length for every contig of the FASTA file.
+
+    Raises:
+        ValueError: Two records have the same identifier, so the lengths (and the
+            size of the input) would be wrong.
+    """
     lengths: dict[str, int] = {}
     name = ""
     with open_text(path) as handle:
         for line in handle:
             if line.startswith(">"):
                 name = line[1:].split()[0]
+                if name in lengths:
+                    msg = f"duplicate FASTA identifier {name!r} in {path}"
+                    raise ValueError(msg)
                 lengths[name] = 0
             else:
                 lengths[name] += len(line.strip())

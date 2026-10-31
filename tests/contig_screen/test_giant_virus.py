@@ -257,3 +257,74 @@ def test_main_scores_inside_the_thread_limit(
 
     assert code == 0
     assert seen == [2]
+
+
+def test_union_totals_return_the_cellular_and_the_united_base_pairs(
+    tmp_path: Path,
+) -> None:
+    cellular = tmp_path / "cellular.tsv"
+    pd.DataFrame(
+        {
+            "source_contig": ["c3", "c3", "c2"],
+            "source_start": [0, 3000, 0],
+            "length_bp": [3000, 3000, 6000],
+            "p_context": [0.9, 0.1, 0.8],
+        }
+    ).to_csv(cellular, sep="\t", index=False)
+    lengths = {"c1": 6000, "c2": 6000, "c3": 6000}
+
+    totals = giant_virus.union_totals(cellular, 0.5, lengths, {"c2", "c1"})
+
+    assert totals == giant_virus.UnionTotals(cellular_bp=9000, union_bp=15000)
+
+
+def test_union_totals_use_the_stage_1_column_when_the_table_has_no_context_score(
+    tmp_path: Path,
+) -> None:
+    cellular = tmp_path / "cellular.tsv"
+    pd.DataFrame(
+        {
+            "source_contig": ["c1"],
+            "source_start": [0],
+            "length_bp": [4000],
+            "p_cellular": [0.7],
+        }
+    ).to_csv(cellular, sep="\t", index=False)
+
+    totals = giant_virus.union_totals(cellular, 0.5, {"c1": 4000}, set())
+
+    assert totals == giant_virus.UnionTotals(cellular_bp=4000, union_bp=4000)
+
+
+def test_called_contigs_are_the_scored_contigs_called_foreign() -> None:
+    table = pd.DataFrame(
+        {
+            "contig": ["a", "b", "c", "d"],
+            "length_bp": [6000, 4000, 7000, 9000],
+            "called_foreign": [True, True, False, True],
+        }
+    )
+
+    called = giant_virus.called_contigs(table)
+
+    assert called["contig"].tolist() == ["a", "d"]
+    assert called["length_bp"].sum() == 15000
+
+
+@pytest.mark.parametrize("name", ["1", "007", "NA", "nan"])
+def test_union_totals_keep_contig_names_that_pandas_would_convert(
+    tmp_path: Path, name: str
+) -> None:
+    cellular = tmp_path / "cellular.tsv"
+    pd.DataFrame(
+        {
+            "source_contig": [name],
+            "source_start": [0],
+            "length_bp": [6000],
+            "p_context": [0.9],
+        }
+    ).to_csv(cellular, sep="\t", index=False)
+
+    totals = giant_virus.union_totals(cellular, 0.5, {name: 6000}, {name})
+
+    assert totals == giant_virus.UnionTotals(cellular_bp=6000, union_bp=6000)

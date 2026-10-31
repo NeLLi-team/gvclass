@@ -14,6 +14,8 @@ SIF_LIST = (
     "2 |1 |NONE |49152-50000 |FS (Squashfs/*System/amd64)\n"
 )
 IMAGE = "https://example.org/gvclass_test.sif"
+GHCR_IMAGE = "oras://ghcr.io/nelli-team/gvclass:2.1.1"
+CUSTOM_LIBRARY_IMAGE = "library://sylabs.example.org/team/collection/gvclass:2.1.1"
 
 
 @pytest.fixture(params=["gvclass", "src/bin/gvclass_apptainer.py"])
@@ -45,14 +47,25 @@ def cache_path(launcher: Callable[[str], str], image: str = IMAGE) -> Path:
     return state["IMAGE_CACHE_DIR"] / state["cache_filename_for_image"](image)
 
 
-def test_apptainer_wrapper_uses_release_sylabs_image_by_default() -> None:
-    assert (
-        gvclass_apptainer.DEFAULT_IMAGE
-        == "library://nelligroup-jgi/gvclass/gvclass:2.1.1"
-    )
+def test_apptainer_wrapper_uses_the_release_ghcr_image_by_default() -> None:
+    assert gvclass_apptainer.DEFAULT_IMAGE == GHCR_IMAGE
 
 
-@pytest.mark.parametrize("image", [IMAGE, gvclass_apptainer.SYLABS_IMAGE])
+def test_the_launcher_has_no_sylabs_constants() -> None:
+    for name in ("SYLABS_IMAGE", "PUBLIC_LIBRARY_URL", "is_library_uri"):
+        assert not hasattr(gvclass_apptainer, name), name
+
+
+@pytest.mark.parametrize(
+    "image",
+    [
+        IMAGE,
+        GHCR_IMAGE,
+        "docker://ghcr.io/nelli-team/gvclass:2.1.1",
+        CUSTOM_LIBRARY_IMAGE,
+    ],
+    ids=["https", "oras", "docker", "library"],
+)
 def test_image_pull_is_staged_and_checked(
     image_launcher, sif_listing, monkeypatch, image: str
 ) -> None:
@@ -72,9 +85,7 @@ def test_image_pull_is_staged_and_checked(
     assert image_launcher(image) == str(cached)
     assert cached.stat().st_size == 50000
     assert len(calls) == 1
-    assert calls[0][:3] == ["apptainer", "pull", "-F"]
-    assert calls[0][-1] == image
-    assert ("--library" in calls[0]) == image.startswith("library://")
+    assert calls[0] == ["apptainer", "pull", "-F", calls[0][3], image]
     assert sif_listing == [["apptainer", "sif", "list", calls[0][3]]]
     assert list(cached.parent.iterdir()) == [cached]
 

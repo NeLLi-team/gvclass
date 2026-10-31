@@ -220,6 +220,12 @@ FINAL_SUMMARY_COLUMNS: List[str] = [
     "species_tree_nn_genome",
     "species_tree_nn_distance",
     "species_tree_clade_id",
+    # Contig screen (src/pipeline/contig_screen_step.py), filled after the queries
+    # finish; the per-query summary files are written before it runs.
+    "screen_status",
+    "screen_cellular_pct",
+    "screen_giant_virus_pct",
+    "screen_flagged_pct",
 ]
 
 
@@ -271,6 +277,9 @@ TWO_DECIMAL_COLUMNS = {
     "cellular_hit_identity_median",
     # Species-tree placement distance (full precision lives in species_tree_taxonomy.tsv).
     "species_tree_nn_distance",
+    "screen_cellular_pct",
+    "screen_giant_virus_pct",
+    "screen_flagged_pct",
 }
 
 # Quality metrics that must keep higher precision than the default .0f fallback.

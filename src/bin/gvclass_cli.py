@@ -16,7 +16,7 @@ import threading
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from src.__version__ import __version__ as _GVCLASS_VERSION
 from src.bin.cli_display import print_banner, print_configuration
@@ -137,6 +137,7 @@ class PipelineContext:
     n_input_files: int
     n_skipped: int
     workers: WorkerPlan
+    contig_screen: bool = True
 
 
 #: FASTA extensions (nucleotide + protein) that GVClass accepts as query
@@ -258,6 +259,14 @@ def _add_mode_arguments(parser: argparse.ArgumentParser) -> None:
         ),
     )
     parser.add_argument(
+        "--no-screen",
+        action="store_true",
+        help=(
+            "Skip the contig screen that adds the screen_* summary columns "
+            "(overrides pipeline.contig_screen)."
+        ),
+    )
+    parser.add_argument(
         "--species-tree",
         action="store_true",
         help=(
@@ -359,6 +368,7 @@ BUILTIN_CONFIG_DEFAULTS = {
         "mode_fast": True,
         "completeness_mode": "novelty-aware",
         "sensitive_mode": True,
+        "contig_screen": True,
         "contigs_min_length": DEFAULT_CONTIGS_MIN_LENGTH,
         "threads": 4,
         "output_pattern": "{query_dir}_results",
@@ -505,6 +515,13 @@ def resolve_sensitive_mode(args, config) -> bool:
     if getattr(args, "sensitive", False):
         return True
     return bool(config["pipeline"].get("sensitive_mode", True))
+
+
+def resolve_contig_screen(args: argparse.Namespace, config: dict[str, Any]) -> bool:
+    """Return True if the run screens its bins: ``--no-screen`` wins over the config."""
+    if getattr(args, "no_screen", False):
+        return False
+    return bool(config["pipeline"].get("contig_screen", True))
 
 
 def resolve_completeness_mode(args, config) -> str:
@@ -970,6 +987,10 @@ def build_pipeline_command(
         context.completeness_mode,
         context.sensitive_mode,
     )
+    if not context.contig_screen:
+        cmd.append("--no-screen")
+    if context.contigs.enabled:
+        cmd.append("--contigs")
     return cmd
 
 
@@ -1215,6 +1236,7 @@ def resolve_pipeline_context(
     mode_fast = resolve_mode_fast(args, config)
     completeness_mode = resolve_completeness_mode(args, config)
     sensitive_mode = resolve_sensitive_mode(args, config)
+    contig_screen = resolve_contig_screen(args, config)
     input_min_length = resolve_input_min_length(args, config)
     contigs_min_length = resolve_contigs_min_length(args, config)
     validation_min_length = resolve_validation_min_length(
@@ -1270,6 +1292,7 @@ def resolve_pipeline_context(
         n_input_files=n_input_files,
         n_skipped=n_skipped,
         workers=workers,
+        contig_screen=contig_screen,
     )
 
 
@@ -1346,6 +1369,25 @@ def display_startup_configuration(
         tree_method=context.tree_method,
     )
     output.line(f"Completeness mode: {context.completeness_mode}")
+    output.line(f"Contig screen: {describe_contig_screen(context)}")
+
+
+def describe_contig_screen(context: PipelineContext) -> str:
+    """Say what the run does about the contig screen, for the startup lines."""
+    # Imported here so that --help does not load numpy.
+    from src.contig_screen.layout import bundle_present  # noqa: PLC0415
+
+    if not context.contig_screen:
+        return "disabled"
+    if context.contigs.enabled:
+        return "not applicable in --contigs mode"
+    try:
+        installed = bundle_present(context.database)
+    except OSError:
+        return "add-on manifest not readable (screen_status will be failed)"
+    if not installed:
+        return "add-on not installed (install it with: gvclass screen --install)"
+    return "enabled"
 
 
 def build_runtime_command(

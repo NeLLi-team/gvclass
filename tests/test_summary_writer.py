@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import tarfile
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 
@@ -240,3 +241,64 @@ def test_required_summary_write_failure_raises(
 
     with pytest.raises(FileNotFoundError):
         writer(tmp_path / "missing", "q1", {"query": "q1"}, _Logger())
+
+
+SCREEN_COLUMNS = [
+    "screen_status",
+    "screen_cellular_pct",
+    "screen_giant_virus_pct",
+    "screen_flagged_pct",
+]
+
+
+def test_screen_columns_close_the_final_summary_without_moving_the_others() -> None:
+    columns = summary_writer.FINAL_SUMMARY_COLUMNS
+
+    assert columns[-4:] == SCREEN_COLUMNS
+    assert columns[-5] == "species_tree_clade_id"
+    assert columns.index("taxonomy_majority") == 1
+    assert columns.index("estimated_completeness") == 14
+    assert columns.index("estimated_contamination") == 19
+
+
+def test_screen_percentages_are_written_with_two_decimals_and_nan_when_missing(
+    tmp_path: Path,
+) -> None:
+    summary_file = summary_writer.write_final_summary_files(
+        [
+            {
+                "query": "q1",
+                "status": "complete",
+                "summary_data": {
+                    "query": "q1",
+                    "screen_status": "partial",
+                    "screen_cellular_pct": 12.3456,
+                    "screen_giant_virus_pct": float("nan"),
+                    "screen_flagged_pct": float("nan"),
+                },
+            }
+        ],
+        tmp_path,
+    )
+
+    with summary_file.open(newline="") as handle:
+        row = next(csv.DictReader(handle, delimiter="\t"))
+
+    assert row["screen_status"] == "partial"
+    assert row["screen_cellular_pct"] == "12.35"
+    assert row["screen_giant_virus_pct"] == "NaN"
+    assert row["screen_flagged_pct"] == "NaN"
+
+
+def test_a_row_read_back_for_resume_gets_blank_screen_columns(tmp_path: Path) -> None:
+    summary_writer.write_individual_final_summary_file(
+        tmp_path,
+        "q1",
+        {"query": "q1", "taxonomy_majority": "d_NCLDV"},
+        Mock(),
+    )
+
+    results = summary_writer.read_individual_summary_results(tmp_path, ["q1"])
+
+    assert results[0]["summary_data"]["taxonomy_majority"] == "d_NCLDV"
+    assert results[0]["summary_data"]["screen_status"] == ""

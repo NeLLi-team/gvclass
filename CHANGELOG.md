@@ -13,7 +13,25 @@ compatible bundle is noted per release.
 
 ## [2.1.1] - 2026-10-30
 
-Compatible resource bundle: v2.1.0 (Zenodo DOI 10.5281/zenodo.23381313).
+Compatible resource bundle: v2.1.0 (Zenodo DOI 10.5281/zenodo.23381313). The contig-screen
+add-on is unchanged (Zenodo DOI 10.5281/zenodo.23464780).
+
+### Added
+
+- A plain `gvclass` run screens each nucleotide bin when the add-on is installed. The
+  end of `gvclass_summary.tsv` gains `screen_status`, `screen_cellular_pct`,
+  `screen_giant_virus_pct` and `screen_flagged_pct`; the tables of each bin go to
+  `<output>/contig_screen/<bin>/`. `estimated_completeness` and `estimated_contamination`
+  do not change. `--resume` screens the skipped queries too, reuses a finished screen
+  of the same bin file and add-on, and screens again after the bin file or the add-on
+  changes or the add-on is installed. A screen that runs more than 4 hours is stopped
+  with its child processes and the bin reads `failed`; its output is in `screen.log`.
+  A container run mounts the installed add-on, so it screens too.
+- `--no-screen`, the configuration key `pipeline.contig_screen` and
+  `setup-db --with-screen`. `--no-screen` leaves saved screen results in place.
+- `contig_screen_summary.tsv` gains `input_bp`, `cellular_bp`, `cellular_pct`,
+  `giant_virus_bp`, `giant_virus_pct`, `flagged_bp`, `flagged_pct`, `manifest_sha256` and
+  `input_sha256`. A bin without a contig of 3 kb has the cellular status `not_scored`, not `failed`.
 
 ### Fixed
 
@@ -24,6 +42,15 @@ Compatible resource bundle: v2.1.0 (Zenodo DOI 10.5281/zenodo.23381313).
 - Allow four hours for either IQ-TREE species-tree mode and report inference
   failures with a nonzero exit.
 - Reject malformed cached container images and stage pulls before caching them.
+- Move the container image from the Sylabs library to GHCR:
+  `oras://ghcr.io/nelli-team/gvclass:<version>` and `:latest` on releases. Sylabs
+  retired its library on 2026-10-22 (`library.sylabs.io` and `cloud.sylabs.io` have no
+  DNS record), so every `library://` pull of the earlier address failed. The release
+  workflow publishes with the workflow token, pulls the version back anonymously and
+  compares its SHA-256, and no longer uses `SYLABS_TOKEN`. The launchers keep
+  `library://` addresses that a user gives with `--image` for a library endpoint of
+  their own, add `oras://` and `docker://`, and put a digest of the whole address in
+  each image cache file name, so addresses with one readable name never share a file.
 
 ## [2.1.0] - 2026-10-14
 

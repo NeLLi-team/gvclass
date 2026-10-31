@@ -33,6 +33,11 @@ def parse_args():
         "--database",
         help="Database path (overrides GVCLASS_DB and config)",
     )
+    parser.add_argument(
+        "--with-screen",
+        action="store_true",
+        help="Also install the contig-screen add-on (gvclass screen --install)",
+    )
     return parser.parse_args()
 
 
@@ -50,6 +55,11 @@ def main():
             print("❌ Database setup was not completed")
             return 1
         print(f"✅ Database successfully set up at: {target_path}")
+        if args.with_screen:
+            # Imported here: the screen code loads heavy libraries.
+            from src.bin.gvclass_screen import install_bundle  # noqa: PLC0415
+
+            return install_bundle(target_path)
         return 0
     except Exception as exc:
         print(f"❌ Error setting up database: {exc}")

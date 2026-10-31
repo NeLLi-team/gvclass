@@ -11,32 +11,30 @@ import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
 
-DEFAULT_IMAGE = "library://nelligroup-jgi/gvclass/gvclass:2.1.1"
-SYLABS_IMAGE = "library://nelligroup-jgi/gvclass/gvclass:2.1.1"
-PUBLIC_LIBRARY_URL = "https://library.sylabs.io"
+DEFAULT_IMAGE = "oras://ghcr.io/nelli-team/gvclass:2.1.1"
 IMAGE_CACHE_DIR = Path.home() / ".cache" / "gvclass" / "images"
 DEFAULT_RESOURCE_CACHE_DIR = (
     Path.home() / ".cache" / "gvclass" / "resource-cache" / "v2.1.0"
 )
 CONTAINER_RESOURCE_CACHE_DIR = "/resource-cache"
-
-
-def is_library_uri(image: str) -> bool:
-    return image.startswith("library://")
+CONTAINER_DATABASE_DIR = "/opt/gvclass/resources"
 
 
 def is_remote_image_uri(image: str) -> bool:
-    return image.startswith(("library://", "http://", "https://"))
+    return image.startswith(
+        ("oras://", "docker://", "library://", "http://", "https://")
+    )
 
 
 def cache_filename_for_image(image: str) -> str:
-    prefix = ""
     if image.startswith(("http://", "https://")):
         slug = Path(urlparse(image).path).name
-        # Two hosts can serve the same basename; the digest keeps their caches apart.
-        prefix = hashlib.sha256(image.encode("utf-8")).hexdigest()[:12] + "_"
     else:
         slug = image.split("://", 1)[1]
+    # Two addresses can share a readable name: one basename on two hosts, one path under
+    # oras:// and docker://, or names that differ only in punctuation. The digest of the
+    # whole address keeps their caches apart.
+    prefix = hashlib.sha256(image.encode("utf-8")).hexdigest()[:12] + "_"
     slug = re.sub(r"[^A-Za-z0-9._-]+", "_", slug).strip("_")
     if not slug:
         slug = "gvclass_image"
@@ -91,10 +89,7 @@ def ensure_local_image(image: str) -> str:
 
     with tempfile.TemporaryDirectory(prefix=".pull-", dir=IMAGE_CACHE_DIR) as staging:
         staged_image = Path(staging) / "image.sif"
-        pull_cmd = ["apptainer", "pull", "-F", str(staged_image)]
-        if is_library_uri(image):
-            pull_cmd.extend(["--library", PUBLIC_LIBRARY_URL])
-        pull_cmd.append(image)
+        pull_cmd = ["apptainer", "pull", "-F", str(staged_image), image]
         if subprocess.call(pull_cmd) != 0:
             raise SystemExit(f"Failed to pull Apptainer image: {image}")
         validate_cached_image(staged_image)
@@ -108,6 +103,21 @@ def ensure_local_image(image: str) -> str:
                 f"Could not install cached Apptainer image: {local_image}: {error}"
             ) from error
     return str(local_image)
+
+
+def _addon_mount(resource_cache: Path) -> list[str]:
+    """Return the ``-B`` option that mounts the screen add-on, or nothing.
+
+    The root is the one that ``gvclass screen`` uses: ``GVCLASS_DB`` if set, else the
+    resource cache. The add-on is mounted read-only into the database of the image,
+    where the screen step looks for it; without one, ``screen_status`` reads
+    ``not_installed``.
+    """
+    root = Path(os.environ.get("GVCLASS_DB", "").strip() or resource_cache)
+    addon = root.expanduser().resolve() / "contig_screen"
+    if not (addon / "manifest.json").is_file():
+        return []
+    return ["-B", f"{addon}:{CONTAINER_DATABASE_DIR}/contig_screen:ro"]
 
 
 def run_container(
@@ -134,6 +144,8 @@ def run_container(
     allow_short: bool = False,
     plain_output: bool = False,
     verbose: bool = False,
+    *,
+    no_screen: bool = False,
 ) -> int:
     query_abs = query_path.resolve()
     output_abs = output.resolve()
@@ -171,8 +183,13 @@ def run_container(
         f"{output_abs}:/output",
         "-B",
         f"{resource_cache_abs}:{CONTAINER_RESOURCE_CACHE_DIR}",
+        *_addon_mount(resource_cache_abs),
         "--env",
         f"GVCLASS_RESOURCE_CACHE={CONTAINER_RESOURCE_CACHE_DIR}",
+        # Apptainer passes the host environment; a host GVCLASS_DB would otherwise
+        # replace the database of the image, which holds the mounted add-on.
+        "--env",
+        f"GVCLASS_DB={CONTAINER_DATABASE_DIR}",
         resolved_image,
         query_in_container,
         "-o",
@@ -219,6 +236,8 @@ def run_container(
         cmd.append("--plain-output")
     if verbose:
         cmd.append("--verbose")
+    if no_screen:
+        cmd.append("--no-screen")
 
     return subprocess.call(cmd)
 
@@ -366,6 +385,11 @@ def _add_mode_args(parser: argparse.ArgumentParser) -> None:
         help="Verbose output",
     )
     parser.add_argument(
+        "--no-screen",
+        action="store_true",
+        help="Skip the contig screen (screen_status is 'disabled')",
+    )
+    parser.add_argument(
         "--version",
         action="store_true",
         help="Show version information",
@@ -374,9 +398,9 @@ def _add_mode_args(parser: argparse.ArgumentParser) -> None:
         "--image",
         default=DEFAULT_IMAGE,
         help=(
-            "Apptainer image URI or path. HTTPS and library:// URIs are cached "
-            f"locally; library:// pulls use {PUBLIC_LIBRARY_URL} "
-            "(default: %(default)s)"
+            "Apptainer image address or path. oras://, docker://, library:// and "
+            "https:// addresses are pulled and cached locally; a library:// address "
+            "needs a library endpoint that Apptainer knows (default: %(default)s)"
         ),
     )
     parser.add_argument(
@@ -552,6 +576,7 @@ def main(argv: list[str] | None = None) -> int:
         allow_short=args.allow_short,
         plain_output=args.plain_output,
         verbose=args.verbose,
+        no_screen=args.no_screen,
     )
     return rc
 

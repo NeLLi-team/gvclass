@@ -91,6 +91,15 @@ pixi run gvclass --version
 
 `--version` reports software version 2.1.1 and the installed database version. Database setup installs v2.1.0.
 
+## Contig screen
+
+| Option | Argument/default | Description |
+| --- | --- | --- |
+| `--no-screen` | flag | Skip the contig screen. `screen_status` is `disabled`. Overrides `pipeline.contig_screen`. With `--resume`, saved screen results stay in place. |
+
+The screen runs after the queries when the add-on is installed. See
+[Screen bins for contaminating contigs](../how-to/screen-contigs.md).
+
 ## `gvclass screen`
 
 ```bash
@@ -123,18 +132,32 @@ The container reads inputs and resources through read-only mounts and writes to
 the selected output directory. Screen mode keeps its default of four threads and
 `<input>_screen` output in both modes.
 
+## `setup-db`
+
+```bash
+pixi run setup-db [-c CONFIG] [-d DATABASE] [--with-screen]
+```
+
+Downloads and installs the database. `-c` and `-d` select the configuration file and
+the database directory, as for `gvclass`.
+
+| Option | Description |
+| --- | --- |
+| `--with-screen` | Also install the contig-screen add-on, as `gvclass screen --install` does. Setup asks no questions, so it also runs in CI. |
+
 ## Apptainer container mode
 
 `gvclass` supports running inside the published Apptainer SIF container via `--apptainer` or `--image` (or automatically when `gvclass` is downloaded as a standalone script without a repository checkout). It accepts an input path and `-o`/`--output-dir` (or a second positional output path). Container mode differs from native mode in two defaults: `-t` is 16, and the output directory is `<input>_results` beside the input. A missing input path is an error (exit code 2).
 
 | Option | Argument/default | Description |
 | --- | --- | --- |
-| `--apptainer` | flag | Execute inside the Apptainer SIF image (`library://nelligroup-jgi/gvclass/gvclass:2.1.1` by default). |
-| `--image` | path or URI | Local `.sif` path, `library://` URI, or `https://` URL (implies `--apptainer`). |
+| `--apptainer` | flag | Execute inside the Apptainer SIF image (`oras://ghcr.io/nelli-team/gvclass:2.1.1` by default). |
+| `--image` | path or address | Local `.sif` path, or an `oras://`, `docker://`, `library://` or `https://` address (implies `--apptainer`). A `library://` address needs a library endpoint that Apptainer knows. |
 | `--resource-cache-dir` | path; `~/.cache/gvclass/resource-cache/v2.1.0` | Classification: writable materialization cache mounted at `/resource-cache`. Screen: host add-on cache used when neither `-d` nor `GVCLASS_DB` is set; writable during installation and mounted read-only during screening. |
 
-Remote images are cached under `~/.cache/gvclass/images/` as regular files;
-symlink cache entries are rejected. Before reuse, the launcher checks the SIF
+Remote images are cached under `~/.cache/gvclass/images/` as regular files, in a
+file whose name starts with a digest of the whole address, so two addresses never
+share a file; symlink cache entries are rejected. Before reuse, the launcher checks the SIF
 object table, primary system partition and file bounds.
 Downloads use a separate temporary path and enter the cache only after the pull
 and those checks succeed. Invalid existing cache entries are left in place; move
@@ -143,4 +166,9 @@ truncated files; they do not authenticate the publisher or verify every payload
 byte. The cache filesystem must support hard links for atomic installation.
 An explicit local image path is passed directly to Apptainer.
 
-All standard pipeline, species-tree, and resume flags (`-t`, `-j`, `--threads-per-worker`, `--tree-method`, `--iqtree-mode`, `--mode-fast`, `-e`/`--extended`, `--sensitive`, `--no-sensitive`, `--completeness-mode`, `--species-tree`, `--species-tree-combined`, `--species-tree-trim`, `-C`/`--contigs`, `--min-length`, `--contigs-min-length`, `--allow-short`, `--resume`, `--plain-output`, `-v`/`--verbose`) are forwarded to the container. For classification, `--config`, `--database` and the `--cluster-*` options are native-only and are rejected in container mode. The `screen` command accepts `--database` as described above. When both `--sensitive` and `--no-sensitive` are given, `--no-sensitive` wins in both modes. See [run on HPC](../how-to/run-on-hpc.md) for container commands.
+All standard pipeline, species-tree, and resume flags (`-t`, `-j`, `--threads-per-worker`, `--tree-method`, `--iqtree-mode`, `--mode-fast`, `-e`/`--extended`, `--sensitive`, `--no-sensitive`, `--completeness-mode`, `--species-tree`, `--species-tree-combined`, `--species-tree-trim`, `-C`/`--contigs`, `--min-length`, `--contigs-min-length`, `--allow-short`, `--no-screen`, `--resume`, `--plain-output`, `-v`/`--verbose`) are forwarded to the container. For classification, `--config`, `--database` and the `--cluster-*` options are native-only and are rejected in container mode. The `screen` command accepts `--database` as described above. When both `--sensitive` and `--no-sensitive` are given, `--no-sensitive` wins in both modes. A classification run also mounts the add-on read-only into the database of the image, from the
+same place that `screen` uses (`GVCLASS_DB` if set, else the resource cache), so that the contig
+screen runs in the container. Without an installed add-on, `screen_status` is `not_installed`.
+Inside the container the database is always the one in the image, whatever `GVCLASS_DB` the
+host has: that variable selects only where the add-on comes from.
+See [run on HPC](../how-to/run-on-hpc.md) for container commands.

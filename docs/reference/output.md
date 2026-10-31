@@ -108,19 +108,39 @@ old search results and sequence files cannot affect its scores.
 | `species_tree_nn_distance` | Tree distance to that reference, rounded to two decimal places; `nd` if unavailable. |
 | `species_tree_clade_id` | Query-only clade identifier; `nd` when no such clade is present. Combined-tree clades are reported in their separate taxonomy table. |
 
+## Screen columns
+
+The last four columns of `gvclass_summary.tsv` report the contig screen. They are
+percentages of the input base pairs with two decimals, and `NaN` when the screen did
+not produce the number.
+
+| Column | Meaning |
+| --- | --- |
+| `screen_status` | `ok`: both screens scored the bin. `partial`: a screen could not score the bin (`not_scored`), or one screen failed while the other scored. `failed`: a screen failed and none scored. `disabled`: `--no-screen` or `pipeline.contig_screen: false`. `not_installed`: the add-on is missing. `not_applicable`: protein input or `--contigs` mode. |
+| `screen_cellular_pct` | Percent of base pairs called by the cellular screen. |
+| `screen_giant_virus_pct` | Percent of base pairs in contigs of 5 kb or more that the giant-virus screen calls foreign. |
+| `screen_flagged_pct` | Percent of base pairs called by either screen. `NaN` unless both screens scored the bin. |
+
+A flag is a review flag. See [How the contig screen works](../explanation/contig-screen.md#what-the-summary-columns-report).
+A failed query has no row in the summary, so it has no screen columns.
+
 ## Contig screen files
 
-`gvclass screen` writes its files to its own output directory.
+A classification run writes the screen files of each bin to
+`<output>/contig_screen/<bin>/`. `gvclass screen` writes them to its own output
+directory. The folder is outside the query folders, so the per-query archives do not
+hold it.
 
 | File | Columns |
 | --- | --- |
 | `<bin>.cellular.tsv` | `contig_id`, `source_contig`, `source_start`, `length_bp`, `s_n_genes`, `c_gc`, `s_coding_density`, `p_cellular` (stage 1), `p_gbm`, `set_logit`, `p_context` (stage 2), `called_cellular` |
 | `<bin>.giant_virus.tsv` | `contig`, `length_bp`, `n_markers`, `n_dup_sc`, `dup_weighted`, `pair_shared`, `d_bulk`, `p_foreign`, `called_foreign` |
 | `<bin>.summary.txt` | The printed summaries of both screens. |
-| `contig_screen_summary.tsv` | `bin`, `cellular_status`, `giant_virus_status` (`ok` or `failed`). |
+| `screen.log` | Output of the screen process, written in a classification run only. The warning on a failed screen shows the end of it. |
+| `contig_screen_summary.tsv` | `bin`, `cellular_status`, `giant_virus_status` (`ok`, `failed` or `not_scored`), `input_bp`, `cellular_bp`, `cellular_pct`, `giant_virus_bp`, `giant_virus_pct`, `flagged_bp`, `flagged_pct`, `manifest_sha256` (SHA-256 of the add-on manifest that the screens used), `input_sha256` (SHA-256 of the bin file). A number of a screen that did not score the bin is `NaN`. |
 
 `called_cellular` and `called_foreign` mark windows or contigs at or above the
-thresholds stored in the resource archive. A call is a review flag.
+thresholds stored in the add-on. A call is a review flag.
 
 ## Extended quality fields
 

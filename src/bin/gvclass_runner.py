@@ -92,6 +92,9 @@ def run_flow(
     species_tree: bool = False,
     species_tree_combined: bool = False,
     species_tree_trim: str = "witchi",
+    *,
+    contig_screen: bool = True,
+    contigs_mode: bool = False,
 ):
     return gvclass_flow(
         query_dir=str(query_path),
@@ -113,6 +116,8 @@ def run_flow(
         species_tree=species_tree,
         species_tree_combined=species_tree_combined,
         species_tree_trim=species_tree_trim,
+        contig_screen=contig_screen,
+        contigs_mode=contigs_mode,
     )
 
 
@@ -179,6 +184,9 @@ def execute_cli_flow(
     species_tree: bool = False,
     species_tree_combined: bool = False,
     species_tree_trim: str = "witchi",
+    *,
+    contig_screen: bool = True,
+    contigs_mode: bool = False,
 ):
     result = run_flow(
         query_path=query_path,
@@ -200,6 +208,8 @@ def execute_cli_flow(
         species_tree=species_tree,
         species_tree_combined=species_tree_combined,
         species_tree_trim=species_tree_trim,
+        contig_screen=contig_screen,
+        contigs_mode=contigs_mode,
     )
     click.echo("\nPipeline completed successfully!")
     click.echo(f"Results written to: {result}")
@@ -310,6 +320,18 @@ def execute_cli_flow(
     show_default=True,
     help="Supermatrix column trimming for --species-tree: witchi (rigorous), pytrimal (fast), or none.",
 )
+@click.option(
+    "--screen/--no-screen",
+    "contig_screen",
+    default=True,
+    help="Screen each nucleotide bin for contaminating contigs (default on).",
+)
+@click.option(
+    "--contigs",
+    "contigs_mode",
+    is_flag=True,
+    help="The queries are single contigs from larger inputs; the screen skips them.",
+)
 def main(  # noqa: PLR0913  # Click supplies one keyword per declared option.
     *,
     querydir: str,
@@ -334,6 +356,8 @@ def main(  # noqa: PLR0913  # Click supplies one keyword per declared option.
     species_tree: bool,
     species_tree_combined: bool,
     species_tree_trim: str,
+    contig_screen: bool,
+    contigs_mode: bool,
 ) -> None:
     """Run the pipeline with resolved command-line settings."""
     log_level = "DEBUG" if verbose else "INFO"
@@ -378,6 +402,8 @@ def main(  # noqa: PLR0913  # Click supplies one keyword per declared option.
             species_tree=species_tree,
             species_tree_combined=species_tree_combined,
             species_tree_trim=species_tree_trim,
+            contig_screen=contig_screen,
+            contigs_mode=contigs_mode,
         )
     except FileNotFoundError as exc:
         click.echo(f"Error: {exc}", err=True)

@@ -28,6 +28,7 @@ pipeline:
   mode_fast: true
   completeness_mode: novelty-aware
   sensitive_mode: true
+  contig_screen: true
   contigs_min_length: 10000
   threads: 4
   output_pattern: "{query_dir}_results"
@@ -63,6 +64,7 @@ Compact resource bundles can store labels and reference proteins as Parquet (`pa
 | `mode_fast` | `true` | Skip order-level marker trees; retain order-level HMM searches. |
 | `completeness_mode` | `novelty-aware` | Primary completeness estimator: `novelty-aware` or `legacy`. |
 | `sensitive_mode` | `true` | Use `E=1e-5` and `domE=1e-5` instead of GA cutoffs. |
+| `contig_screen` | `true` | Screen each nucleotide bin after the queries finish, when the add-on is installed. `--no-screen` turns it off for one run. |
 | `contigs_min_length` | `10000` | Minimum contig length in bp for `--contigs`. |
 | `threads` | `4` | Total thread budget. |
 | `output_pattern` | `{query_dir}_results` | Default output directory. `{query_dir}` is the query directory's basename. |

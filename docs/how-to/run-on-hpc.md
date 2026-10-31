@@ -62,11 +62,10 @@ If you do not have a repository checkout on the cluster, download the standalone
 ```bash
 wget https://raw.githubusercontent.com/NeLLi-team/gvclass/main/gvclass
 chmod +x gvclass
-apptainer pull --library https://library.sylabs.io \
-  gvclass_2.1.1.sif library://nelligroup-jgi/gvclass/gvclass:2.1.1
+apptainer pull gvclass_2.1.1.sif oras://ghcr.io/nelli-team/gvclass:2.1.1
 ```
 
-Pass the downloaded image to `gvclass` with `--image` (or pass `--apptainer` to pull and cache the default image automatically).
+Pass the downloaded image to `gvclass` with `--image` (or pass `--apptainer` to pull and cache the default image automatically). The image address is on GHCR; Sylabs retired its library on 2026-10-22, so older `library://` addresses no longer work.
 
 ### 2. Run within a compute allocation
 
@@ -84,6 +83,22 @@ For a Slurm job, replace the `pixi run gvclass` line in the batch script with:
 ```
 
 The container mode accepts the output with `-o` / `--output-dir` (or as a second positional path).
+
+### Screen contigs in the image
+
+The image holds the screen code but not the add-on. Install the add-on into the
+resource cache once, then run as usual. The bound cache directory holds the add-on
+for every later run:
+
+```bash
+./gvclass screen --install --image "$PWD/gvclass_2.1.1.sif" \
+  --resource-cache-dir /scratch/gvclass-cache
+./gvclass query_genomes -o apptainer_results -t 8 --image "$PWD/gvclass_2.1.1.sif" \
+  --resource-cache-dir /scratch/gvclass-cache
+```
+
+Add `--no-screen` to skip the screen in a run. See
+[Screen bins for contaminating contigs](screen-contigs.md).
 
 ### 3. Set the cache location if needed
 

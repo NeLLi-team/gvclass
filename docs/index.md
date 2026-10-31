@@ -40,7 +40,7 @@ pixi run gvclass query_genomes -o species_tree_results -t 8 --species-tree-combi
 See [Build a species tree](how-to/build-a-species-tree.md) for input requirements and tree files.
 
 !!! note "Release metadata"
-    This is software 2.1.1. `pixi run setup-db` downloads the v2.1.0 resource archive from [Zenodo](https://doi.org/10.5281/zenodo.23381313) and installs database `DB_VERSION` v2.1.0. The 2.1.1 Apptainer image is `library://nelligroup-jgi/gvclass/gvclass:2.1.1`. Published downloads and changelogs are on the [GitHub Releases](https://github.com/NeLLi-team/gvclass/releases) page.
+    This is software 2.1.1. `pixi run setup-db` downloads the v2.1.0 resource archive from [Zenodo](https://doi.org/10.5281/zenodo.23381313) and installs database `DB_VERSION` v2.1.0. The 2.1.1 Apptainer image is `oras://ghcr.io/nelli-team/gvclass:2.1.1`. Published downloads and changelogs are on the [GitHub Releases](https://github.com/NeLLi-team/gvclass/releases) page.
 
 ## Documentation
 

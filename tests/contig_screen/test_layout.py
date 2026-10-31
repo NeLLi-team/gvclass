@@ -261,3 +261,39 @@ def test_directory_accepts_a_directory_with_exactly_the_listed_files(
     resources = layout.ScreenResources.open(tmp_path, manifest_sha256=digest)
 
     assert resources.directory(layout.ESM_DIR) == tmp_path / layout.ESM_DIR
+
+
+def test_bundle_present_when_the_manifest_is(tmp_path: Path) -> None:
+    assert not layout.bundle_present(tmp_path)
+
+    write_bundle(tmp_path, {DATA: b"y"})
+
+    assert layout.bundle_present(tmp_path)
+
+
+def test_open_keeps_the_digest_of_the_manifest_it_checked(tmp_path: Path) -> None:
+    digest = write_bundle(tmp_path, {DATA: b"a\tb\n"})
+
+    resources = layout.ScreenResources.open(tmp_path, manifest_sha256=digest)
+
+    assert resources.manifest_sha256 == digest
+
+
+def test_manifest_digest_is_that_of_the_manifest_of_the_database(
+    tmp_path: Path,
+) -> None:
+    digest = write_bundle(tmp_path, {DATA: b"y"})
+
+    assert layout.manifest_digest(tmp_path) == digest
+
+
+def test_manifest_digest_follows_the_manifest_when_it_changes(tmp_path: Path) -> None:
+    first = write_bundle(tmp_path, {DATA: b"x"})
+    second = write_bundle(tmp_path, {DATA: b"xx"})
+
+    assert first != second
+    assert layout.manifest_digest(tmp_path) == second
+
+
+def test_manifest_digest_is_none_without_an_addon(tmp_path: Path) -> None:
+    assert layout.manifest_digest(tmp_path) is None

@@ -50,12 +50,32 @@ def test_image_cache_names_differ_for_urls_with_the_same_basename(
     assert first == name("https://host-a.example/v1/gvclass.sif")
 
 
-def test_library_image_cache_name_keeps_the_tag(launcher: dict[str, Any]) -> None:
-    name = launcher["cache_filename_for_image"](
-        "library://group/collection/gvclass:2.1.0"
-    )
+def test_image_cache_name_keeps_the_readable_tag(launcher: dict[str, Any]) -> None:
+    name = launcher["cache_filename_for_image"]
 
-    assert name == "group_collection_gvclass_2.1.0.sif"
+    oras = name("oras://ghcr.io/nelli-team/gvclass:2.1.1")
+    library = name("library://group/collection/gvclass:2.1.0")
+
+    assert oras.endswith("_ghcr.io_nelli-team_gvclass_2.1.1.sif")
+    assert library.endswith("_group_collection_gvclass_2.1.0.sif")
+
+
+def test_image_cache_names_differ_for_one_path_under_different_schemes(
+    launcher: dict[str, Any],
+) -> None:
+    name = launcher["cache_filename_for_image"]
+    addresses = [
+        "oras://ghcr.io/nelli-team/gvclass:2.1.1",
+        "docker://ghcr.io/nelli-team/gvclass:2.1.1",
+        "library://ghcr.io/nelli-team/gvclass:2.1.1",
+        "oras://ghcr.io/nelli-team/gvclass_2.1.1",
+        "oras://ghcr.io/nelli-team/gvclass:latest",
+    ]
+
+    names = [name(address) for address in addresses]
+
+    assert len(set(names)) == len(addresses)
+    assert names[0] == name(addresses[0])
 
 
 def test_container_run_lets_no_sensitive_win_like_the_native_cli(

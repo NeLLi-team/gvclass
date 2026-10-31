@@ -39,6 +39,31 @@ the best catalog hits of the genes and their agreement with the bin. A marker th
 is single-copy in reference genomes but occurs on two contigs is evidence for a second
 genome. Only contigs of 5 kb or more are scored.
 
+## What the summary columns report
+
+A classification run screens each nucleotide bin with both models and reports three
+shares of the input, in base pairs. `screen_cellular_pct` is the share called by the
+cellular screen. `screen_giant_virus_pct` is the share in contigs of 5 kb or more that
+the giant-virus screen calls foreign. `screen_flagged_pct` is the share called by
+either screen; a base pair called by both counts once.
+
+The three numbers are not contamination estimates. `estimated_contamination` comes
+from marker genes and the quality models of GVClass; the screen shares come from
+windows and contigs. The two do not feed each other, and neither changes
+`estimated_completeness` or `estimated_contamination`. Horizontally transferred
+genes and endogenous viral elements can fall inside flagged sequence, so a share
+is evidence for review, not a rule to delete.
+
+A screen that cannot score a bin leaves its number empty (`NaN`), never zero. The
+cellular screen scores no bin without a contig of 3 kb or more. The giant-virus
+screen scores no bin with fewer than two contigs of 5 kb or more with genes, because
+it compares contigs with each other. `screen_flagged_pct` needs both screens. When
+only one screen scores a bin, `screen_status` is `partial` and the number of the
+other screen and the union are `NaN`.
+
+Protein input and `--contigs` mode have no screen: a protein file has no contigs to
+cut, and a single contig has no bin to compare against.
+
 ## What the models were checked on
 
 Numbers in this section are from the research record of the models (cross-validation

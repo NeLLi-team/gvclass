@@ -98,8 +98,7 @@ def test_apptainer_wrapper_copies_stay_in_sync() -> None:
     module = (REPO_ROOT / "src" / "bin" / "gvclass_apptainer.py").read_text()
 
     for line in [
-        f'DEFAULT_IMAGE = "library://nelligroup-jgi/gvclass/gvclass:{_software_version()}"',
-        f'SYLABS_IMAGE = "library://nelligroup-jgi/gvclass/gvclass:{_software_version()}"',
+        f'DEFAULT_IMAGE = "oras://ghcr.io/nelli-team/gvclass:{_software_version()}"',
         'Path.home() / ".cache" / "gvclass" / "resource-cache" / "v2.1.0"',
         "def ensure_local_image(image: str) -> str:",
         "def run_container(",
@@ -153,7 +152,7 @@ def test_ci_enforces_static_analysis_and_hygiene() -> None:
     assert "gvclass.sif" in artifact_step["with"]["path"]
     step_names = list(steps_by_name)
     assert step_names.index("Upload SIF and SBOM artifacts") < step_names.index(
-        "Publish SIF to Sylabs library"
+        "Publish SIF to GHCR"
     )
 
 

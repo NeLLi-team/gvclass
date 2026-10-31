@@ -42,12 +42,24 @@ To build a shared species tree as well:
 pixi run gvclass query_genomes -o species_tree_results -t 8 --species-tree-combined
 ```
 
+## Screen bins for contaminating contigs
+
+With the optional screen add-on installed (a 3.2 GB download), a run also reports the share of each bin that a cellular screen or a giant-virus screen flags. The shares are the last four columns of `gvclass_summary.tsv`. They are review flags, and they do not change `estimated_completeness` or `estimated_contamination`.
+
+```bash
+pixi run setup-db --with-screen
+pixi run gvclass query_genomes -o results -t 8
+```
+
+A bin of 176 kb takes about 2 minutes to screen on 8 threads. In a run of `example/`, two bins (176 and 241 kb) screened at once with 4 threads each added 5 to 8 minutes in three runs and raised peak memory from 4 GB to 16 GB, so request memory for the number of bins that run at once. A screen that runs for more than 4 hours is stopped and reads `failed`. Add `--no-screen` to skip the screen. Without the add-on, `screen_status` is `not_installed`. `gvclass screen --install` installs the add-on in a repository checkout, in the standalone launcher and in the Apptainer image; see [Screen bins](https://NeLLi-team.github.io/gvclass/how-to/screen-contigs/).
+
 ## Documentation
 
 - [Getting started](https://NeLLi-team.github.io/gvclass/tutorials/getting-started/): installation, bundled examples and output.
 - [Classify genome bins](https://NeLLi-team.github.io/gvclass/how-to/classify-bins/): input preparation and resume.
 - [Build a species tree](https://NeLLi-team.github.io/gvclass/how-to/build-a-species-tree/): per-query and combined trees.
 - [Run on a cluster](https://NeLLi-team.github.io/gvclass/how-to/run-on-hpc/): Slurm and Apptainer.
+- [Screen bins](https://NeLLi-team.github.io/gvclass/how-to/screen-contigs/): cellular and second-giant-virus contigs.
 - [Command-line options](https://NeLLi-team.github.io/gvclass/reference/cli/) and [output columns](https://NeLLi-team.github.io/gvclass/reference/output/).
 - [Methods](https://NeLLi-team.github.io/gvclass/explanation/how-it-works/): taxonomy and quality estimates.
 
@@ -64,7 +76,7 @@ The v2.1.0 runtime resource bundle is archived on Zenodo:
 https://doi.org/10.5281/zenodo.23381313
 (v2.0.0: https://doi.org/10.5281/zenodo.21225457; all versions: https://doi.org/10.5281/zenodo.18662445).
 
-Database setup downloads the v2.1.0 archive. The 2.1.1 Apptainer image is `library://nelligroup-jgi/gvclass/gvclass:2.1.1`.
+Database setup downloads the v2.1.0 archive. The 2.1.1 Apptainer image is `oras://ghcr.io/nelli-team/gvclass:2.1.1`.
 
 Reference data sources:
 
