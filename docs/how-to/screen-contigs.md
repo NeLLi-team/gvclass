@@ -231,8 +231,8 @@ identifies the tested image from that run.
 Classification runs with `--plain-output --verbose`. Its combined log must contain
 marker debug messages and search diagnostics, without ANSI escapes or decorative
 warning, checkmark and error symbols. Scientific text such as `×` is allowed.
-The automatic-screen, resume and disabled-screen runs also check this plain-output
-contract, including output-validation warnings.
+The automatic-screen, resume and disabled-screen runs also check their combined
+logs for ANSI escapes and decorative symbols, including any validation warnings.
 The artifact also records host CPU information from `lscpu` and the SIF's PyTorch
 version, CPU capability, thread counts, loaded thread pools and build configuration
 from a fresh metadata process, before CLI per-task thread limits.

@@ -16,9 +16,10 @@ Results are written to `-o OUTPUT_DIR`, or `<query_dir>_results` by default. The
 | `run_status.json` | Resume manifest: software and database versions, database path, settings, query status, timestamps, and artifact names, sizes, and checksums. |
 | `run.log` | Run and query start, completion, and failure messages. |
 
-Output validation uses query names in `run_status.json` to distinguish query
-directories from shared `contig_screen/`, `species_tree/` and `.species_tree_work/`
-folders. Without readable query metadata, it checks every directory.
+With `--verbose`, output validation uses query names in `run_status.json` to
+distinguish query directories from shared `contig_screen/`, `species_tree/` and
+`.species_tree_work/` folders. Without readable query metadata, this verbose
+check inspects every directory.
 
 ### Per-query files
 
