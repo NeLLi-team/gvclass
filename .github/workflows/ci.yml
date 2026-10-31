@@ -611,6 +611,17 @@ jobs:
           QUERY = "GVMAG-S-1096109-37"
 
 
+          def verify_plain_output(path):
+              log = path.read_text(encoding="utf-8")
+              assert "\x1b" not in log, "ANSI escape in plain output"
+              decorations = (0x2705, 0x274C, 0x26A0, 0x2713, 0x1F4E6,
+                             0x1F4E5, 0x1F4C2, 0x1F50D, 0x1F4CA,
+                             0x23F1, 0x1F4BE)
+              assert not any(chr(code) in log for code in decorations), (
+                  "Decoration in plain output"
+              )
+
+
           def read_rows(path):
               with path.open(encoding="utf-8") as handle:
                   return list(csv.DictReader(handle, delimiter="\t"))
@@ -746,6 +757,7 @@ jobs:
                       [*command, *flags], env=environment, stdout=handle,
                       stderr=subprocess.STDOUT, check=True,
                   )
+              verify_plain_output(log_path)
               if baseline is None:
                   # Compare exact values within this run; thread allocations can
                   # change tree results between the one- and three-query runs.

@@ -63,7 +63,7 @@ NCLDV, PPV, and MIRUS queries use separate panels. A combined tree contains only
 | `--contigs-min-length` | integer; `10000` bp | Minimum contig length in `--contigs` mode. |
 | `--allow-short` | flag | Bypass the nucleotide length threshold; retain other FASTA validation. |
 | `--resume` | flag | Skip queries with completed status, valid artifacts and the required saved quality fields. Legacy runs can use `.SUCCESS` files or a summary/archive fallback. Changes to model/resource versions or analysis settings are not detected; use a fresh output directory when changing them. |
-| `--plain-output` | flag | Disable emojis and ANSI colors. Also set by `GVCLASS_PLAIN_OUTPUT=1`. Low-level search, tree and post-processing diagnostics use plain text in all modes. |
+| `--plain-output` | flag | Disable emojis and ANSI colors. Also set by `GVCLASS_PLAIN_OUTPUT=1`. Low-level search, tree, output-validation and post-processing diagnostics use plain text in all modes. |
 
 ## Cluster options
 

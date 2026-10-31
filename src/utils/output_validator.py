@@ -83,7 +83,23 @@ def validate_pipeline_outputs(
             )
 
     # Check for query subdirectories
-    query_dirs = [d for d in output_dir.iterdir() if d.is_dir()]
+    from src.pipeline import run_status  # noqa: PLC0415  # Defer pipeline import.
+
+    try:
+        status = run_status.load_run_status(output_dir)
+    except UnicodeError:
+        status = None
+    known_queries = status.get("queries") if isinstance(status, dict) else None
+    query_dirs = [
+        d
+        for d in output_dir.iterdir()
+        if d.is_dir()
+        and (
+            d.name not in {"contig_screen", "species_tree", ".species_tree_work"}
+            or not isinstance(known_queries, dict)
+            or d.name in known_queries
+        )
+    ]
     if query_dirs and verbose:
         logger.info(f"Found {len(query_dirs)} query subdirectory(ies)")
         for query_dir in query_dirs:
@@ -93,11 +109,11 @@ def validate_pipeline_outputs(
 
     if verbose:
         if success:
-            logger.info("✅ Validation successful")
+            logger.info("Validation successful")
         else:
-            logger.warning(f"❌ Validation found {len(issues)} issue(s)")
+            logger.warning("Validation found %s issue(s)", len(issues))
         if warnings:
-            logger.warning(f"⚠️  {len(warnings)} warning(s) found")
+            logger.warning("%s warning(s) found", len(warnings))
 
     return {"success": success, "issues": issues, "warnings": warnings}
 
@@ -132,7 +148,7 @@ def _validate_summary_file(
             return False
 
         if verbose:
-            logger.debug(f"✓ {summary_file.name} has valid format")
+            logger.debug("%s has valid format", summary_file.name)
 
         return True
 
@@ -163,7 +179,7 @@ def _validate_query_archive(
             + ", ".join(missing)
         )
     elif verbose:
-        logger.debug(f"✓ {archive_file.name} contains per-query summaries")
+        logger.debug("%s contains per-query summaries", archive_file.name)
 
 
 def _validate_combined_summary(
@@ -198,7 +214,7 @@ def _validate_combined_summary(
             warnings.append("Combined summary has header but no data rows")
 
         if verbose:
-            logger.debug(f"✓ Combined summary has {len(lines)-1} data row(s)")
+            logger.debug("Combined summary has %s data row(s)", len(lines) - 1)
 
         return True
 
