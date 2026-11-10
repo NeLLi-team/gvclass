@@ -6,7 +6,9 @@
 # mcp_ncldv; split over-merges grp_OG1357/grp_OG503; dissolve grp_OG5478; force-combine audit-cleared families).
 # caps models (plv_mcp_caps_*, gamadvirusmcp_caps_*) are not yet in resources/database/faa; once their FAAs are
 # built from the combined proteome they join (validated 2026-06-21, caps-HMM vs gvclass refs): PLV-class -> mcp_plv,
-# NCV-like/Mriyavirus -> mcp_ncldv; ~15 novel caps groups (Alpenseevirus/Zephyrvirus/VC124-134/Pam2/Metamonada/...) add new refs.
+# NCV-like -> mcp_ncldv; ~15 novel caps groups
+# (Alpenseevirus/Zephyrvirus/VC124-134/Pam2/Metamonada/...)
+# add new refs.
 group_name	n_members	total_refs	annotation_coverage	coherence	dom_annotation	flag	members
 grp_OG1357	3	1420015	0.00	0.00		no_annotation	OG1357;OG130;OG14872
 grp_OG503	4	258070	0.75	1.00	P-loop containing nucleoside triphosphate hydr	ok	OG503;OG1590;OG1164;OG3263

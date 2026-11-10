@@ -35,6 +35,8 @@ Not verified: the container images are unbuilt, and the CI workflow has not run.
 
 ### Changed
 
+- `CAPS_MARKER_GROUP` holds the 32 capsid models that the database HMM file has. The 17 names without a model could never match and are removed. The `Mriyavirus` capsid group and the `unclassified` placeholder had no other name, so both are gone. No reference label of database v2.1.0 uses `Mriyavirus` as a family. The start-up panel check now includes the capsid models, so a database that lacks one stops the run. No summary value changes.
+- Temporary: the labels loader gives the duplicate database record `NCLDV__GCF_905367645.1` the lineage of `NCLDV__PkV-RF01`, so both copies of this genome report genus `g1787` and species `singleton`. Database v2.1.0 holds the genome twice with different labels. Delete `DUPLICATE_LABEL_RECORDS` in `src/core/labels.py` when a database release corrects the record.
 - `taxonomy_confidence` has the values `high`, `no_support`, `low_support`, `tie:<rank>`, `mixed_cellular`, `plurality:<rank>` and `reduced_fastmode`.
 - `results.jsonl` is the record of finished queries. A run also writes `run_config.json`, `gvclass.log` and `run_status.json` (schema 2, written at start and end). Working files live in `.gvclass_work/<query>/`, and an earlier archive is replaced only when the new one is complete.
 - The default output directory is `<cwd>/<name>_results`, in native and container runs.

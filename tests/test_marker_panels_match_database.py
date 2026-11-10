@@ -3,7 +3,9 @@
 A panel name that the database does not hold never matches a hit. The panel then
 reports a wrong size and a constant completeness, and no test sees it. These tests
 compare every panel constant, every prefix panel and every marker group member with
-``docs/reference/marker-annotations.tsv``, which lists the database models.
+``docs/reference/marker-annotations.tsv``, which lists the database models. That table
+lists no capsid model, so ``CAPSID_MODELS`` names them, and one test compares every
+panel name with the ``NAME`` lines of the database HMM file when it is installed.
 """
 
 import csv
@@ -14,6 +16,7 @@ import pytest
 from src.config import marker_sets
 from src.config.marker_sets import (
     BUSCO_MODELS,
+    CAPS_MARKER_GROUP,
     PANEL_MODELS,
     PANEL_PREFIXES,
     PHAGE_MODELS,
@@ -27,10 +30,35 @@ from src.core.summarize.paths_stats import QueryEvidence
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ANNOTATIONS_TSV = REPO_ROOT / "docs" / "reference" / "marker-annotations.tsv"
 MARKER_GROUPS_TSV = REPO_ROOT / "src" / "config" / "marker_groups.tsv"
+HMM_FILE = REPO_ROOT / "resources" / "hmm" / "combined.hmm"
 
-# Group members that are in the database HMM file but not in the annotation table:
-# the order-level OG models without an annotation, the PLV_MCP_* models and the
-# capscan models. A new name outside this set is drift and fails the test.
+# The capsid models in the database HMM file (v2.1.0). The annotation table lists
+# none of them. A new name outside this set is drift and fails the test.
+CAPSID_MODELS = frozenset(
+    """
+    plv_mcp_caps_Dino_Aquinto plv_mcp_caps_GKS1_Gossevirus_Mavpol
+    plv_mcp_caps_GKS2_Alpenseevirus_NCV_like plv_mcp_caps_GKS3_CHI_Aquinto
+    plv_mcp_caps_MMM_PC12_NA plv_mcp_caps_Mavpol2
+    plv_mcp_caps_Nova6_VC35_Mavpol2
+    plv_mcp_caps_Nova9_Aquinto_Trimcap_related plv_mcp_caps_PaM1_Aquinto
+    plv_mcp_caps_PaM2_NCV_like plv_mcp_caps_PgVV_Aquinto
+    plv_mcp_caps_SP67_Aquinto plv_mcp_caps_SP70_Aquinto
+    plv_mcp_caps_SP71_Aquinto plv_mcp_caps_SP_Aquinto
+    plv_mcp_caps_Trimcap_A1_Aquinto plv_mcp_caps_Trimcap_A2_Aquinto
+    plv_mcp_caps_Trimcap_A3_74_Aquinto plv_mcp_caps_Trimcap_A3_Aquinto
+    plv_mcp_caps_Trimcap_A4_Aquinto plv_mcp_caps_Trimcap_B1_Aquinto
+    plv_mcp_caps_Trimcap_B2_Aquinto plv_mcp_caps_Trimcap_B3_Aquinto
+    plv_mcp_caps_VC100_Mavpol1_like plv_mcp_caps_VC104_Aquinto
+    plv_mcp_caps_VC124_VC134_NCV_like plv_mcp_caps_VC147_GKS3_Aquinto
+    plv_mcp_caps_VC224_NA plv_mcp_caps_VC40_NCV_like
+    plv_mcp_caps_Zephyrvirus4_NCV_like plv_mcp_caps_Zephyrvirus5_NCV_like
+    plv_mcp_caps_Zoravirus_VC102_NCV_like
+    """.split()
+)
+
+# Group members that are in the database HMM file but not in the annotation table
+# or in CAPSID_MODELS: the order-level OG models without an annotation and the
+# PLV_MCP_* models. A new name outside this set is drift and fails the test.
 GROUP_MEMBERS_WITHOUT_ANNOTATION = frozenset(
     """
     OG10 OG1046 OG114 OG12902 OG13 OG130 OG1357 OG1419 OG1421 OG14872 OG15 OG1515
@@ -41,21 +69,7 @@ GROUP_MEMBERS_WITHOUT_ANNOTATION = frozenset(
     OG667 OG771 OG806 OG8381 OG876 OG9378
     PLV_MCP_1 PLV_MCP_10 PLV_MCP_2 PLV_MCP_3 PLV_MCP_4 PLV_MCP_5 PLV_MCP_6
     PLV_MCP_8 PLV_MCP_9
-    plv_mcp_caps_Dino_Aquinto plv_mcp_caps_GKS1_Gossevirus_Mavpol
-    plv_mcp_caps_GKS2_Alpenseevirus_NCV_like plv_mcp_caps_GKS3_CHI_Aquinto
-    plv_mcp_caps_Mavpol2 plv_mcp_caps_Nova6_VC35_Mavpol2
-    plv_mcp_caps_Nova9_Aquinto_Trimcap_related plv_mcp_caps_PaM2_NCV_like
-    plv_mcp_caps_PgVV_Aquinto plv_mcp_caps_SP67_Aquinto plv_mcp_caps_SP70_Aquinto
-    plv_mcp_caps_SP71_Aquinto plv_mcp_caps_SP_Aquinto
-    plv_mcp_caps_Trimcap_A1_Aquinto plv_mcp_caps_Trimcap_A2_Aquinto
-    plv_mcp_caps_Trimcap_A3_74_Aquinto plv_mcp_caps_Trimcap_A3_Aquinto
-    plv_mcp_caps_Trimcap_A4_Aquinto plv_mcp_caps_Trimcap_B1_Aquinto
-    plv_mcp_caps_Trimcap_B2_Aquinto plv_mcp_caps_Trimcap_B3_Aquinto
-    plv_mcp_caps_VC104_Aquinto plv_mcp_caps_VC124_VC134_NCV_like
-    plv_mcp_caps_VC147_GKS3_Aquinto plv_mcp_caps_VC224_NA
-    plv_mcp_caps_VC40_NCV_like plv_mcp_caps_Zephyrvirus4_NCV_like
-    plv_mcp_caps_Zephyrvirus5_NCV_like plv_mcp_caps_Zoravirus_VC102_NCV_like
-    """.split()  # noqa: SIM905  # 100 names read better as wrapped words
+    """.split()  # noqa: SIM905  # the names read better as wrapped words
 )
 
 MODEL_LIST_CONSTANTS = sorted(
@@ -67,7 +81,17 @@ MODEL_LIST_CONSTANTS = sorted(
 
 def _database_models() -> set[str]:
     with ANNOTATIONS_TSV.open(encoding="utf-8", newline="") as handle:
-        return {row["marker_id"] for row in csv.DictReader(handle, delimiter="\t")}
+        annotated = {row["marker_id"] for row in csv.DictReader(handle, delimiter="\t")}
+    return annotated | CAPSID_MODELS
+
+
+def _hmm_model_names() -> set[str]:
+    with HMM_FILE.open(encoding="utf-8") as handle:
+        return {
+            line.split(maxsplit=1)[1].strip()
+            for line in handle
+            if line.startswith("NAME ")
+        }
 
 
 def _marker_group_members() -> set[str]:
@@ -123,6 +147,27 @@ def test_missing_panel_models_lists_absent_models_per_panel():
         "busco": [BUSCO_MODELS[0]],
         "vp_protease": ["VP_PRO*"],
     }
+
+
+def test_missing_panel_models_lists_an_absent_capsid_model():
+    dropped = PANEL_MODELS["capsid"][0]
+
+    missing = missing_panel_models(_database_models() - {dropped})
+
+    assert missing == {"capsid": [dropped]}
+
+
+def test_capsid_names_are_database_models():
+    absent = sorted(set(CAPS_MARKER_GROUP) - _database_models())
+
+    assert absent == []
+
+
+@pytest.mark.skipif(not HMM_FILE.exists(), reason="the database is not installed")
+def test_capsid_names_are_models_of_the_database_hmm():
+    absent = sorted((set(CAPS_MARKER_GROUP) | CAPSID_MODELS) - _hmm_model_names())
+
+    assert absent == []
 
 
 def test_missing_panel_models_reports_every_panel_when_nothing_is_available():

@@ -267,9 +267,6 @@ CAPS_MARKER_GROUP = {
     "plv_mcp_caps_GKS3_CHI_Aquinto": "GKS3",
     "plv_mcp_caps_Mavpol2": "Maverick-Polinton",
     "plv_mcp_caps_MMM_PC12_NA": "Metamonada_PLV",
-    "plv_mcp_caps_MMM_PC40_NA": "Metamonada_PLV",
-    "plv_mcp_caps_MMM_PC40b_NA": "Metamonada_PLV",
-    "plv_mcp_caps_MMM_PC4_NA": "unclassified",
     "plv_mcp_caps_Trimcap_A4_Aquinto": "Trimcap_cluster_1",
     "plv_mcp_caps_Trimcap_B1_Aquinto": "Trimcap_cluster_2",
     "plv_mcp_caps_Trimcap_B2_Aquinto": "Trimcap_cluster_2",
@@ -277,13 +274,10 @@ CAPS_MARKER_GROUP = {
     "plv_mcp_caps_Zephyrvirus4_NCV_like": "Zephyrvirus",
     "plv_mcp_caps_Zephyrvirus5_NCV_like": "Zephyrvirus",
     "plv_mcp_caps_Nova6_VC35_Mavpol2": "Maverick-Polinton_2",
-    "plv_mcp_caps_Nova7_Aquinto": "unclassified",
-    "plv_mcp_caps_Nova8_NCV_like": "unclassified",
     "plv_mcp_caps_Nova9_Aquinto_Trimcap_related": "Trimcap_cluster_1",
     "plv_mcp_caps_PaM1_Aquinto": "Pam1",
     "plv_mcp_caps_PaM2_NCV_like": "Pam2",
     "plv_mcp_caps_VC124_VC134_NCV_like": "VC124-134",
-    "plv_mcp_caps_PC6_20_Aquinto": "unclassified",
     "plv_mcp_caps_PgVV_Aquinto": "PgVV",
     "plv_mcp_caps_SP67_Aquinto": "SP67",
     "plv_mcp_caps_SP70_Aquinto": "SP70",
@@ -297,19 +291,8 @@ CAPS_MARKER_GROUP = {
     "plv_mcp_caps_VC224_NA": "Mavpol2",
     "plv_mcp_caps_VC100_Mavpol1_like": "VC100-Mavpol1-like",
     "plv_mcp_caps_VC147_GKS3_Aquinto": "GKS3-CHI",
-    "plv_mcp_caps_Cluster_187_Aquinto": "unclassified",
     "plv_mcp_caps_VC104_Aquinto": "Animal_PLV_group",
-    "plv_mcp_caps_Cluster_276_NA": "unclassified",
-    "plv_mcp_caps_Cluster_217_NA": "unclassified",
-    "gamadvirusmcp_caps_VC289_Mriyavirus_NCV_like": "Mriyavirus",
-    "plv_mcp_caps_VC218_Pam2_NCV_like": "unclassified",
-    "plv_mcp_caps_Cluster_261_NA": "unclassified",
-    "plv_mcp_caps_Cluster_152_Aquinto": "Trimcap_cluster_2",
-    "plv_mcp_caps_Cluster_280_NA": "unclassified",
     "plv_mcp_caps_Zoravirus_VC102_NCV_like": "Zoravirus_VC102",
-    "gamadvirusmcp_caps_Mriya_Nova10_NCV_like": "Mriyavirus",
-    "gamadvirusmcp_caps_gamadvirus_MCP_NCV_like": "Mriyavirus",
-    "gamadvirusmcp_caps_yaravirus_MCP_NCV_like": "Mriyavirus",
 }
 
 # =============================================================================
@@ -324,6 +307,7 @@ PANEL_MODELS: dict[str, list[str]] = {
     "phage": PHAGE_MODELS,
     "ncldv_mcp": NCLDV_MCP_MODELS,
     "mirus": MIRUS_MODELS,
+    "capsid": list(CAPS_MARKER_GROUP),
 }
 
 # Panels that match every model name with a given prefix.

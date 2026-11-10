@@ -5,7 +5,9 @@ This directory contains the configuration for marker sets used in the GVClass pi
 Every model name in a marker set must exist in the reference database. A name that is
 absent never matches a hit, so its panel reports a wrong size and wrong completeness.
 `tests/test_marker_panels_match_database.py` checks all sets against
-`docs/reference/marker-annotations.tsv`.
+`docs/reference/marker-annotations.tsv`. The table lists no capsid model, so the test
+keeps the capsid names in a list and, when `resources/hmm/combined.hmm` exists,
+compares them with the `NAME` lines of that file.
 
 ## Marker Sets
 
@@ -46,6 +48,11 @@ absent never matches a hit, so its panel reports a wrong size and wrong complete
 - Metagenomic Russian Yokohama-Asfarviridae markers
 - 6 markers total
 - Source: https://doi.org/10.1016/j.virol.2014.06.032
+
+### CAPS_MARKER_GROUP
+- Capsid models (`plv_mcp_caps_*`), each mapped to its Bellas & Sommaruga capsid group
+- 32 models total, all in the database HMM file
+- Checked at start-up as the `capsid` panel of `missing_panel_models`
 
 ## Marker groups
 

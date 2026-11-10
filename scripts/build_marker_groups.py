@@ -198,7 +198,9 @@ def main():
         o.write("# mcp_ncldv; split over-merges grp_OG1357/grp_OG503; dissolve grp_OG5478; force-combine audit-cleared families).\n")
         o.write("# caps models (plv_mcp_caps_*, gamadvirusmcp_caps_*) are not yet in resources/database/faa; once their FAAs are\n")
         o.write("# built from the combined proteome they join (validated 2026-06-21, caps-HMM vs gvclass refs): PLV-class -> mcp_plv,\n")
-        o.write("# NCV-like/Mriyavirus -> mcp_ncldv; ~15 novel caps groups (Alpenseevirus/Zephyrvirus/VC124-134/Pam2/Metamonada/...) add new refs.\n")
+        o.write("# NCV-like -> mcp_ncldv; ~15 novel caps groups\n")
+        o.write("# (Alpenseevirus/Zephyrvirus/VC124-134/Pam2/Metamonada/...)\n")
+        o.write("# add new refs.\n")
         o.write("group_name\tn_members\ttotal_refs\tannotation_coverage\tcoherence\tdom_annotation\tflag\tmembers\n")
         for r in rows:
             o.write(f"{r[0]}\t{r[1]}\t{r[2]}\t{r[3]:.2f}\t{r[4]:.2f}\t{r[5]}\t{r[6]}\t{r[7]}\n")

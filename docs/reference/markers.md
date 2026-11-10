@@ -19,7 +19,7 @@ Marker panels provide presence, duplication, and capsid-type counts in the [summ
 
 `{panel}_completeness` reports markers present over panel size, such as `8/8`. For panels with `{panel}_dup`, duplication is total hits divided by distinct markers present.
 
-Each panel lists model names that exist in the reference database (v2.1.0). The BUSCO panel holds the 69 BUSCO models the database ships. The phage panel holds the 20 `GENOMAD.<number>.VV` models.
+Each panel lists model names that exist in the reference database (v2.1.0). The BUSCO panel holds the 69 BUSCO models the database ships. The phage panel holds the 20 `GENOMAD.<number>.VV` models. The capsid typing panel holds the 32 `plv_mcp_caps_*` capsid models. A run stops at the start when the database lacks a model of any panel.
 
 Virophage and Mirusviricota completeness counts marker categories. The virophage panel also reports `vp_mcp`; neither panel reports a duplication column. `capsid_group` reports `label:count` values for Nucleocytoviricota, Mirusviricota, and Bellas & Sommaruga capsid groups. The PPV (Preplasmiviricota) group includes Polinton-like viruses and virophages; `plv` is `0` for ordinary NCLDV.
 

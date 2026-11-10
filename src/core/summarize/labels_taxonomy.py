@@ -44,7 +44,7 @@ TAX_LEVEL_MAPPING = {
 # Bellas&Sommaruga caps group names (the family rank of caps reference lineages).
 # Used to recognise a caps-group nearest neighbour in the MCP trees and ignore generic
 # (non-caps) refs whose family rank is some other taxon.
-CAPS_GROUPS = frozenset(CAPS_MARKER_GROUP.values()) - {"unclassified"}
+CAPS_GROUPS = frozenset(CAPS_MARKER_GROUP.values())
 CAPSID_PHYLA = frozenset({"Nucleocytoviricota", "Mirusviricota"})
 MCP_MARKERS = ("mcp_ncldv", "mcp_mirus", "mcp_plv")
 

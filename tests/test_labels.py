@@ -103,6 +103,73 @@ def test_load_reads_a_changed_file_again(tmp_path: Path) -> None:
     assert set(first.lineages) == {"NCLDV__a"}
 
 
+PKV_CANONICAL_LINE = (
+    "NCLDV__PkV-RF01\tNCLDV|Nucleocytoviricota|Megaviricetes|Imitervirales|IM_19|"
+    "g1787|singleton\n"
+)
+PKV_DUPLICATE_LINE = (
+    "NCLDV__GCF_905367645.1\tNCLDV|Nucleocytoviricota|Megaviricetes|Imitervirales|"
+    "IM_19|NCLDV_unclassified|PkV-RF01\n"
+)
+PKV_LINEAGE = (
+    "NCLDV",
+    "Nucleocytoviricota",
+    "Megaviricetes",
+    "Imitervirales",
+    "IM_19",
+    "g1787",
+    "singleton",
+)
+
+
+def test_load_gives_the_duplicate_pkv_record_the_canonical_lineage(
+    tmp_path: Path,
+) -> None:
+    labels_file = _write_labels(tmp_path, PKV_CANONICAL_LINE + PKV_DUPLICATE_LINE)
+
+    lineages = LabelIndex.load(labels_file).lineages
+
+    assert lineages["NCLDV__PkV-RF01"] == PKV_LINEAGE
+    assert lineages["NCLDV__GCF_905367645.1"] == PKV_LINEAGE
+
+
+def test_load_keeps_the_duplicate_pkv_record_without_the_canonical_record(
+    tmp_path: Path,
+) -> None:
+    labels_file = _write_labels(tmp_path, PKV_DUPLICATE_LINE)
+
+    lineages = LabelIndex.load(labels_file).lineages
+
+    assert lineages["NCLDV__GCF_905367645.1"][5:] == ("NCLDV_unclassified", "PkV-RF01")
+
+
+def test_load_leaves_other_records_unchanged_beside_the_pkv_pair(
+    tmp_path: Path,
+) -> None:
+    labels_file = _write_labels(
+        tmp_path, LABEL_LINES + PKV_CANONICAL_LINE + PKV_DUPLICATE_LINE
+    )
+
+    lineages = LabelIndex.load(labels_file).lineages
+
+    assert lineages["NCLDV__Mimi"][3:] == (
+        "Pimascovirales",
+        "Marseilleviridae",
+        "Marseillevirus",
+        "Mimi",
+    )
+    assert lineages["NCLDV__Mimi_1"][5:] == ("Mimivirus", "Mimi_one")
+    assert set(lineages) == {
+        "NCLDV__Mimi_1",
+        "NCLDV__Mimi",
+        "PHAGE__GCA-1",
+        "BAC__ref|contig_7",
+        "BAC__short",
+        "NCLDV__PkV-RF01",
+        "NCLDV__GCF_905367645.1",
+    }
+
+
 def test_index_is_immutable(tmp_path: Path) -> None:
     index = LabelIndex.load(_write_labels(tmp_path))
 

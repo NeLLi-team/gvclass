@@ -31,6 +31,12 @@ _GENE_SUFFIX = re.compile(r"_\d+$")
 _LABEL_FIELDS = 2
 _CACHED_INDEXES = 8
 
+# Database v2.1.0 holds one genome twice with different labels. Each key is a
+# duplicate record that takes the lineage of its value, the canonical record.
+# Temporary: delete this constant and _with_canonical_duplicates when a database
+# release corrects the record.
+DUPLICATE_LABEL_RECORDS = {"NCLDV__GCF_905367645.1": "NCLDV__PkV-RF01"}
+
 
 @dataclass(frozen=True, slots=True)
 class Placement:
@@ -172,9 +178,26 @@ def _lineage(genome_id: str, ranks: Sequence[str]) -> Lineage:
 def _load_index(file_key: tuple[Path, int, int]) -> LabelIndex:
     """Read one labels file; the modification time and size in the key expire it."""
     labels_file, _mtime_ns, _size = file_key
-    index = LabelIndex.from_taxonomy(_read_taxonomy(labels_file))
+    index = LabelIndex.from_taxonomy(
+        _with_canonical_duplicates(_read_taxonomy(labels_file))
+    )
     logger.info("Loaded %d labels from %s", len(index.lineages), labels_file)
     return index
+
+
+def _with_canonical_duplicates(
+    taxonomy: Mapping[str, Sequence[str]],
+) -> dict[str, Sequence[str]]:
+    """Return ``taxonomy`` with each duplicate record holding its canonical ranks.
+
+    A duplicate keeps its own ranks when its canonical record is absent, so a
+    corrected labels file needs no code change.
+    """
+    resolved = dict(taxonomy)
+    for duplicate, canonical in DUPLICATE_LABEL_RECORDS.items():
+        if duplicate in resolved and canonical in resolved:
+            resolved[duplicate] = resolved[canonical]
+    return resolved
 
 
 def _read_taxonomy(labels_file: Path) -> dict[str, list[str]]:

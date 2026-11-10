@@ -68,6 +68,16 @@ def test_the_panel_check_names_the_panel_and_the_missing_model(
         parallel_runner.check_marker_panels(tmp_path)
 
 
+def test_the_panel_check_names_the_missing_capsid_model(
+    tmp_path: Path,
+) -> None:
+    missing = PANEL_MODELS["capsid"][0]
+    write_hmm(tmp_path, panel_models() - {missing})
+
+    with pytest.raises(ProcessingError, match=rf"capsid: {missing}"):
+        parallel_runner.check_marker_panels(tmp_path)
+
+
 def test_the_panel_check_names_a_prefix_panel_that_matches_no_model(
     tmp_path: Path,
 ) -> None:
