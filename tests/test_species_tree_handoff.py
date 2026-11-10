@@ -278,6 +278,21 @@ def test_reference_indexes_are_shared_between_queries(tmp_path: Path) -> None:
     assert first is second
 
 
+def test_closing_the_reference_indexes_releases_every_cached_index(
+    tmp_path: Path,
+) -> None:
+    db = _setup_db(tmp_path)
+    analyzer = orch.TreeAnalyzer(db / "labels.tsv")
+    faa = db / "database" / "faa" / "grpA.faa"
+    index = orch._shared_reference_index(faa, analyzer)
+
+    orch.close_reference_indexes()
+
+    assert index._index is None
+    assert orch._shared_reference_index(faa, analyzer) is not index
+    orch.close_reference_indexes()
+
+
 def test_combined_excludes_failed_query(tmp_path: Path, monkeypatch) -> None:
     """A query whose sidecar landed but whose pipeline later FAILED is not placed."""
     test_panel = SpeciesTreePanel(

@@ -232,6 +232,35 @@ def test_healthy_species_fixture_completes_with_real_archive(
     assert not (output / ".gvclass_work").exists()
 
 
+def test_reference_indexes_are_closed_when_a_species_tree_run_ends(
+    prepared_flow: tuple[RunConfig, Mock], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config, _archive = prepared_flow
+    close = Mock()
+    monkeypatch.setattr(orchestration, "close_reference_indexes", close)
+    monkeypatch.setattr(orchestration, "_run_per_query", Mock())
+
+    parallel_runner.gvclass_flow(replace(config, species_tree=True))
+
+    close.assert_called_once_with()
+
+
+def test_reference_indexes_are_closed_when_a_species_tree_run_fails(
+    prepared_flow: tuple[RunConfig, Mock], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config, _archive = prepared_flow
+    close = Mock()
+    monkeypatch.setattr(orchestration, "close_reference_indexes", close)
+    monkeypatch.setattr(
+        orchestration, "_run_per_query", Mock(side_effect=RuntimeError("boom"))
+    )
+
+    with pytest.raises(RuntimeError, match="failed for 1 of 1 queries"):
+        parallel_runner.gvclass_flow(replace(config, species_tree=True))
+
+    close.assert_called_once_with()
+
+
 def test_missing_iqtree_output_is_an_inference_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

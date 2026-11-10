@@ -65,7 +65,9 @@ from src.utils.resource_store import ResourceStore
 logger = logging.getLogger(__name__)
 
 # Reference indexes are built once per run and shared by all query threads. The key
-# holds the file's mtime and size so a rewritten faa gets a fresh index.
+# holds the file's mtime and size so a rewritten faa gets a fresh index. The run flow
+# closes them with ``close_reference_indexes`` after the queries and the combined
+# tree are done.
 _INDEX_LOCK = threading.Lock()
 _REFERENCE_INDEXES: dict[tuple[str, int, int], ReferenceProteinIndex] = {}
 
@@ -80,6 +82,15 @@ def _shared_reference_index(faa: Path, analyzer: TreeAnalyzer) -> ReferenceProte
             index = ReferenceProteinIndex(faa, analyzer)
             _REFERENCE_INDEXES[key] = index
         return index
+
+
+def close_reference_indexes() -> None:
+    """Close and forget every shared reference index; call once the run is over."""
+    with _INDEX_LOCK:
+        indexes = list(_REFERENCE_INDEXES.values())
+        _REFERENCE_INDEXES.clear()
+    for index in indexes:
+        index.close()
 
 
 def _fetch_sequence(faa: Path, protein_id: str) -> str | None:

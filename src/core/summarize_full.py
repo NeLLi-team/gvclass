@@ -2,14 +2,16 @@
 
 import logging
 import math
-from collections import Counter, defaultdict
+from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 
-from src.config.marker_sets import CAPS_MARKER_GROUP
-from src.core.contamination_scoring import create_contamination_scorer
+from src.core.contamination_scoring import (
+    create_contamination_scorer,
+    strongest_independent_source,
+)
 from src.core.labels import LabelIndex
 from src.core.novelty_completeness import create_novelty_completeness_scorer
 from src.core.summarize import (
@@ -25,44 +27,6 @@ from src.core.weighted_completeness import create_weighted_calculator
 from src.utils.resource_store import ResourceStore
 
 logger = logging.getLogger(__name__)
-
-#: Rule-based contamination sources that do not depend on the cellular contigs.
-INDEPENDENT_CONTAMINATION_SOURCES = frozenset({"phage", "duplication", "viral_mixture"})
-
-
-# ``_dominant`` and the caps-group whitelist moved to
-# src/core/summarize/labels_taxonomy.py together with the tree-NN capsid
-# functions that use them; ``derive_capscan_group`` below still reads both.
-_dominant = labels_taxonomy._dominant
-CAPS_GROUPS = labels_taxonomy.CAPS_GROUPS
-
-
-def derive_capscan_group(marker_hits, marker_counts) -> str:
-    """Dominant capscan (Bellas&Sommaruga 2026) group for a query.
-
-    Resolves a single best group PER PROTEIN first (a protein cross-hitting several
-    caps HMMs of one group votes once), then takes the dominant group across proteins.
-    Avoids the profile-multiplicity bias of counting raw per-(protein,model) hits and
-    the per-marker tree-vote fragmentation of GVClass's consensus. Falls back to raw
-    caps-hit counts when per-protein hits are unavailable. Ties resolve to "".
-    """
-    caps_groups: Counter = Counter()
-    if marker_hits:
-        prot_groups: defaultdict = defaultdict(Counter)
-        for marker, proteins in marker_hits.items():
-            if "_caps_" in marker and marker in CAPS_MARKER_GROUP:
-                grp = CAPS_MARKER_GROUP[marker]
-                for protein in proteins:
-                    prot_groups[protein][grp] += 1
-        for grp_counts in prot_groups.values():
-            winner = _dominant(grp_counts)
-            if winner:
-                caps_groups[winner] += 1
-    if not caps_groups:
-        for marker, count in marker_counts.items():
-            if count > 0 and "_caps_" in marker and marker in CAPS_MARKER_GROUP:
-                caps_groups[CAPS_MARKER_GROUP[marker]] += count
-    return _dominant(caps_groups)
 
 
 class FullSummarizer:
@@ -156,7 +120,7 @@ class FullSummarizer:
         capsid_group = (
             labels_taxonomy.capsid_group_counter(self.labels, tree_nn_results)
             if tree_nn_results
-            and any(m in tree_nn_results for m in ("mcp_ncldv", "mcp_mirus", "mcp_plv"))
+            and any(m in tree_nn_results for m in labels_taxonomy.MCP_MARKERS)
             else ""
         )
         result.update(
@@ -314,14 +278,13 @@ class FullSummarizer:
         pure_cellular = cellular_coherent - mixed_evidence
         source = str(result.get("contamination_source_v1", "none") or "none")
         # Mixed contigs carry viral proteins too. When all coherent cellular
-        # evidence sits on them, only a signal that does not depend on the
-        # cellular contigs can name the source.
-        if (
-            mixed_evidence > 0
-            and pure_cellular == 0
-            and source not in INDEPENDENT_CONTAMINATION_SOURCES
-        ):
-            return "uncertain"
+        # evidence sits on them, the dominant source cannot be cellular. A phage,
+        # duplication or viral-mixture signal that passes on its own names the
+        # source, even when the cellular signal is larger.
+        if mixed_evidence > 0 and pure_cellular == 0:
+            source = strongest_independent_source(result)
+            if source == "none":
+                return "uncertain"
         if estimated < self._contamination_reporting_threshold():
             return "clean"
         if pure_cellular >= 1:

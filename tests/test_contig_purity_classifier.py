@@ -613,13 +613,17 @@ def _m8_line(protein: str, subject: str = "EUK__Nannochloropsis_A") -> str:
     return "\t".join(fields)
 
 
-def _contig_features_with_unplaced_cellular_contig(
-    scorer, tmp_path: Path, cellular_markers: list[str]
+def _contig_features_with_cellular_contig(
+    scorer,
+    tmp_path: Path,
+    cellular_markers: list[str],
+    cellular_neighbors: dict[str, float] | None = None,
 ) -> dict:
     """Return the features of a query whose classifier is active.
 
     ``contig_v`` holds five tree-placed viral proteins. ``contig_a`` holds one
-    unplaced protein per cellular marker.
+    protein per cellular marker. Each of them has the tree neighbours
+    ``cellular_neighbors`` (neighbour name to distance), or none.
     """
     query_fna = tmp_path / "query.fna"
     query_fna.write_text(f">contig_v\n{'A' * 1000}\n>contig_a\n{'C' * 1000}\n")
@@ -635,6 +639,8 @@ def _contig_features_with_unplaced_cellular_contig(
     for protein, marker in zip(cellular, cellular_markers, strict=True):
         (blast_dir / f"{marker}.m8").write_text(_m8_line(protein) + "\n")
     tree = _merge(*[_tree_nn(f"M_{p}", p, "NCLDV__Mimi_1") for p in viral])
+    if cellular_neighbors:
+        tree.update({f"M_{p}": {p: cellular_neighbors} for p in cellular})
     return scorer.collect_contig_features(
         query_fna=query_fna,
         query_faa=query_faa,
@@ -650,7 +656,7 @@ def test_unplaced_contig_gets_the_cellular_marker_rule_while_classifier_is_activ
 ) -> None:
     scorer = _make_scorer(tmp_path)
 
-    features = _contig_features_with_unplaced_cellular_contig(
+    features = _contig_features_with_cellular_contig(
         scorer, tmp_path, [BUSCO_MODELS[0], UNI56_MODELS[0]]
     )
 
@@ -665,11 +671,45 @@ def test_unplaced_contig_with_one_cellular_marker_is_not_suspicious(
 ) -> None:
     scorer = _make_scorer(tmp_path)
 
-    features = _contig_features_with_unplaced_cellular_contig(
+    features = _contig_features_with_cellular_contig(
         scorer, tmp_path, [BUSCO_MODELS[0]]
     )
 
     assert features["suspicious_contigs"] == []
+
+
+def test_contig_with_tied_domain_placements_is_assessed_and_not_flagged(
+    tmp_path: Path,
+) -> None:
+    scorer = _make_scorer(tmp_path)
+
+    features = _contig_features_with_cellular_contig(
+        scorer,
+        tmp_path,
+        [BUSCO_MODELS[0], UNI56_MODELS[0]],
+        cellular_neighbors={"BAC__Eco_A|g_1": 0.5, "NCLDV__Mimi_1|g_1": 0.5},
+    )
+
+    assert features["per_contig_classifier_active"] is True
+    assert features["suspicious_contigs"] == []
+    assert features["suspicious_bp_fraction"] == 0.0
+
+
+def test_contig_whose_neighbours_have_no_label_still_gets_the_marker_rule(
+    tmp_path: Path,
+) -> None:
+    scorer = _make_scorer(tmp_path)
+
+    features = _contig_features_with_cellular_contig(
+        scorer,
+        tmp_path,
+        [BUSCO_MODELS[0], UNI56_MODELS[0]],
+        cellular_neighbors={"UNLABELLED__ref|g_1": 0.5},
+    )
+
+    assert [(c["contig_id"], c["reason"]) for c in features["suspicious_contigs"]] == [
+        ("contig_a", "cellular_markers")
+    ]
 
 
 @pytest.mark.parametrize(

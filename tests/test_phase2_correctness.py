@@ -92,31 +92,6 @@ def test_supported_group_with_no_marker_evidence_is_unavailable(
     assert result["completeness_query_support"] == "insufficient_evidence"
 
 
-@pytest.mark.parametrize("baseline", ["nan", "inf"])
-def test_non_finite_order_baseline_makes_completeness_unavailable(
-    tmp_path: Path, baseline: str
-) -> None:
-    completeness_table = tmp_path / "order_completeness.tab"
-    completeness_table.write_text(
-        "Order\tAverage_Percent\tStd_Percent\tOrthogroups\n"
-        f"Asfuvirales\t{baseline}\t5\tOG1, OG2\n"
-    )
-    result = {}
-
-    order_completeness._add_order_metrics(
-        completeness_table,
-        pd.read_csv(completeness_table, sep="\t"),
-        SimpleNamespace(),
-        _unavailable_novelty_scorer(),
-        "novelty-aware",
-        result,
-        {"OG1": 1},
-        tax_format.parse_taxonomy_majority("d_NCLDV;o_Asfuvirales"),
-    )
-
-    assert math.isnan(result["order_completeness"])
-    assert math.isnan(result["estimated_completeness"])
-    assert result["completeness_query_support"] == "unavailable"
 
 
 @pytest.mark.parametrize("mode", ["novelty-aware", "legacy"])

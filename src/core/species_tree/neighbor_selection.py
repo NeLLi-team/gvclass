@@ -178,18 +178,18 @@ def gather_ncldv_neighbor_proteins(
     min_identity: float = 30.0,
     overfetch: int = 1000,
 ) -> List[str]:
-    """pyswrd-search query proteins vs the NCLDV-only references; return up to
-    ``max_candidates`` candidate reference protein IDs for this group.
+    """Return up to ``max_candidates`` reference protein IDs found by pyswrd search.
 
-    The result is a deterministic **per-group** candidate set: unique subjects are
+    The query proteins are searched against the NCLDV-only references. The result
+    is a deterministic **per-group** candidate set: unique subjects are
     ranked by ``(-score, subject_id)`` and truncated to ``max_candidates``. This
     bounds the dedicated gene tree to ~``max_candidates`` leaves regardless of how
     many query paralogs hit the group (a per-query cap would let ``N`` paralogs
     inflate the pool to ``max_candidates * N``), and makes equal-score ties
     resolve deterministically rather than depending on pyswrd's thread-sensitive
     emission order. The ranking is deliberately local (not the production
-    ``parse_blastp``) so this route stays both deterministic and isolated from the
-    gene-tree path.
+    ``select_references`` of ``src.core.blast``) so this route stays both
+    deterministic and isolated from the gene-tree path.
 
     ``run_blastp`` is asked to emit ``overfetch`` hits per query (well above
     ``max_candidates``) so its own tie-sensitive per-query top-N cut sits far from

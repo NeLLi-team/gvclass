@@ -12,7 +12,11 @@ from pathlib import Path
 
 import pytest
 
-from src.core.contamination_scoring import ContaminationScorer
+from src.core.contamination_scoring import (
+    CELLULAR_MODELS,
+    PHAGE_MODELS_SET,
+    ContaminationScorer,
+)
 from src.core.summarize.paths_stats import QueryEvidence
 from src.core.summarize_full import FullSummarizer
 from tests.conftest import skip_if_no_runtime_resources, stage_db_resources
@@ -152,28 +156,95 @@ def test_mixed_evidence_only_is_not_labeled_cellular(tmp_path: Path) -> None:
     assert summarizer._classify_contamination_type(result) == "uncertain"
 
 
+def _signals(
+    cellular: float = 0.0,
+    phage: float = 0.0,
+    duplication: float = 0.0,
+    viral_mixture: float = 0.0,
+) -> dict[str, float]:
+    """Return the four rule-based signals under their result keys."""
+    return {
+        "contamination_cellular_signal_v1": cellular,
+        "contamination_phage_signal_v1": phage,
+        "contamination_duplication_signal_v1": duplication,
+        "contamination_viral_mixture_signal_v1": viral_mixture,
+    }
+
+
 @pytest.mark.parametrize(
-    ("source", "contamination_type"),
+    ("signals", "contamination_type"),
     [
-        ("phage", "phage"),
-        ("duplication", "duplication"),
-        ("viral_mixture", "mixed_viral"),
-        ("none", "uncertain"),
+        # Each signal is weighted as in the score (0.12, 0.20 and 0.30) and must
+        # reach 8 points alone. The cellular signal dominates in every row.
+        (_signals(cellular=99, phage=80), "phage"),
+        (_signals(cellular=99, duplication=45), "duplication"),
+        (_signals(cellular=99, viral_mixture=30), "mixed_viral"),
+        # The largest weighted contribution names the type: 9.6 against 15.
+        (_signals(cellular=99, phage=80, viral_mixture=50), "mixed_viral"),
+        # 7.2, 7.0 and 7.5 points: no independent signal passes.
+        (
+            _signals(cellular=99, phage=60, duplication=35, viral_mixture=25),
+            "uncertain",
+        ),
+        (_signals(cellular=99), "uncertain"),
     ],
 )
 def test_independent_evidence_names_the_type_when_only_mixed_contigs_are_cellular(
-    tmp_path: Path, source: str, contamination_type: str
+    tmp_path: Path, signals: dict[str, float], contamination_type: str
 ) -> None:
     summarizer = _make_summarizer(tmp_path)
 
     result = {
+        **signals,
         "estimated_contamination": 27.0,
-        "contamination_source_v1": source,
+        "contamination_source_v1": "cellular",
         "cellular_coherent_contig_count": 2,
         "mixed_evidence_contig_count": 2,
     }
 
     assert summarizer._classify_contamination_type(result) == contamination_type
+
+
+def test_mixed_contig_bin_with_strong_phage_markers_is_phage(tmp_path: Path) -> None:
+    """Twelve cellular and nine phage markers: the cellular signal dominates (99
+    against 80), but the phage signal alone passes the source floor."""
+    summarizer = _make_summarizer(tmp_path)
+    cellular = sorted(CELLULAR_MODELS - PHAGE_MODELS_SET)[:12]
+    phage = sorted(PHAGE_MODELS_SET - CELLULAR_MODELS)[:9]
+    counts = dict.fromkeys([*cellular, *phage], 1)
+    scored = summarizer.contamination_scorer.score_rule_based(
+        {},
+        QueryEvidence(counts, {}, {}),
+        {},
+        {},
+        accepted_lineage={"domain": "NCLDV"},
+    )
+    result = {
+        **scored,
+        "estimated_contamination": 27.0,
+        "cellular_coherent_contig_count": 1,
+        "mixed_evidence_contig_count": 1,
+    }
+
+    assert scored["contamination_source_v1"] == "cellular"
+    assert scored["contamination_cellular_signal_v1"] == 99.0
+    assert scored["contamination_phage_signal_v1"] == 80.0
+    assert summarizer._classify_contamination_type(result) == "phage"
+
+
+def test_independent_evidence_below_the_reporting_threshold_is_clean(
+    tmp_path: Path,
+) -> None:
+    summarizer = _make_summarizer(tmp_path)
+    result = {
+        **_signals(cellular=99, phage=80),
+        "estimated_contamination": 1.0,
+        "contamination_source_v1": "cellular",
+        "cellular_coherent_contig_count": 1,
+        "mixed_evidence_contig_count": 1,
+    }
+
+    assert summarizer._classify_contamination_type(result) == "clean"
 
 
 def test_a_pure_cellular_contig_beside_mixed_contigs_is_cellular(

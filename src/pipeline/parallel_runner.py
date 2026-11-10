@@ -245,6 +245,13 @@ def gvclass_flow(config: RunConfig) -> Path:
     except BaseException:
         recorder.finish(FAILED)
         raise
+    finally:
+        if config.species_tree:
+            from src.core.species_tree.orchestration import (  # noqa: PLC0415  # Load optional species-tree code only when requested.
+                close_reference_indexes,
+            )
+
+            close_reference_indexes()
 
 
 def _skipped_results(skipped: dict[str, QueryRecord]) -> list[dict[str, Any]]:

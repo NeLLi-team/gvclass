@@ -45,14 +45,8 @@ TAX_LEVEL_MAPPING = {
 # Used to recognise a caps-group nearest neighbour in the MCP trees and ignore generic
 # (non-caps) refs whose family rank is some other taxon.
 CAPS_GROUPS = frozenset(CAPS_MARKER_GROUP.values()) - {"unclassified"}
-
-
-def _dominant(counter: Counter) -> str:
-    """Single dominant key, or "" on an empty counter or a top-2 tie."""
-    top = counter.most_common(2)
-    if not top or (len(top) > 1 and top[0][1] == top[1][1]):
-        return ""
-    return top[0][0]
+CAPSID_PHYLA = frozenset({"Nucleocytoviricota", "Mirusviricota"})
+MCP_MARKERS = ("mcp_ncldv", "mcp_mirus", "mcp_plv")
 
 
 def collect_taxonomy_counts(
@@ -180,43 +174,34 @@ def capsid_group_counter(
 ) -> str:
     """Unified capsid-type tally across all MCP panels.
 
-    For each query protein placed in an MCP group tree (mcp_ncldv / mcp_mirus
-    / mcp_plv), read its nearest neighbours (tied neighbours count with the
-    lineage they share) and map them to a capsid-type label: a
-    Bellas&Sommaruga caps family when the family rank is in CAPS_GROUPS,
-    otherwise the phylum (Nucleocytoviricota / Mirusviricota). One vote per
-    physical protein — a protein cross-placed in several MCP trees is resolved
-    to its closest placement; an equal-distance cross-type tie is dropped.
+    One vote per physical protein. The protein's nearest labelled neighbours over
+    every MCP group tree (``MCP_MARKERS``) decide: tied neighbours, in one tree or
+    several, count with the lineage they share. That lineage maps to a
+    capsid-type label: a Bellas&Sommaruga caps family when the family rank is in
+    CAPS_GROUPS, otherwise the phylum (Nucleocytoviricota / Mirusviricota). A
+    protein whose nearest lineage has no such label casts no vote; a farther
+    placement never replaces it.
     Returns "label:count" pairs comma-joined, sorted by count desc then label
     (e.g. "Nucleocytoviricota:4,Gossevirus:1").
     """
-    fam_idx = TAX_LEVEL_MAPPING["family"]
-    phy_idx = TAX_LEVEL_MAPPING["phylum"]
-    capsid_phyla = {"Nucleocytoviricota", "Mirusviricota"}
-    per_protein: dict[str, tuple[str | None, float]] = {}
-    for marker in ("mcp_ncldv", "mcp_mirus", "mcp_plv"):
-        for protein, neighbors in tree_nn_results.get(marker, {}).items():
-            nearest = labels.nearest_lineage(marker, neighbors)
-            if nearest is None:
-                continue
-            lineage, dist = nearest
-            label: str | None = None
-            if lineage[fam_idx] in CAPS_GROUPS:
-                label = lineage[fam_idx]
-            elif lineage[phy_idx] in capsid_phyla:
-                label = lineage[phy_idx]
-            if label is None:
-                continue
-            prev = per_protein.get(protein)
-            if prev is None or dist < prev[1]:
-                per_protein[protein] = (label, dist)
-            elif dist == prev[1] and label != prev[0]:
-                # equal-distance placements of different capsid types -> drop
-                per_protein[protein] = (None, dist)
-    counts: Counter = Counter(
-        lbl for lbl, _dist in per_protein.values() if lbl is not None
-    )
+    mcp_results = {marker: tree_nn_results.get(marker, {}) for marker in MCP_MARKERS}
+    counts: Counter = Counter()
+    for nearest in _nearest_placements_by_protein(labels, mcp_results).values():
+        label = _capsid_label(
+            common_lineage([placement.lineage for placement in nearest])
+        )
+        if label is not None:
+            counts[label] += 1
     return ",".join(
         f"{lbl}:{n}"
         for lbl, n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
     )
+
+
+def _capsid_label(lineage: Lineage) -> str | None:
+    """Return the caps family of ``lineage``, else its capsid phylum, else None."""
+    family = lineage[TAX_LEVEL_MAPPING["family"]]
+    if family in CAPS_GROUPS:
+        return family
+    phylum = lineage[TAX_LEVEL_MAPPING["phylum"]]
+    return phylum if phylum in CAPSID_PHYLA else None

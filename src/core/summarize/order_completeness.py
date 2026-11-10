@@ -35,8 +35,10 @@ def calculate_order_metrics(
 
     Returns:
         Dictionary of raw and normalized order completeness metrics. The metrics
-        are unavailable (``NaN``) when the group has no expected markers, the query
-        has none of them, or the reference baseline is not a finite number.
+        are unavailable (``NaN``) when the group has no expected markers or the
+        query has none of them. When the reference baseline is not a finite number,
+        only the normalized estimates are unavailable. The raw recovery, the
+        duplication and the raw weighted completeness stay.
     """
     order_ogs = _load_order_orthogroups(
         completeness_table, quality_group, order_stats_df=order_stats_df
@@ -57,18 +59,24 @@ def calculate_order_metrics(
     raw_completeness, duplication = _calculate_traditional_order_metrics(
         marker_counts, order_ogs
     )
+    raw_weighted_completeness, confidence_score = _calculate_weighted_order_metrics(
+        weighted_calculator, marker_counts, quality_group, order_ogs
+    )
     normalized_completeness, baseline_mean, baseline_std = (
         _normalize_order_completeness(order_stats_df, raw_completeness, quality_group)
     )
     if math.isnan(normalized_completeness):
-        return _default_order_metrics(
-            quality_group,
-            query_support="unavailable",
-            model_reliability="unavailable",
-        )
-    raw_weighted_completeness, confidence_score = _calculate_weighted_order_metrics(
-        weighted_calculator, marker_counts, quality_group, order_ogs
-    )
+        return {
+            **_default_order_metrics(
+                quality_group,
+                query_support="unavailable",
+                model_reliability="unavailable",
+            ),
+            "order_completeness_raw": raw_completeness,
+            "order_dup": duplication,
+            "order_weighted_completeness_raw": raw_weighted_completeness,
+            "order_confidence_score": confidence_score,
+        }
     normalized_weighted_completeness, _, _ = _normalize_order_completeness(
         order_stats_df, raw_weighted_completeness, quality_group
     )

@@ -12,40 +12,6 @@ def test_caps_marker_group_map():
     assert all(isinstance(v, str) and v for v in CAPS_MARKER_GROUP.values())
 
 
-from src.core.summarize_full import derive_capscan_group
-
-
-def test_derive_capscan_group_best_per_protein():
-    mh = {
-        "plv_mcp_caps_PgVV_Aquinto": {"p1", "p2", "p3"},
-        "plv_mcp_caps_Trimcap_A1_Aquinto": {"p4"},
-        "plv_mcp_caps_Trimcap_A2_Aquinto": {"p4"},  # p4: 2 Trimcap markers -> one group vote
-    }
-    assert derive_capscan_group(mh, {}) == "PgVV"  # 3 PgVV proteins vs 1 Trimcap
-
-
-def test_derive_capscan_group_profile_multiplicity_handled():
-    # one protein cross-hits 3 Trimcap profiles + 1 PgVV -> per-protein dominant = Trimcap
-    mh = {
-        "plv_mcp_caps_Trimcap_A1_Aquinto": {"x"},
-        "plv_mcp_caps_Trimcap_A2_Aquinto": {"x"},
-        "plv_mcp_caps_Trimcap_A3_Aquinto": {"x"},
-        "plv_mcp_caps_PgVV_Aquinto": {"x"},
-    }
-    assert derive_capscan_group(mh, {}) == "Trimcap_cluster_1"
-
-
-def test_derive_capscan_group_tie_and_empty():
-    assert derive_capscan_group({}, {}) == ""
-    assert derive_capscan_group(None, {}) == ""
-    mh = {"plv_mcp_caps_PgVV_Aquinto": {"p1"}, "plv_mcp_caps_SP_Aquinto": {"p2"}}
-    assert derive_capscan_group(mh, {}) == ""  # 1 PgVV vs 1 SP -> tie
-
-
-def test_derive_capscan_group_fallback_to_counts():
-    assert derive_capscan_group(None, {"plv_mcp_caps_PgVV_Aquinto": 5}) == "PgVV"
-
-
 # --- tree-NN capscan_group (the phase-C primary path) ------------------------
 from src.core.summarize import labels_taxonomy
 
@@ -216,6 +182,26 @@ def test_capsid_group_tie_between_caps_and_generic_ncldv_uses_the_phylum(reverse
 def test_capsid_group_tie_inside_one_caps_group_keeps_the_group(reverse):
     neighbors = _tied([("PPV__pgvv|p", 0.1), ("PPV__pgvv_twin|p", 0.1)], reverse)
     tnn = {"mcp_plv": {"q1": neighbors}}
+    assert labels_taxonomy.capsid_group_counter(_TIED_LBL, tnn) == "PgVV:1"
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_capsid_group_unreportable_nearest_placement_casts_no_vote(reverse):
+    # PgVV and SP tie at 0.1 in the PPV tree and share no capsid label. The NCLDV
+    # placement at 0.2 is farther, so it must not take over the vote.
+    neighbors = _tied([("PPV__pgvv|p", 0.1), ("PPV__sp|p", 0.1)], reverse)
+    tnn = {
+        "mcp_plv": {"q1": neighbors},
+        "mcp_ncldv": {"q1": {"NCLDV__realncldv|p": 0.2}},
+    }
+    assert labels_taxonomy.capsid_group_counter(_TIED_LBL, tnn) == ""
+
+
+def test_capsid_group_tie_across_trees_inside_one_caps_group_keeps_the_group():
+    tnn = {
+        "mcp_plv": {"q1": {"PPV__pgvv|p": 0.1}},
+        "mcp_ncldv": {"q1": {"PPV__pgvv_twin|p": 0.1}},
+    }
     assert labels_taxonomy.capsid_group_counter(_TIED_LBL, tnn) == "PgVV:1"
 
 

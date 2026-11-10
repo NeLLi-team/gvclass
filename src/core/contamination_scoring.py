@@ -168,6 +168,39 @@ CONTAMINATION_MODEL_FEATURES = [
     "viral_bearing_contig_count",
 ]
 
+#: Share of each rule-based signal in ``contamination_score_v1``.
+SIGNAL_WEIGHTS = {
+    "cellular": 0.38,
+    "phage": 0.12,
+    "duplication": 0.20,
+    "viral_mixture": 0.30,
+}
+#: Lowest ``contamination_score_v1`` for which the rule-based scorer names a source.
+SOURCE_SCORE_FLOOR = 8.0
+#: Rule-based sources that do not depend on the cellular contigs.
+INDEPENDENT_SOURCES = ("phage", "duplication", "viral_mixture")
+
+
+def strongest_independent_source(result: Mapping[str, Any]) -> str:
+    """Return the independent source that best explains the score, or ``"none"``.
+
+    An independent signal counts when its share of ``contamination_score_v1``
+    reaches :data:`SOURCE_SCORE_FLOOR` on its own, the floor below which the scorer
+    names no source. The signal with the largest share wins. Signals are read
+    from ``contamination_<source>_signal_v1`` and count as 0 when absent.
+    """
+    shares = {
+        source: SIGNAL_WEIGHTS[source]
+        * float(result.get(f"contamination_{source}_signal_v1", 0.0) or 0.0)
+        for source in INDEPENDENT_SOURCES
+    }
+    passing = {
+        source: share for source, share in shares.items() if share >= SOURCE_SCORE_FLOOR
+    }
+    if not passing:
+        return "none"
+    return max(passing, key=passing.__getitem__)
+
 
 @dataclass(frozen=True)
 class BlastHit:
@@ -201,7 +234,8 @@ class ContigPurity:
         coherent_contig_ids: Contigs with coherent cellular evidence and no viral
             protein.
         mixed_contig_ids: Contigs with coherent cellular and viral evidence.
-        assessed_contig_ids: Contigs with at least one tree-placed protein. Empty
+        assessed_contig_ids: Contigs with at least one protein that has a labelled
+            tree placement, whether or not the placement resolves a domain. Empty
             while the classifier is inactive.
     """
 
@@ -666,10 +700,10 @@ class ContaminationScorer:
         viral_mixture_signal = self._clip(viral_mixture_signal)
 
         contamination_score = self._clip(
-            (0.38 * cellular_signal)
-            + (0.12 * phage_signal)
-            + (0.20 * duplication_signal)
-            + (0.30 * viral_mixture_signal)
+            (SIGNAL_WEIGHTS["cellular"] * cellular_signal)
+            + (SIGNAL_WEIGHTS["phage"] * phage_signal)
+            + (SIGNAL_WEIGHTS["duplication"] * duplication_signal)
+            + (SIGNAL_WEIGHTS["viral_mixture"] * viral_mixture_signal)
         )
 
         marker_evidence_count = sum(
@@ -696,7 +730,7 @@ class ContaminationScorer:
             flag = "high"
         elif contamination_score >= 20.0:
             flag = "moderate"
-        elif contamination_score >= 8.0:
+        elif contamination_score >= SOURCE_SCORE_FLOOR:
             flag = "low"
         else:
             flag = "clean"
@@ -708,7 +742,7 @@ class ContaminationScorer:
             "viral_mixture": viral_mixture_signal,
         }
         source = max(components.items(), key=lambda item: item[1])[0]
-        if evidence_count == 0 or contamination_score < 8.0:
+        if evidence_count == 0 or contamination_score < SOURCE_SCORE_FLOOR:
             source = "none"
 
         estimate = (
@@ -819,6 +853,18 @@ class ContaminationScorer:
         )
         return {"domain": domain, "order": order, "genus": genus}
 
+    def _has_labelled_placement(
+        self,
+        protein_id: str,
+        tree_nn_results: dict[str, dict[str, dict[str, float]]],
+    ) -> bool:
+        """Return whether a marker tree places the protein beside a labelled genome."""
+        return any(
+            self.labels.placements(marker, marker_results[protein_id])
+            for marker, marker_results in tree_nn_results.items()
+            if marker_results.get(protein_id)
+        )
+
     def _classify_contig_purity(
         self,
         contig_id: str,
@@ -837,6 +883,10 @@ class ContaminationScorer:
         for protein_id in contig_proteins:
             lineage = self._per_protein_dominant_lineage(protein_id, tree_nn_results)
             if lineage is None:
+                # A tie across domains leaves no domain, but the contig still has
+                # a tree placement and must not fall back to the unplaced rules.
+                if self._has_labelled_placement(protein_id, tree_nn_results):
+                    n_placed += 1
                 hit = best_hits.get(protein_id)
                 if hit is not None and hit.subject_domain in AMBIGUOUS_EVE_PREFIXES:
                     ambiguous_eve_proteins.append(protein_id)
@@ -1173,7 +1223,7 @@ class ContaminationScorer:
             # regime (classifier inactive), the legacy cellular rules
             # still govern, per the unified two-regime fallback contract
             # documented in docs/plans/active/v1_4_3_contig_purity_contamination.md.
-            # A contig without a tree-placed protein is not assessed by the
+            # A contig without a labelled tree placement is not assessed by the
             # classifier, so the marker and hit rules judge it as well.
             if contig_id in purity.mixed_contig_ids:
                 pass
