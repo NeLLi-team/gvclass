@@ -1,33 +1,33 @@
-"""
-Marker panel metrics for the GVClass summary.
+"""Marker panel metrics for the GVClass summary.
 
 Stateless helpers that turn marker counts, hits and per-protein scores into
 panel completeness and duplication values.
 
-The values that need the reference labels (``_protein_nearest_domain``,
-``_plv_count_tree_aware``, ``_capsid_group_counter``) are computed by the class
-and passed in, so nothing here touches ``labels_dict``.
+The values that need the reference labels (``protein_nearest_domain``,
+``plv_count_tree_aware``, ``capsid_group_counter``) are computed by the class
+and passed in, so nothing here touches the label index.
 """
 
 import logging
 from typing import Any, Dict, Optional, Set, Tuple
 
 from src.config.marker_sets import (
-    MIRUS_CATEGORY_MODELS,
     BUSCO_MODELS,
-    PHAGE_MODELS,
     GVOG4M_MODELS,
     GVOG8M_MODELS,
-    UNI56_MODELS,
-    NCLDV_MCP_MODELS,
+    MIRUS_CATEGORY_MODELS,
     MRYA_MODELS,
-    VP_CATEGORY_PREFIXES,
+    NCLDV_MCP_MODELS,
+    PHAGE_MODELS,
     PLV_PREFIX,
+    UNI56_MODELS,
+    VP_CATEGORY_PREFIXES,
 )
 from src.core.marker_extraction import (
     consolidate_grouped_panel,
     count_unique_proteins_for_markers,
 )
+from src.core.summarize.paths_stats import QueryEvidence
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +75,7 @@ def calculate_vp_metrics(
     presence is used.
 
     ``plv_tree_count`` is the tree-aware PLV protein count from
-    ``labels_taxonomy._plv_count_tree_aware``; it is only consulted on the
+    ``labels_taxonomy.plv_count_tree_aware``; it is only consulted on the
     marker-hits path, where the raw count would over-flag giant viruses.
 
     Returns:
@@ -193,9 +193,7 @@ def calculate_mirus_completeness(
 
 
 def _add_marker_metrics(
-    marker_counts: Dict[str, int],
-    marker_hits: Optional[Dict[str, Set[str]]],
-    marker_scores: Optional[Dict[str, Dict[str, float]]],
+    evidence: QueryEvidence,
     protein_domain: Optional[Dict[str, str]],
     plv_tree_count: int,
     capsid_group: str,
@@ -217,6 +215,11 @@ def _add_marker_metrics(
     counted toward MRYA. Falls back to the raw panel when no scores are
     available (e.g. a counts-only resume).
     """
+    marker_counts, marker_hits, marker_scores = (
+        evidence.counts,
+        evidence.hits,
+        evidence.scores,
+    )
     result: Dict[str, Any] = {}
 
     def _panel(models):

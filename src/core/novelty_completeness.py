@@ -122,10 +122,9 @@ class NoveltyAwareCompletenessScorer:
             )
             return
 
-        # SHA-256 gate the pickle BEFORE the broad try/except below, so a
-        # digest mismatch propagates (refusing an untrusted pickle) instead of
-        # being silently swallowed into available=False. Read once and verify
-        # the in-memory bytes; the same bytes are deserialized via BytesIO.
+        # SHA-256 gate the pickle before any other read, so a digest mismatch
+        # refuses an untrusted pickle. Read once and verify the in-memory bytes;
+        # the same bytes are deserialized via BytesIO.
         model_bytes = self.model_bundle_path.read_bytes()
         digest = hashlib.sha256(model_bytes).hexdigest()
         if digest != COMPLETENESS_MODEL_SHA256:
@@ -137,64 +136,57 @@ class NoveltyAwareCompletenessScorer:
                 "COMPLETENESS_MODEL_SHA256 constant."
             )
 
-        try:
-            config_data = json.loads(self.config_path.read_text())
-            self.config = Strategy2Config(**config_data["strategy2_config"])
-            self.order_expected_marker_counts = {
-                str(key): int(value)
-                for key, value in config_data["order_expected_marker_counts"].items()
+        config_data = json.loads(self.config_path.read_text(encoding="utf-8"))
+        self.config = Strategy2Config(**config_data["strategy2_config"])
+        self.order_expected_marker_counts = {
+            str(key): int(value)
+            for key, value in config_data["order_expected_marker_counts"].items()
+        }
+
+        tiers_df = pd.read_csv(self.tiers_path, sep="\t")
+        tiers: dict[tuple[str, str, str], dict[str, list[str]]] = {}
+        for _, row in tiers_df.iterrows():
+            key = (
+                str(row["group_level"]),
+                str(row["group_name"]),
+                str(row["order_name"]),
+            )
+            entry = tiers.setdefault(key, {"core": [], "shared": [], "accessory": []})
+            tier_name = str(row["tier"])
+            if tier_name in entry:
+                entry[tier_name].append(str(row["marker_name"]))
+        self.tiers = {
+            key: TierSet(
+                core=tuple(sorted(value["core"])),
+                shared=tuple(sorted(value["shared"])),
+                accessory=tuple(sorted(value["accessory"])),
+            )
+            for key, value in tiers.items()
+        }
+
+        baselines_df = pd.read_csv(self.baselines_path, sep="\t")
+        self.baselines = {}
+        for _, row in baselines_df.iterrows():
+            key = (
+                str(row["group_level"]),
+                str(row["group_name"]),
+                str(row["order_name"]),
+            )
+            self.baselines[key] = {
+                "baseline_mean": float(row["baseline_mean"]),
+                "baseline_median": float(row["baseline_median"]),
+                "n_refs": int(row["n_refs"]),
             }
 
-            tiers_df = pd.read_csv(self.tiers_path, sep="\t")
-            tiers: Dict[Tuple[str, str, str], Dict[str, list[str]]] = {}
-            for _, row in tiers_df.iterrows():
-                key = (
-                    str(row["group_level"]),
-                    str(row["group_name"]),
-                    str(row["order_name"]),
-                )
-                entry = tiers.setdefault(
-                    key, {"core": [], "shared": [], "accessory": []}
-                )
-                tier_name = str(row["tier"])
-                if tier_name in entry:
-                    entry[tier_name].append(str(row["marker_name"]))
-            self.tiers = {
-                key: TierSet(
-                    core=tuple(sorted(value["core"])),
-                    shared=tuple(sorted(value["shared"])),
-                    accessory=tuple(sorted(value["accessory"])),
-                )
-                for key, value in tiers.items()
-            }
+        model_meta_df = pd.read_csv(self.model_metadata_path, sep="\t")
+        self.model_metadata = {
+            str(row["order_name"]): row.to_dict() for _, row in model_meta_df.iterrows()
+        }
 
-            baselines_df = pd.read_csv(self.baselines_path, sep="\t")
-            self.baselines = {}
-            for _, row in baselines_df.iterrows():
-                key = (
-                    str(row["group_level"]),
-                    str(row["group_name"]),
-                    str(row["order_name"]),
-                )
-                self.baselines[key] = {
-                    "baseline_mean": float(row["baseline_mean"]),
-                    "baseline_median": float(row["baseline_median"]),
-                    "n_refs": int(row["n_refs"]),
-                }
-
-            model_meta_df = pd.read_csv(self.model_metadata_path, sep="\t")
-            self.model_metadata = {
-                str(row["order_name"]): row.to_dict()
-                for _, row in model_meta_df.iterrows()
-            }
-
-            bundle = load(io.BytesIO(model_bytes))
-            self.models = bundle["models"]
-            self.feature_names = list(bundle["feature_names"])
-            self.available = True
-        except Exception as exc:
-            logger.error("Failed to load novelty-aware completeness resources: %s", exc)
-            self.available = False
+        bundle = load(io.BytesIO(model_bytes))
+        self.models = bundle["models"]
+        self.feature_names = list(bundle["feature_names"])
+        self.available = True
 
     def select_group(
         self, order_tax: str, family_tax: str
@@ -285,6 +277,8 @@ class NoveltyAwareCompletenessScorer:
         baseline = self.baselines.get(key, {})
         baseline_mean = float(baseline.get("baseline_mean", 0.0))
         n_refs = int(baseline.get("n_refs", 0))
+        if not math.isfinite(baseline_mean):
+            return math.nan, baseline_mean, n_refs
         if baseline_mean <= 0:
             return raw_score, baseline_mean, n_refs
         normalized = min(100.0, (raw_score / baseline_mean) * 100.0)
@@ -473,6 +467,14 @@ class NoveltyAwareCompletenessScorer:
             float(tier_scores["strategy2_raw"]),
             group_def,
         )
+        if math.isnan(strategy2_norm):
+            return self._degraded_metrics(
+                strategy1_score,
+                selected_mode,
+                order_tax,
+                family_tax,
+                "order_baseline_ratio_v1_invalid_baseline",
+            )
         support_metrics = self.compute_support_metrics(
             informative_marker_count=int(tier_scores["informative_marker_count"]),
             core_marker_count=int(tier_scores["core_marker_count"]),
@@ -584,11 +586,16 @@ class NoveltyAwareCompletenessScorer:
             )
         )
         if query_support == "insufficient_evidence":
+            # The tier has nothing to score, so the novelty estimate is
+            # unavailable. The legacy ratio does not use the tier and stays.
             novelty_score = math.nan
-            estimated_score = math.nan
-            estimated_strategy = "unavailable"
             tier_scores["strategy2_raw"] = math.nan
             strategy2_norm = math.nan
+            if selected_mode == "legacy":
+                query_support = "limited_support"
+            else:
+                estimated_score = math.nan
+                estimated_strategy = "unavailable"
 
         result: Dict[str, Any] = {
             "order_completeness_v2": novelty_score,

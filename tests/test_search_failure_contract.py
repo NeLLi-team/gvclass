@@ -11,7 +11,9 @@ import pytest
 from src.core import blast, hmm_search, marker_processing
 from src.core.blast import iter_blastp_records, run_blastp
 from src.core.contamination_scoring import ContaminationScorer
+from src.core.labels import LabelIndex
 from src.core.marker_processing import MarkerProcessor
+from src.core.summarize.paths_stats import QueryEvidence
 from src.core.tree_analysis import TreeAnalyzer
 from src.utils.error_handling import ProcessingError
 
@@ -49,7 +51,7 @@ def _search_fails_after_hit(*_args: object, **_kwargs: object):
 
 def _bare_contamination_scorer() -> ContaminationScorer:
     scorer = ContaminationScorer.__new__(ContaminationScorer)
-    scorer.labels = {}
+    scorer.labels = LabelIndex.from_taxonomy({})
     return scorer
 
 
@@ -138,7 +140,7 @@ def test_contamination_empty_m8_is_valid_no_hit_evidence(tmp_path: Path) -> None
     blast_dir.mkdir()
     (blast_dir / "marker.m8").touch()
 
-    assert _bare_contamination_scorer().collect_best_blast_hits(blast_dir) == {}
+    assert _bare_contamination_scorer().scan_blast_dir(blast_dir).best_hits == {}
 
 
 def test_contamination_rejects_malformed_m8_record(tmp_path: Path) -> None:
@@ -150,7 +152,7 @@ def test_contamination_rejects_malformed_m8_record(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ValueError, match=r"marker\.m8 at line 1"):
-        _bare_contamination_scorer().collect_best_blast_hits(blast_dir)
+        _bare_contamination_scorer().scan_blast_dir(blast_dir)
 
 
 def test_contig_features_rejects_malformed_m8_record(tmp_path: Path) -> None:
@@ -163,13 +165,16 @@ def test_contig_features_rejects_malformed_m8_record(tmp_path: Path) -> None:
     query_faa = tmp_path / "query.faa"
     query_faa.write_text(">query\nMKVLAA\n", encoding="utf-8")
 
+    scorer = _bare_contamination_scorer()
     with pytest.raises(ValueError, match=r"marker\.m8 at line 1"):
-        _bare_contamination_scorer().collect_contig_features(
+        scorer.collect_contig_features(
             tmp_path / "missing.fna",
             query_faa,
-            blast_dir,
+            scorer.scan_blast_dir(blast_dir),
+            QueryEvidence({}, {}, {}),
             "Imitervirales",
             "Mimiviridae",
+            {},
         )
 
 
@@ -179,17 +184,7 @@ def test_contamination_propagates_unreadable_m8_file(tmp_path: Path) -> None:
     (blast_dir / "unreadable.m8").mkdir()
 
     with pytest.raises(OSError, match="Failed to read BLAST m8 file"):
-        _bare_contamination_scorer().collect_best_blast_hits(blast_dir)
-
-
-def test_contamination_labels_are_required_and_well_formed(tmp_path: Path) -> None:
-    labels_file = tmp_path / "labels.tsv"
-    labels_file.write_text("malformed-label\n", encoding="utf-8")
-    scorer = _bare_contamination_scorer()
-    scorer.labels_file = labels_file
-
-    with pytest.raises(ValueError, match=r"labels\.tsv at line 1"):
-        scorer._load_labels()
+        _bare_contamination_scorer().scan_blast_dir(blast_dir)
 
 
 def test_tree_labels_are_required_and_well_formed(tmp_path: Path) -> None:

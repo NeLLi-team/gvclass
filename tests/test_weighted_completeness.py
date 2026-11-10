@@ -102,7 +102,6 @@ class TestWeightedCompletenessCalculator:
             )
             assert calc.weight_strategy == strategy
             assert calc.enable_adaptive_scaling is True
-            assert calc._scaler is not None
             assert calc._outlier_detector is not None
 
     def test_marker_stats_loading(self, calculator, sample_marker_stats):
@@ -229,7 +228,6 @@ class TestWeightedCompletenessCalculator:
             enable_adaptive_scaling=False,
         )
 
-        assert calculator._scaler is None
         assert calculator._outlier_detector is None
 
         # Should still work but without adaptive features
@@ -304,10 +302,7 @@ class TestFullSummarizerIntegration:
         """Test integration of weighted metrics in calculate_order_metrics."""
         summarizer = FullSummarizer(temp_database_dir)
 
-        # Create mock counts file
-        counts_content = "OG21\t1\nOG22\t1\nOG23\t0\n"
-        counts_file = temp_database_dir / "test_counts.txt"
-        counts_file.write_text(counts_content)
+        marker_counts = {"OG21": 1, "OG22": 1, "OG23": 0}
 
         # Test the integration
         metrics = order_completeness.calculate_order_metrics(
@@ -316,7 +311,7 @@ class TestFullSummarizerIntegration:
             summarizer.weighted_calculator,
             summarizer.novelty_scorer,
             summarizer.completeness_mode,
-            counts_file,
+            marker_counts,
             "TestOrder",
         )
 
@@ -334,93 +329,114 @@ class TestFullSummarizerIntegration:
         assert metrics["order_weighted_completeness"] > 0
         assert metrics["order_confidence_score"] > 0
 
-    def test_error_handling_in_integration(self, temp_database_dir):
-        """Test error handling when weighted calculation fails."""
+    def test_failing_weighted_calculation_is_not_hidden(self, temp_database_dir):
+        """A weighted calculation that fails raises instead of reporting a fallback."""
         summarizer = FullSummarizer(temp_database_dir)
 
-        # Mock the weighted calculator to raise an exception
-        with patch.object(
-            summarizer.weighted_calculator,
-            "calculate_weighted_completeness",
-            side_effect=Exception("Mock error"),
+        with (
+            patch.object(
+                summarizer.weighted_calculator,
+                "calculate_weighted_completeness",
+                side_effect=ValueError("Mock error"),
+            ),
+            pytest.raises(ValueError, match="Mock error"),
         ):
-
-            counts_file = temp_database_dir / "test_counts.txt"
-            counts_file.write_text("OG21\t1\n")
-
-            metrics = order_completeness.calculate_order_metrics(
+            order_completeness.calculate_order_metrics(
                 summarizer.completeness_table,
                 summarizer.order_stats_df,
                 summarizer.weighted_calculator,
                 summarizer.novelty_scorer,
                 summarizer.completeness_mode,
-                counts_file,
+                {"OG21": 1},
                 "TestOrder",
             )
-
-            # Should fallback gracefully
-            assert metrics["order_weighted_completeness_raw"] == metrics["order_completeness_raw"]
-            assert metrics["order_confidence_score"] == 50.0
 
 
 class TestPerformanceAndScaling:
     """Test performance characteristics and scaling behavior."""
 
-    def test_large_marker_set_performance(self, temp_marker_stats_file):
-        """Test performance with large marker sets."""
+    def test_large_marker_set_is_scored(self, temp_marker_stats_file):
+        """A marker set far larger than the statistics table is scored."""
         calculator = WeightedCompletenessCalculator(
             marker_stats_path=temp_marker_stats_file,
             weight_strategy="information_theoretic",
         )
-
-        # Generate large marker set
         large_marker_set = [f"marker_{i}" for i in range(1000)]
         marker_counts = {
             marker: 1 if i % 3 != 0 else 0 for i, marker in enumerate(large_marker_set)
         }
 
-        import time
-
-        start_time = time.time()
-
-        weighted_comp, confidence, metrics = calculator.calculate_weighted_completeness(
-            marker_counts=marker_counts,
-            taxonomic_order="test_order",
-            expected_markers=large_marker_set,
+        weighted_comp, confidence, _metrics = (
+            calculator.calculate_weighted_completeness(
+                marker_counts=marker_counts,
+                taxonomic_order="test_order",
+                expected_markers=large_marker_set,
+            )
         )
 
-        execution_time = time.time() - start_time
+        assert weighted_comp == pytest.approx(100.0 * 666 / 1000)
+        assert 0.0 <= confidence <= 100.0
 
-        # Should complete reasonably quickly (< 1 second for 1000 markers)
-        assert execution_time < 1.0
-        assert isinstance(weighted_comp, float)
-        assert isinstance(confidence, float)
-
-    def test_caching_effectiveness(self, temp_marker_stats_file):
-        """Test that caching improves performance on repeated calls."""
+    def test_marker_weights_are_computed_once_per_instance(
+        self, temp_marker_stats_file
+    ):
         calculator = WeightedCompletenessCalculator(
-            marker_stats_path=temp_marker_stats_file, cache_size=64
+            marker_stats_path=temp_marker_stats_file
         )
-
         markers = tuple(f"marker_{i}" for i in range(100))
 
-        import time
+        with patch.object(
+            calculator,
+            "_compute_marker_weights",
+            wraps=calculator._compute_marker_weights,
+        ) as compute:
+            first = calculator.get_marker_weights("test_order", markers)
+            second = calculator.get_marker_weights("test_order", markers)
 
-        # First call (should be slower due to computation)
-        start_time = time.time()
-        weights1 = calculator.get_marker_weights("test_order", markers)
-        first_call_time = time.time() - start_time
+        assert second is first
+        assert compute.call_count == 1
 
-        # Second call (should be faster due to caching)
-        start_time = time.time()
-        weights2 = calculator.get_marker_weights("test_order", markers)
-        second_call_time = time.time() - start_time
+    def test_marker_stats_are_read_once_per_instance(self, temp_marker_stats_file):
+        calculator = WeightedCompletenessCalculator(
+            marker_stats_path=temp_marker_stats_file
+        )
 
-        # Results should be identical
-        assert weights1 == weights2
+        with patch.object(pd, "read_csv", wraps=pd.read_csv) as read_csv:
+            first = calculator.marker_stats_df
+            second = calculator.marker_stats_df
 
-        # Second call should be significantly faster (at least 2x)
-        assert second_call_time < first_call_time / 2
+        assert second is first
+        assert read_csv.call_count == 1
+
+    def test_instances_do_not_share_marker_stats_or_weights(self, tmp_path):
+        paths = []
+        for name, percent in (("a", 40.0), ("b", 90.0)):
+            stats_path = tmp_path / f"{name}.tsv"
+            pd.DataFrame(
+                {
+                    "marker_name": ["OG1"],
+                    "order_name": ["OrderA"],
+                    "percent_genomes_with_marker": [percent],
+                }
+            ).to_csv(stats_path, sep="\t", index=False)
+            paths.append(stats_path)
+        first, second = (
+            WeightedCompletenessCalculator(path, enable_adaptive_scaling=False)
+            for path in paths
+        )
+
+        # Interleaved access: a cache shared by the instances would return the
+        # statistics of whichever instance read first.
+        first_df = first.marker_stats_df
+        second_df = second.marker_stats_df
+        first_weights = first.get_marker_weights("OrderA", ("OG1",))
+        second_weights = second.get_marker_weights("OrderA", ("OG1",))
+
+        assert first.marker_stats_df is first_df
+        assert second.marker_stats_df is second_df
+        assert first_df["percent_genomes_with_marker"].tolist() == [40.0]
+        assert second_df["percent_genomes_with_marker"].tolist() == [90.0]
+        assert first_weights != second_weights
 
 
 def test_factory_function():

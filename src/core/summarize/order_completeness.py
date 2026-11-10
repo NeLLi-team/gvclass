@@ -1,5 +1,4 @@
-"""
-Order-level completeness metrics for the GVClass summary.
+"""Order-level completeness metrics for the GVClass summary.
 
 Stateless helpers that score a query against its assigned taxonomic order.
 
@@ -12,12 +11,11 @@ here reads instance state.
 import logging
 import math
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import pandas as pd
 
 from src.core.novelty_completeness import NoveltyAwareCompletenessScorer
-from src.core.summarize.paths_stats import _load_marker_counts
 from src.core.weighted_completeness import WeightedCompletenessCalculator
 
 logger = logging.getLogger(__name__)
@@ -29,95 +27,86 @@ def calculate_order_metrics(
     weighted_calculator: WeightedCompletenessCalculator,
     novelty_scorer: NoveltyAwareCompletenessScorer,
     completeness_mode: str,
-    counts_file: Path,
+    marker_counts: dict[str, int],
     quality_group: str,
     family_tax: str = "",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Calculate order-specific completeness and duplication metrics.
 
     Returns:
-        Dictionary of raw and normalized order completeness metrics.
+        Dictionary of raw and normalized order completeness metrics. The metrics
+        are unavailable (``NaN``) when the group has no expected markers, the query
+        has none of them, or the reference baseline is not a finite number.
     """
-    try:
-        order_ogs = _load_order_orthogroups(
-            completeness_table, quality_group, order_stats_df=order_stats_df
-        )
-        if not order_ogs:
-            return _default_order_metrics(
-                quality_group,
-                query_support="unsupported_target",
-                model_reliability="unavailable",
-            )
-
-        marker_counts = _load_marker_counts(counts_file)
-        if not any(marker_counts.get(og, 0) > 0 for og in order_ogs):
-            return _default_order_metrics(
-                quality_group,
-                query_support="insufficient_evidence",
-                model_reliability="unvalidated_legacy",
-            )
-        raw_completeness, duplication = _calculate_traditional_order_metrics(
-            marker_counts, order_ogs
-        )
-        raw_weighted_completeness, confidence_score = _calculate_weighted_order_metrics(
-            weighted_calculator,
-            marker_counts,
+    order_ogs = _load_order_orthogroups(
+        completeness_table, quality_group, order_stats_df=order_stats_df
+    )
+    if not order_ogs:
+        return _default_order_metrics(
             quality_group,
-            order_ogs,
-            raw_completeness,
+            query_support="unsupported_target",
+            model_reliability="unavailable",
         )
-        normalized_completeness, baseline_mean, baseline_std = (
-            _normalize_order_completeness(
-                order_stats_df, raw_completeness, quality_group
-            )
-        )
-        normalized_weighted_completeness, _, _ = _normalize_order_completeness(
-            order_stats_df, raw_weighted_completeness, quality_group
-        )
-        result = {
-            "order_completeness": normalized_completeness,
-            "order_completeness_raw": raw_completeness,
-            "order_dup": duplication,
-            "order_weighted_completeness": normalized_weighted_completeness,
-            "order_weighted_completeness_raw": raw_weighted_completeness,
-            "order_confidence_score": confidence_score,
-            "order_completeness_baseline_mean": baseline_mean,
-            "order_completeness_baseline_std": baseline_std,
-            "order_completeness_reference_order": quality_group,
-            "order_completeness_strategy": "order_baseline_ratio_v1",
-            "estimated_completeness": normalized_completeness,
-            "estimated_completeness_strategy": "order_baseline_ratio_v1",
-            "completeness_query_support": "supported",
-            "completeness_model_group": quality_group,
-            "completeness_model_reliability": "unvalidated_legacy",
-        }
-        if novelty_scorer.available:
-            result.update(
-                novelty_scorer.calculate(
-                    marker_counts=marker_counts,
-                    order_tax=quality_group,
-                    family_tax=family_tax,
-                    strategy1_raw=raw_completeness,
-                    strategy1_score=normalized_completeness,
-                    selected_mode=completeness_mode,
-                )
-            )
-        return result
 
-    except Exception as e:
-        logger.error(f"Error calculating order metrics: {e}")
+    if not any(marker_counts.get(og, 0) > 0 for og in order_ogs):
+        return _default_order_metrics(
+            quality_group,
+            query_support="insufficient_evidence",
+            model_reliability="unvalidated_legacy",
+        )
+    raw_completeness, duplication = _calculate_traditional_order_metrics(
+        marker_counts, order_ogs
+    )
+    normalized_completeness, baseline_mean, baseline_std = (
+        _normalize_order_completeness(order_stats_df, raw_completeness, quality_group)
+    )
+    if math.isnan(normalized_completeness):
         return _default_order_metrics(
             quality_group,
             query_support="unavailable",
             model_reliability="unavailable",
         )
+    raw_weighted_completeness, confidence_score = _calculate_weighted_order_metrics(
+        weighted_calculator, marker_counts, quality_group, order_ogs
+    )
+    normalized_weighted_completeness, _, _ = _normalize_order_completeness(
+        order_stats_df, raw_weighted_completeness, quality_group
+    )
+    result = {
+        "order_completeness": normalized_completeness,
+        "order_completeness_raw": raw_completeness,
+        "order_dup": duplication,
+        "order_weighted_completeness": normalized_weighted_completeness,
+        "order_weighted_completeness_raw": raw_weighted_completeness,
+        "order_confidence_score": confidence_score,
+        "order_completeness_baseline_mean": baseline_mean,
+        "order_completeness_baseline_std": baseline_std,
+        "order_completeness_reference_order": quality_group,
+        "order_completeness_strategy": "order_baseline_ratio_v1",
+        "estimated_completeness": normalized_completeness,
+        "estimated_completeness_strategy": "order_baseline_ratio_v1",
+        "completeness_query_support": "supported",
+        "completeness_model_group": quality_group,
+        "completeness_model_reliability": "unvalidated_legacy",
+    }
+    result.update(
+        novelty_scorer.calculate(
+            marker_counts=marker_counts,
+            order_tax=quality_group,
+            family_tax=family_tax,
+            strategy1_raw=raw_completeness,
+            strategy1_score=normalized_completeness,
+            selected_mode=completeness_mode,
+        )
+    )
+    return result
 
 
 def _default_order_metrics(
     quality_group: str = "",
     query_support: str = "unassigned",
     model_reliability: str = "unavailable",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Return default order completeness metrics."""
     resource_group = (
         quality_group
@@ -158,7 +147,7 @@ def _load_order_orthogroups(
     completeness_table: Path,
     order_tax: str,
     order_stats_df: pd.DataFrame | None = None,
-) -> List[str]:
+) -> list[str]:
     """Load expected orthogroups for a specific taxonomic order."""
     if (
         order_stats_df is not None
@@ -177,8 +166,8 @@ def _load_order_orthogroups(
 
 
 def _calculate_traditional_order_metrics(
-    marker_counts: Dict[str, int], order_ogs: List[str]
-) -> Tuple[float, float]:
+    marker_counts: dict[str, int], order_ogs: list[str]
+) -> tuple[float, float]:
     """Calculate completeness and duplication from expected order markers."""
     present_ogs = sum(1 for og in order_ogs if marker_counts.get(og, 0) > 0)
     total_hits = sum(marker_counts.get(og, 0) for og in order_ogs)
@@ -190,34 +179,32 @@ def _calculate_traditional_order_metrics(
 
 def _calculate_weighted_order_metrics(
     weighted_calculator: WeightedCompletenessCalculator,
-    marker_counts: Dict[str, int],
+    marker_counts: dict[str, int],
     order_tax: str,
-    order_ogs: List[str],
-    fallback_completeness: float,
-) -> Tuple[float, float]:
-    """Calculate ML-weighted completeness with fallback to traditional metrics."""
-    try:
-        weighted_completeness, confidence_score, _ = (
-            weighted_calculator.calculate_weighted_completeness(
-                marker_counts=marker_counts,
-                taxonomic_order=order_tax,
-                expected_markers=order_ogs,
-            )
+    order_ogs: list[str],
+) -> tuple[float, float]:
+    """Calculate ML-weighted completeness and its confidence score."""
+    weighted_completeness, confidence_score, _ = (
+        weighted_calculator.calculate_weighted_completeness(
+            marker_counts=marker_counts,
+            taxonomic_order=order_tax,
+            expected_markers=order_ogs,
         )
-        logger.debug(
-            f"Weighted completeness for {order_tax}: {weighted_completeness:.2f}% "
-            f"(traditional: {fallback_completeness:.2f}%)"
-        )
-        return weighted_completeness, confidence_score
-    except Exception as e:
-        logger.warning(f"Weighted completeness calculation failed: {e}")
-        return fallback_completeness, 50.0
+    )
+    logger.debug(
+        "Weighted completeness for %s: %.2f%%", order_tax, weighted_completeness
+    )
+    return weighted_completeness, confidence_score
 
 
 def _normalize_order_completeness(
     order_stats_df: pd.DataFrame, raw_completeness: float, order_tax: str
-) -> Tuple[float, float, float]:
-    """Normalize marker recovery against complete-reference order baselines."""
+) -> tuple[float, float, float]:
+    """Normalize marker recovery against complete-reference order baselines.
+
+    Returns ``NaN`` for the completeness when the baseline mean is not a finite
+    number, because no ratio to it is meaningful.
+    """
     if order_stats_df.empty:
         return raw_completeness, 0.0, 0.0
 
@@ -227,6 +214,8 @@ def _normalize_order_completeness(
 
     baseline_mean = float(order_row["Average_Percent"].iloc[0])
     baseline_std = float(order_row["Std_Percent"].iloc[0])
+    if not math.isfinite(baseline_mean):
+        return math.nan, baseline_mean, baseline_std
     if baseline_mean <= 0:
         return raw_completeness, baseline_mean, baseline_std
 
@@ -235,7 +224,7 @@ def _normalize_order_completeness(
     return normalized, baseline_mean, baseline_std
 
 
-def _select_quality_group(accepted_lineage: Dict[str, str]) -> str:
+def _select_quality_group(accepted_lineage: dict[str, str]) -> str:
     """Map an accepted lineage to the matching completeness resource group."""
     if (
         accepted_lineage.get("domain") == "MIRUS"
@@ -251,9 +240,9 @@ def _add_order_metrics(
     weighted_calculator: WeightedCompletenessCalculator,
     novelty_scorer: NoveltyAwareCompletenessScorer,
     completeness_mode: str,
-    result: Dict[str, Any],
-    counts_file: Path,
-    accepted_lineage: Dict[str, str],
+    result: dict[str, Any],
+    marker_counts: dict[str, int],
+    accepted_lineage: dict[str, str],
 ) -> None:
     """Populate order-level completeness metrics from order assignment."""
     quality_group = _select_quality_group(accepted_lineage)
@@ -266,7 +255,7 @@ def _add_order_metrics(
                 weighted_calculator,
                 novelty_scorer,
                 completeness_mode,
-                counts_file,
+                marker_counts,
                 quality_group,
                 family_tax,
             )

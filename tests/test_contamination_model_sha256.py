@@ -20,6 +20,7 @@ from src.core.contamination_scoring import (
     CONTAMINATION_MODEL_FEATURES,
     ContaminationScorer,
 )
+from src.core.summarize.paths_stats import QueryEvidence
 from tests.conftest import TEST_REFERENCE_LABEL, skip_if_no_runtime_resources
 
 pytestmark = skip_if_no_runtime_resources()
@@ -110,17 +111,15 @@ def test_bundled_model_contract_and_prediction_bound_are_computed() -> None:
     )
 
 
-def test_prediction_status_separates_exploratory_unsupported_and_no_evidence(
-    tmp_path: Path,
-) -> None:
+def test_prediction_status_separates_exploratory_unsupported_and_no_evidence() -> None:
     """Only evidenced NCLDV input keeps an exploratory numeric prediction."""
     scorer = ContaminationScorer(RESOURCES_DIR, sensitive_mode=True)
 
     no_evidence = scorer.score_rule_based(
         result={},
-        marker_counts={},
+        evidence=QueryEvidence({}, {}, {}),
         tax_counters={},
-        query_output_dir=tmp_path,
+        best_hits={},
         accepted_lineage={},
     )
     no_evidence_prediction = scorer.predict_contamination(no_evidence, {})
@@ -134,9 +133,9 @@ def test_prediction_status_separates_exploratory_unsupported_and_no_evidence(
 
     unsupported = scorer.score_rule_based(
         result={},
-        marker_counts={"synthetic_marker": 1},
+        evidence=QueryEvidence({"synthetic_marker": 1}, {}, {}),
         tax_counters={"domain": Counter({"EUK": 1})},
-        query_output_dir=tmp_path,
+        best_hits={},
         accepted_lineage={"domain": "EUK"},
     )
     unsupported_prediction = scorer.predict_contamination(unsupported, {})
@@ -150,9 +149,9 @@ def test_prediction_status_separates_exploratory_unsupported_and_no_evidence(
 
     exploratory = scorer.score_rule_based(
         result={},
-        marker_counts={"synthetic_marker": 1},
+        evidence=QueryEvidence({"synthetic_marker": 1}, {}, {}),
         tax_counters={"domain": Counter({"NCLDV": 1})},
-        query_output_dir=tmp_path,
+        best_hits={},
         accepted_lineage={"domain": "NCLDV"},
     )
     exploratory_prediction = scorer.predict_contamination(exploratory, {})

@@ -22,6 +22,7 @@ from src.config.marker_sets import (
 )
 from src.core import contamination_scoring
 from src.core.summarize import marker_panels
+from src.core.summarize.paths_stats import QueryEvidence
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ANNOTATIONS_TSV = REPO_ROOT / "docs" / "reference" / "marker-annotations.tsv"
@@ -150,7 +151,9 @@ def test_marker_group_members_are_database_models():
 def test_add_marker_metrics_counts_database_phage_models():
     marker_counts = {"GENOMAD.000023.VV": 2, "GENOMAD.000026.VV": 1}
 
-    result = marker_panels._add_marker_metrics(marker_counts, None, None, None, 0, "")
+    result = marker_panels._add_marker_metrics(
+        QueryEvidence(marker_counts, {}, {}), None, 0, ""
+    )
 
     assert result["phage_completeness"] == "2/20"
     assert result["phage_unique"] == 2

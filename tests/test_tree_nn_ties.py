@@ -7,11 +7,12 @@ from pathlib import Path
 
 import pytest
 
+from src.core.labels import LabelIndex
 from src.core.summarize import labels_taxonomy
 from src.core.tree_analysis import TreeAnalyzer
 
 IM_19 = ("NCLDV", "Nucleocytoviricota", "Megaviricetes", "Imitervirales", "IM_19")
-LABELS = {
+TAXONOMY = {
     "NCLDV__ref_a": [*IM_19, "g1787", "singleton"],
     "NCLDV__ref_b": [*IM_19, "g_other", "s_other"],
     "NCLDV__ref_twin": [*IM_19, "g1787", "singleton"],
@@ -25,6 +26,7 @@ LABELS = {
     "BAC__ref_bac": ["BAC", "Pseudomonadota", "Gamma", "Entero", "Entero_f", "g", "s"],
     "PPV__ref_ppv": ["PPV", "Preplasmiviricota", "c", "o", "f", "g", "s"],
 }
+LABELS = LabelIndex.from_taxonomy(TAXONOMY)
 FAMILY_LINEAGE = (*IM_19, "", "")
 FULL_LINEAGE = (*IM_19, "g1787", "singleton")
 
@@ -83,7 +85,7 @@ def test_tree_nn_file_has_one_row_per_tied_neighbour(
 def _collect(
     tree_nn_results: dict[str, dict[str, dict[str, float]]],
 ) -> tuple[dict[str, Counter], dict[str, Counter], list[float]]:
-    return labels_taxonomy._collect_taxonomy_counts(LABELS, tree_nn_results)
+    return labels_taxonomy.collect_taxonomy_counts(LABELS, tree_nn_results)
 
 
 def test_tied_references_vote_with_their_common_lineage() -> None:
@@ -197,6 +199,6 @@ def test_nearest_domain_of_a_tie_is_the_shared_domain_or_none(reverse: bool) -> 
         same_domain, mixed_domain = same_domain[::-1], mixed_domain[::-1]
     tree_nn = {"m1": {"q_same": dict(same_domain), "q_mixed": dict(mixed_domain)}}
 
-    domains = labels_taxonomy._protein_nearest_domain(LABELS, tree_nn)
+    domains = labels_taxonomy.protein_nearest_domain(LABELS, tree_nn)
 
     assert domains == {"q_same": "NCLDV"}

@@ -11,6 +11,9 @@ from pathlib import Path
 
 import pytest
 
+from src.config.marker_sets import BUSCO_MODELS, UNI56_MODELS
+from src.core.contamination_scoring import _marker_category
+from src.core.summarize.paths_stats import QueryEvidence
 from tests.conftest import skip_if_no_runtime_resources
 
 pytestmark = skip_if_no_runtime_resources()
@@ -25,17 +28,15 @@ def _make_scorer(tmp_path: Path):
     db = tmp_path / "db"
     stage_db_resources(db, markers=False)
     labels = db / "labels.tsv"
-    # _load_labels expects genome_id<TAB>pipe_delimited_tax.
-    # Pipe columns (7 fields): [0]=phylum, [1]=class, [2]=order, [3]=family, [4]=genus, [5]=species.
-    # ContaminationScorer reads "order" from parts[3] (index after phylum|class|order);
-    # see _load_labels: tax = parts[1].split("|"); labels[genome_id] = {..., "order": tax[3]}.
-    # So for a (phylum, class, order, family, genus, species) sequence we pad the leading slot.
+    # LabelIndex expects genome_id<TAB>domain|phylum|class|order|family|genus|species.
+    # The domain of a lineage is the ID prefix before "__".
     labels.write_text(
         "EUK__Nannochloropsis_A\tEuk|Stramenopiles|Eustigmatophyceae|Eustigmatales|Monodopsidaceae|Nannochloropsis|Nannochloropsis_gaditana\n"
         "EUK__Nannochloropsis_B\tEuk|Stramenopiles|Eustigmatophyceae|Eustigmatales|Monodopsidaceae|Nannochloropsis|Nannochloropsis_oceanica\n"
         "EUK__Acanthocystis_A\tEuk|Centroheliozoa|Haptista|Acanthocystidae|Acanthocystidae|Acanthocystis|NA\n"
         "EUK__NA_A\tEuk|NA|NA|NA|NA|NA|NA\n"
         "EUK__Other_A\tEuk|NA|NA|OtherOrder|NA|NA|NA\n"
+        "EUK__NoOrder_A\tEuk|Stramenopiles|Eustigmatophyceae||Monodopsidaceae|Nannochloropsis|x\n"
         "EUK-pEVE__Host_A\tEuk-pEVE|NA|NA|NA|NA|NA|NA\n"
         "NCLDV__Mimi_1\tNCLDV|Nucleocytoviricota|Megaviricetes|Imitervirales|Mimiviridae|Mimivirus|Acanthamoeba_polyphaga_mimivirus\n"
         "BAC__Eco_A\tBac|Pseudomonadota|Gammaproteobacteria|Enterobacterales|Enterobacteriaceae|Escherichia|Escherichia_coli\n"
@@ -147,7 +148,7 @@ def test_coherent_cellular_and_viral_evidence_stays_mixed(tmp_path: Path) -> Non
         tree_nn_results=tree,
         best_hits=best_hits,
         attribution_mode="fna_gene_calling",
-    )
+    ).features
     assert features["cellular_coherent_contig_count"] == 1
     assert features["viral_bearing_contig_count"] == 1
     assert features["mixed_evidence_contig_count"] == 1
@@ -345,7 +346,7 @@ def test_protein_fraction_aggregates_correctly(tmp_path: Path) -> None:
         tree_nn_results=tree,
         best_hits=best_hits,
         attribution_mode="fna_gene_calling",
-    )
+    ).features
     assert out["per_contig_classifier_active"] is True
     assert out["cellular_coherent_contig_count"] == 1
     assert out["viral_bearing_contig_count"] == 2
@@ -388,7 +389,7 @@ def test_bp_fraction_aggregates_correctly(tmp_path: Path) -> None:
         tree_nn_results=tree,
         best_hits=best_hits,
         attribution_mode="fna_gene_calling",
-    )
+    ).features
     expected_fraction = round((12000 / 62000) * 100.0, 2)
     assert out["cellular_coherent_bp_fraction"] == pytest.approx(
         expected_fraction, abs=0.01
@@ -474,7 +475,8 @@ def test_dna_lengths_are_exact_and_mixed_contigs_are_review_only(
     features = scorer.collect_contig_features(
         query_fna=query_fna,
         query_faa=query_faa,
-        blast_dir=blast_dir,
+        scan=scorer.scan_blast_dir(blast_dir),
+        evidence=QueryEvidence({}, {}, {}),
         primary_order="Imitervirales",
         primary_family="Mimiviridae",
         tree_nn_results=tree,
@@ -493,3 +495,263 @@ def test_dna_lengths_are_exact_and_mixed_contigs_are_review_only(
         f"{prefix}contig_b"
     ]
     assert features["review_contigs"][0]["recommended_action"] == "review"
+
+
+# ---------------------------------------------------------------------------
+# Empty orders, tied neighbours, unassessed contigs and mixed marker groups
+# ---------------------------------------------------------------------------
+
+
+def _cellular_contig(
+    scorer, neighbors_by_protein: dict[str, str], *, identity: float = 90.0
+) -> dict:
+    tree = _merge(
+        *[
+            _tree_nn(f"M_{protein}", protein, neighbor)
+            for protein, neighbor in neighbors_by_protein.items()
+        ]
+    )
+    best_hits = {
+        protein: _blast_hit(protein, "EUK", "Eustigmatales", identity=identity)
+        for protein in neighbors_by_protein
+    }
+    return scorer._classify_contig_purity(
+        contig_id="contig_1",
+        contig_proteins=list(neighbors_by_protein),
+        tree_nn_results=tree,
+        best_hits=best_hits,
+    )
+
+
+def test_proteins_without_an_order_stay_in_the_denominator_and_never_agree(
+    tmp_path: Path,
+) -> None:
+    scorer = _make_scorer(tmp_path)
+
+    result = _cellular_contig(
+        scorer,
+        {
+            "p1": "EUK__Nannochloropsis_A",
+            "p2": "EUK__Nannochloropsis_B",
+            "p3": "EUK__NoOrder_A",
+            "p4": "EUK__NoOrder_A",
+            "p5": "EUK__NoOrder_A",
+        },
+    )
+
+    assert result["n_cellular_proteins"] == 5
+    assert result["cellular_lineage_purity"] == pytest.approx(0.4)
+    assert result["classification"] == "ambiguous"
+
+
+def test_proteins_that_all_lack_an_order_have_no_purity(tmp_path: Path) -> None:
+    scorer = _make_scorer(tmp_path)
+
+    result = _cellular_contig(scorer, {f"p{i}": "EUK__NoOrder_A" for i in range(4)})
+
+    assert result["cellular_lineage_purity"] == 0.0
+    assert result["classification"] == "ambiguous"
+
+
+def test_tied_neighbours_of_one_order_cast_one_vote(tmp_path: Path) -> None:
+    scorer = _make_scorer(tmp_path)
+    tree = {
+        # Two references of one order at the same distance: one vote.
+        "M1": {
+            "p1": {
+                "EUK__Nannochloropsis_A|g_1": 0.5,
+                "EUK__Nannochloropsis_B|g_1": 0.5,
+            }
+        },
+        "M2": {"p1": {"EUK__Acanthocystis_A|g_1": 0.4}},
+    }
+
+    lineage = scorer._per_protein_dominant_lineage("p1", tree)
+
+    # One vote each: the lexicographically smallest triplet wins the tie.
+    assert lineage == {
+        "domain": "EUK",
+        "order": "Acanthocystidae",
+        "genus": "Acanthocystis",
+    }
+
+
+def test_tied_neighbours_of_two_orders_vote_for_their_shared_lineage(
+    tmp_path: Path,
+) -> None:
+    scorer = _make_scorer(tmp_path)
+    tree = {
+        "M1": {
+            "p1": {"EUK__Nannochloropsis_A|g_1": 0.5, "EUK__Acanthocystis_A|g_1": 0.5}
+        }
+    }
+
+    lineage = scorer._per_protein_dominant_lineage("p1", tree)
+
+    assert lineage == {"domain": "EUK", "order": "", "genus": ""}
+
+
+def test_tied_neighbours_of_two_domains_give_the_protein_no_domain(
+    tmp_path: Path,
+) -> None:
+    scorer = _make_scorer(tmp_path)
+    tree = {"M1": {"p1": {"EUK__Nannochloropsis_A|g_1": 0.5, "BAC__Eco_A|g_1": 0.5}}}
+
+    assert scorer._per_protein_dominant_lineage("p1", tree) is None
+
+
+def test_farther_neighbours_do_not_vote(tmp_path: Path) -> None:
+    scorer = _make_scorer(tmp_path)
+    tree = {"M1": {"p1": {"EUK__Nannochloropsis_A|g_1": 0.1, "BAC__Eco_A|g_1": 0.9}}}
+
+    lineage = scorer._per_protein_dominant_lineage("p1", tree)
+
+    assert lineage["domain"] == "EUK"
+
+
+def _m8_line(protein: str, subject: str = "EUK__Nannochloropsis_A") -> str:
+    fields = [protein, subject, "90", "0", "0", "0", "0", "0", "0", "0", "0", "120"]
+    return "\t".join(fields)
+
+
+def _contig_features_with_unplaced_cellular_contig(
+    scorer, tmp_path: Path, cellular_markers: list[str]
+) -> dict:
+    """Return the features of a query whose classifier is active.
+
+    ``contig_v`` holds five tree-placed viral proteins. ``contig_a`` holds one
+    unplaced protein per cellular marker.
+    """
+    query_fna = tmp_path / "query.fna"
+    query_fna.write_text(f">contig_v\n{'A' * 1000}\n>contig_a\n{'C' * 1000}\n")
+    viral = [f"contig_v_{i}" for i in range(1, 6)]
+    cellular = [f"contig_a_{i}" for i, _ in enumerate(cellular_markers, start=1)]
+    query_faa = tmp_path / "query.faa"
+    query_faa.write_text("".join(f">{p}\nMKLV\n" for p in [*viral, *cellular]))
+    blast_dir = tmp_path / "blast"
+    blast_dir.mkdir()
+    (blast_dir / "M_viral.m8").write_text(
+        "\n".join(_m8_line(p, "NCLDV__Mimi_1") for p in viral) + "\n"
+    )
+    for protein, marker in zip(cellular, cellular_markers, strict=True):
+        (blast_dir / f"{marker}.m8").write_text(_m8_line(protein) + "\n")
+    tree = _merge(*[_tree_nn(f"M_{p}", p, "NCLDV__Mimi_1") for p in viral])
+    return scorer.collect_contig_features(
+        query_fna=query_fna,
+        query_faa=query_faa,
+        scan=scorer.scan_blast_dir(blast_dir),
+        evidence=QueryEvidence({}, {}, {}),
+        primary_order="Imitervirales",
+        primary_family="Mimiviridae",
+        tree_nn_results=tree,
+    )
+
+
+def test_unplaced_contig_gets_the_cellular_marker_rule_while_classifier_is_active(
+    tmp_path: Path,
+) -> None:
+    scorer = _make_scorer(tmp_path)
+
+    features = _contig_features_with_unplaced_cellular_contig(
+        scorer, tmp_path, [BUSCO_MODELS[0], UNI56_MODELS[0]]
+    )
+
+    assert features["per_contig_classifier_active"] is True
+    assert [(c["contig_id"], c["reason"]) for c in features["suspicious_contigs"]] == [
+        ("contig_a", "cellular_markers")
+    ]
+
+
+def test_unplaced_contig_with_one_cellular_marker_is_not_suspicious(
+    tmp_path: Path,
+) -> None:
+    scorer = _make_scorer(tmp_path)
+
+    features = _contig_features_with_unplaced_cellular_contig(
+        scorer, tmp_path, [BUSCO_MODELS[0]]
+    )
+
+    assert features["suspicious_contigs"] == []
+
+
+@pytest.mark.parametrize(
+    ("marker", "scores", "category"),
+    [
+        # grp_COG0085 holds the cellular COG0085 and the viral GVOGm0022.
+        ("grp_COG0085", {"COG0085": 500.0, "GVOGm0022": 300.0}, "cellular"),
+        ("grp_COG0085", {"COG0085": 300.0, "GVOGm0022": 500.0}, "viral"),
+        ("grp_COG0085", {"COG0085": 400.0, "GVOGm0022": 400.0}, "viral"),
+        ("grp_COG0085", {"COG0085": 400.0}, "cellular"),
+        ("grp_COG0085", {"OTHER": 900.0}, "viral"),
+        ("grp_COG0085", {}, "viral"),
+        # grp_OG114 holds the viral OG114 and the phage GENOMAD.029205.VV.
+        ("grp_OG114", {"OG114": 40.0, "GENOMAD.029205.VV": 90.0}, "phage"),
+        ("grp_OG114", {"OG114": 90.0, "GENOMAD.029205.VV": 40.0}, "viral"),
+        # A group whose members share one category keeps it.
+        ("grp_1275837at2759", {}, "cellular"),
+        ("not_a_group", {"COG0085": 500.0}, "viral"),
+    ],
+)
+def test_marker_category_of_a_mixed_group_follows_the_best_scoring_model(
+    marker: str, scores: dict[str, float], category: str
+) -> None:
+    assert _marker_category(marker, scores) == category
+
+
+def _two_group_contig_features(
+    scorer, tmp_path: Path, scores: dict[str, dict[str, float]]
+) -> dict:
+    """Return the features of one contig whose two proteins hit mixed groups."""
+    query_fna = tmp_path / "query.fna"
+    query_fna.write_text(f">contig_a\n{'C' * 1000}\n")
+    proteins = list(scores)
+    query_faa = tmp_path / "query.faa"
+    query_faa.write_text("".join(f">{p}\nMKLV\n" for p in proteins))
+    blast_dir = tmp_path / "blast"
+    blast_dir.mkdir()
+    for protein, group in zip(proteins, ["grp_COG0085", "grp_COG0086"], strict=True):
+        (blast_dir / f"{group}.m8").write_text(_m8_line(protein) + "\n")
+    return scorer.collect_contig_features(
+        query_fna=query_fna,
+        query_faa=query_faa,
+        scan=scorer.scan_blast_dir(blast_dir),
+        evidence=QueryEvidence({}, {}, scores),
+        primary_order="Imitervirales",
+        primary_family="Mimiviridae",
+        tree_nn_results={},
+    )
+
+
+def test_cellular_models_in_mixed_groups_count_as_cellular_markers(
+    tmp_path: Path,
+) -> None:
+    scorer = _make_scorer(tmp_path)
+
+    features = _two_group_contig_features(
+        scorer,
+        tmp_path,
+        {
+            "contig_a_1": {"COG0085": 500.0, "GVOGm0022": 300.0},
+            "contig_a_2": {"COG0086": 500.0, "GVOGm0023": 300.0},
+        },
+    )
+
+    candidate = features["suspicious_contigs"][0]
+    assert candidate["reason"] == "cellular_markers"
+    assert candidate["cellular_marker_count"] == 2
+    assert candidate["viral_marker_count"] == 0
+
+
+def test_viral_models_in_mixed_groups_count_as_viral_markers(tmp_path: Path) -> None:
+    scorer = _make_scorer(tmp_path)
+
+    features = _two_group_contig_features(
+        scorer,
+        tmp_path,
+        {
+            "contig_a_1": {"COG0085": 300.0, "GVOGm0022": 500.0},
+            "contig_a_2": {"COG0086": 300.0, "GVOGm0023": 500.0},
+        },
+    )
+
+    assert features["suspicious_contigs"] == []

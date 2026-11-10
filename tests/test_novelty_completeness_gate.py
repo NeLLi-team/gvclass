@@ -11,6 +11,7 @@ import math
 import pytest
 
 from src.core.novelty_completeness import (
+    GroupDefinition,
     NoveltyAwareCompletenessScorer,
     Strategy2Config,
     TierSet,
@@ -207,3 +208,56 @@ def test_ood_adjustment_never_increases_prediction(ood_flag):
     )
 
     assert adjusted <= 20.0
+
+
+# --- non-finite baselines and the legacy mode ------------------------------
+
+
+@pytest.mark.parametrize("baseline", [math.nan, math.inf, -math.inf])
+def test_non_finite_baseline_does_not_normalize_to_one_hundred(baseline):
+    scorer = _make_scorer(models={}, metadata={}, tiers={}, baselines={})
+    group = GroupDefinition("order", "Algavirales", "Algavirales")
+    scorer.baselines = {
+        ("order", "Algavirales", "Algavirales"): {
+            "baseline_mean": baseline,
+            "baseline_median": 40.0,
+            "n_refs": 10,
+        }
+    }
+
+    normalized, _mean, n_refs = scorer.normalize_strategy2_score(35.0, group)
+
+    assert math.isnan(normalized)
+    assert n_refs == 10
+
+
+@pytest.mark.parametrize("mode", ["novelty-aware", "legacy"])
+def test_non_finite_baseline_leaves_the_novelty_estimate_unavailable(mode):
+    scorer = _tiered_scorer(test_r2=0.9921)
+    key = ("order", "Algavirales", "Algavirales")
+    scorer.baselines[key]["baseline_mean"] = math.nan
+
+    result = scorer.calculate(
+        {"OG1": 1, "OG2": 1}, "Algavirales", "", 50.0, 50.0, selected_mode=mode
+    )
+
+    assert math.isnan(result["order_completeness_v2"])
+    assert math.isnan(result["order_completeness_v2_strategy2_normalized"])
+    assert result["order_completeness_v2_strategy"] == "unavailable"
+    assert result["estimated_completeness"] == 50.0
+    assert result["completeness_query_support"] == "limited_support"
+
+
+def test_legacy_mode_keeps_its_estimate_when_the_novelty_tier_has_no_evidence():
+    scorer = _tiered_scorer(test_r2=0.9921)
+
+    result = scorer.calculate(
+        {"OTHER": 1}, "Algavirales", "", 50.0, 50.0, selected_mode="legacy"
+    )
+
+    assert result["estimated_completeness"] == 50.0
+    assert result["estimated_completeness_strategy"] == "order_baseline_ratio_v1"
+    assert result["completeness_query_support"] == "limited_support"
+    assert math.isnan(result["order_completeness_v2"])
+    assert math.isnan(result["order_completeness_v2_strategy2_raw"])
+    assert math.isnan(result["order_completeness_v2_strategy2_normalized"])

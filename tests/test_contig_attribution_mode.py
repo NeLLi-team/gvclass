@@ -10,7 +10,10 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+import pytest
+
 from src.core.contamination_scoring import ContaminationScorer
+from src.core.summarize.paths_stats import QueryEvidence
 from src.core.summarize_full import FullSummarizer
 from tests.conftest import skip_if_no_runtime_resources, stage_db_resources
 
@@ -25,6 +28,17 @@ def _make_scorer(tmp_path: Path):
         "Order\tOrthogroups\tAverage_Percent\tStd_Percent\n"
     )
     return ContaminationScorer(db)
+
+
+def _make_summarizer(tmp_path: Path) -> FullSummarizer:
+    stage_db_resources(tmp_path, markers=False)
+    (tmp_path / "markers").mkdir(exist_ok=True)
+    (tmp_path / "markers" / "order_completeness.tab").write_text(
+        "Order\tOrthogroups\tAverage_Percent\tStd_Percent\n"
+    )
+    summarizer = FullSummarizer(tmp_path)
+    summarizer.contamination_scorer.ml_threshold = 5.0
+    return summarizer
 
 
 def test_fna_gene_calling_mode_runs_per_contig_classifier(tmp_path: Path) -> None:
@@ -58,7 +72,7 @@ def test_faa_weak_per_protein_fallback_emits_neutral_features(tmp_path: Path) ->
         tree_nn_results={},
         best_hits={},
         attribution_mode=mode,
-    )
+    ).features
     assert features["per_contig_classifier_active"] is False
     assert features["cellular_coherent_contig_count"] == 0
     assert features["cellular_coherent_protein_fraction"] == 0.0
@@ -75,9 +89,7 @@ def test_faa_weak_per_protein_fallback_preserves_legacy_cellular_trigger(
     source, the legacy `cellular` label still fires from
     ``_classify_contamination_type``."""
 
-    stage_db_resources(tmp_path, markers=False)
-    summarizer = FullSummarizer(tmp_path)
-    summarizer.contamination_scorer.ml_threshold = 5.0
+    summarizer = _make_summarizer(tmp_path)
 
     result = {
         "estimated_contamination": 18.0,
@@ -101,7 +113,7 @@ def test_low_data_regime_below_5_proteins_uses_legacy_rule(tmp_path: Path) -> No
         tree_nn_results={},
         best_hits={},
         attribution_mode=mode,
-    )
+    ).features
     assert features["per_contig_classifier_active"] is False
     assert features["cellular_coherent_contig_count"] == 0
 
@@ -113,9 +125,7 @@ def test_novel_virus_downgrade_to_uncertain(tmp_path: Path) -> None:
     downgrades from ``mixed_viral`` to ``uncertain`` — this is the
     novel-virus-with-HGT-scatter pattern, not real multi-viral mixing."""
 
-    stage_db_resources(tmp_path, markers=False)
-    summarizer = FullSummarizer(tmp_path)
-    summarizer.contamination_scorer.ml_threshold = 5.0
+    summarizer = _make_summarizer(tmp_path)
 
     result = {
         "estimated_contamination": 27.0,
@@ -127,9 +137,7 @@ def test_novel_virus_downgrade_to_uncertain(tmp_path: Path) -> None:
 
 def test_mixed_evidence_only_is_not_labeled_cellular(tmp_path: Path) -> None:
 
-    stage_db_resources(tmp_path, markers=False)
-    summarizer = FullSummarizer(tmp_path)
-    summarizer.contamination_scorer.ml_threshold = 5.0
+    summarizer = _make_summarizer(tmp_path)
 
     result = {
         "estimated_contamination": 27.0,
@@ -144,6 +152,45 @@ def test_mixed_evidence_only_is_not_labeled_cellular(tmp_path: Path) -> None:
     assert summarizer._classify_contamination_type(result) == "uncertain"
 
 
+@pytest.mark.parametrize(
+    ("source", "contamination_type"),
+    [
+        ("phage", "phage"),
+        ("duplication", "duplication"),
+        ("viral_mixture", "mixed_viral"),
+        ("none", "uncertain"),
+    ],
+)
+def test_independent_evidence_names_the_type_when_only_mixed_contigs_are_cellular(
+    tmp_path: Path, source: str, contamination_type: str
+) -> None:
+    summarizer = _make_summarizer(tmp_path)
+
+    result = {
+        "estimated_contamination": 27.0,
+        "contamination_source_v1": source,
+        "cellular_coherent_contig_count": 2,
+        "mixed_evidence_contig_count": 2,
+    }
+
+    assert summarizer._classify_contamination_type(result) == contamination_type
+
+
+def test_a_pure_cellular_contig_beside_mixed_contigs_is_cellular(
+    tmp_path: Path,
+) -> None:
+    summarizer = _make_summarizer(tmp_path)
+
+    result = {
+        "estimated_contamination": 27.0,
+        "contamination_source_v1": "phage",
+        "cellular_coherent_contig_count": 2,
+        "mixed_evidence_contig_count": 1,
+    }
+
+    assert summarizer._classify_contamination_type(result) == "cellular"
+
+
 def test_mixed_viral_preserved_when_multi_giant_virus_with_no_viral_bearing_contigs(
     tmp_path: Path,
 ) -> None:
@@ -151,9 +198,7 @@ def test_mixed_viral_preserved_when_multi_giant_virus_with_no_viral_bearing_cont
     multi-viral-order but has too few viral_bearing contigs keeps the
     legacy ``mixed_viral`` label."""
 
-    stage_db_resources(tmp_path, markers=False)
-    summarizer = FullSummarizer(tmp_path)
-    summarizer.contamination_scorer.ml_threshold = 5.0
+    summarizer = _make_summarizer(tmp_path)
 
     result = {
         "estimated_contamination": 27.0,
@@ -183,7 +228,8 @@ def test_weak_attribution_emits_info_log(tmp_path: Path, caplog) -> None:
     features = scorer.collect_contig_features(
         query_fna=Path("/nonexistent.fna"),
         query_faa=query_faa,
-        blast_dir=blast_dir,
+        scan=scorer.scan_blast_dir(blast_dir),
+        evidence=QueryEvidence({}, {}, {}),
         primary_order="",
         primary_family="",
         tree_nn_results={},

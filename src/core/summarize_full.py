@@ -1,6 +1,4 @@
-"""
-Full summarization module for GVClass results matching original output format.
-"""
+"""Full summarization module for GVClass results matching original output format."""
 
 import logging
 import math
@@ -11,10 +9,8 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 import pandas as pd
 
 from src.config.marker_sets import CAPS_MARKER_GROUP
-from src.core.contamination_scoring import (
-    ContaminationScorer,
-    create_contamination_scorer,
-)
+from src.core.contamination_scoring import create_contamination_scorer
+from src.core.labels import LabelIndex
 from src.core.novelty_completeness import create_novelty_completeness_scorer
 from src.core.summarize import (
     consensus,
@@ -24,10 +20,14 @@ from src.core.summarize import (
     paths_stats,
     tax_format,
 )
+from src.core.summarize.paths_stats import QueryEvidence
 from src.core.weighted_completeness import create_weighted_calculator
 from src.utils.resource_store import ResourceStore
 
 logger = logging.getLogger(__name__)
+
+#: Rule-based contamination sources that do not depend on the cellular contigs.
+INDEPENDENT_CONTAMINATION_SOURCES = frozenset({"phage", "duplication", "viral_mixture"})
 
 
 # ``_dominant`` and the caps-group whitelist moved to
@@ -74,11 +74,6 @@ class FullSummarizer:
     called with.
     """
 
-    # Empty label index until ``__init__`` loads one. ``_add_marker_metrics``
-    # reads it before delegating, so a ``__new__``-constructed instance keeps
-    # the no-label branches (e.g. a PLV count with no marker tree) working.
-    labels_dict: Dict[str, List[str]] = {}
-
     def __init__(
         self,
         database_path: Path,
@@ -98,10 +93,11 @@ class FullSummarizer:
         self.database_path = database_path
         self.completeness_mode = completeness_mode
         self.sensitive_mode = sensitive_mode
-        self.labels_file = ResourceStore(database_path).label_path("labels.tsv")
+        self.labels = LabelIndex.load(
+            ResourceStore(database_path).label_path("labels.tsv")
+        )
         self.completeness_table = database_path / "markers" / "order_completeness.tab"
-        self.order_stats_df = self._load_order_stats()
-        self.labels_dict = labels_taxonomy.load_labels(self.labels_file)
+        self.order_stats_df = pd.read_csv(self.completeness_table, sep="\t")
 
         # Initialize weighted completeness calculator
         self.weighted_calculator = create_weighted_calculator(database_path)
@@ -109,14 +105,6 @@ class FullSummarizer:
         self.contamination_scorer = create_contamination_scorer(
             database_path, sensitive_mode=sensitive_mode
         )
-
-    def _load_order_stats(self) -> pd.DataFrame:
-        """Load order-level marker recovery baselines used for completeness scaling."""
-        try:
-            return pd.read_csv(self.completeness_table, sep="\t")
-        except Exception as e:
-            logger.error(f"Error loading order completeness table: {e}")
-            return pd.DataFrame()
 
     def _add_taxonomy_summary(
         self,
@@ -142,10 +130,8 @@ class FullSummarizer:
     def _add_marker_metrics(
         self,
         result: Dict[str, Any],
-        marker_counts: Dict[str, int],
-        marker_hits: Optional[Dict[str, Set[str]]] = None,
+        evidence: QueryEvidence,
         tree_nn_results: Optional[Dict[str, Dict[str, Dict[str, float]]]] = None,
-        marker_scores: Optional[Dict[str, Dict[str, float]]] = None,
     ) -> None:
         """Populate marker-based metrics for the query."""
         # Per-protein nearest-neighbour domain (from the marker trees) buckets
@@ -153,34 +139,29 @@ class FullSummarizer:
         # places with NCLDV is not credited to that panel. None on a counts-only
         # resume, where vp/mirus fall back to raw category presence.
         protein_domain = (
-            labels_taxonomy._protein_nearest_domain(self.labels_dict, tree_nn_results)
+            labels_taxonomy.protein_nearest_domain(self.labels, tree_nn_results)
             if tree_nn_results
             else None
         )
-        # The tree-aware PLV count and the capsid tally need ``labels_dict``, so
+        # The tree-aware PLV count and the capsid tally need the label index, so
         # they are computed here and passed in, each under the same guard as the
         # branch that consumed it.
         plv_tree_count = (
-            labels_taxonomy._plv_count_tree_aware(
-                self.labels_dict, marker_hits, tree_nn_results
+            labels_taxonomy.plv_count_tree_aware(
+                self.labels, evidence.hits, tree_nn_results
             )
-            if marker_hits
+            if evidence.hits
             else 0
         )
         capsid_group = (
-            labels_taxonomy._capsid_group_counter(self.labels_dict, tree_nn_results)
+            labels_taxonomy.capsid_group_counter(self.labels, tree_nn_results)
             if tree_nn_results
             and any(m in tree_nn_results for m in ("mcp_ncldv", "mcp_mirus", "mcp_plv"))
             else ""
         )
         result.update(
             marker_panels._add_marker_metrics(
-                marker_counts,
-                marker_hits,
-                marker_scores,
-                protein_domain,
-                plv_tree_count,
-                capsid_group,
+                evidence, protein_domain, plv_tree_count, capsid_group
             )
         )
 
@@ -189,31 +170,22 @@ class FullSummarizer:
         result: Dict[str, Any],
         query_id: str,
         query_output_dir: Path,
-        marker_counts: Dict[str, int],
+        evidence: QueryEvidence,
         tax_counters: Dict[str, Counter],
         accepted_lineage: dict[str, str],
         tree_nn_results: Optional[Dict[str, Dict[str, Dict[str, float]]]] = None,
     ) -> None:
         """Populate contamination metrics (rule-based, then ML override if available)."""
-        precomputed_blast = None
-        if type(self.contamination_scorer) is ContaminationScorer:
-            try:
-                precomputed_blast = self.contamination_scorer._scan_blast_dir(
-                    query_output_dir / "blastp_out"
-                )
-            except Exception as exc:
-                logger.warning("Failed to pre-scan blast directory: %s", exc)
-
-        rule_kwargs: Dict[str, Any] = {
-            "result": result,
-            "marker_counts": marker_counts,
-            "tax_counters": tax_counters,
-            "query_output_dir": query_output_dir,
-            "accepted_lineage": accepted_lineage,
-        }
-        if precomputed_blast is not None:
-            rule_kwargs["best_hits"] = precomputed_blast[0]
-        result.update(self.contamination_scorer.score_rule_based(**rule_kwargs))
+        scan = self.contamination_scorer.scan_blast_dir(query_output_dir / "blastp_out")
+        result.update(
+            self.contamination_scorer.score_rule_based(
+                result,
+                evidence,
+                tax_counters,
+                scan.best_hits,
+                accepted_lineage=accepted_lineage,
+            )
+        )
 
         # Collect contig-level features and apply the trained ML model.
         try:
@@ -221,18 +193,14 @@ class FullSummarizer:
             primary_family = accepted_lineage.get("family", "")
             query_fna = paths_stats._resolve_query_fna_path(query_id, query_output_dir)
             query_faa = paths_stats._resolve_query_faa_path(query_id, query_output_dir)
-            contig_kwargs: Dict[str, Any] = {
-                "tree_nn_results": tree_nn_results or {},
-            }
-            if precomputed_blast is not None:
-                contig_kwargs["_precomputed_blast"] = precomputed_blast
             contig_features_raw = self.contamination_scorer.collect_contig_features(
                 query_fna,
                 query_faa,
-                query_output_dir / "blastp_out",
+                scan,
+                evidence,
                 primary_order,
                 primary_family,
-                **contig_kwargs,
+                tree_nn_results or {},
             )
             contig_features = {
                 "suspicious_bp_fraction_v2": contig_features_raw[
@@ -345,14 +313,21 @@ class FullSummarizer:
         # scattered HGT-leaning tree placements.
         cellular_coherent = int(result.get("cellular_coherent_contig_count", 0) or 0)
         mixed_evidence = int(result.get("mixed_evidence_contig_count", 0) or 0)
-        if mixed_evidence > 0 and mixed_evidence == cellular_coherent:
+        pure_cellular = cellular_coherent - mixed_evidence
+        source = str(result.get("contamination_source_v1", "none") or "none")
+        # Mixed contigs carry viral proteins too. When all coherent cellular
+        # evidence sits on them, only a signal that does not depend on the
+        # cellular contigs can name the source.
+        if (
+            mixed_evidence > 0
+            and pure_cellular == 0
+            and source not in INDEPENDENT_CONTAMINATION_SOURCES
+        ):
             return "uncertain"
         if estimated < self._contamination_reporting_threshold():
             return "clean"
-        if cellular_coherent >= 1:
+        if pure_cellular >= 1:
             return "cellular"
-
-        source = str(result.get("contamination_source_v1", "none") or "none")
 
         # v1.4.3 Phase 2: downgrade `mixed_viral` to `uncertain` when the
         # per-contig classifier found zero cellular_coherent contigs AND
@@ -390,7 +365,7 @@ class FullSummarizer:
             tax_counters,
             per_marker_lineage_counters,
             distances,
-        ) = labels_taxonomy._collect_taxonomy_counts(self.labels_dict, tree_nn_results)
+        ) = labels_taxonomy.collect_taxonomy_counts(self.labels, tree_nn_results)
         self._add_taxonomy_summary(
             result,
             tax_counters,
@@ -399,19 +374,9 @@ class FullSummarizer:
             mode_fast,
         )
 
-        counts_file = query_output_dir / "hmmout" / "models.counts"
-        marker_hits_file = query_output_dir / "hmmout" / "models.out.filtered"
-        marker_counts = paths_stats._load_marker_counts(counts_file)
-        marker_hits = paths_stats._load_marker_hits(marker_hits_file)
-        marker_scores = paths_stats._load_marker_scores(marker_hits_file)
-        if marker_counts:
-            self._add_marker_metrics(
-                result,
-                marker_counts,
-                marker_hits,
-                tree_nn_results=tree_nn_results,
-                marker_scores=marker_scores,
-            )
+        evidence = paths_stats.load_query_evidence(query_output_dir)
+        if evidence.counts:
+            self._add_marker_metrics(result, evidence, tree_nn_results)
         else:
             marker_panels._set_default_marker_metrics(result)
 
@@ -426,14 +391,14 @@ class FullSummarizer:
             self.novelty_scorer,
             self.completeness_mode,
             result,
-            counts_file,
+            evidence.counts,
             accepted_lineage,
         )
         self._add_contamination_metrics(
             result,
             query_id,
             query_output_dir,
-            marker_counts,
+            evidence,
             tax_counters,
             accepted_lineage=accepted_lineage,
             tree_nn_results=tree_nn_results,

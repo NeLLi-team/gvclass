@@ -10,19 +10,26 @@ Covers:
 
 from __future__ import annotations
 
-from tests.conftest import RESOURCES_ROOT, skip_if_no_runtime_resources
-
-pytestmark = skip_if_no_runtime_resources()
-
-from collections import Counter
 import math
+from collections import Counter
 from pathlib import Path
 from types import SimpleNamespace
 
 import pandas as pd
+import pytest
 
+from src.core.novelty_completeness import NoveltyAwareCompletenessScorer
 from src.core.summarize import order_completeness, tax_format
 from src.core.summarize_full import FullSummarizer
+from tests.conftest import RESOURCES_ROOT, skip_if_no_runtime_resources
+
+pytestmark = skip_if_no_runtime_resources()
+
+
+def _unavailable_novelty_scorer() -> NoveltyAwareCompletenessScorer:
+    scorer = NoveltyAwareCompletenessScorer.__new__(NoveltyAwareCompletenessScorer)
+    scorer.available = False
+    return scorer
 
 
 def test_mirus_taxonomy_uses_broad_mirus_quality_group(tmp_path: Path) -> None:
@@ -35,9 +42,6 @@ def test_mirus_taxonomy_uses_broad_mirus_quality_group(tmp_path: Path) -> None:
         "Order\tAverage_Percent\tStd_Percent\tOrthogroups\n"
         "MIRUS\t50\t5\tOG1, OG2\n"
     )
-    counts_file = tmp_path / "models.counts"
-    counts_file.write_text("OG1\t1\n")
-
     class _Weighted:
         def calculate_weighted_completeness(self, **_kwargs):
             return 50.0, 80.0, {}
@@ -47,10 +51,10 @@ def test_mirus_taxonomy_uses_broad_mirus_quality_group(tmp_path: Path) -> None:
         completeness_table,
         pd.read_csv(completeness_table, sep="\t"),
         _Weighted(),
-        SimpleNamespace(available=False),
+        _unavailable_novelty_scorer(),
         "novelty-aware",
         result,
-        counts_file,
+        {"OG1": 1},
         accepted_lineage,
     )
 
@@ -68,18 +72,16 @@ def test_supported_group_with_no_marker_evidence_is_unavailable(
         "Order\tAverage_Percent\tStd_Percent\tOrthogroups\n"
         "Asfuvirales\t50\t5\tOG1, OG2\n"
     )
-    counts_file = tmp_path / "models.counts"
-    counts_file.write_text("")
     result = {}
 
     order_completeness._add_order_metrics(
         completeness_table,
         pd.read_csv(completeness_table, sep="\t"),
         SimpleNamespace(),
-        SimpleNamespace(available=False),
+        _unavailable_novelty_scorer(),
         "novelty-aware",
         result,
-        counts_file,
+        {},
         tax_format.parse_taxonomy_majority(
             "d_NCLDV;p_Nucleocytoviricota;c_Megaviricetes;"
             "o_Asfuvirales;f_Asfarviridae;g_;s_"
@@ -88,6 +90,77 @@ def test_supported_group_with_no_marker_evidence_is_unavailable(
 
     assert math.isnan(result["estimated_completeness"])
     assert result["completeness_query_support"] == "insufficient_evidence"
+
+
+@pytest.mark.parametrize("baseline", ["nan", "inf"])
+def test_non_finite_order_baseline_makes_completeness_unavailable(
+    tmp_path: Path, baseline: str
+) -> None:
+    completeness_table = tmp_path / "order_completeness.tab"
+    completeness_table.write_text(
+        "Order\tAverage_Percent\tStd_Percent\tOrthogroups\n"
+        f"Asfuvirales\t{baseline}\t5\tOG1, OG2\n"
+    )
+    result = {}
+
+    order_completeness._add_order_metrics(
+        completeness_table,
+        pd.read_csv(completeness_table, sep="\t"),
+        SimpleNamespace(),
+        _unavailable_novelty_scorer(),
+        "novelty-aware",
+        result,
+        {"OG1": 1},
+        tax_format.parse_taxonomy_majority("d_NCLDV;o_Asfuvirales"),
+    )
+
+    assert math.isnan(result["order_completeness"])
+    assert math.isnan(result["estimated_completeness"])
+    assert result["completeness_query_support"] == "unavailable"
+
+
+@pytest.mark.parametrize("mode", ["novelty-aware", "legacy"])
+def test_unavailable_novelty_resources_still_fill_every_v2_key(
+    tmp_path: Path, mode: str
+) -> None:
+    completeness_table = tmp_path / "order_completeness.tab"
+    completeness_table.write_text(
+        "Order\tAverage_Percent\tStd_Percent\tOrthogroups\n"
+        "Asfuvirales\t50\t5\tOG1, OG2\n"
+    )
+
+    class _Weighted:
+        def calculate_weighted_completeness(self, **_kwargs):
+            return 50.0, 80.0, {}
+
+    result = {}
+
+    order_completeness._add_order_metrics(
+        completeness_table,
+        pd.read_csv(completeness_table, sep="\t"),
+        _Weighted(),
+        _unavailable_novelty_scorer(),
+        mode,
+        result,
+        {"OG1": 1},
+        tax_format.parse_taxonomy_majority("d_NCLDV;o_Asfuvirales"),
+    )
+
+    v2_keys = {key for key in result if key.startswith("order_completeness_v2")}
+    assert v2_keys == {
+        "order_completeness_v2",
+        "order_completeness_v2_strategy",
+        "order_completeness_v2_strategy2_raw",
+        "order_completeness_v2_strategy2_normalized",
+        "order_completeness_v2_support_score",
+        "order_completeness_v2_ood_flag",
+        "order_completeness_v2_reference_group",
+        "order_completeness_v2_validation_mode",
+        "order_completeness_v2_informative_fraction",
+    }
+    assert math.isnan(result["order_completeness_v2"])
+    assert result["order_completeness_v2_strategy"] == "unavailable"
+    assert result["estimated_completeness"] == 100.0
 
 
 def test_full_summary_with_no_evidence_has_no_quality_claim(tmp_path: Path) -> None:

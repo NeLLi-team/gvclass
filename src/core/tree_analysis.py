@@ -3,22 +3,26 @@ Tree analysis module for extracting nearest neighbors from phylogenetic trees.
 """
 
 import logging
+from collections.abc import Sequence
+from functools import cached_property
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional, Sequence, Union
+
 from ete3 import Tree
+
+from src.core.labels import LabelIndex
 
 logger = logging.getLogger(__name__)
 
-PrefixFilter = Union[str, Sequence[str]]
+PrefixFilter = str | Sequence[str]
 
 
-def _prefix_tuple(keep_prefix: PrefixFilter) -> Tuple[str, ...]:
+def _prefix_tuple(keep_prefix: PrefixFilter) -> tuple[str, ...]:
     if isinstance(keep_prefix, str):
         return (keep_prefix,)
     return tuple(keep_prefix)
 
 
-def _is_query_leaf(leaf_name: Optional[str], query_id: str) -> bool:
+def _is_query_leaf(leaf_name: str | None, query_id: str) -> bool:
     """Return True if ``leaf_name`` belongs to ``query_id`` rather than a reference."""
     if not leaf_name or not query_id:
         return False
@@ -42,48 +46,19 @@ class TreeAnalyzer:
         Args:
             labels_file: Path to labels file mapping genome IDs to taxonomy
         """
-        self.labels_file = labels_file
-        self.labels_dict = self.load_labels()
+        self.labels = LabelIndex.load(labels_file)
 
-    def load_labels(self) -> Dict[str, str]:
-        """Load taxonomy labels from file."""
-        labels: dict[str, str] = {}
-        line_count = 0
-        try:
-            with self.labels_file.open(encoding="utf-8") as handle:
-                for line_count, line in enumerate(handle, start=1):
-                    stripped = line.rstrip("\r\n")
-                    if not stripped or stripped.startswith("#"):
-                        continue
-                    parts = stripped.split("\t")
-                    if len(parts) != 2 or not parts[0] or not parts[1]:
-                        raise ValueError(
-                            f"Malformed required taxonomy label record in "
-                            f"{self.labels_file} at line {line_count}: expected "
-                            "nonempty genome ID and taxonomy separated by one tab"
-                        )
-                    labels[parts[0]] = parts[1]
-        except OSError as exc:
-            raise OSError(
-                f"Failed to read required taxonomy labels {self.labels_file}: {exc}"
-            ) from exc
-
-        if not labels:
-            raise ValueError(
-                f"Required taxonomy labels file {self.labels_file} has no records"
-            )
-        logger.info(
-            "Loaded %d labels from %d lines in %s",
-            len(labels),
-            line_count,
-            self.labels_file,
-        )
-
-        return labels
+    @cached_property
+    def labels_dict(self) -> dict[str, str]:
+        """Map genome ID to ``domain|phylum|...|species`` (read by the species tree)."""
+        return {
+            genome_id: "|".join(lineage)
+            for genome_id, lineage in self.labels.lineages.items()
+        }
 
     def get_neighbors_from_tree(
         self, tree_file: Path, query_id: str
-    ) -> Dict[str, Dict[str, float]]:
+    ) -> dict[str, dict[str, float]]:
         """Extract nearest neighbors for query sequences in a tree.
 
         Args:
@@ -175,7 +150,7 @@ class TreeAnalyzer:
         query_id: str,
         k: int = 50,
         keep_prefix: PrefixFilter = "NCLDV__",
-    ) -> List[Tuple[str, str, float]]:
+    ) -> list[tuple[str, str, float]]:
         """Return up to ``k`` nearest reference genomes to the query in a gene tree.
 
         Generalises :meth:`_find_nearest_neighbor` (the references at the minimal
@@ -186,9 +161,9 @@ class TreeAnalyzer:
         distance is computed, so only candidate references incur a distance call.
 
         Distances are aggregated to the genome level: for each reference genome
-        (resolved via :meth:`_extract_genome_id`) the nearest protein to any query
-        leaf is kept, so the returned ``protein_id`` is the specific placed paralog
-        that Section 3 preserves as that genome's representative.
+        (resolved via :meth:`LabelIndex.resolve_genome_id`) the nearest protein to
+        any query leaf is kept, so the returned ``protein_id`` is the specific
+        placed paralog that Section 3 preserves as that genome's representative.
 
         Args:
             tree_file: Newick gene tree for one GVOG8 group. Missing or
@@ -235,7 +210,7 @@ class TreeAnalyzer:
             return []
 
         # Nearest protein (and its distance) per reference genome.
-        best_per_genome: Dict[str, Tuple[str, float]] = {}
+        best_per_genome: dict[str, tuple[str, float]] = {}
         for candidate in candidates:
             min_dist = float("inf")
             for query_node in query_nodes:
@@ -245,7 +220,7 @@ class TreeAnalyzer:
             if min_dist == float("inf"):
                 continue
 
-            genome_id = self._extract_genome_id(candidate.name)
+            genome_id = self.labels.resolve_genome_id(candidate.name)
             current = best_per_genome.get(genome_id)
             if (
                 current is None
@@ -264,40 +239,8 @@ class TreeAnalyzer:
         return ranked[:k]
 
     def _extract_genome_id(self, protein_id: str) -> str:
-        """
-        Extract genome ID from a protein ID for labels lookup.
-
-        Protein IDs can have formats like:
-        - PPV__IMGVR_UViG_3300044959|000235_9 -> PPV__IMGVR_UViG_3300044959|000235
-        - NCLDV__GCA_000123456|contig_1_42 -> NCLDV__GCA_000123456|contig_1
-        - simple_genome_id -> simple_genome_id
-
-        The protein suffix is typically _N where N is a number at the end.
-
-        Args:
-            protein_id: Full protein identifier from tree
-
-        Returns:
-            Genome/contig ID suitable for labels lookup
-        """
-        import re
-
-        # First try: check if the full ID (minus trailing _digits) is in labels
-        # This handles: PPV__IMGVR_UViG_3300044959|000235_9 -> PPV__IMGVR_UViG_3300044959|000235
-        stripped = re.sub(r"_\d+$", "", protein_id)
-        if stripped in self.labels_dict:
-            return stripped
-
-        # Second try: just the part before | (for older format entries)
-        # This handles: genome_id|protein_id -> genome_id
-        if "|" in protein_id:
-            base_id = protein_id.split("|")[0]
-            if base_id in self.labels_dict:
-                return base_id
-
-        # Third try: strip protein suffix from full ID even if not in labels
-        # (for writing to tree_nn file - taxonomy will be "unknown")
-        return stripped
+        """Return the genome ID of a protein ID (the species-tree code calls this)."""
+        return self.labels.resolve_genome_id(protein_id)
 
     def process_marker_trees(
         self,
@@ -306,7 +249,7 @@ class TreeAnalyzer:
         output_file: Path,
         *,
         tree_paths: Sequence[Path] | None = None,
-    ) -> Dict[str, Dict[str, Dict[str, float]]]:
+    ) -> dict[str, dict[str, dict[str, float]]]:
         """Process marker trees for a query and write results.
 
         Args:
@@ -378,46 +321,16 @@ class TreeAnalyzer:
                 for marker, query_neighbors in all_neighbors.items():
                     for query_protein, neighbors in query_neighbors.items():
                         for neighbor, distance in neighbors.items():
-                            # Extract genome ID from protein ID
-                            # Protein IDs have format: genome_id|contig_protein
-                            # e.g., PPV__IMGVR_UViG_3300044959|000235_9
-                            # Labels use: PPV__IMGVR_UViG_3300044959|000235
-                            # Need to strip protein suffix (_N) from the end
-                            genome_id = self._extract_genome_id(neighbor)
+                            lineage = self.labels.lineages.get(
+                                self.labels.resolve_genome_id(neighbor)
+                            )
                             tax_str = "unknown"
-
-                            if genome_id in self.labels_dict:
-                                label_str = self.labels_dict[genome_id]
-                                if "|" in label_str:
-                                    tax_parts = label_str.split("|")
-                                    # Format: kingdom;order;family;genus (skip empty values)
-                                    if len(tax_parts) >= 7:
-                                        kingdom = tax_parts[0].strip() or "unknown"
-                                        order = tax_parts[3].strip()
-                                        family = tax_parts[4].strip()
-                                        genus = tax_parts[5].strip()
-                                        tax_str = f"{kingdom};{order};{family};{genus}"
-                                    elif len(tax_parts) >= 5:
-                                        kingdom = tax_parts[0].strip() or "unknown"
-                                        order = (
-                                            tax_parts[2].strip()
-                                            if len(tax_parts) > 2
-                                            else ""
-                                        )
-                                        family = (
-                                            tax_parts[3].strip()
-                                            if len(tax_parts) > 3
-                                            else ""
-                                        )
-                                        genus = (
-                                            tax_parts[4].strip()
-                                            if len(tax_parts) > 4
-                                            else ""
-                                        )
-                                        tax_str = f"{kingdom};{order};{family};{genus}"
-                                else:
-                                    # Handle non-standard format
-                                    tax_str = label_str.strip() or "unknown"
+                            if lineage is not None:
+                                # domain;order;family;genus
+                                tax_str = (
+                                    f"{lineage[0] or 'unknown'};"
+                                    f"{lineage[3]};{lineage[4]};{lineage[5]}"
+                                )
 
                             f.write(
                                 f"{marker}\t{query_protein}\t{neighbor}\t{distance:.6f}\t{tax_str}\n"

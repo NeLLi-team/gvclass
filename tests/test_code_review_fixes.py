@@ -95,7 +95,7 @@ def test_marker_trees_use_7_rank_indices(
     assert "GVOGm0003" in all_neighbors
 
     content = output_tsv.read_text()
-    assert "d_Viruses;o_Imitervirales;f_Mimiviridae;g_Mimivirus" in content
+    assert "NCLDV;o_Imitervirales;f_Mimiviridae;g_Mimivirus" in content
 
 
 def test_protein_to_contig_id_only_strips_numeric_cds_suffix() -> None:

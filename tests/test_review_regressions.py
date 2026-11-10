@@ -14,7 +14,9 @@ from Bio.SeqRecord import SeqRecord
 
 from src.bin import gvclass_cli
 from src.core.contamination_scoring import ContaminationScorer
+from src.core.labels import LabelIndex
 from src.core.reformat import reformat_sequences
+from src.core.summarize.paths_stats import QueryEvidence
 from src.pipeline import query_processing_engine
 from src.pipeline.query_processing_engine import _initialize_query
 from src.pipeline.run_config import plan_workers
@@ -140,10 +142,20 @@ def test_single_contig_keeps_one_identity_for_nucleotide_and_protein_records(
     ]
     (blast / "OG1.m8").write_text("\n".join(rows) + "\n", encoding="utf-8")
     scorer = ContaminationScorer.__new__(ContaminationScorer)
-    scorer.labels = {"BAC__ref": {"domain": "BAC", "order": "OrderA", "family": "FamA"}}
+    scorer.labels = LabelIndex.from_taxonomy(
+        {"BAC__ref": ["BAC", "", "", "OrderA", "FamA"]}
+    )
     tree_neighbors = {"OG1": {name: {"BAC__ref|p1": 0.1} for name in query_ids}}
 
-    result = scorer.collect_contig_features(fna, faa, blast, "", "", tree_neighbors)
+    result = scorer.collect_contig_features(
+        fna,
+        faa,
+        scorer.scan_blast_dir(blast),
+        QueryEvidence({}, {}, {}),
+        "",
+        "",
+        tree_neighbors,
+    )
 
     assert result["contig_count"] == 1
     assert result["suspicious_bp_fraction"] == 100.0

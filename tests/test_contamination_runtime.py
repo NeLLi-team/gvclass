@@ -9,6 +9,7 @@ from unittest.mock import Mock
 
 import pytest
 
+from src.core.summarize.paths_stats import QueryEvidence
 from src.core.summarize_full import FullSummarizer
 from src.pipeline.query_processing_engine import _write_contamination_candidates_file
 from src.pipeline.summary_writer import FINAL_SUMMARY_COLUMNS
@@ -65,7 +66,7 @@ def test_add_contamination_metrics_requires_trained_model(
             result={},
             query_id="query1",
             query_output_dir=tmp_path / "query1",
-            marker_counts={},
+            evidence=QueryEvidence({}, {}, {}),
             tax_counters={"order": Counter(), "family": Counter()},
             accepted_lineage={},
         )
@@ -113,7 +114,7 @@ def test_add_contamination_metrics_uses_ml_estimate_and_query_fna_path(
         result=result,
         query_id="query1",
         query_output_dir=query_output_dir,
-        marker_counts={},
+        evidence=QueryEvidence({}, {}, {}),
         tax_counters={"order": Counter(), "family": Counter()},
         accepted_lineage={},
     )
@@ -305,7 +306,7 @@ def test_sensitive_mode_invokes_trained_model(
         result=result,
         query_id="query1",
         query_output_dir=query_output_dir,
-        marker_counts={},
+        evidence=QueryEvidence({}, {}, {}),
         tax_counters={"order": Counter(), "family": Counter()},
         accepted_lineage={},
     )
@@ -346,7 +347,7 @@ def test_standard_mode_still_raises_when_model_missing(
             result={},
             query_id="query1",
             query_output_dir=tmp_path / "query1",
-            marker_counts={},
+            evidence=QueryEvidence({}, {}, {}),
             tax_counters={"order": Counter(), "family": Counter()},
             accepted_lineage={},
         )

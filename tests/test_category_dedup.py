@@ -1,14 +1,16 @@
 from collections import Counter
-from pathlib import Path
 
 from src.config.marker_sets import BUSCO_MODELS, PHAGE_MODELS, UNI56_MODELS
 from src.core.contamination_scoring import ContaminationScorer
+from src.core.labels import LabelIndex
 from src.core.summarize import labels_taxonomy, marker_panels
+from src.core.summarize.paths_stats import QueryEvidence
 from src.core.summarize_full import FullSummarizer
 
 
 def test_add_marker_metrics_deduplicates_proteins_within_categories():
     summarizer = FullSummarizer.__new__(FullSummarizer)
+    summarizer.labels = LabelIndex.from_taxonomy({})
     marker_hits = {
         "OG1352": {"ncldv_p1"},
         "OG484": {"ncldv_p1", "ncldv_p2", "ncldv_p4"},
@@ -32,7 +34,9 @@ def test_add_marker_metrics_deduplicates_proteins_within_categories():
     marker_counts = {marker: len(proteins) for marker, proteins in marker_hits.items()}
 
     result = {}
-    summarizer._add_marker_metrics(result, marker_counts, marker_hits)
+    summarizer._add_marker_metrics(
+        result, QueryEvidence(marker_counts, marker_hits, {})
+    )
 
     assert result["ncldv_mcp_total"] == 4
     assert result["vp_completeness"] == "3/4"
@@ -69,7 +73,7 @@ def test_mrya_consolidation_excludes_grouped_nonmrya_winners():
 
     result = {}
     summarizer._add_marker_metrics(
-        result, marker_counts, marker_hits=None, marker_scores=marker_scores
+        result, QueryEvidence(marker_counts, {}, marker_scores)
     )
 
     assert result["mrya_completeness"] == "2/6"  # ATPase + HUH, not VLTF3
@@ -82,7 +86,7 @@ def test_mrya_falls_back_to_raw_panel_without_scores():
     marker_counts = {"VLTF3": 1, "ATPase": 2, "GVOGm0890": 1, "GVOGm0760": 1}
 
     result = {}
-    summarizer._add_marker_metrics(result, marker_counts, marker_hits=None)
+    summarizer._add_marker_metrics(result, QueryEvidence(marker_counts, {}, {}))
 
     assert result["mrya_completeness"] == "2/6"  # VLTF3 + ATPase, no consolidation
 
@@ -102,7 +106,7 @@ def test_cog_consolidation_excludes_grouped_rna_pol():
 
     result = {}
     summarizer._add_marker_metrics(
-        result, marker_counts, marker_hits=None, marker_scores=marker_scores
+        result, QueryEvidence(marker_counts, {}, marker_scores)
     )
 
     assert result["cog_completeness"] == "1/56"  # COG0013 only, COG0085 dropped
@@ -141,23 +145,22 @@ def test_mirus_completeness_is_tree_bucketed():
 def test_protein_nearest_domain_min_distance_and_label_lookup():
     """Each protein is bucketed to the domain of its single nearest tree neighbour
     across all trees; neighbours absent from labels are skipped."""
-    labels_dict = {"NCLDV__g1": ["NCLDV"], "PPV__g2": ["PPV"]}
+    labels = LabelIndex.from_taxonomy({"NCLDV__g1": ["NCLDV"], "PPV__g2": ["PPV"]})
     tree_nn = {
         # nearest neighbour (0.05) is unlabeled -> skipped; PPV at 0.20 then wins
         # over the NCLDV placement at 0.40 in another tree.
         "g_mcp": {"p1": {"UNKNOWN__x": 0.05, "PPV__g2": 0.20}},
         "g_atp": {"p1": {"NCLDV__g1": 0.40}},
     }
-    domains = labels_taxonomy._protein_nearest_domain(labels_dict, tree_nn)
+    domains = labels_taxonomy.protein_nearest_domain(labels, tree_nn)
     assert domains["p1"] == "PPV"
 
     # No tree placements -> empty mapping.
-    assert labels_taxonomy._protein_nearest_domain(labels_dict, {}) == {}
+    assert labels_taxonomy.protein_nearest_domain(labels, {}) == {}
 
 
-def test_rule_based_contamination_uses_unique_proteins_for_category_totals(tmp_path):
+def test_rule_based_contamination_uses_unique_proteins_for_category_totals():
     scorer = ContaminationScorer.__new__(ContaminationScorer)
-    scorer.collect_best_blast_hits = lambda blast_dir: {}
     accepted_context = {}
 
     def compute_blast_features(best_hits, primary_order, primary_family):
@@ -182,23 +185,12 @@ def test_rule_based_contamination_uses_unique_proteins_for_category_totals(tmp_p
         "order_secondary_fraction": 0.0,
         "family_secondary_fraction": 0.0,
     }
-    query_output_dir = Path(tmp_path)
-    hmmout_dir = query_output_dir / "hmmout"
-    hmmout_dir.mkdir()
-    (hmmout_dir / "models.out.filtered").write_text(
-        "\n".join(
-            [
-                f"cell_p1\t-\t-\t{BUSCO_MODELS[0]}",
-                f"cell_p1\t-\t-\t{UNI56_MODELS[0]}",
-                f"cell_p2\t-\t-\t{UNI56_MODELS[0]}",
-                f"phage_p1\t-\t-\t{PHAGE_MODELS[0]}",
-                f"phage_p1\t-\t-\t{PHAGE_MODELS[1]}",
-                f"phage_p2\t-\t-\t{PHAGE_MODELS[1]}",
-            ]
-        )
-        + "\n"
-    )
-
+    marker_hits = {
+        BUSCO_MODELS[0]: {"cell_p1"},
+        UNI56_MODELS[0]: {"cell_p1", "cell_p2"},
+        PHAGE_MODELS[0]: {"phage_p1"},
+        PHAGE_MODELS[1]: {"phage_p1", "phage_p2"},
+    }
     marker_counts = {
         BUSCO_MODELS[0]: 1,
         UNI56_MODELS[0]: 2,
@@ -208,13 +200,13 @@ def test_rule_based_contamination_uses_unique_proteins_for_category_totals(tmp_p
 
     result = scorer.score_rule_based(
         result={"order_dup": 1.0, "gvog8_dup": 1.0},
-        marker_counts=marker_counts,
+        evidence=QueryEvidence(marker_counts, marker_hits, {}),
+        best_hits={},
         tax_counters={
             "domain": Counter({"NCLDV": 10}),
             "order": Counter({"NCLDV__Imitervirales": 10}),
             "family": Counter({"NCLDV__Mimiviridae": 10}),
         },
-        query_output_dir=query_output_dir,
         accepted_lineage={
             "domain": "NCLDV",
             "order": "Asfuvirales",
