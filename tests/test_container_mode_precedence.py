@@ -1,59 +1,54 @@
-"""Check native mode-flag precedence through both container launchers."""
+"""The container launcher passes mode flags on as typed; the CLI in the image decides.
+
+The precedence of ``--extended`` over ``--mode-fast``, and of ``--no-sensitive``
+over ``--sensitive``, is tested for the command line in ``tests/test_gvclass_cli.py``.
+"""
 
 from __future__ import annotations
 
-import runpy
 import subprocess
 from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[1]
+from tests.launcher_helpers import load_launcher
 
 
-@pytest.mark.parametrize("launcher_path", ["gvclass", "src/bin/gvclass_apptainer.py"])
 @pytest.mark.parametrize(
-    ("flags", "expected"),
+    "flags",
     [
-        ([], []),
-        (["--mode-fast"], ["--mode-fast"]),
-        (["--extended"], ["--extended"]),
-        (["-e"], ["--extended"]),
-        (["--extended", "--mode-fast"], ["--extended"]),
-        (["--mode-fast", "--extended"], ["--extended"]),
-        (["-e", "--mode-fast"], ["--extended"]),
-        (["--mode-fast", "-e"], ["--extended"]),
+        [],
+        ["--mode-fast"],
+        ["--extended"],
+        ["-e"],
+        ["--extended", "--mode-fast"],
+        ["--mode-fast", "--extended"],
+        ["-e", "--mode-fast"],
+        ["--mode-fast", "-e"],
+        ["--sensitive", "--no-sensitive"],
     ],
 )
-def test_container_mode_forwarding(
-    launcher_path: str,
-    flags: list[str],
-    expected: list[str],
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+def test_container_mode_flags_reach_the_image_as_typed(
+    flags: list[str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Extended wins in either order; an absent choice leaves native defaults intact."""
-    namespace = runpy.run_path(str(ROOT / launcher_path))
-    main = namespace.get("_standalone_apptainer_main", namespace["main"])
+    launcher = load_launcher()
     call = Mock(return_value=0)
     monkeypatch.setattr(subprocess, "call", call)
     query = tmp_path / "input"
     query.mkdir()
 
-    assert (
-        main(
-            [
-                str(query),
-                "--image",
-                "local.sif",
-                "--resource-cache-dir",
-                str(tmp_path / "cache"),
-                *flags,
-            ]
-        )
-        == 0
+    code = launcher.container_main(
+        [
+            str(query),
+            "--image",
+            "local.sif",
+            "--resource-cache-dir",
+            str(tmp_path / "cache"),
+            *flags,
+        ]
     )
 
     command = call.call_args.args[0]
-    assert [arg for arg in command if arg in {"--mode-fast", "--extended"}] == expected
+    assert code == 0
+    assert command[command.index("/input") + 1 :] == ["-o", "/output", *flags]

@@ -31,10 +31,13 @@ from src.pipeline.summary_writer import (
     write_final_summary_extended_files,
     write_final_summary_files,
 )
-from src.utils import InputValidator, ValidationError
 from src.utils.database_manager import DatabaseManager
-from src.utils.error_handling import FileError, ProcessingError
-from src.utils.input_validation import RESERVED_QUERY_STEMS, discover_query_files
+from src.utils.error_handling import FileError, ProcessingError, ValidationError
+from src.utils.input_validation import (
+    RESERVED_QUERY_STEMS,
+    InputValidator,
+    discover_query_files,
+)
 
 logger = logging.getLogger("gvclass_runner")
 

@@ -1,5 +1,6 @@
 """Shared fixtures for tests that need the bundled reference models."""
 
+import logging
 import sys
 from pathlib import Path
 
@@ -63,3 +64,22 @@ def stage_db_resources(db_path: Path, *, markers: bool = True) -> None:
         link = db_path / "markers"
         if markers_target.exists() and not (link.exists() or link.is_symlink()):
             link.symlink_to(markers_target)
+
+
+@pytest.fixture
+def isolated_logging():
+    """Undo the logging setup that a call of the runner entry point makes."""
+    root = logging.getLogger()
+    handlers_before = list(root.handlers)
+    level_before = root.level
+    levels_before = {
+        name: logging.getLogger(name).level for name in ("gvclass_runner", "src")
+    }
+    yield
+    for handler in list(root.handlers):
+        if handler not in handlers_before:
+            root.removeHandler(handler)
+            handler.close()
+    root.setLevel(level_before)
+    for name, level in levels_before.items():
+        logging.getLogger(name).setLevel(level)

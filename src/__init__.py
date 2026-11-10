@@ -1,17 +1,13 @@
-"""
-GVClass: Giant Virus Classification Pipeline
+"""GVClass: giant virus classification pipeline.
 
 A bioinformatics tool for assigning taxonomy to giant virus contigs
 or metagenome assembled genomes (GVMAGs).
+
+The package imports nothing at load time: import the module that defines the name.
 """
 
 from src.__version__ import __version__
 
 __author__ = "NeLLi Team"
 
-# Core functionality imports
-from . import config
-from . import core
-from . import utils
-
-__all__ = ["config", "core", "utils", "__version__"]
+__all__ = ["__version__"]

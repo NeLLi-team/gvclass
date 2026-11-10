@@ -1,16 +1,10 @@
-"""Regression tests for defects found by the independent review of the 2.1.0 launcher.
-
-The launcher exists twice, as the ``gvclass`` script and as
-``src.bin.gvclass_apptainer``; each behaviour is checked on both copies.
-"""
+"""Regression tests for defects found by the independent review of 2.1.0."""
 
 from __future__ import annotations
 
 import logging
-import runpy
-import sys
 from pathlib import Path
-from typing import Any
+from types import ModuleType
 from unittest.mock import Mock
 
 import pytest
@@ -18,30 +12,29 @@ from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 
-from src.bin import gvclass_apptainer, gvclass_cli
+from src.bin import gvclass_cli
 from src.core.contamination_scoring import ContaminationScorer
 from src.core.reformat import reformat_sequences
 from src.pipeline import query_processing_engine
 from src.pipeline.query_processing_engine import _initialize_query
 from src.pipeline.run_config import plan_workers
 from src.utils.error_handling import ProcessingError
+from tests.launcher_helpers import load_launcher
 from tests.pipeline_helpers import make_config
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 LOGGER = logging.getLogger(__name__)
 
 
-@pytest.fixture(params=["module", "script"])
-def launcher(request: pytest.FixtureRequest) -> dict[str, Any]:
-    if request.param == "module":
-        return vars(gvclass_apptainer)
-    return runpy.run_path(str(REPO_ROOT / "gvclass"), run_name="gvclass_launcher")
+@pytest.fixture
+def launcher() -> ModuleType:
+    return load_launcher()
 
 
 def test_image_cache_names_differ_for_urls_with_the_same_basename(
-    launcher: dict[str, Any],
+    launcher: ModuleType,
 ) -> None:
-    name = launcher["cache_filename_for_image"]
+    name = launcher.cache_filename_for_image
 
     first = name("https://host-a.example/v1/gvclass.sif")
     second = name("https://host-b.example/v2/gvclass.sif")
@@ -51,8 +44,8 @@ def test_image_cache_names_differ_for_urls_with_the_same_basename(
     assert first == name("https://host-a.example/v1/gvclass.sif")
 
 
-def test_image_cache_name_keeps_the_readable_tag(launcher: dict[str, Any]) -> None:
-    name = launcher["cache_filename_for_image"]
+def test_image_cache_name_keeps_the_readable_tag(launcher: ModuleType) -> None:
+    name = launcher.cache_filename_for_image
 
     oras = name("oras://ghcr.io/nelli-team/gvclass:2.1.1")
     library = name("library://group/collection/gvclass:2.1.0")
@@ -62,9 +55,9 @@ def test_image_cache_name_keeps_the_readable_tag(launcher: dict[str, Any]) -> No
 
 
 def test_image_cache_names_differ_for_one_path_under_different_schemes(
-    launcher: dict[str, Any],
+    launcher: ModuleType,
 ) -> None:
-    name = launcher["cache_filename_for_image"]
+    name = launcher.cache_filename_for_image
     addresses = [
         "oras://ghcr.io/nelli-team/gvclass:2.1.1",
         "docker://ghcr.io/nelli-team/gvclass:2.1.1",
@@ -79,48 +72,25 @@ def test_image_cache_names_differ_for_one_path_under_different_schemes(
     assert names[0] == name(addresses[0])
 
 
-def test_container_run_lets_no_sensitive_win_like_the_native_cli(
-    launcher: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    captured: list[list[str]] = []
-    run_container = launcher["run_container"]
-    monkeypatch.setitem(run_container.__globals__, "ensure_local_image", lambda i: i)
-    monkeypatch.setattr("subprocess.call", lambda cmd: captured.append(list(cmd)) or 0)
-    query = tmp_path / "query"
-    query.mkdir()
-
-    run_container(
-        query,
-        tmp_path / "out",
-        2,
-        "/tmp/image.sif",
-        tmp_path / "cache",
-        sensitive_mode=True,
-        no_sensitive=True,
-    )
-
-    assert "--no-sensitive" in captured[0]
-    assert "--sensitive" not in captured[0]
-
-
 def test_default_output_name_for_the_current_directory(
-    launcher: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    launcher: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     query = tmp_path / "genomes"
     query.mkdir()
     monkeypatch.chdir(query)
 
-    output = launcher["resolve_output_path"](Path(), None, None)
+    output = launcher.default_output_dir(Path())
 
-    assert output == tmp_path / "genomes_results"
+    assert output == Path.cwd() / "genomes_results"
 
 
-def test_repo_detection_ignores_an_unrelated_src_directory(tmp_path: Path) -> None:
-    script = runpy.run_path(str(REPO_ROOT / "gvclass"), run_name="gvclass_launcher")
+def test_repo_detection_ignores_an_unrelated_src_directory(
+    launcher: ModuleType, tmp_path: Path
+) -> None:
     (tmp_path / "src").mkdir()
 
-    assert script["is_gvclass_repo"](tmp_path) is False
-    assert script["is_gvclass_repo"](REPO_ROOT) is True
+    assert launcher.is_gvclass_repo(tmp_path) is False
+    assert launcher.is_gvclass_repo(REPO_ROOT) is True
 
 
 def test_query_initialization_rejects_a_working_directory_that_holds_the_input(
@@ -292,45 +262,24 @@ def test_canonical_gene_outputs_exist_before_quality_scoring(tmp_path, monkeypat
 
 
 def test_container_mode_without_a_query_is_an_error(
-    launcher: dict[str, Any], capsys: pytest.CaptureFixture[str]
+    launcher: ModuleType, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    entry = launcher.get("_standalone_apptainer_main") or launcher["main"]
-
     with pytest.raises(SystemExit) as raised:
-        entry(["-o", "results", "--image", "gvclass.sif"])
+        launcher.container_main(["-o", "results", "--image", "gvclass.sif"])
 
     assert raised.value.code == 2
     assert "query path is required" in capsys.readouterr().err
 
 
 def test_container_mode_without_arguments_prints_help(
-    launcher: dict[str, Any], capsys: pytest.CaptureFixture[str]
+    launcher: ModuleType, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    entry = launcher.get("_standalone_apptainer_main") or launcher["main"]
-
-    assert entry([]) == 0
+    assert launcher.container_main([]) == 0
     assert "usage:" in capsys.readouterr().out
 
 
-def test_abbreviated_container_flag_runs_the_container(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    called: list[list[str]] = []
-    monkeypatch.setattr(
-        gvclass_apptainer, "main", lambda argv: called.append(list(argv)) or 0
-    )
-    monkeypatch.setattr(sys, "argv", ["gvclass", "queries", "--imag", "x.sif"])
-
-    assert gvclass_cli.main() == 0
-    assert called == [["queries", "--imag", "x.sif"]]
-
-
-def test_unrecognized_native_arguments_still_fail(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(sys, "argv", ["gvclass", "queries", "--no-such-option"])
-
+def test_unrecognized_native_arguments_still_fail() -> None:
     with pytest.raises(SystemExit) as raised:
-        gvclass_cli.main()
+        gvclass_cli.main(["queries", "--no-such-option"])
 
     assert raised.value.code == 2

@@ -8,13 +8,17 @@ pixi run gvclass query_genomes -o results -t 8
 
 CLI flags override [configuration values](configuration.md), which override built-in defaults. Defaults below refer to the shipped configuration.
 
+The command resolves the options and the configuration file into one run configuration, writes it to `<output>/run_config.json` and starts the runner on that file. The runner writes its log to `<output>/gvclass.log`. The exit status is 0 only if the runner exits 0 and the output validation finds no issue; the validation issues are printed before a non-zero exit. In the default mode the command keeps the last 200 lines of runner output (progress lines excluded) and prints them when the run fails; `--verbose` prints the runner output as it comes. Ctrl-C or SIGTERM stops the runner and its child processes and removes the temporary contig files.
+
+The `gvclass` script starts itself again in the Python of the repository (`.pixi/envs/default/bin/python`), or under `pixi run` when that environment does not exist, so the Python on your `PATH` needs no GVClass packages. It sets `GVCLASS_RUNTIME_SELECTED=1` for the new process so that this happens once. The same applies to the copy that `pixi run install-cli` puts in `~/bin`.
+
 ## Input and output
 
 | Option | Argument/default | Description |
 | --- | --- | --- |
 | `query_dir` | path (positional) | Directory of `.fna`, `.faa`, `.fa`, `.fasta`, or `.fas` files. A single FASTA file is accepted with `--contigs`. |
-| `-o`, `--output-dir` | path; `<query_dir>_results` | Output directory. |
-| `-c`, `--config` | path; `config/gvclass_config.yaml` | YAML configuration file. |
+| `-o`, `--output-dir` | path; `<name>_results` in the current directory | Output directory. `<name>` is the name of the input directory, or the file name without its suffix for a single file. Native and container runs use the same default. |
+| `-c`, `--config` | path; none | YAML configuration file. A path that does not exist is an error (exit status 2). Without `-c`, GVClass reads `gvclass_config.yaml` in the working directory, then `config/gvclass_config.yaml` in the repository, then uses the built-in defaults. See [configuration](configuration.md). |
 | `-d`, `--database` | path | Database directory. Overrides `GVCLASS_DB` and `database.path`. |
 | `--resource-cache-dir` | path; `GVCLASS_RESOURCE_CACHE`, then `database.cache_path`, else `<database>/.gvclass_cache` | Native Parquet materialization cache. Precedence: flag, environment variable, configuration, default. A relative configured path is resolved under the database directory. If the selected directory is not writable, use `<system temp>/gvclass_resource_cache_<uid>/<database-path hash>` (mode 0700, owned by the current user). |
 
@@ -22,9 +26,11 @@ CLI flags override [configuration values](configuration.md), which override buil
 
 | Option | Argument/default | Description |
 | --- | --- | --- |
-| `-t`, `--threads` | integer; `4` | Total thread budget. |
-| `-j`, `--max-workers` | integer; automatic | Maximum queries processed in parallel. |
-| `--threads-per-worker` | integer; automatic | Threads allocated to each query. |
+| `-t`, `--threads` | integer of at least 1; `4` | Total thread budget. |
+| `-j`, `--max-workers` | integer of at least 1; automatic | Maximum queries processed in parallel. |
+| `--threads-per-worker` | integer of at least 1; automatic | Threads allocated to each query. |
+
+The worker count never exceeds the number of queries to process, and the threads are divided after that cap: `-j 8 -t 16` with two queries runs two workers with eight threads each. The startup banner shows this plan. The numeric libraries (OpenMP, OpenBLAS, MKL, NumExpr) get half of the threads of a worker, unless the environment already sets a smaller integer.
 
 ## Classification
 
@@ -62,26 +68,15 @@ NCLDV, PPV, and MIRUS queries use separate panels. A combined tree contains only
 | `--min-length` | integer; `20000` bp | Minimum total nucleotide length per input in bin/MAG mode. `0` disables the length threshold. |
 | `--contigs-min-length` | integer; `10000` bp | Minimum contig length in `--contigs` mode. |
 | `--allow-short` | flag | Bypass the nucleotide length threshold; retain other FASTA validation. |
-| `--resume` | flag | Skip queries with completed status, valid artifacts and the required saved quality fields. Legacy runs can use `.SUCCESS` files or a summary/archive fallback. Changes to model/resource versions or analysis settings are not detected; use a fresh output directory when changing them. |
+| `--resume` | flag | Skip a query only if `results.jsonl` holds a complete record whose input hash, result settings, database version and GVClass version equal the current ones and whose archive is still in place. Other queries run again, and the log names the field that differed. See [classify bins](../how-to/classify-bins.md). |
 | `--plain-output` | flag | Disable emojis and ANSI colors. Also set by `GVCLASS_PLAIN_OUTPUT=1`. Low-level search, tree, output-validation and post-processing diagnostics use plain text in all modes. |
-
-## Cluster options
-
-GVClass runs on the machine where it is launched. The following options are accepted but do not submit scheduler jobs. See [run on HPC](../how-to/run-on-hpc.md) for a batch script.
-
-| Option | Argument/default |
-| --- | --- |
-| `--cluster-type` | `local`, `slurm`, `pbs`, `sge`; `local` |
-| `--cluster-queue` | queue or partition name |
-| `--cluster-project` | account name |
-| `--cluster-walltime` | time; `04:00:00` |
 
 ## Other options
 
 | Option | Description |
 | --- | --- |
 | `-h`, `--help` | Show command-line help. |
-| `-v`, `--verbose` | Enable verbose logging. |
+| `-v`, `--verbose` | Enable verbose logging and print the runner output as it comes. |
 | `--version` | Report the software version and installed database version. |
 
 ```bash
@@ -123,14 +118,14 @@ The exit code is 1 when no FASTA file is found, when the screen resources are no
 installed, or when a screen fails for a bin; the other bins still run.
 
 In container mode, `--install` writes the add-on to the host resource cache when
-neither `-d` nor `GVCLASS_DB` is set. Screening mounts that add-on alongside the
-image's database. `-d`, then `GVCLASS_DB`, overrides the cache and selects a complete
-host database. Installation adds only `contig_screen/` to that directory; the base
-database must already be present for subsequent screening. Use
-`--resource-cache-dir` with `GVCLASS_DB` unset for an add-on-only cache.
+neither `-d` nor `GVCLASS_DB` is set. Screening mounts the `contig_screen/` folder of
+that cache into the database of the image. `-d`, then `GVCLASS_DB`, overrides the
+cache: its `contig_screen/` folder is mounted the same way, whether the directory holds
+only the add-on or a complete database, and the database of the image stays in place.
+Installation adds only `contig_screen/` to the selected directory.
 The container reads inputs and resources through read-only mounts and writes to
-the selected output directory. Screen mode keeps its default of four threads and
-`<input>_screen` output in both modes.
+the selected output directory. The thread count (`-t`) goes to the container as typed,
+so the default of four threads and the `<input>_screen` output are those of a native run.
 
 ## `setup-db`
 
@@ -148,7 +143,7 @@ select the configuration file and the database directory, as for `gvclass`.
 
 ## Apptainer container mode
 
-`gvclass` supports running inside the published Apptainer SIF container via `--apptainer` or `--image` (or automatically when `gvclass` is downloaded as a standalone script without a repository checkout). It accepts an input path and `-o`/`--output-dir` (or a second positional output path). Container mode differs from native mode in two defaults: `-t` is 16, and the output directory is `<input>_results` beside the input. A missing input path is an error (exit code 2).
+`gvclass` supports running inside the published Apptainer SIF container via `--apptainer` or `--image` (or automatically when `gvclass` is downloaded as a standalone script without a repository checkout). The launcher reads only the options that it needs for the mounts: the input path, `-o`/`--output-dir`, `-C`/`--contigs`, `--image`, `--resource-cache-dir`, and for `screen` also `-d` and `--install`. It passes every other option to GVClass in the container unchanged and sets no default of its own, so the thread count, the output directory (`<name>_results` in the current directory) and all other defaults are those of a native run. A missing input path is an error (exit code 2).
 
 | Option | Argument/default | Description |
 | --- | --- | --- |
@@ -156,7 +151,7 @@ select the configuration file and the database directory, as for `gvclass`.
 | `--image` | path or address | Local `.sif` path, or an `oras://`, `docker://`, `library://` or `https://` address (implies `--apptainer`). A `library://` address needs a library endpoint that Apptainer knows. |
 | `--resource-cache-dir` | path; `~/.cache/gvclass/resource-cache/v2.1.0` | Classification: writable materialization cache mounted at `/resource-cache`. Screen: host add-on cache used when neither `-d` nor `GVCLASS_DB` is set; writable during installation and mounted read-only during screening. |
 
-Remote images are cached under `~/.cache/gvclass/images/` as regular files, in a
+A plain `http://` image address is rejected; use `https://`. Remote images are cached under `~/.cache/gvclass/images/` as regular files, in a
 file whose name starts with a digest of the whole address, so two addresses never
 share a file; symlink cache entries are rejected. Before reuse, the launcher checks the SIF
 object table, primary system partition and file bounds.
@@ -167,7 +162,7 @@ truncated files; they do not authenticate the publisher or verify every payload
 byte. The cache filesystem must support hard links for atomic installation.
 An explicit local image path is passed directly to Apptainer.
 
-All standard pipeline, species-tree, and resume flags (`-t`, `-j`, `--threads-per-worker`, `--tree-method`, `--iqtree-mode`, `--mode-fast`, `-e`/`--extended`, `--sensitive`, `--no-sensitive`, `--completeness-mode`, `--species-tree`, `--species-tree-combined`, `--species-tree-trim`, `-C`/`--contigs`, `--min-length`, `--contigs-min-length`, `--allow-short`, `--no-screen`, `--resume`, `--plain-output`, `-v`/`--verbose`) are forwarded to the container. For classification, `--config`, `--database` and the `--cluster-*` options are native-only and are rejected in container mode. The `screen` command accepts `--database` as described above. When both `--sensitive` and `--no-sensitive` are given, `--no-sensitive` wins in both modes. A classification run also mounts the add-on read-only into the database of the image, from the
+All other pipeline, species-tree and resume options (`-t`, `-j`, `--threads-per-worker`, `--tree-method`, `--iqtree-mode`, `--mode-fast`, `-e`/`--extended`, `--sensitive`, `--no-sensitive`, `--completeness-mode`, `--species-tree`, `--species-tree-combined`, `--species-tree-trim`, `--min-length`, `--contigs-min-length`, `--allow-short`, `--no-screen`, `--resume`, `--plain-output`, `-v`/`--verbose`) go to the container as typed. For classification, `--config` and `--database` are native-only and the launcher rejects them: the container uses the database of the image. When both `--sensitive` and `--no-sensitive` are given, `--no-sensitive` wins in both modes. A classification run also mounts the add-on read-only into the database of the image, from the
 same place that `screen` uses (`GVCLASS_DB` if set, else the resource cache), so that the contig
 screen runs in the container. Without an installed add-on, `screen_status` is `not_installed`.
 Inside the container the database is always the one in the image, whatever `GVCLASS_DB` the

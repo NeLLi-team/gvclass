@@ -156,12 +156,10 @@ With `GVCLASS_DB` unset, the installer writes to
 cache. Screening mounts that add-on read-only alongside the database inside the
 image. The input is mounted read-only; results go to the host output directory.
 
-`-d /path/to/resources`, then `GVCLASS_DB`, overrides the cache and selects a
-complete host database. When installing with either setting, select a directory
-that already holds the base database if you will use it for screening. The
-installer adds only `contig_screen/`; it does not install the base database.
-For a directory that will hold only the add-on, use `--resource-cache-dir` and
-unset `GVCLASS_DB`.
+`-d /path/to/resources`, then `GVCLASS_DB`, overrides the cache. Screening mounts the
+`contig_screen/` folder of that directory into the database of the image, so the
+directory may hold only the add-on or a complete database; the base database of the
+image is always used. The installer adds only `contig_screen/` to the directory.
 
 Installation writes to the selected host directory without changing the SIF. The
 installer reports `/screen-resources`, which is the container mount of that host
@@ -244,9 +242,9 @@ from a fresh metadata process, before CLI per-task thread limits.
 These records support runtime comparisons; they do not establish the cause of a
 previous numerical difference.
 
-The SIF classification results are also resumed through three host module routes:
-`src.bin.gvclass_cli --apptainer --image`, the same module with `--image=...`, and
-`src.bin.gvclass_apptainer --image`. Each must skip all three queries without
+The SIF classification results are also resumed through three launcher routes:
+`gvclass --apptainer --image IMAGE`, `gvclass --image=IMAGE`, and the standalone
+`gvclass` script outside a checkout. Each must skip all three queries without
 starting scientific processing. The checks compare the TSV and CSV bytes and
 archive member contents after each route, ignoring gzip and tar header metadata. The original
 query execution timestamps must stay unchanged. Each route must have a fresh run

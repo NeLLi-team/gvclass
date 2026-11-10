@@ -12,7 +12,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from src.bin.gvclass_cli import (
     CliOutput,
+    ConfigError,
     check_and_setup_database,
+    find_config_file,
     load_config,
     resolve_database_path,
 )
@@ -25,8 +27,8 @@ def parse_args():
     parser.add_argument(
         "-c",
         "--config",
-        default="config/gvclass_config.yaml",
-        help="Configuration file (default: config/gvclass_config.yaml)",
+        help="Configuration file (default: ./gvclass_config.yaml, then "
+        "config/gvclass_config.yaml in the repository, then built-in defaults)",
     )
     parser.add_argument(
         "-d",
@@ -53,7 +55,11 @@ def main():
     args = parse_args()
     repo_dir = Path(__file__).resolve().parents[2]
     output = CliOutput()
-    config = load_config(args.config, repo_dir, output)
+    try:
+        config = load_config(find_config_file(args.config, repo_dir))
+    except ConfigError as exc:
+        print(f"❌ {exc}", file=sys.stderr)
+        return 2
     target_path = resolve_database_path(args, config, repo_dir)
 
     try:

@@ -1,6 +1,6 @@
 # Output files and columns
 
-Results are written to `-o OUTPUT_DIR`, or `<query_dir>_results` by default. The main result is `gvclass_summary.tsv`, with one row per query.
+Results are written to `-o OUTPUT_DIR`, or `<name>_results` in the current directory by default (`<name>` is the input directory name, or the file name without its suffix). The main result is `gvclass_summary.tsv`, with one row per query.
 
 ## Files
 
@@ -16,6 +16,8 @@ Results are written to `-o OUTPUT_DIR`, or `<query_dir>_results` by default. The
 | `results.jsonl` | The record of finished queries. It is append-only: one JSON line per query that finished, written and flushed to disk when the query ends. The last line of a query counts. |
 | `run_status.json` | Description of the run, written when the run starts (`running`) and when it ends (`complete` or `failed`): software and database versions, database path, all settings, and each query's status, finish time and error. |
 | `run.log` | Run and query start, completion, and failure messages. |
+| `run_config.json` | The resolved settings of the run, which the command writes and the runner reads. |
+| `gvclass.log` | Log of the runner process. `--verbose` adds debug messages. |
 
 A line of `results.jsonl` holds `query`, `status` (`complete`, `failed` or
 `invalid_input`), `error`, `input_sha256`, `settings` (the settings that change

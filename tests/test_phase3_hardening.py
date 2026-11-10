@@ -308,13 +308,18 @@ def test_query_enumeration_accepts_fasta_extensions(tmp_path: Path) -> None:
     """Codex audit: a directory containing only ``.fasta`` / ``.fas``
     inputs must be enumerated as queries, not silently produce zero.
     """
-    from src.bin.gvclass_cli import count_query_files
+    from src.utils.input_validation import (  # noqa: PLC0415  # kept next to its only test
+        discover_query_files,
+    )
 
     query_dir = tmp_path / "queries"
     query_dir.mkdir()
     (query_dir / "a.fasta").write_text(">c\nACGT\n")
     (query_dir / "b.fas").write_text(">c\nACGT\n")
-    assert count_query_files(query_dir) == 2
+    assert [path.name for path in discover_query_files(query_dir)] == [
+        "a.fasta",
+        "b.fas",
+    ]
 
 
 def test_split_contigs_from_directory_transactional_across_files(

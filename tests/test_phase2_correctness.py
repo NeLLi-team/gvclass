@@ -183,14 +183,6 @@ def test_extract_marker_sequences_matches_by_record_id(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_resolve_completeness_mode_falls_back_to_novelty_aware() -> None:
-    from src.bin.gvclass_cli import resolve_completeness_mode
-
-    args = SimpleNamespace(completeness_mode=None)
-    config = {"pipeline": {}}
-    assert resolve_completeness_mode(args, config) == "novelty-aware"
-
-
 def test_resolve_completeness_mode_honors_explicit_legacy() -> None:
     from src.bin.gvclass_cli import resolve_completeness_mode
 

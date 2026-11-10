@@ -1,27 +1,34 @@
 #!/usr/bin/env python
-"""GVClass CLI runtime implementation."""
+"""GVClass command line: resolve the options into a run configuration and run it.
+
+``build_parser`` is the one definition of the pipeline options. ``main`` resolves them
+with the configuration file into a ``RunConfig``, writes it to ``run_config.json`` in
+the output directory and starts ``python -m src.bin.gvclass_runner`` on that file.
+"""
 
 from __future__ import annotations
 
 import argparse
 import copy
-import csv
 import os
-import queue
-import re
 import shutil
+import signal
 import subprocess
 import sys
 import threading
-from collections.abc import Callable
-from dataclasses import dataclass
-from datetime import datetime
+import time
+from collections import deque
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
+from dataclasses import dataclass, replace
 from pathlib import Path
+from types import FrameType
 from typing import Any, Optional
 
 from src.__version__ import __version__ as _GVCLASS_VERSION
 from src.bin.cli_display import print_banner, print_configuration
 from src.bin.progress_monitor import ResourceMonitor
+from src.pipeline.run_config import RunConfig, plan_workers
 
 SOFTWARE_VERSION = f"v{_GVCLASS_VERSION}"
 PLAIN_OUTPUT_ENV = "GVCLASS_PLAIN_OUTPUT"
@@ -29,43 +36,21 @@ DATABASE_PATH_ENV = "GVCLASS_DB"
 RESOURCE_CACHE_ENV = "GVCLASS_RESOURCE_CACHE"
 DEFAULT_INPUT_MIN_LENGTH = 20000
 DEFAULT_CONTIGS_MIN_LENGTH = 10000
-TWO_DECIMAL_SUMMARY_COLUMNS = {
-    "avgdist",
-    "order_dup",
-    "order_completeness",
-    "order_completeness_raw",
-    "order_completeness_baseline_mean",
-    "order_completeness_baseline_std",
-    "order_completeness_v2",
-    "order_completeness_v2_strategy2_raw",
-    "order_completeness_v2_strategy2_normalized",
-    "order_completeness_v2_support_score",
-    "order_completeness_v2_informative_fraction",
-    "estimated_completeness",
-    "estimated_completeness_advisory",
-    "contamination_score_v1",
-    "contamination_cellular_signal_v1",
-    "contamination_phage_signal_v1",
-    "contamination_duplication_signal_v1",
-    "contamination_viral_mixture_signal_v1",
-    "contamination_nonviral_hit_fraction_v1",
-    "estimated_contamination",
-    "weighted_order_completeness",
-    "weighted_order_completeness_raw",
-    "order_weighted_completeness",
-    "order_confidence_score",
-    "gvog4_dup",
-    "gvog8_dup",
-    "busco_dup",
-    "cog_dup",
-    "mrya_dup",
-    "phage_dup",
-    "vp_df",
-    "mirus_df",
-    "GCperc",
-    "CODINGperc",
-}
-NUMERIC_VALUE_PATTERN = re.compile(r"^[+-]?\d+(?:\.\d+)?$")
+CONFIG_FILENAME = "gvclass_config.yaml"
+RUN_CONFIG_FILENAME = "run_config.json"
+#: The numeric libraries that start their own threads.
+THREAD_ENV_VARS = (
+    "OMP_NUM_THREADS",
+    "OPENBLAS_NUM_THREADS",
+    "MKL_NUM_THREADS",
+    "NUMEXPR_NUM_THREADS",
+)
+#: A failed run prints this many of the last lines of the runner output.
+RUNNER_TAIL_LINES = 200
+MONITOR_THREAD_NAME = "gvclass-memory-monitor"
+#: Seconds that the runner gets to stop after SIGTERM before it is killed.
+STOP_GRACE_S = 10.0
+MAX_ISSUES_SHOWN = 5
 
 
 class CliOutput:
@@ -98,6 +83,10 @@ class CliOutput:
         print(f"{prefix}{message}", file=file)
 
 
+class ConfigError(ValueError):
+    """A configuration file that GVClass cannot use."""
+
+
 @dataclass
 class ContigInput:
     """Resolved contig splitting input."""
@@ -107,54 +96,52 @@ class ContigInput:
     input_dir: Optional[Path] = None
 
 
-@dataclass
-class WorkerPlan:
-    """Parallel worker allocation."""
-
-    workers: int
-    threads_per_worker: int
-
-
-@dataclass
+@dataclass(frozen=True, slots=True)
 class PipelineContext:
-    """Resolved runtime context for one CLI invocation."""
+    """One resolved invocation: the run configuration and what the banner shows.
 
-    query_dir: Path
-    active_query_dir: Path
-    output_dir: Path
-    database: Path
-    threads: int
-    tree_method: str
-    iqtree_mode: str
-    mode_fast: bool
-    completeness_mode: str
-    sensitive_mode: bool
+    ``config.query_path`` is the folder of the queries that the runner reads; with
+    ``--contigs`` it is the temporary folder of the split contigs.
+    """
+
+    config: RunConfig
+    config_file: Path | None
     contigs: ContigInput
-    input_min_length: int
-    contigs_min_length: int
-    validation_min_length: int
-    temp_contigs_dir: Optional[Path]
     n_queries: int
     n_input_files: int
     n_skipped: int
-    workers: WorkerPlan
-    contig_screen: bool = True
+    workers: int
+    threads_per_worker: int
+
+    @property
+    def n_remaining(self) -> int:
+        """Return the queries that the runner will process."""
+        return self.n_queries - self.n_skipped
 
 
-#: FASTA extensions (nucleotide + protein) that GVClass accepts as query
-#: inputs. ``.fasta`` / ``.fas`` are routed through content-alphabet
-#: inference in :class:`InputValidator` so they end up on one of the
-#: canonical branches at discovery time.
-_QUERY_FILE_EXTENSIONS = ("*.fna", "*.faa", "*.fasta", "*.fas", "*.fa")
+@dataclass(frozen=True, slots=True)
+class RunnerOutcome:
+    """How the runner process ended.
+
+    ``tail`` holds the last lines of its output that were not progress events; it is
+    empty in verbose mode, where the output goes straight to the terminal.
+    """
+
+    return_code: int
+    tail: tuple[str, ...]
+    interrupted: bool
+    peak_memory_mb: float
 
 
-def count_query_files(directory: Path) -> int:
-    if not directory.exists():
-        return 0
-    total = 0
-    for pattern in _QUERY_FILE_EXTENSIONS:
-        total += len(list(directory.glob(pattern)))
-    return total
+def positive_int(text: str) -> int:
+    """Parse ``text`` as an integer of at least 1, for argparse."""
+    try:
+        value = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"expected an integer, got {text!r}") from None
+    if value < 1:
+        raise argparse.ArgumentTypeError(f"expected at least 1, got {value}")
+    return value
 
 
 def _add_core_arguments(parser: argparse.ArgumentParser) -> None:
@@ -162,13 +149,17 @@ def _add_core_arguments(parser: argparse.ArgumentParser) -> None:
         "query_dir", nargs="?", help="Query directory containing .fna or .faa files"
     )
     parser.add_argument(
-        "-o", "--output-dir", help="Output directory (default: <query_dir>_results)"
+        "-o",
+        "--output-dir",
+        help="Output directory (default: <name>_results in the current directory)",
     )
     parser.add_argument(
         "-c",
         "--config",
-        default="config/gvclass_config.yaml",
-        help="Configuration file (default: config/gvclass_config.yaml)",
+        help=(
+            f"Configuration file (default: ./{CONFIG_FILENAME}, then "
+            f"config/{CONFIG_FILENAME} in the repository, then built-in defaults)"
+        ),
     )
     parser.add_argument(
         "-d",
@@ -176,12 +167,17 @@ def _add_core_arguments(parser: argparse.ArgumentParser) -> None:
         help=f"Database path (overrides {DATABASE_PATH_ENV} and config)",
     )
     parser.add_argument(
-        "-t", "--threads", type=int, help="Number of threads (overrides config)"
+        "-t",
+        "--threads",
+        type=positive_int,
+        help="Number of threads (overrides config)",
     )
     parser.add_argument(
-        "-j", "--max-workers", type=int, help="Maximum parallel workers"
+        "-j", "--max-workers", type=positive_int, help="Maximum parallel workers"
     )
-    parser.add_argument("--threads-per-worker", type=int, help="Threads per worker")
+    parser.add_argument(
+        "--threads-per-worker", type=positive_int, help="Threads per worker"
+    )
     parser.add_argument(
         "--tree-method",
         choices=["veryfasttree", "iqtree", "fasttree"],
@@ -191,6 +187,10 @@ def _add_core_arguments(parser: argparse.ArgumentParser) -> None:
         "--iqtree-mode",
         choices=["fast", "ufboot"],
         help="IQ-TREE species-tree search mode (overrides config)",
+    )
+    parser.add_argument(
+        "--resource-cache-dir",
+        help="Directory for Parquet materialization cache",
     )
 
 
@@ -295,38 +295,6 @@ def _add_mode_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def _add_cluster_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
-        "--cluster-type",
-        default="local",
-        choices=["local", "slurm", "pbs", "sge"],
-        help="Type of cluster to use",
-    )
-    parser.add_argument("--cluster-queue", help="Queue/partition for cluster jobs")
-    parser.add_argument("--cluster-project", help="Project/account for cluster billing")
-    parser.add_argument(
-        "--cluster-walltime", default="04:00:00", help="Walltime for cluster jobs"
-    )
-
-
-def _add_container_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
-        "--apptainer",
-        action="store_true",
-        help="Run GVClass via Apptainer container image",
-    )
-    parser.add_argument(
-        "--image",
-        default=None,
-        help="Apptainer image URI or .sif path (implies --apptainer)",
-    )
-    parser.add_argument(
-        "--resource-cache-dir",
-        default=None,
-        help="Directory for Parquet materialization cache",
-    )
-
-
 def _add_misc_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
     parser.add_argument(
@@ -335,13 +303,17 @@ def _add_misc_arguments(parser: argparse.ArgumentParser) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """Return the parser that defines every pipeline option."""
     parser = argparse.ArgumentParser(
-        description="Run GVClass pipeline with clean output"
+        description="Run GVClass pipeline with clean output",
+        epilog=(
+            "Container mode is handled by the gvclass launcher before this parser "
+            "runs: --apptainer runs the Apptainer image, and --image IMAGE selects "
+            "an image address or .sif path (it implies --apptainer)."
+        ),
     )
     _add_core_arguments(parser)
     _add_mode_arguments(parser)
-    _add_cluster_arguments(parser)
-    _add_container_arguments(parser)
     _add_misc_arguments(parser)
     return parser
 
@@ -372,7 +344,6 @@ BUILTIN_CONFIG_DEFAULTS = {
         "contig_screen": True,
         "contigs_min_length": DEFAULT_CONTIGS_MIN_LENGTH,
         "threads": 4,
-        "output_pattern": "{query_dir}_results",
     },
     "quality": {
         "min_length": DEFAULT_INPUT_MIN_LENGTH,
@@ -380,33 +351,62 @@ BUILTIN_CONFIG_DEFAULTS = {
 }
 
 
-def load_config(config_file: str, repo_dir: Path, output: CliOutput):
-    config_path = Path(config_file)
-    default_config = copy.deepcopy(BUILTIN_CONFIG_DEFAULTS)
+def find_config_file(config_file: str | None, repo_dir: Path) -> Path | None:
+    """Return the configuration file to read, or ``None`` for the built-in defaults.
 
-    if not config_path.is_absolute():
-        config_path = Path.cwd() / config_file
-        if not config_path.exists():
-            config_path = Path.cwd() / "gvclass_config.yaml"
-        if not config_path.exists():
-            config_path = repo_dir / config_file
+    An explicit ``config_file`` must exist. Without one, the file is
+    ``gvclass_config.yaml`` in the working directory, else ``config/`` of the
+    repository.
 
-    if not config_path.exists():
-        return default_config
+    Raises:
+        ConfigError: If ``config_file`` does not exist.
+    """
+    if config_file is not None:
+        path = Path(config_file).expanduser()
+        if not path.is_file():
+            raise ConfigError(f"configuration file not found: {path}")
+        return path
+    for candidate in (
+        Path.cwd() / CONFIG_FILENAME,
+        repo_dir / "config" / CONFIG_FILENAME,
+    ):
+        if candidate.is_file():
+            return candidate
+    return None
 
+
+def load_config(config_path: Path | None) -> dict[str, Any]:
+    """Read ``config_path`` over the built-in defaults; ``None`` gives the defaults.
+
+    Raises:
+        ConfigError: If PyYAML is missing, or the file is not a mapping of sections,
+            or a known section is empty or not a mapping.
+    """
+    defaults = copy.deepcopy(BUILTIN_CONFIG_DEFAULTS)
+    if config_path is None:
+        return defaults
     try:
-        import yaml
-    except ModuleNotFoundError:
-        output.line(
-            "Warning: PyYAML is not available; using built-in defaults instead "
-            f"of {config_path}.",
-            file=sys.stderr,
+        import yaml  # noqa: PLC0415  # --help and --version work without PyYAML.
+    except ModuleNotFoundError as exc:
+        raise ConfigError(
+            f"PyYAML is needed to read {config_path}; "
+            "install it in the GVClass environment"
+        ) from exc
+    with config_path.open(encoding="utf-8") as handle:
+        loaded = yaml.safe_load(handle)
+    if loaded is None:
+        return defaults
+    if not isinstance(loaded, dict):
+        raise ConfigError(
+            f"{config_path}: expected sections of keys, got {type(loaded).__name__}"
         )
-        return default_config
-
-    with open(config_path, "r") as handle:
-        loaded = yaml.safe_load(handle) or {}
-    return _deep_merge_config(default_config, loaded)
+    for section in BUILTIN_CONFIG_DEFAULTS:
+        if section in loaded and not isinstance(loaded[section], dict):
+            raise ConfigError(
+                f"{config_path}: section '{section}' must hold keys, "
+                f"got {loaded[section]!r}"
+            )
+    return _deep_merge_config(defaults, loaded)
 
 
 def _deep_merge_config(base: dict, overlay: dict) -> dict:
@@ -491,15 +491,11 @@ def resolve_database_download_source(config) -> Optional[dict]:
 
 
 def resolve_tree_method(args, config) -> str:
-    if args.tree_method:
-        return args.tree_method
-    return config["pipeline"].get("tree_method", "veryfasttree")
+    return args.tree_method or config["pipeline"]["tree_method"]
 
 
 def resolve_iqtree_mode(args, config) -> str:
-    if getattr(args, "iqtree_mode", None):
-        return args.iqtree_mode
-    return config["pipeline"].get("iqtree_mode", "fast")
+    return args.iqtree_mode or config["pipeline"]["iqtree_mode"]
 
 
 def resolve_mode_fast(args, config) -> bool:
@@ -507,7 +503,7 @@ def resolve_mode_fast(args, config) -> bool:
         return False
     if args.mode_fast:
         return True
-    return config["pipeline"].get("mode_fast", True)
+    return config["pipeline"]["mode_fast"]
 
 
 def resolve_sensitive_mode(args, config) -> bool:
@@ -515,57 +511,57 @@ def resolve_sensitive_mode(args, config) -> bool:
         return False
     if getattr(args, "sensitive", False):
         return True
-    return bool(config["pipeline"].get("sensitive_mode", True))
+    return bool(config["pipeline"]["sensitive_mode"])
 
 
 def resolve_contig_screen(args: argparse.Namespace, config: dict[str, Any]) -> bool:
     """Return True if the run screens its bins: ``--no-screen`` wins over the config."""
     if getattr(args, "no_screen", False):
         return False
-    return bool(config["pipeline"].get("contig_screen", True))
+    return bool(config["pipeline"]["contig_screen"])
 
 
 def resolve_completeness_mode(args, config) -> str:
-    if args.completeness_mode:
-        return args.completeness_mode
-    # Align the missing-key fallback with the documented default_config
-    # ("novelty-aware" on line ~258). The previous "legacy" fallback meant
-    # users with a config file that happened to omit completeness_mode would
-    # silently get legacy behavior while users with no config file got
-    # novelty-aware — two "defaults" that quietly disagreed.
-    return config["pipeline"].get("completeness_mode", "novelty-aware")
+    return args.completeness_mode or config["pipeline"]["completeness_mode"]
 
 
-def _resolve_nonnegative_int(raw_value, setting_name: str) -> int:
+def _resolve_int(raw_value: object, setting_name: str, *, minimum: int) -> int:
     try:
         value = int(raw_value)
     except (TypeError, ValueError) as exc:
         raise ValueError(
             f"Invalid {setting_name} value: {raw_value!r} (must be an integer)"
         ) from exc
-    if value < 0:
-        raise ValueError(f"Invalid {setting_name} value: {value} (must be >= 0)")
+    if value < minimum:
+        raise ValueError(
+            f"Invalid {setting_name} value: {value} (must be >= {minimum})"
+        )
     return value
+
+
+def resolve_threads(args: argparse.Namespace, config: Mapping[str, Any]) -> int:
+    """Return ``-t``, else ``pipeline.threads`` of the configuration."""
+    if args.threads is not None:
+        return args.threads
+    return _resolve_int(config["pipeline"]["threads"], "pipeline.threads", minimum=1)
 
 
 def resolve_input_min_length(args, config) -> int:
     if args.min_length is not None:
-        return _resolve_nonnegative_int(args.min_length, "--min-length")
-    raw_value = config.get("quality", {}).get("min_length", DEFAULT_INPUT_MIN_LENGTH)
-    return _resolve_nonnegative_int(raw_value, "quality.min_length")
+        return _resolve_int(args.min_length, "--min-length", minimum=0)
+    return _resolve_int(
+        config["quality"]["min_length"], "quality.min_length", minimum=0
+    )
 
 
 def resolve_contigs_min_length(args, config) -> int:
     if args.contigs_min_length is not None:
-        return _resolve_nonnegative_int(
-            args.contigs_min_length,
-            "--contigs-min-length",
-        )
-    raw_value = config["pipeline"].get(
-        "contigs_min_length",
-        DEFAULT_CONTIGS_MIN_LENGTH,
+        return _resolve_int(args.contigs_min_length, "--contigs-min-length", minimum=0)
+    return _resolve_int(
+        config["pipeline"]["contigs_min_length"],
+        "pipeline.contigs_min_length",
+        minimum=0,
     )
-    return _resolve_nonnegative_int(raw_value, "pipeline.contigs_min_length")
 
 
 def resolve_validation_min_length(
@@ -576,13 +572,22 @@ def resolve_validation_min_length(
     return contigs_min_length if contigs.enabled else input_min_length
 
 
-def resolve_output_dir(args, query_dir: Path, config) -> Path:
+def default_output_dir(input_path: Path) -> Path:
+    """Return ``<name>_results`` in the working directory.
+
+    ``<name>`` is the name of the input directory, or the file name without its
+    suffix for a single file. The launcher gives the same answer in container mode.
+    """
+    resolved = input_path.resolve()
+    name = resolved.stem if resolved.is_file() else resolved.name
+    return Path.cwd() / f"{name}_results"
+
+
+def resolve_output_dir(args: argparse.Namespace, input_path: Path) -> Path:
+    """Return ``-o`` as an absolute path, else the default output directory."""
     if args.output_dir:
         return Path(args.output_dir).resolve()
-
-    output_pattern = config["pipeline"].get("output_pattern", "{query_dir}_results")
-    query_base = query_dir.name
-    return Path(output_pattern.format(query_dir=query_base)).resolve()
+    return default_output_dir(input_path)
 
 
 def resolve_contigs_input(query_dir_abs: Path, enabled: bool) -> ContigInput:
@@ -635,8 +640,6 @@ def split_contig_inputs(contigs: ContigInput, output: CliOutput, min_length: int
         key="success",
     )
     return temp_dir, n_contigs, n_files
-
-
 def inspect_local_database_state(db_path: Path) -> dict:
     from src.utils.database_manager import DatabaseManager
 
@@ -799,204 +802,149 @@ def install_database(
         return False
     output.line("Database setup complete!", key="success")
     return True
+def cleanup_temp_dir(temp_dir: Path | None) -> None:
+    """Remove the temporary folder of the split contigs, if there is one."""
+    if temp_dir and Path(temp_dir).exists():
+        shutil.rmtree(temp_dir)
 
 
-def count_resume_skips(
-    output_dir: Path, active_query_dir: Optional[Path] = None
-) -> int:
-    """Count queries whose last ``results.jsonl`` record is complete.
+def discover_queries(query_dir: Path) -> list[Path]:
+    """Return the query files of ``query_dir``, a folder that must hold some."""
+    from src.utils.input_validation import (  # noqa: PLC0415  # Biopython loads only for a run.
+        discover_query_files,
+    )
+
+    if not query_dir.is_dir():
+        raise ValueError(
+            f"Query path is not a directory: {query_dir} "
+            "(use --contigs for a single FASTA file)"
+        )
+    query_files = discover_query_files(query_dir)
+    if not query_files:
+        raise ValueError(f"No .fna or .faa files found in {query_dir}")
+    return query_files
+
+
+def count_completed_queries(output_dir: Path, query_files: Sequence[Path]) -> int:
+    """Count the queries that ``--resume`` would skip, from ``results.jsonl``.
 
     The count needs the archive in place. The runner also compares the input, the
     settings and the versions, so it can skip fewer queries than this preview shows.
     """
-    from src.pipeline.run_status import (  # noqa: PLC0415  # Import pipeline code only when a run needs it.
-        COMPLETE,
-        archive_is_intact,
-        read_results,
+    from src.pipeline.run_status import (  # noqa: PLC0415  # Pipeline code loads only for a run.
+        completed_query_names,
     )
 
-    completed_names = {
-        name
-        for name, record in read_results(output_dir).items()
-        if record.status == COMPLETE and archive_is_intact(output_dir, record)
-    }
-    if active_query_dir is not None and active_query_dir.exists():
-        active_stems = {
-            path.stem
-            for pattern in _QUERY_FILE_EXTENSIONS
-            for path in active_query_dir.glob(pattern)
-        }
-        completed_names &= active_stems
-    return len(completed_names)
+    return len(completed_query_names(output_dir) & {path.stem for path in query_files})
 
 
-def calculate_worker_plan(args, n_queries: int, threads: int) -> WorkerPlan:
-    """Resolve the worker/thread split for one CLI invocation.
-
-    The split comes from :func:`~src.pipeline.run_config.plan_workers`, the one
-    plan that the runner and the contig-screen step also use.
-    """
-    from src.pipeline.run_config import (  # noqa: PLC0415  # Import pipeline code only when a run needs it.
-        plan_workers,
-    )
-
-    workers, threads_per_worker = plan_workers(
-        n_queries, threads, args.max_workers, args.threads_per_worker
-    )
-    return WorkerPlan(workers=workers, threads_per_worker=threads_per_worker)
-
-
-def resolve_runtime_python(repo_dir: Path):
-    pixi_python = repo_dir / ".pixi" / "envs" / "default" / "bin" / "python"
-    python_exe = str(pixi_python) if pixi_python.exists() else sys.executable
-    pixi_cmd = shutil.which("pixi")
-    use_pixi_run = (not pixi_python.exists()) and bool(pixi_cmd)
-    return python_exe, pixi_cmd, use_pixi_run
-
-
-def check_missing_dependencies(
-    repo_dir: Path, python_exe: str, pixi_cmd: Optional[str], use_pixi_run: bool
-):
-    missing = []
-    for dep in ["click"]:
-        if use_pixi_run and pixi_cmd:
-            result = subprocess.run(
-                [pixi_cmd, "run", "python", "-c", f"import {dep}"],
-                capture_output=True,
-                text=True,
-                cwd=repo_dir,
-            )
-        else:
-            result = subprocess.run(
-                [python_exe, "-c", f"import {dep}"], capture_output=True, text=True
-            )
-        if result.returncode != 0:
-            missing.append(dep)
-    return missing
-
-
-def ensure_dependencies(
+def resolve_run_config(
+    args: argparse.Namespace,
+    config: dict[str, Any],
     repo_dir: Path,
-    python_exe: str,
-    pixi_cmd: Optional[str],
-    use_pixi_run: bool,
-    output: CliOutput,
-):
-    missing = check_missing_dependencies(repo_dir, python_exe, pixi_cmd, use_pixi_run)
-    if missing and pixi_cmd:
-        output.line("Installing dependencies with pixi...", key="database")
-        subprocess.run([pixi_cmd, "install"], cwd=repo_dir)
-        missing = check_missing_dependencies(
-            repo_dir, python_exe, pixi_cmd, use_pixi_run
-        )
+    contigs: ContigInput,
+) -> RunConfig:
+    """Resolve the options and the configuration into one run configuration.
 
-    if not missing:
-        return True
-
-    output.line(
-        "Missing Python dependencies in the runtime environment: " + ", ".join(missing),
-        key="error",
-    )
-    output.line("Run `pixi install` or use `pixi run gvclass ...`.")
-    return False
-
-
-def _base_prefect_command(
-    python_exe: str, pixi_cmd: Optional[str], use_pixi_run: bool
-) -> list[str]:
-    if use_pixi_run and pixi_cmd:
-        return [pixi_cmd, "run", "python", "-m", "src.bin.gvclass_runner"]
-    return [python_exe, "-m", "src.bin.gvclass_runner"]
-
-
-def _append_optional_pipeline_flags(
-    cmd: list[str],
-    args,
-    mode_fast: bool,
-    completeness_mode: str,
-    sensitive_mode: bool,
-) -> None:
-    cmd.append("--mode-fast" if mode_fast else "--extended")
-    cmd.extend(["--completeness-mode", completeness_mode])
-    if sensitive_mode:
-        cmd.append("--sensitive")
-    if args.cluster_queue:
-        cmd.extend(["--cluster-queue", args.cluster_queue])
-    if args.cluster_project:
-        cmd.extend(["--cluster-project", args.cluster_project])
-    if args.cluster_walltime:
-        cmd.extend(["--cluster-walltime", args.cluster_walltime])
-    if args.verbose:
-        cmd.append("--verbose")
-    if args.resume:
-        cmd.append("--resume")
-    if getattr(args, "allow_short", False):
-        cmd.append("--allow-short")
-    if getattr(args, "species_tree", False):
-        cmd.append("--species-tree")
-    if getattr(args, "species_tree_combined", False):
-        cmd.append("--species-tree-combined")
-    trim = getattr(args, "species_tree_trim", "witchi")
-    if trim and trim != "witchi":
-        cmd.extend(["--species-tree-trim", trim])
-
-
-def build_pipeline_command(
-    args,
-    context: PipelineContext,
-    python_exe: str,
-    pixi_cmd: Optional[str],
-    use_pixi_run: bool,
-) -> list[str]:
-    cmd = _base_prefect_command(python_exe, pixi_cmd, use_pixi_run)
-    cmd.extend(
-        [
-            str(context.active_query_dir),
-            "-o",
-            str(context.output_dir),
-            "-d",
-            str(context.database),
-            "-t",
-            str(context.threads),
-            "-j",
-            str(context.workers.workers),
-            "--threads-per-worker",
-            str(context.workers.threads_per_worker),
-            "--tree-method",
-            context.tree_method,
-            "--iqtree-mode",
-            context.iqtree_mode,
-            "--cluster-type",
-            args.cluster_type,
-            "--min-length",
-            str(context.validation_min_length),
-        ]
-    )
-    _append_optional_pipeline_flags(
-        cmd,
-        args,
-        context.mode_fast,
-        context.completeness_mode,
-        context.sensitive_mode,
-    )
-    if not context.contig_screen:
-        cmd.append("--no-screen")
-    if context.contigs.enabled:
-        cmd.append("--contigs")
-    return cmd
-
-
-def build_runtime_env(repo_dir: Path, context: Optional[PipelineContext] = None):
-    """Build the environment for the Prefect subprocess.
-
-    When ``context`` is provided, the per-marker thread budget is clamped at
-    the process level by setting ``OMP_NUM_THREADS`` / ``OPENBLAS_NUM_THREADS``
-    / ``MKL_NUM_THREADS`` / ``NUMEXPR_NUM_THREADS``. Without this clamp each
-    inner library (``pyhmmer``, ``pyswrd``, ``pyfamsa``, NumPy/BLAS) would
-    independently spawn up to ``threads_per_worker`` threads, leading to
-    heavy oversubscription on 64+ core hosts.
+    ``query_path`` is the input that the user named. With ``--contigs``, ``run_cli``
+    replaces it by the folder of the split contigs.
     """
-    env = os.environ.copy()
+    input_path = Path(args.query_dir).resolve()
+    contigs_min_length = resolve_contigs_min_length(args, config)
+    return RunConfig(
+        query_path=input_path,
+        output_dir=resolve_output_dir(args, input_path),
+        database_path=resolve_database_path(args, config, repo_dir),
+        threads=resolve_threads(args, config),
+        max_workers=args.max_workers,
+        threads_per_worker=args.threads_per_worker,
+        tree_method=resolve_tree_method(args, config),
+        iqtree_mode=resolve_iqtree_mode(args, config),
+        mode_fast=resolve_mode_fast(args, config),
+        completeness_mode=resolve_completeness_mode(args, config),
+        sensitive_mode=resolve_sensitive_mode(args, config),
+        resume=args.resume,
+        allow_short=args.allow_short,
+        min_sequence_length=resolve_validation_min_length(
+            contigs, resolve_input_min_length(args, config), contigs_min_length
+        ),
+        species_tree=args.species_tree,
+        species_tree_combined=args.species_tree_combined,
+        species_tree_trim=args.species_tree_trim,
+        contig_screen=resolve_contig_screen(args, config),
+        contigs_mode=contigs.enabled,
+        contigs_min_length=contigs_min_length,
+    )
+
+
+def apply_resource_cache(
+    args: argparse.Namespace, config: dict[str, Any], database: Path
+) -> None:
+    """Pass ``--resource-cache-dir``, else the configured cache, to the runner."""
+    if args.resource_cache_dir:
+        os.environ[RESOURCE_CACHE_ENV] = str(
+            Path(args.resource_cache_dir).expanduser().resolve()
+        )
+    else:
+        configure_resource_cache(config, database)
+
+
+def plan_run(
+    args: argparse.Namespace,
+    run_config: RunConfig,
+    query_dir: Path,
+    *,
+    config_file: Path | None,
+    contigs: ContigInput,
+    n_input_files: int,
+) -> PipelineContext:
+    """Count the queries in ``query_dir`` and plan the workers for the banner."""
+    query_files = discover_queries(query_dir)
+    n_queries = len(query_files)
+    n_skipped = (
+        count_completed_queries(run_config.output_dir, query_files)
+        if args.resume
+        else 0
+    )
+    workers, threads_per_worker = plan_workers(
+        max(1, n_queries - n_skipped),
+        run_config.threads,
+        run_config.max_workers,
+        run_config.threads_per_worker,
+    )
+    return PipelineContext(
+        config=replace(run_config, query_path=query_dir),
+        config_file=config_file,
+        contigs=contigs,
+        n_queries=n_queries,
+        n_input_files=n_input_files,
+        n_skipped=n_skipped,
+        workers=workers,
+        threads_per_worker=threads_per_worker,
+    )
+
+
+def thread_environment(
+    environ: Mapping[str, str], per_marker_threads: int
+) -> dict[str, str]:
+    """Return ``environ`` with the thread variables of the numeric libraries set.
+
+    Each gets ``per_marker_threads``, unless the inherited value is a smaller
+    integer: a user who limits the threads further keeps that limit. Without the
+    clamp, each inner library (pyhmmer, pyswrd, pyfamsa, NumPy/BLAS) would start up
+    to ``threads_per_worker`` threads of its own and oversubscribe a large host.
+    """
+    env = dict(environ)
+    for name in THREAD_ENV_VARS:
+        inherited = env.get(name, "")
+        if not (inherited.isdecimal() and 0 < int(inherited) < per_marker_threads):
+            env[name] = str(per_marker_threads)
+    return env
+
+
+def build_runtime_env(repo_dir: Path, per_marker_threads: int) -> dict[str, str]:
+    """Build the environment of the runner process."""
+    env = thread_environment(os.environ, per_marker_threads)
     existing_pythonpath = env.get("PYTHONPATH", "")
     repo_str = str(repo_dir)
     if existing_pythonpath:
@@ -1005,194 +953,261 @@ def build_runtime_env(repo_dir: Path, context: Optional[PipelineContext] = None)
     else:
         env["PYTHONPATH"] = repo_str
     env["PYTHONWARNINGS"] = "ignore"
-
-    if context is not None:
-        # Half of ``threads_per_worker`` mirrors the per-marker thread cap
-        # applied inside the engine (see _calculate_marker_threading).
-        per_marker_threads = str(max(1, context.workers.threads_per_worker // 2))
-        env.setdefault("OMP_NUM_THREADS", per_marker_threads)
-        env.setdefault("OPENBLAS_NUM_THREADS", per_marker_threads)
-        env.setdefault("MKL_NUM_THREADS", per_marker_threads)
-        env.setdefault("NUMEXPR_NUM_THREADS", per_marker_threads)
-
     return env
 
 
-def combine_summary_files(output_dir: Path, output: CliOutput):
-    combined_tsv = output_dir / "gvclass_summary.tsv"
-    combined_csv = output_dir / "gvclass_summary.csv"
-    if combined_tsv.exists() and combined_csv.exists():
-        output.line(f"Combined summary written to: {combined_tsv}", key="success")
-        output.line(f"CSV summary written to: {combined_csv}", key="success")
-        return
+@contextmanager
+def _sigterm_as_keyboard_interrupt() -> Iterator[None]:
+    """Make SIGTERM raise ``KeyboardInterrupt``, so it takes the path of Ctrl-C."""
 
-    summary_files = list(output_dir.glob("*.summary.tab"))
-    if not summary_files:
-        output.line("No individual summary files found", key="warning")
-        return
+    def raise_interrupt(_signum: int, _frame: FrameType | None) -> None:
+        raise KeyboardInterrupt
 
-    combined_rows = []
-    headers = None
-    for summary_file in sorted(summary_files):
-        with open(summary_file, "r", newline="") as handle:
-            rows = list(csv.reader(handle, delimiter="\t"))
-        if not rows:
-            continue
-
-        if headers is None and rows[0]:
-            headers = rows[0]
-        elif headers is not None and rows[0] != headers:
-            output.line(
-                f"Header mismatch in {summary_file.name}; using first header",
-                key="warning",
-            )
-
-        for row in rows[1:]:
-            if row:
-                combined_rows.append(row)
-
-    if not (combined_rows and headers):
-        output.line("No summary data found to combine", key="warning")
-        return
-
-    with (
-        open(combined_tsv, "w") as tsv_handle,
-        open(combined_csv, "w", newline="") as csv_handle,
-    ):
-        writer = csv.writer(csv_handle)
-        tsv_handle.write("\t".join(headers) + "\n")
-        writer.writerow(headers)
-        for row in combined_rows:
-            formatted_row = [
-                _format_summary_cell(header, value)
-                for header, value in zip(headers, row)
-            ]
-            tsv_handle.write("\t".join(formatted_row) + "\n")
-            writer.writerow(formatted_row)
-
-    output.line(f"Combined summary written to: {combined_tsv}", key="success")
-    output.line(f"CSV summary written to: {combined_csv}", key="success")
-
-
-def _format_summary_cell(header: str, value: str) -> str:
-    if header not in TWO_DECIMAL_SUMMARY_COLUMNS:
-        return value
-    if not value or not NUMERIC_VALUE_PATTERN.match(value):
-        return value
-    return f"{float(value):.2f}"
-
-
-def cleanup_temp_dir(temp_dir: Optional[Path]):
-    if temp_dir and Path(temp_dir).exists():
-        shutil.rmtree(temp_dir)
-
-
-def _stream_subprocess_pipe(pipe, source: str, output_queue: queue.Queue) -> None:
+    previous = signal.signal(signal.SIGTERM, raise_interrupt)
     try:
-        for line in iter(pipe.readline, ""):
-            output_queue.put((source, line))
+        yield
     finally:
-        pipe.close()
+        signal.signal(signal.SIGTERM, previous)
 
 
-def _drain_pipeline_output(
-    process: subprocess.Popen,
-    monitor: ResourceMonitor,
-) -> tuple[bytes, bytes]:
-    output_queue: queue.Queue = queue.Queue()
-    stdout_lines: list[str] = []
-    stderr_lines: list[str] = []
-    readers = [
-        threading.Thread(
-            target=_stream_subprocess_pipe,
-            args=(process.stdout, "stdout", output_queue),
-            daemon=True,
-        ),
-        threading.Thread(
-            target=_stream_subprocess_pipe,
-            args=(process.stderr, "stderr", output_queue),
-            daemon=True,
-        ),
-    ]
-    for reader in readers:
-        reader.start()
-
-    while process.poll() is None or any(reader.is_alive() for reader in readers):
-        try:
-            source, line = output_queue.get(timeout=0.2)
-        except queue.Empty:
-            monitor.update_memory()
-            continue
-
-        monitor.update_memory()
-        if monitor.handle_progress_line(line):
-            continue
-        if source == "stdout":
-            stdout_lines.append(line)
-        else:
-            stderr_lines.append(line)
-
-    while not output_queue.empty():
-        source, line = output_queue.get()
-        if monitor.handle_progress_line(line):
-            continue
-        if source == "stdout":
-            stdout_lines.append(line)
-        else:
-            stderr_lines.append(line)
-
-    for reader in readers:
-        reader.join(timeout=1)
-
-    return "".join(stdout_lines).encode(), "".join(stderr_lines).encode()
+def _stop_process_group(process: subprocess.Popen) -> None:
+    """Terminate the process group of ``process`` and wait; kill it late."""
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        process.wait()
+        return
+    try:
+        process.wait(timeout=STOP_GRACE_S)
+    except subprocess.TimeoutExpired:
+        os.killpg(process.pid, signal.SIGKILL)
+        process.wait()
 
 
-def run_pipeline(
-    cmd,
-    env,
-    repo_dir: Path,
+def _collect_output(
+    process: subprocess.Popen, monitor: ResourceMonitor, tail: deque[str]
+) -> None:
+    """Read the runner output to its end; progress events go to the monitor."""
+    if process.stdout is None:
+        return
+    for line in process.stdout:
+        if not monitor.handle_progress_line(line):
+            tail.append(line)
+
+
+def run_runner(
+    command: Sequence[str],
+    *,
+    env: Mapping[str, str],
+    cwd: Path,
     output_dir: Path,
     queries_to_process: int,
     verbose: bool,
-):
-    if verbose:
-        process = subprocess.Popen(cmd, env=env, cwd=repo_dir)
-        monitor = ResourceMonitor(output_dir, queries_to_process, process.pid)
-        monitor_thread = threading.Thread(target=monitor.monitor_memory)
-        monitor_thread.start()
-        stdout_data, stderr_data = process.communicate()
-        return_code = process.returncode
-        monitor.stop()
-        monitor_thread.join()
-        return return_code, stdout_data, stderr_data, monitor
-    else:
-        env = {**env, "GVCLASS_PROGRESS_EVENTS": "1"}
-        process = subprocess.Popen(
-            cmd,
-            env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            cwd=repo_dir,
-            text=True,
-            bufsize=1,
-        )
+) -> RunnerOutcome:
+    """Run the runner process and return how it ended.
 
+    The runner has its own process group. Ctrl-C or SIGTERM ends that group and
+    returns an interrupted outcome. In the default mode the output goes through a
+    pipe, and the outcome keeps its last non-progress lines; the full log is in
+    ``gvclass.log``. Memory is sampled on a timer by a daemon thread.
+    """
+    child_env = dict(env) if verbose else {**env, "GVCLASS_PROGRESS_EVENTS": "1"}
+    process = subprocess.Popen(
+        list(command),
+        env=child_env,
+        cwd=cwd,
+        stdout=None if verbose else subprocess.PIPE,
+        stderr=None if verbose else subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        bufsize=1,
+        start_new_session=True,
+    )
     monitor = ResourceMonitor(output_dir, queries_to_process, process.pid)
-    stdout_data, stderr_data = _drain_pipeline_output(process, monitor)
-    return_code = process.returncode
-    monitor.finish(return_code == 0)
-    return return_code, stdout_data, stderr_data, monitor
+    sampler = threading.Thread(
+        target=monitor.monitor_memory, name=MONITOR_THREAD_NAME, daemon=True
+    )
+    sampler.start()
+    tail: deque[str] = deque(maxlen=RUNNER_TAIL_LINES)
+    interrupted = False
+    try:
+        with _sigterm_as_keyboard_interrupt():
+            _collect_output(process, monitor, tail)
+            process.wait()
+    except KeyboardInterrupt:
+        interrupted = True
+    finally:
+        if process.poll() is None:
+            _stop_process_group(process)
+        monitor.stop()
+        sampler.join(timeout=2.0)
+    monitor.finish(process.returncode == 0)
+    return RunnerOutcome(
+        return_code=process.returncode,
+        tail=tuple(tail),
+        interrupted=interrupted,
+        peak_memory_mb=monitor.peak_memory_mb,
+    )
 
 
-def show_version(config_path: str, database_override: Optional[str], repo_dir: Path):
-    from src.utils.database_manager import DatabaseManager
+def validate_outputs(output_dir: Path, output: CliOutput, *, verbose: bool) -> bool:
+    """Validate the pipeline outputs, print the issues, and say whether all is well."""
+    from src.utils.output_validator import (  # noqa: PLC0415  # Pipeline code loads only for a run.
+        validate_pipeline_outputs,
+    )
 
-    output = CliOutput(plain_output=True)
-    config = load_config(config_path, repo_dir, output)
-    db_path = Path(resolve_database_setting(database_override, config)).expanduser()
-    if not db_path.is_absolute():
-        db_path = repo_dir / db_path
-    db_path = db_path.resolve()
+    output.line("Validating pipeline outputs...", key="validate")
+    validation = validate_pipeline_outputs(output_dir=output_dir, verbose=verbose)
+    if validation["success"]:
+        output.line("All outputs validated successfully", key="success")
+        return True
+    issues = validation["issues"]
+    output.line(f"Validation found {len(issues)} issue(s):", key="warning")
+    for issue in issues[:MAX_ISSUES_SHOWN]:
+        print(f"  - {issue}")
+    if len(issues) > MAX_ISSUES_SHOWN:
+        print(f"  ... and {len(issues) - MAX_ISSUES_SHOWN} more")
+    return False
+
+
+def report_failure(outcome: RunnerOutcome, output: CliOutput) -> None:
+    """Say how the runner failed and show the end of its output."""
+    if outcome.interrupted:
+        output.line("\nPipeline interrupted by user", key="warning")
+        return
+    output.line(f"\nPipeline failed with exit code: {outcome.return_code}", key="error")
+    if outcome.tail:
+        output.line(
+            f"Last {len(outcome.tail)} lines of the runner output "
+            "(the full log is gvclass.log in the output directory):"
+        )
+        print("".join(outcome.tail), end="")
+
+
+def report_runtime(
+    elapsed_s: float, peak_memory_mb: float, output_dir: Path, output: CliOutput
+) -> None:
+    """Print the run time, the peak memory and where the results are."""
+    minutes, seconds = divmod(int(elapsed_s), 60)
+    output.line(f"Runtime: {minutes}m {seconds}s", key="runtime")
+    output.line(f"Peak memory usage: {peak_memory_mb:.0f} MB", key="memory")
+    output.line(f"Results saved to: {output_dir}", key="summary")
+
+
+def describe_contig_screen(config: RunConfig) -> str:
+    """Say what the run does about the contig screen, for the startup lines."""
+    # Imported here so that --help does not load numpy.
+    from src.contig_screen.layout import bundle_present  # noqa: PLC0415
+
+    if not config.contig_screen:
+        return "disabled"
+    if config.contigs_mode:
+        return "not applicable in --contigs mode"
+    try:
+        installed = bundle_present(config.database_path)
+    except OSError:
+        return "add-on manifest not readable (screen_status will be failed)"
+    if not installed:
+        return "add-on not installed (install it with: gvclass screen --install)"
+    return "enabled"
+
+
+def display_startup_configuration(context: PipelineContext, output: CliOutput) -> None:
+    """Print the banner and the settings of the run."""
+    print_banner(output.plain_output, SOFTWARE_VERSION)
+    print_configuration(context)
+    output.line(f"Completeness mode: {context.config.completeness_mode}")
+    output.line(f"Contig screen: {describe_contig_screen(context.config)}")
+
+
+def execute_pipeline(
+    args: argparse.Namespace,
+    context: PipelineContext,
+    repo_dir: Path,
+    output: CliOutput,
+) -> int:
+    """Write the run configuration, run the runner on it and check the outputs.
+
+    Return 0 only if the runner exited 0 and the output validation found no issue.
+    """
+    config = context.config
+    config.output_dir.mkdir(parents=True, exist_ok=True)
+    config_path = config.output_dir / RUN_CONFIG_FILENAME
+    config_path.write_text(config.to_json(), encoding="utf-8")
+    display_startup_configuration(context, output)
+
+    command = [sys.executable, "-m", "src.bin.gvclass_runner", str(config_path)]
+    if args.verbose:
+        command.append("--verbose")
+    # Half of the threads of a worker mirrors the per-marker thread cap that the
+    # engine applies (see _calculate_marker_threading).
+    env = build_runtime_env(repo_dir, max(1, context.threads_per_worker // 2))
+    started = time.monotonic()
+    outcome = run_runner(
+        command,
+        env=env,
+        cwd=repo_dir,
+        output_dir=config.output_dir,
+        queries_to_process=context.n_remaining,
+        verbose=args.verbose,
+    )
+    if outcome.interrupted or outcome.return_code != 0:
+        report_failure(outcome, output)
+        return 1
+
+    output.line("\nPipeline completed successfully!", key="success")
+    valid = validate_outputs(config.output_dir, output, verbose=args.verbose)
+    report_runtime(
+        time.monotonic() - started, outcome.peak_memory_mb, config.output_dir, output
+    )
+    return 0 if valid else 1
+
+
+def run_cli(args: argparse.Namespace, repo_dir: Path, output: CliOutput) -> int:
+    """Resolve the invocation, set up the database and run; return the exit status."""
+    config_file = find_config_file(args.config, repo_dir)
+    config = load_config(config_file)
+    contigs = resolve_contigs_input(Path(args.query_dir).resolve(), args.contigs)
+    run_config = resolve_run_config(args, config, repo_dir, contigs)
+    apply_resource_cache(args, config, run_config.database_path)
+    if contigs.enabled and args.min_length is not None:
+        output.line(
+            "Warning: --min-length is ignored in --contigs mode; "
+            "use --contigs-min-length for split contigs.",
+            key="warning",
+            file=sys.stderr,
+        )
+    if not check_and_setup_database(run_config.database_path, config, output):
+        output.line("Database setup failed", key="error")
+        return 1
+
+    temp_contigs_dir = None
+    try:
+        temp_contigs_dir, _, n_input_files = split_contig_inputs(
+            contigs, output, min_length=run_config.contigs_min_length
+        )
+        context = plan_run(
+            args,
+            run_config,
+            temp_contigs_dir or run_config.query_path,
+            config_file=config_file,
+            contigs=contigs,
+            n_input_files=n_input_files,
+        )
+        return execute_pipeline(args, context, repo_dir, output)
+    finally:
+        cleanup_temp_dir(temp_contigs_dir)
+
+
+def show_version(args: argparse.Namespace, repo_dir: Path) -> None:
+    """Print the software version and the installed and latest database versions."""
+    from src.utils.database_manager import (  # noqa: PLC0415  # Pipeline code loads only when asked.
+        DatabaseManager,
+    )
+
+    config = load_config(find_config_file(args.config, repo_dir))
+    db_path = resolve_database_path(args, config, repo_dir)
 
     print("GVClass Pipeline")
     print(f"  Software version: {SOFTWARE_VERSION}")
@@ -1208,282 +1223,6 @@ def show_version(config_path: str, database_override: Optional[str], repo_dir: P
         print(f"  Latest Zenodo database: {latest_source['version']}")
 
 
-def resolve_pipeline_context(
-    args, repo_dir: Path, output: CliOutput
-) -> PipelineContext:
-    config = load_config(args.config, repo_dir, output)
-    query_dir = Path(args.query_dir).resolve()
-
-    contigs = resolve_contigs_input(query_dir, args.contigs)
-    database = resolve_database_path(args, config, repo_dir)
-    if getattr(args, "resource_cache_dir", None):
-        os.environ[RESOURCE_CACHE_ENV] = str(
-            Path(args.resource_cache_dir).expanduser().resolve()
-        )
-    else:
-        configure_resource_cache(config, database)
-    threads = args.threads if args.threads else config["pipeline"].get("threads", 16)
-    tree_method = resolve_tree_method(args, config)
-    iqtree_mode = resolve_iqtree_mode(args, config)
-    mode_fast = resolve_mode_fast(args, config)
-    completeness_mode = resolve_completeness_mode(args, config)
-    sensitive_mode = resolve_sensitive_mode(args, config)
-    contig_screen = resolve_contig_screen(args, config)
-    input_min_length = resolve_input_min_length(args, config)
-    contigs_min_length = resolve_contigs_min_length(args, config)
-    validation_min_length = resolve_validation_min_length(
-        contigs,
-        input_min_length,
-        contigs_min_length,
-    )
-    output_dir = resolve_output_dir(args, query_dir, config)
-
-    if contigs.enabled and args.min_length is not None:
-        output.line(
-            "Warning: --min-length is ignored in --contigs mode; "
-            "use --contigs-min-length for split contigs.",
-            key="warning",
-            file=sys.stderr,
-        )
-
-    if not check_and_setup_database(database, config, output):
-        raise RuntimeError("Database setup failed")
-
-    temp_contigs_dir, _, n_input_files = split_contig_inputs(
-        contigs,
-        output,
-        min_length=contigs_min_length,
-    )
-    active_query_dir = temp_contigs_dir if temp_contigs_dir else query_dir
-
-    n_queries = count_query_files(active_query_dir)
-    if n_queries == 0:
-        raise ValueError(f"No .fna or .faa files found in {active_query_dir}")
-
-    output_dir.mkdir(parents=True, exist_ok=True)
-    n_skipped = count_resume_skips(output_dir, active_query_dir) if args.resume else 0
-    workers = calculate_worker_plan(args, n_queries, threads)
-
-    return PipelineContext(
-        query_dir=query_dir,
-        active_query_dir=active_query_dir,
-        output_dir=output_dir,
-        database=database,
-        threads=threads,
-        tree_method=tree_method,
-        iqtree_mode=iqtree_mode,
-        mode_fast=mode_fast,
-        completeness_mode=completeness_mode,
-        sensitive_mode=sensitive_mode,
-        contigs=contigs,
-        input_min_length=input_min_length,
-        contigs_min_length=contigs_min_length,
-        validation_min_length=validation_min_length,
-        temp_contigs_dir=temp_contigs_dir,
-        n_queries=n_queries,
-        n_input_files=n_input_files,
-        n_skipped=n_skipped,
-        workers=workers,
-        contig_screen=contig_screen,
-    )
-
-
-def _emit_subprocess_output(data: Optional[bytes]) -> None:
-    if data:
-        print(data.decode(errors="replace").strip())
-
-
-def handle_failed_pipeline(
-    return_code: int,
-    stdout_data: Optional[bytes],
-    stderr_data: Optional[bytes],
-    verbose: bool,
-    output: CliOutput,
-) -> int:
-    output.line(f"\nPipeline failed with exit code: {return_code}", key="error")
-    if not verbose:
-        _emit_subprocess_output(stderr_data)
-        _emit_subprocess_output(stdout_data)
-    return 1
-
-
-def validate_and_summarize_outputs(
-    output_dir: Path, verbose: bool, output: CliOutput
-) -> None:
-    from src.utils.output_validator import validate_pipeline_outputs
-
-    output.line("Validating pipeline outputs...", key="validate")
-    validation = validate_pipeline_outputs(output_dir=output_dir, verbose=verbose)
-    if validation["success"]:
-        output.line("All outputs validated successfully", key="success")
-    else:
-        output.line(
-            f"Validation found {len(validation['issues'])} issue(s):", key="warning"
-        )
-        for issue in validation["issues"][:5]:
-            print(f"  - {issue}")
-
-    output.line("Generating combined summary...", key="summary")
-    combine_summary_files(output_dir, output)
-
-
-def report_runtime(
-    start_time: datetime, monitor: ResourceMonitor, output_dir: Path, output: CliOutput
-) -> None:
-    elapsed = datetime.now() - start_time
-    minutes = int(elapsed.total_seconds() / 60)
-    seconds = int(elapsed.total_seconds() % 60)
-    output.line(f"Runtime: {minutes}m {seconds}s", key="runtime")
-    output.line(f"Peak memory usage: {monitor.peak_memory_mb:.0f} MB", key="memory")
-    output.line(f"Results saved to: {output_dir}", key="summary")
-
-
-def display_startup_configuration(
-    args, context: PipelineContext, output: CliOutput
-) -> None:
-    print_banner(output.plain_output, SOFTWARE_VERSION)
-    print_configuration(
-        args=args,
-        query_dir_abs=context.active_query_dir,
-        output_dir=context.output_dir,
-        database=context.database,
-        n_queries=context.n_queries,
-        n_input_files=context.n_input_files,
-        n_skipped=context.n_skipped,
-        mode_fast=context.mode_fast,
-        sensitive_mode=context.sensitive_mode,
-        threads=context.threads,
-        workers=context.workers,
-        contigs=context.contigs,
-        input_min_length=context.input_min_length,
-        contigs_min_length=context.contigs_min_length,
-        validation_min_length=context.validation_min_length,
-        tree_method=context.tree_method,
-    )
-    output.line(f"Completeness mode: {context.completeness_mode}")
-    output.line(f"Contig screen: {describe_contig_screen(context)}")
-
-
-def describe_contig_screen(context: PipelineContext) -> str:
-    """Say what the run does about the contig screen, for the startup lines."""
-    # Imported here so that --help does not load numpy.
-    from src.contig_screen.layout import bundle_present  # noqa: PLC0415
-
-    if not context.contig_screen:
-        return "disabled"
-    if context.contigs.enabled:
-        return "not applicable in --contigs mode"
-    try:
-        installed = bundle_present(context.database)
-    except OSError:
-        return "add-on manifest not readable (screen_status will be failed)"
-    if not installed:
-        return "add-on not installed (install it with: gvclass screen --install)"
-    return "enabled"
-
-
-def build_runtime_command(
-    args, context: PipelineContext, repo_dir: Path, output: CliOutput
-):
-    python_exe, pixi_cmd, use_pixi_run = resolve_runtime_python(repo_dir)
-    deps_ok = ensure_dependencies(repo_dir, python_exe, pixi_cmd, use_pixi_run, output)
-    if not deps_ok:
-        return None, None
-    cmd = build_pipeline_command(
-        args=args,
-        context=context,
-        python_exe=python_exe,
-        pixi_cmd=pixi_cmd,
-        use_pixi_run=use_pixi_run,
-    )
-    return cmd, build_runtime_env(repo_dir, context=context)
-
-
-def execute_pipeline_command(
-    args, context: PipelineContext, repo_dir: Path, cmd, env, output: CliOutput
-) -> int:
-    start_time = datetime.now()
-    queries_to_process = (
-        context.n_queries - context.n_skipped if args.resume else context.n_queries
-    )
-
-    try:
-        return_code, stdout_data, stderr_data, monitor = run_pipeline(
-            cmd=cmd,
-            env=env,
-            repo_dir=repo_dir,
-            output_dir=context.output_dir,
-            queries_to_process=queries_to_process,
-            verbose=args.verbose,
-        )
-    except KeyboardInterrupt:
-        output.line("\nPipeline interrupted by user", key="warning")
-        return 1
-
-    if return_code != 0:
-        return handle_failed_pipeline(
-            return_code=return_code,
-            stdout_data=stdout_data,
-            stderr_data=stderr_data,
-            verbose=args.verbose,
-            output=output,
-        )
-
-    output.line("\nPipeline completed successfully!", key="success")
-    validate_and_summarize_outputs(context.output_dir, args.verbose, output)
-    report_runtime(start_time, monitor, context.output_dir, output)
-    return 0
-
-
-def resolve_cli_context(
-    args, repo_dir: Path, output: CliOutput
-) -> Optional[PipelineContext]:
-    try:
-        return resolve_pipeline_context(args, repo_dir, output)
-    except ValueError as exc:
-        output.line(f"ERROR: {exc}", key="error", file=sys.stderr)
-        return None
-    except RuntimeError as exc:
-        output.line(str(exc), key="error")
-        return None
-
-
-def run_cli(args, repo_dir: Path, output: CliOutput) -> int:
-    context = resolve_cli_context(args, repo_dir, output)
-    if context is None:
-        return 1
-
-    display_startup_configuration(args, context, output)
-    cmd, env = build_runtime_command(args, context, repo_dir, output)
-    if not cmd:
-        cleanup_temp_dir(context.temp_contigs_dir)
-        return 1
-
-    try:
-        return execute_pipeline_command(args, context, repo_dir, cmd, env, output)
-    finally:
-        cleanup_temp_dir(context.temp_contigs_dir)
-
-    # Unreachable; retained to satisfy static analysis in some tooling.
-    return 0
-
-
-def _should_use_apptainer(argv: list[str]) -> bool:
-    return any(
-        token in {"--apptainer", "--image"} or token.startswith("--image=")
-        for token in argv
-    )
-
-
-def _run_apptainer(argv: list[str]) -> int:
-    """Run the container launcher; native runs never import it."""
-    from src.bin.gvclass_apptainer import (  # noqa: PLC0415  # native runs skip it
-        main as apptainer_main,
-    )
-
-    return apptainer_main(argv)
-
-
 def _run_screen(argv: list[str]) -> int:
     """Run ``gvclass screen``; the screens import torch only when they score."""
     from src.bin.gvclass_screen import main as screen_main  # noqa: PLC0415
@@ -1491,35 +1230,36 @@ def _run_screen(argv: list[str]) -> int:
     return screen_main(argv)
 
 
-def main(repo_dir: Optional[Path] = None) -> int:
-    if sys.argv[1:2] == ["screen"] and not _should_use_apptainer(sys.argv[1:]):
-        return _run_screen(sys.argv[2:])
-    if _should_use_apptainer(sys.argv[1:]):
-        return _run_apptainer(sys.argv[1:])
+def _run_command(args: argparse.Namespace, repo_dir: Path, output: CliOutput) -> int:
+    """Show the version, or run the pipeline."""
+    if args.version:
+        show_version(args, repo_dir)
+        return 0
+    return run_cli(args, repo_dir, output)
+
+
+def main(argv: Sequence[str] | None = None, repo_dir: Path | None = None) -> int:
+    """Run the GVClass command line and return the exit status.
+
+    Container mode is the launcher's business: it decides before this module loads.
+    """
+    given = list(sys.argv[1:] if argv is None else argv)
+    if given[:1] == ["screen"]:
+        return _run_screen(given[1:])
 
     parser = build_parser()
-    args, unrecognized = parser.parse_known_args()
-    if args.apptainer or args.image:
-        # argparse accepts abbreviated flags such as --imag, which the token
-        # check above does not see.
-        return _run_apptainer(sys.argv[1:])
-    if unrecognized:
-        parser.error(f"unrecognized arguments: {' '.join(unrecognized)}")
-
-    active_repo = repo_dir if repo_dir else Path(__file__).resolve().parents[2]
-    if args.version:
-        show_version(args.config, args.database, active_repo)
-        return 0
-
-    if not args.query_dir:
+    args = parser.parse_args(given)
+    if not args.version and not args.query_dir:
         parser.print_help()
         return 0
 
-    plain_output = resolve_plain_output(args)
-    output = CliOutput(plain_output=plain_output)
-
+    active_repo = repo_dir or Path(__file__).resolve().parents[2]
+    output = CliOutput(plain_output=resolve_plain_output(args))
     try:
-        return run_cli(args, active_repo, output)
+        return _run_command(args, active_repo, output)
+    except ConfigError as exc:
+        output.line(f"error: {exc}", key="error", file=sys.stderr)
+        return 2
     except ValueError as exc:
         output.line(str(exc), key="error", file=sys.stderr)
         return 1

@@ -1,10 +1,10 @@
-"""The image address of the Apptainer launchers: ``oras://`` pulls and their cache keys.
+"""The image address of the Apptainer launcher: ``oras://`` pulls and their cache keys.
 
-Both launchers (the ``gvclass`` script that users download with wget, and
-``src/bin/gvclass_apptainer.py``) are copied into an empty folder and run as programs
-with a fake ``apptainer`` on the PATH. It records every call, writes a file of 60 kB
-for ``pull`` and prints a valid SIF table for ``sif list``, so the real staging, the
-checks and the cache of the launcher run, with no repository and no network.
+The ``gvclass`` script that users download with wget is copied into an empty folder
+and run as a program with a fake ``apptainer`` on the PATH. It records every call,
+writes a file of 60 kB for ``pull`` and prints a valid SIF table for ``sif list``, so
+the real staging, the checks and the cache of the launcher run, with no repository
+and no network.
 """
 
 from __future__ import annotations
@@ -18,10 +18,7 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-COPIES = {
-    "script": REPO_ROOT / "gvclass",
-    "module": REPO_ROOT / "src" / "bin" / "gvclass_apptainer.py",
-}
+SCRIPT = REPO_ROOT / "gvclass"
 FAKE_APPTAINER = """#!/bin/sh
 printf '%s\\n' "$*" >> "$FAKE_LOG"
 case "$1" in
@@ -92,9 +89,9 @@ class Launcher:
         return [call.split() for call in calls if call.startswith("pull ")]
 
 
-@pytest.fixture(params=sorted(COPIES))
-def launcher(request: pytest.FixtureRequest, tmp_path: Path) -> Launcher:
-    return Launcher(tmp_path, COPIES[request.param])
+@pytest.fixture
+def launcher(tmp_path: Path) -> Launcher:
+    return Launcher(tmp_path, SCRIPT)
 
 
 @pytest.mark.parametrize("address", [GHCR, DOCKER, CUSTOM_LIBRARY], ids=lambda a: a[:5])

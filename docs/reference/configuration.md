@@ -4,13 +4,14 @@ The shipped configuration is `config/gvclass_config.yaml`. CLI flags override YA
 
 ## File lookup
 
-`--config` selects a file; its default is `config/gvclass_config.yaml`. An absolute path is read directly. For a relative path, GVClass checks:
+`--config` selects a file. A path that does not exist is an error (exit status 2); GVClass does not fall back to another file. Without `--config`, GVClass reads the first of these files that exists:
 
-1. The supplied path relative to the working directory.
-2. `gvclass_config.yaml` in the working directory.
-3. The supplied path relative to the repository root.
+1. `gvclass_config.yaml` in the working directory.
+2. `config/gvclass_config.yaml` in the repository.
 
-Built-in defaults are used if no file is found.
+Built-in defaults are used if neither exists.
+
+A section (`database`, `pipeline`, `quality`) that is empty or not a mapping is an error that names the section. A missing PyYAML is an error, not a silent switch to the defaults. `threads` must be an integer of at least 1.
 
 ## Shipped configuration
 
@@ -31,7 +32,6 @@ pipeline:
   contig_screen: true
   contigs_min_length: 10000
   threads: 4
-  output_pattern: "{query_dir}_results"
 
 quality:
   min_length: 20000
@@ -66,8 +66,7 @@ Compact resource bundles can store labels and reference proteins as Parquet (`pa
 | `sensitive_mode` | `true` | Use `E=1e-5` and `domE=1e-5` instead of GA cutoffs. |
 | `contig_screen` | `true` | Screen each nucleotide bin after the queries finish, when the add-on is installed. `--no-screen` turns it off for one run. |
 | `contigs_min_length` | `10000` | Minimum contig length in bp for `--contigs`. |
-| `threads` | `4` | Total thread budget. |
-| `output_pattern` | `{query_dir}_results` | Default output directory. `{query_dir}` is the query directory's basename. |
+| `threads` | `4` | Total thread budget, an integer of at least 1. |
 
 ## Quality keys
 

@@ -1,13 +1,13 @@
-import runpy
+"""The image cache and the container command of the ``gvclass`` launcher."""
+
 import subprocess
-from collections.abc import Callable
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 
-from src.bin import gvclass_apptainer
+from tests.launcher_helpers import load_launcher
 
-ROOT = Path(__file__).resolve().parents[1]
 SIF_LIST = (
     "ID |GROUP |LINK |SIF POSITION (start-end) |TYPE\n"
     "1 |1 |NONE |32768-33000 |Def.FILE\n"
@@ -18,13 +18,12 @@ GHCR_IMAGE = "oras://ghcr.io/nelli-team/gvclass:2.1.1"
 CUSTOM_LIBRARY_IMAGE = "library://sylabs.example.org/team/collection/gvclass:2.1.1"
 
 
-@pytest.fixture(params=["gvclass", "src/bin/gvclass_apptainer.py"])
-def image_launcher(request, tmp_path: Path, monkeypatch) -> Callable[[str], str]:
-    """Load each independently distributed launcher with an isolated cache."""
-    namespace = runpy.run_path(str(ROOT / request.param))
-    ensure = namespace["ensure_local_image"]
-    monkeypatch.setitem(ensure.__globals__, "IMAGE_CACHE_DIR", tmp_path / "images")
-    return ensure
+@pytest.fixture
+def launcher(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ModuleType:
+    """Load the launcher with an isolated image cache."""
+    module = load_launcher()
+    monkeypatch.setattr(module, "IMAGE_CACHE_DIR", tmp_path / "images")
+    return module
 
 
 @pytest.fixture
@@ -41,19 +40,20 @@ def sif_listing(monkeypatch) -> list[list[str]]:
     return calls
 
 
-def cache_path(launcher: Callable[[str], str], image: str = IMAGE) -> Path:
+def cache_path(launcher: ModuleType, image: str = IMAGE) -> Path:
     """Find the documented cache entry without running the launcher."""
-    state = launcher.__globals__
-    return state["IMAGE_CACHE_DIR"] / state["cache_filename_for_image"](image)
+    return launcher.IMAGE_CACHE_DIR / launcher.cache_filename_for_image(image)
 
 
-def test_apptainer_wrapper_uses_the_release_ghcr_image_by_default() -> None:
-    assert gvclass_apptainer.DEFAULT_IMAGE == GHCR_IMAGE
+def test_apptainer_wrapper_uses_the_release_ghcr_image_by_default(
+    launcher: ModuleType,
+) -> None:
+    assert launcher.DEFAULT_IMAGE == GHCR_IMAGE
 
 
-def test_the_launcher_has_no_sylabs_constants() -> None:
+def test_the_launcher_has_no_sylabs_constants(launcher: ModuleType) -> None:
     for name in ("SYLABS_IMAGE", "PUBLIC_LIBRARY_URL", "is_library_uri"):
-        assert not hasattr(gvclass_apptainer, name), name
+        assert not hasattr(launcher, name), name
 
 
 @pytest.mark.parametrize(
@@ -67,10 +67,10 @@ def test_the_launcher_has_no_sylabs_constants() -> None:
     ids=["https", "oras", "docker", "library"],
 )
 def test_image_pull_is_staged_and_checked(
-    image_launcher, sif_listing, monkeypatch, image: str
+    launcher, sif_listing, monkeypatch, image: str
 ) -> None:
     calls = []
-    cached = cache_path(image_launcher, image)
+    cached = cache_path(launcher, image)
 
     def pull(command):
         calls.append(command)
@@ -82,7 +82,7 @@ def test_image_pull_is_staged_and_checked(
         return 0
 
     monkeypatch.setattr(subprocess, "call", pull)
-    assert image_launcher(image) == str(cached)
+    assert launcher.ensure_local_image(image) == str(cached)
     assert cached.stat().st_size == 50000
     assert len(calls) == 1
     assert calls[0] == ["apptainer", "pull", "-F", calls[0][3], image]
@@ -90,28 +90,37 @@ def test_image_pull_is_staged_and_checked(
     assert list(cached.parent.iterdir()) == [cached]
 
 
-def test_valid_cached_image_is_checked_without_pull(
-    image_launcher, sif_listing, monkeypatch
+def test_a_plain_http_image_address_is_rejected(
+    launcher, monkeypatch, tmp_path: Path
 ) -> None:
-    cached = cache_path(image_launcher)
+    monkeypatch.setattr(subprocess, "call", lambda cmd: pytest.fail("Unexpected pull"))
+
+    with pytest.raises(SystemExit, match="https"):
+        launcher.ensure_local_image("http://example.org/gvclass.sif")
+
+    assert not (tmp_path / "images").exists()
+
+
+def test_valid_cached_image_is_checked_without_pull(
+    launcher, sif_listing, monkeypatch
+) -> None:
+    cached = cache_path(launcher)
     cached.parent.mkdir()
     cached.write_bytes(b"\0" * 50000)
     monkeypatch.setattr(subprocess, "call", lambda cmd: pytest.fail("Unexpected pull"))
 
-    assert image_launcher(IMAGE) == str(cached)
+    assert launcher.ensure_local_image(IMAGE) == str(cached)
     assert sif_listing == [["apptainer", "sif", "list", str(cached)]]
 
 
-def test_invalid_cached_bytes_are_preserved(
-    image_launcher, sif_listing, monkeypatch
-) -> None:
-    cached = cache_path(image_launcher)
+def test_invalid_cached_bytes_are_preserved(launcher, sif_listing, monkeypatch) -> None:
+    cached = cache_path(launcher)
     cached.parent.mkdir()
     cached.write_bytes(b"not a sif\n")
     monkeypatch.setattr(subprocess, "call", lambda cmd: pytest.fail("Unexpected pull"))
 
     with pytest.raises(SystemExit, match=r"Invalid.*image"):
-        image_launcher(IMAGE)
+        launcher.ensure_local_image(IMAGE)
     assert cached.read_bytes() == b"not a sif\n"
 
 
@@ -119,14 +128,14 @@ def test_invalid_cached_bytes_are_preserved(
     ("target_name", "target_exists"), [("missing.sif", False), ("user-image.sif", True)]
 )
 def test_cached_symlink_is_preserved_and_rejected(
-    image_launcher,
+    launcher,
     sif_listing,
     monkeypatch,
     tmp_path: Path,
     target_name: str,
     target_exists: bool,
 ) -> None:
-    cached = cache_path(image_launcher)
+    cached = cache_path(launcher)
     cached.parent.mkdir()
     target = tmp_path / target_name
     (tmp_path / "user-image.sif").write_bytes(b"\0" * 50000)
@@ -134,30 +143,28 @@ def test_cached_symlink_is_preserved_and_rejected(
     monkeypatch.setattr(subprocess, "call", lambda cmd: pytest.fail("Unexpected pull"))
 
     with pytest.raises(SystemExit, match=r"Invalid.*image"):
-        image_launcher(IMAGE)
+        launcher.ensure_local_image(IMAGE)
     assert cached.is_symlink()
     assert target.exists() == target_exists
     assert not sif_listing
 
 
-def test_cached_directory_is_preserved_and_rejected(
-    image_launcher, sif_listing
-) -> None:
-    cached = cache_path(image_launcher)
+def test_cached_directory_is_preserved_and_rejected(launcher, sif_listing) -> None:
+    cached = cache_path(launcher)
     cached.mkdir(parents=True)
     (cached / "keep.txt").write_text("keep", encoding="utf-8")
 
     with pytest.raises(SystemExit, match=r"Invalid.*image"):
-        image_launcher(IMAGE)
+        launcher.ensure_local_image(IMAGE)
     assert (cached / "keep.txt").read_text(encoding="utf-8") == "keep"
     assert not sif_listing
 
 
 @pytest.mark.parametrize("pull_status", [0, 7])
 def test_failed_or_partial_pull_never_enters_cache(
-    image_launcher, sif_listing, monkeypatch, pull_status: int
+    launcher, sif_listing, monkeypatch, pull_status: int
 ) -> None:
-    cached = cache_path(image_launcher)
+    cached = cache_path(launcher)
 
     def pull(command):
         Path(command[3]).write_bytes(b"partial")
@@ -165,15 +172,15 @@ def test_failed_or_partial_pull_never_enters_cache(
 
     monkeypatch.setattr(subprocess, "call", pull)
     with pytest.raises(SystemExit):
-        image_launcher(IMAGE)
+        launcher.ensure_local_image(IMAGE)
     assert not cached.exists()
     assert list(cached.parent.iterdir()) == []
 
 
 def test_concurrent_valid_cache_entry_is_not_overwritten(
-    image_launcher, sif_listing, monkeypatch
+    launcher, sif_listing, monkeypatch
 ) -> None:
-    cached = cache_path(image_launcher)
+    cached = cache_path(launcher)
     existing = b"winner" + b"\0" * 49994
 
     def pull(command):
@@ -182,15 +189,15 @@ def test_concurrent_valid_cache_entry_is_not_overwritten(
         return 0
 
     monkeypatch.setattr(subprocess, "call", pull)
-    assert image_launcher(IMAGE) == str(cached)
+    assert launcher.ensure_local_image(IMAGE) == str(cached)
     assert cached.read_bytes() == existing
     assert list(cached.parent.iterdir()) == [cached]
 
 
 def test_concurrent_invalid_cache_entry_is_preserved(
-    image_launcher, sif_listing, monkeypatch
+    launcher, sif_listing, monkeypatch
 ) -> None:
-    cached = cache_path(image_launcher)
+    cached = cache_path(launcher)
 
     def pull(command):
         Path(command[3]).write_bytes(b"\0" * 50000)
@@ -199,7 +206,7 @@ def test_concurrent_invalid_cache_entry_is_preserved(
 
     monkeypatch.setattr(subprocess, "call", pull)
     with pytest.raises(SystemExit, match=r"Invalid.*image"):
-        image_launcher(IMAGE)
+        launcher.ensure_local_image(IMAGE)
     assert cached.read_bytes() == b"user data"
     assert list(cached.parent.iterdir()) == [cached]
 
@@ -214,9 +221,9 @@ def test_concurrent_invalid_cache_entry_is_preserved(
     ],
 )
 def test_invalid_sif_listing_is_rejected(
-    image_launcher, monkeypatch, listing: str, returncode: int
+    launcher, monkeypatch, listing: str, returncode: int
 ) -> None:
-    cached = cache_path(image_launcher)
+    cached = cache_path(launcher)
     cached.parent.mkdir()
     cached.write_bytes(b"\0" * 50000)
     monkeypatch.setattr(
@@ -228,11 +235,11 @@ def test_invalid_sif_listing_is_rejected(
     )
 
     with pytest.raises(SystemExit, match=r"Invalid.*image"):
-        image_launcher(IMAGE)
+        launcher.ensure_local_image(IMAGE)
 
 
-def test_empty_metadata_object_is_allowed(image_launcher, monkeypatch) -> None:
-    cached = cache_path(image_launcher)
+def test_empty_metadata_object_is_allowed(launcher, monkeypatch) -> None:
+    cached = cache_path(launcher)
     cached.parent.mkdir()
     cached.write_bytes(b"\0" * 50000)
     listing = SIF_LIST.replace("32768-33000", "32768-32768")
@@ -242,15 +249,15 @@ def test_empty_metadata_object_is_allowed(image_launcher, monkeypatch) -> None:
         lambda command, **kwargs: subprocess.CompletedProcess(command, 0, listing, ""),
     )
 
-    assert image_launcher(IMAGE) == str(cached)
+    assert launcher.ensure_local_image(IMAGE) == str(cached)
 
 
 @pytest.mark.parametrize(
     "error",
     [FileNotFoundError("apptainer"), subprocess.TimeoutExpired("apptainer", 30)],
 )
-def test_reader_errors_have_a_clear_exit(image_launcher, monkeypatch, error) -> None:
-    cached = cache_path(image_launcher)
+def test_reader_errors_have_a_clear_exit(launcher, monkeypatch, error) -> None:
+    cached = cache_path(launcher)
     cached.parent.mkdir()
     cached.write_bytes(b"\0" * 50000)
 
@@ -259,14 +266,14 @@ def test_reader_errors_have_a_clear_exit(image_launcher, monkeypatch, error) -> 
 
     monkeypatch.setattr(subprocess, "run", inspect)
     with pytest.raises(SystemExit, match="Could not inspect Apptainer image"):
-        image_launcher(IMAGE)
+        launcher.ensure_local_image(IMAGE)
     assert cached.stat().st_size == 50000
 
 
 def test_unsupported_cache_filesystem_has_a_clear_exit(
-    image_launcher, sif_listing, monkeypatch
+    launcher, sif_listing, monkeypatch
 ) -> None:
-    cached = cache_path(image_launcher)
+    cached = cache_path(launcher)
 
     def pull(command):
         Path(command[3]).write_bytes(b"\0" * 50000)
@@ -278,18 +285,18 @@ def test_unsupported_cache_filesystem_has_a_clear_exit(
     monkeypatch.setattr(subprocess, "call", pull)
     monkeypatch.setattr(Path, "hardlink_to", install)
     with pytest.raises(SystemExit, match="Could not install cached Apptainer image"):
-        image_launcher(IMAGE)
+        launcher.ensure_local_image(IMAGE)
     assert list(cached.parent.iterdir()) == []
 
 
-def test_explicit_local_image_keeps_existing_behavior(
-    image_launcher, tmp_path: Path
-) -> None:
+def test_explicit_local_image_keeps_existing_behavior(launcher, tmp_path: Path) -> None:
     local = str(tmp_path / "image with spaces.sif")
-    assert image_launcher(local) == local
+    assert launcher.ensure_local_image(local) == local
 
 
-def test_apptainer_wrapper_binds_resource_cache(tmp_path: Path, monkeypatch) -> None:
+def test_apptainer_wrapper_binds_resource_cache(
+    launcher, tmp_path: Path, monkeypatch
+) -> None:
     query = tmp_path / "query"
     output = tmp_path / "output"
     cache = tmp_path / "cache"
@@ -297,24 +304,26 @@ def test_apptainer_wrapper_binds_resource_cache(tmp_path: Path, monkeypatch) -> 
     (query / "genome.faa").write_text(">p1\nMA\n")
 
     calls = []
-    monkeypatch.setattr(gvclass_apptainer, "ensure_local_image", lambda image: image)
-    monkeypatch.setattr(
-        gvclass_apptainer.subprocess,
-        "call",
-        lambda cmd: calls.append(cmd) or 0,
-    )
+    monkeypatch.setattr(launcher, "ensure_local_image", lambda image: image)
+    monkeypatch.setattr(subprocess, "call", lambda cmd: calls.append(cmd) or 0)
 
-    rc = gvclass_apptainer.run_container(
-        query,
-        output,
-        8,
-        gvclass_apptainer.DEFAULT_IMAGE,
-        cache,
-        contigs_mode=True,
-        min_length=30000,
-        contigs_min_length=50000,
-        species_tree_combined=True,
-        resume=True,
+    rc = launcher.container_main(
+        [
+            str(query),
+            "-o",
+            str(output),
+            "--resource-cache-dir",
+            str(cache),
+            "-t",
+            "8",
+            "--contigs",
+            "--min-length",
+            "30000",
+            "--contigs-min-length",
+            "50000",
+            "--species-tree-combined",
+            "--resume",
+        ]
     )
 
     assert rc == 0
@@ -322,11 +331,14 @@ def test_apptainer_wrapper_binds_resource_cache(tmp_path: Path, monkeypatch) -> 
     assert calls
     command = calls[0]
     assert f"{query.resolve()}:/input:ro" in command
+    assert f"{output.resolve()}:/output" in command
     assert f"{cache.resolve()}:/resource-cache" in command
     assert "GVCLASS_RESOURCE_CACHE=/resource-cache" in command
-    assert gvclass_apptainer.DEFAULT_IMAGE in command
+    assert launcher.DEFAULT_IMAGE in command
     assert "--contigs" in command
     assert "--species-tree-combined" in command
     assert "--resume" in command
+    assert command[command.index("-t") + 1] == "8"
     assert command[command.index("--min-length") + 1] == "30000"
     assert command[command.index("--contigs-min-length") + 1] == "50000"
+    assert "--resource-cache-dir" not in command

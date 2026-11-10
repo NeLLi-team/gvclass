@@ -26,8 +26,7 @@ import pytest
 from src.pipeline import parallel_runner, query_processing_engine, run_status
 from src.pipeline.parallel_runner import RunInputs
 from src.pipeline.run_status import RESULTS_FILENAME, read_results
-from src.utils import ValidationError
-from src.utils.error_handling import ProcessingError
+from src.utils.error_handling import ProcessingError, ValidationError
 from tests.pipeline_helpers import (
     fake_flow,
     fake_setup,

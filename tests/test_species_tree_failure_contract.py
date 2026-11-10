@@ -8,9 +8,8 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-from click.testing import CliRunner
 
-from src.bin import gvclass_cli, gvclass_runner
+from src.bin import gvclass_runner
 from src.core import alignment
 from src.core.species_tree import (
     handoff,
@@ -171,7 +170,10 @@ def test_empty_neighbor_tree_is_an_error(
 
 
 def test_runner_exits_nonzero_for_requested_species_failure(
-    flow_config: RunConfig, monkeypatch: pytest.MonkeyPatch
+    flow_config: RunConfig,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    isolated_logging: None,
 ) -> None:
     output = flow_config.output_dir
     monkeypatch.setattr(parallel_runner, "process_single_query", make_fake_process())
@@ -180,49 +182,23 @@ def test_runner_exits_nonzero_for_requested_species_failure(
         "run_combined_species_tree",
         Mock(side_effect=RuntimeError("species inference failed")),
     )
-    result = CliRunner().invoke(
-        gvclass_runner.main,
-        [
-            str(flow_config.query_path),
-            "-o",
-            str(output),
-            "-d",
-            str(flow_config.database_path),
-            "-t",
-            "1",
-            "--species-tree-combined",
-        ],
+    output.mkdir(parents=True, exist_ok=True)
+    config_file = output / "run_config.json"
+    config_file.write_text(
+        replace(flow_config, species_tree_combined=True).to_json(), encoding="utf-8"
     )
-    assert result.exit_code == 1
-    assert "species inference failed" in result.output
-    assert "Pipeline completed successfully" not in result.output
+
+    code = gvclass_runner.main([str(config_file)])
+
+    assert code == 1
+    assert "species inference failed" in capsys.readouterr().err
+    assert "species inference failed" in (output / "gvclass.log").read_text(
+        encoding="utf-8"
+    )
     assert (output / "gvclass_summary.tsv").is_file()
     assert (output / "gvclass_summary.csv").is_file()
     status = json.loads((output / "run_status.json").read_text(encoding="utf-8"))
     assert status["status"] == "failed"
-
-
-def test_native_cli_preserves_runner_failure(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(
-        gvclass_cli,
-        "run_pipeline",
-        Mock(return_value=(1, b"", b"species inference failed", None)),
-    )
-    output = Mock()
-    result = gvclass_cli.execute_pipeline_command(
-        SimpleNamespace(resume=False, verbose=False),
-        SimpleNamespace(n_queries=1, n_skipped=0, output_dir=tmp_path),
-        tmp_path,
-        ["runner"],
-        {},
-        output,
-    )
-    assert result == 1
-    output.line.assert_called_once_with(
-        "\nPipeline failed with exit code: 1", key="error"
-    )
 
 
 def test_iqtree_preserves_dotted_query_prefix(

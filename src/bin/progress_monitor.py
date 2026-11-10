@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import shutil
 import sys
-import time
+import threading
 from pathlib import Path
 from typing import Any, Dict
 
@@ -19,7 +19,7 @@ class ResourceMonitor:
         self.output_dir = output_dir
         self.total_queries = total_queries
         self.process_pid = process_pid
-        self.running = True
+        self._stopped = threading.Event()
         self.current_query = 0
         self.current_memory_mb = 0.0
         self.peak_memory_mb = 0.0
@@ -137,20 +137,15 @@ class ResourceMonitor:
         if self._last_output:
             print()
 
-    def monitor(self) -> None:
-        while self.running:
-            self._update_progress()
-            self.update_memory()
-            self.render_progress()
-            time.sleep(1)
-
     def monitor_memory(self) -> None:
-        while self.running:
+        """Sample the memory once a second until ``stop`` is called."""
+        self.update_memory()
+        while not self._stopped.wait(1.0):
             self.update_memory()
-            time.sleep(1)
 
     def stop(self) -> None:
-        self.running = False
+        """Make ``monitor_memory`` return at once."""
+        self._stopped.set()
 
     def _bar_width(self) -> int:
         terminal_width = shutil.get_terminal_size((100, 20)).columns

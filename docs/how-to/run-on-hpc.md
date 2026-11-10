@@ -49,7 +49,7 @@ cat hpc_results/run.log
 
 To include a shared species tree, add `--species-tree-combined` to the GVClass line in the script. See [Build a species tree](build-a-species-tree.md).
 
-The CLI options `--cluster-type`, `--cluster-queue`, `--cluster-project` and `--cluster-walltime` do not submit jobs. Configure the scheduler through the batch script and `sbatch`.
+GVClass runs on the machine where it starts and does not submit jobs. Configure the scheduler through the batch script and `sbatch`.
 
 ## Use the Apptainer image
 
@@ -82,7 +82,7 @@ For a Slurm job, replace the `pixi run gvclass` line in the batch script with:
   --image "$PWD/gvclass_2.1.1.sif"
 ```
 
-The container mode accepts the output with `-o` / `--output-dir` (or as a second positional path).
+Select the output directory with `-o` / `--output-dir`. Without it, the results go to `<name>_results` in the current directory, as in a native run.
 
 ### Screen contigs in the image
 
@@ -113,4 +113,4 @@ The database cache is `~/.cache/gvclass/resource-cache/v2.1.0/`. To put it on yo
 | `--image PATH_OR_URI` | Select a local SIF or another image URI (implies `--apptainer`) |
 | `--resource-cache-dir PATH` | Select a writable database cache directory |
 
-All standard pipeline and species-tree flags (`--species-tree`, `--species-tree-combined`, `--resume`, etc.) are forwarded into the container; `--config`, `--database` and the cluster options are native-only. See the [CLI reference](../reference/cli.md) for supported options.
+All other pipeline and species-tree flags (`--species-tree`, `--species-tree-combined`, `--resume`, etc.) go into the container as typed; `--config` and `--database` are native-only. See the [CLI reference](../reference/cli.md) for supported options.

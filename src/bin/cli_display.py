@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import sys
 import re
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from src.bin.gvclass_cli import ContigInput, WorkerPlan
+    from src.bin.gvclass_cli import PipelineContext
 
 PLAIN_BANNER_LINES = (
     "    ================================================================",
@@ -55,66 +54,48 @@ def print_banner(plain_output: bool, software_version: str) -> None:
     print(f"    ╚{'═' * width}╝")
 
 
-def print_configuration(
-    args,
-    query_dir_abs: Path,
-    output_dir: Path,
-    database: Path,
-    n_queries: int,
-    n_input_files: int,
-    n_skipped: int,
-    mode_fast: bool,
-    sensitive_mode: bool,
-    threads: int,
-    workers: "WorkerPlan",
-    contigs: "ContigInput",
-    input_min_length: int,
-    contigs_min_length: int,
-    validation_min_length: int,
-    tree_method: str | None = None,
-) -> None:
+def print_configuration(context: PipelineContext) -> None:
+    """Print the resolved settings and the worker plan of the run."""
+    config = context.config
+    contigs = context.contigs
     print()
     print("=" * 60)
     print("                    Pipeline Configuration")
     print("=" * 60)
-    print(f"Config file: {args.config}")
+    print(f"Config file: {context.config_file or 'built-in defaults'}")
     if contigs.enabled and contigs.input_file:
         print(f"Input file: {contigs.input_file}")
-        print(f"Contigs mode: ENABLED ({n_queries} contigs from 1 file)")
-        print(f"Contigs min length filter: {contigs_min_length} bp")
-        print(f"Validation min length: {validation_min_length} bp")
+        print(f"Contigs mode: ENABLED ({context.n_queries} contigs from 1 file)")
+        print(f"Contigs min length filter: {config.contigs_min_length} bp")
     elif contigs.enabled and contigs.input_dir:
         print(f"Input directory: {contigs.input_dir}")
-        print(f"Contigs mode: ENABLED ({n_queries} contigs from {n_input_files} files)")
-        print(f"Contigs min length filter: {contigs_min_length} bp")
-        print(f"Validation min length: {validation_min_length} bp")
+        print(
+            f"Contigs mode: ENABLED ({context.n_queries} contigs "
+            f"from {context.n_input_files} files)"
+        )
+        print(f"Contigs min length filter: {config.contigs_min_length} bp")
     else:
-        print(f"Query directory: {query_dir_abs}")
-        print(f"Input min length: {input_min_length} bp")
+        print(f"Query directory: {config.query_path}")
+        print(f"Input min length: {config.min_sequence_length} bp")
 
-    threads_used = workers.workers * workers.threads_per_worker
-    print(f"Output directory: {output_dir}")
-    print(f"Database: {database}")
+    threads_used = context.workers * context.threads_per_worker
+    print(f"Output directory: {config.output_dir}")
+    print(f"Database: {config.database_path}")
     print(
-        f"Threads: {threads_used} used / {threads} requested "
-        f"(Workers: {workers.workers} × {workers.threads_per_worker} threads)"
+        f"Threads: {threads_used} used / {config.threads} requested "
+        f"(Workers: {context.workers} × {context.threads_per_worker} threads)"  # noqa: RUF001  # the banner shows the multiplication sign
     )
-    resolved_tree_method = (
-        tree_method
-        if tree_method
-        else (args.tree_method if args.tree_method else "veryfasttree")
-    )
-    print(f"Tree method: {resolved_tree_method}")
-    print(f"Fast mode: {mode_fast}")
-    print(f"Sensitive mode: {sensitive_mode}")
-    if args.resume:
+    print(f"Tree method: {config.tree_method}")
+    print(f"Fast mode: {config.mode_fast}")
+    print(f"Sensitive mode: {config.sensitive_mode}")
+    if config.resume:
         print("Resume mode: ENABLED")
-        if n_skipped > 0:
-            print(f"  - Skipping {n_skipped} completed queries")
-            print(f"  - Processing {n_queries - n_skipped} remaining queries")
+        if context.n_skipped > 0:
+            print(f"  - Skipping {context.n_skipped} completed queries")
+            print(f"  - Processing {context.n_remaining} remaining queries")
         else:
             print("  - No completed queries found")
     else:
         print("Resume mode: DISABLED")
-    print(f"Total queries: {n_queries}")
+    print(f"Total queries: {context.n_queries}")
     print("=" * 60)

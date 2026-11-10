@@ -1,10 +1,9 @@
-"""A classification run through the Apptainer launchers: ``--no-screen`` and the add-on.
+"""A classification run through the Apptainer launcher: ``--no-screen`` and the add-on.
 
-The launcher exists twice: as the ``gvclass`` script, which users download with wget
-and run in a folder without the repository, and as ``src/bin/gvclass_apptainer.py``.
-Each test copies the file into an empty folder and runs it as a program with a fake
-``apptainer`` on the PATH that records its arguments, so the path that a download
-takes is the path that is tested. The ``screen`` command has its own tests in
+Users download the ``gvclass`` script with wget and run it in a folder without the
+repository. Each test copies the script into an empty folder and runs it as a program
+with a fake ``apptainer`` on the PATH that records its arguments, so the path that a
+download takes is the path that is tested. The ``screen`` command has its own tests in
 ``tests/test_container_screen.py``.
 """
 
@@ -21,10 +20,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 FAKE_APPTAINER = """#!/bin/sh
 printf '%s\\n' "$@" > "$FAKE_APPTAINER_LOG"
 """
-COPIES = {
-    "script": REPO_ROOT / "gvclass",
-    "module": REPO_ROOT / "src" / "bin" / "gvclass_apptainer.py",
-}
+SCRIPT = REPO_ROOT / "gvclass"
 ADDON_MOUNT = "/opt/gvclass/resources/contig_screen:ro"
 
 
@@ -87,9 +83,9 @@ class Launcher:
         return self.log.read_text(encoding="utf-8").splitlines()
 
 
-@pytest.fixture(params=sorted(COPIES))
-def launcher(request: pytest.FixtureRequest, tmp_path: Path) -> Launcher:
-    return Launcher(tmp_path, COPIES[request.param])
+@pytest.fixture
+def launcher(tmp_path: Path) -> Launcher:
+    return Launcher(tmp_path, SCRIPT)
 
 
 @pytest.fixture
@@ -180,16 +176,6 @@ def test_gvclass_db_without_an_addon_hides_the_cache_addon(
     recorded = launcher.classify(query, cache, GVCLASS_DB=str(database))
 
     assert not any(item.endswith(ADDON_MOUNT) for item in recorded)
-
-
-def test_the_two_launchers_choose_the_addon_mount_the_same_way() -> None:
-    bodies = []
-    for source in COPIES.values():
-        text = source.read_text(encoding="utf-8")
-        start = text.index("def _addon_mount(")
-        bodies.append(text[start : text.index("\ndef ", start + 1)])
-
-    assert bodies[0] == bodies[1]
 
 
 IMAGE_DATABASE = "/opt/gvclass/resources"

@@ -1,31 +1,34 @@
-"""Behavioral checks for both standalone launchers and recipe source staging."""
+"""Behavioral checks for the launcher's ``screen`` command and recipe source staging."""
 
 from __future__ import annotations
 
 import os
-import runpy
 import shlex
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+from types import ModuleType
 from unittest.mock import Mock
 
 import pytest
 
+from tests.launcher_helpers import load_launcher
+
 ROOT = Path(__file__).resolve().parents[1]
+IMAGE_DATABASE = "/opt/gvclass/resources"
+ADDON_BIND = f"{IMAGE_DATABASE}/contig_screen:ro"
 
 
-@pytest.fixture(params=["gvclass", "src/bin/gvclass_apptainer.py"])
-def launch(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> tuple:
-    """Load either launcher without running its entry point."""
-    namespace = runpy.run_path(str(ROOT / request.param))
-    main = namespace.get("_standalone_apptainer_main", namespace["main"])
+@pytest.fixture
+def launch(monkeypatch: pytest.MonkeyPatch) -> tuple[ModuleType, Mock]:
+    """Load the launcher without running its entry point; capture the container call."""
+    module = load_launcher()
     call = Mock(return_value=7)
     monkeypatch.setattr(subprocess, "call", call)
-    monkeypatch.setitem(main.__globals__, "ensure_local_image", lambda image: image)
+    monkeypatch.setattr(module, "ensure_local_image", lambda image: image)
     monkeypatch.delenv("GVCLASS_DB", raising=False)
-    return main, call
+    return module, call
 
 
 @pytest.fixture(params=["file", "directory"])
@@ -45,7 +48,7 @@ def screen_input(
 def test_screen_binds_defaults(
     launch: tuple, tmp_path: Path, screen_input: tuple[Path, str, str], position: str
 ) -> None:
-    main, call = launch
+    module, call = launch
     source, expected_bind, expected_input = screen_input
     cache = tmp_path / "cache"
     (cache / "contig_screen").mkdir(parents=True)
@@ -57,21 +60,21 @@ def test_screen_binds_defaults(
         "after": ["screen", str(source), *flags],
     }[position]
 
-    assert main(argv) == 7
+    assert module.container_main(argv) == 7
 
     cmd = call.call_args.args[0]
-    assert f"{cache}/contig_screen:/opt/gvclass/resources/contig_screen:ro" in cmd
+    assert f"{cache}/contig_screen:{ADDON_BIND}" in cmd
     assert f"{source}_screen:/output" in cmd
-    assert cmd[-6:] == ["-o", "/output", "-d", "/opt/gvclass/resources", "-t", "4"]
+    assert cmd[-4:] == ["-o", "/output", "-d", IMAGE_DATABASE]
     assert expected_bind in cmd
     assert cmd[cmd.index("screen") + 1] == expected_input
 
 
 @pytest.mark.parametrize("via_env", [True, False])
-def test_screen_full_database(
+def test_screen_with_an_addon_only_database_keeps_the_database_of_the_image(
     launch: tuple, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, via_env: bool
 ) -> None:
-    main, call = launch
+    module, call = launch
     database = tmp_path / "db"
     (database / "contig_screen").mkdir(parents=True)
     (database / "contig_screen/manifest.json").touch()
@@ -81,35 +84,36 @@ def test_screen_full_database(
     if via_env:
         monkeypatch.setenv("GVCLASS_DB", str(database))
         options = []
-    assert (
-        main(
-            [
-                "screen",
-                str(source),
-                "--image",
-                "image.sif",
-                "-t",
-                "9",
-                "-o",
-                str(tmp_path / "out"),
-                *options,
-            ]
-        )
-        == 7
+
+    code = module.container_main(
+        [
+            "screen",
+            str(source),
+            "--image",
+            "image.sif",
+            "-t",
+            "9",
+            "-o",
+            str(tmp_path / "out"),
+            *options,
+        ]
     )
+
     cmd = call.call_args.args[0]
-    assert f"{database}:/screen-resources:ro" in cmd
+    assert code == 7
+    assert f"{database}/contig_screen:{ADDON_BIND}" in cmd
+    assert not any(item.startswith(f"{database}:") for item in cmd)
     assert f"{tmp_path}/out:/output" in cmd
-    assert cmd[-4:] == ["-d", "/screen-resources", "-t", "9"]
+    assert cmd[-4:] == ["-d", IMAGE_DATABASE, "-t", "9"]
 
 
 @pytest.mark.parametrize("setting", ["default", "cache", "env", "explicit"])
 def test_install_writable_without_input(
     launch: tuple, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, setting: str
 ) -> None:
-    main, call = launch
+    module, call = launch
     root = tmp_path / setting
-    monkeypatch.setitem(main.__globals__, "DEFAULT_RESOURCE_CACHE_DIR", root)
+    monkeypatch.setattr(module, "DEFAULT_RESOURCE_CACHE_DIR", root)
     options = []
     if setting == "cache":
         options = ["--resource-cache-dir", str(root)]
@@ -118,7 +122,10 @@ def test_install_writable_without_input(
     if setting == "explicit":
         monkeypatch.setenv("GVCLASS_DB", str(tmp_path / "ignored"))
         options = ["-d", str(root)]
-    assert main(["screen", "--install", "--image", "image.sif", *options]) == 7
+    assert (
+        module.container_main(["screen", "--install", "--image", "image.sif", *options])
+        == 7
+    )
     assert root.is_dir()
     assert call.call_args.args[0] == [
         "apptainer",
@@ -134,40 +141,40 @@ def test_install_writable_without_input(
 
 
 def test_screen_missing_bundle_never_executes(launch: tuple, tmp_path: Path) -> None:
-    main, call = launch
+    module, call = launch
     with pytest.raises(SystemExit, match="screen --install"):
-        main(["screen", str(tmp_path), "--resource-cache-dir", str(tmp_path)])
+        module.container_main(
+            ["screen", str(tmp_path), "--resource-cache-dir", str(tmp_path)]
+        )
     call.assert_not_called()
 
 
 def test_screen_help_without_resources(
     launch: tuple, capsys: pytest.CaptureFixture
 ) -> None:
-    main, call = launch
+    module, call = launch
     with pytest.raises(SystemExit) as error:
-        main(["--image", "missing.sif", "screen", "--help"])
+        module.container_main(["--image", "missing.sif", "screen", "--help"])
     assert error.value.code == 0
     assert "--install" in capsys.readouterr().out
     call.assert_not_called()
 
 
 def test_image_value_screen_stays_classification(launch: tuple, tmp_path: Path) -> None:
-    main, call = launch
-    assert (
-        main(
-            [
-                str(tmp_path),
-                "--imag",
-                "screen",
-                "--resource-cache-dir",
-                str(tmp_path / "cache"),
-            ]
-        )
-        == 7
+    module, call = launch
+    code = module.container_main(
+        [
+            str(tmp_path),
+            "--image",
+            "screen",
+            "--resource-cache-dir",
+            str(tmp_path / "cache"),
+        ]
     )
+    assert code == 7
     cmd = call.call_args.args[0]
     assert cmd[cmd.index("screen") + 1] == "/input"
-    assert cmd[-2:] == ["--threads", "16"]
+    assert cmd[-2:] == ["-o", "/output"]
 
 
 def _stage_recipe(recipe: str, stage_root: Path) -> Path:
@@ -205,7 +212,14 @@ def test_recipe_staged_screen_help(recipe: str, tmp_path: Path) -> None:
     execution = subprocess.run(
         [sys.executable, str(staged / "gvclass"), "screen", "--help"],
         cwd=staged,
-        env={**os.environ, "PYTHONPATH": str(staged), "GVCLASS_REPO": str(staged)},
+        env={
+            **os.environ,
+            "PYTHONPATH": str(staged),
+            "GVCLASS_REPO": str(staged),
+            # The staged tree has no environment of its own, and the test must not
+            # start a pixi installation.
+            "GVCLASS_RUNTIME_SELECTED": "1",
+        },
         text=True,
         capture_output=True,
         check=False,

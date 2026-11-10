@@ -64,7 +64,6 @@ def test_release_version_matches_wrappers_and_container_assets() -> None:
     assert f"gvclass_{version}.sif" in pixi["tasks"]["build-apptainer"]
     for path in [
         "gvclass",
-        "src/bin/gvclass_apptainer.py",
         "containers/apptainer/gvclass.def",
         "containers/docker/Dockerfile",
         "containers/docker/docker-compose.yml",
@@ -86,25 +85,17 @@ def test_release_version_matches_wrappers_and_container_assets() -> None:
         assert not stale_image_ref.search(text), path
 
 
-def test_apptainer_wrapper_copies_stay_in_sync() -> None:
-    """``gvclass`` embeds the standalone Apptainer runner from ``src/bin/gvclass_apptainer.py``.
+def test_container_mode_has_one_implementation_in_the_launcher() -> None:
+    """The container mode lives only in ``gvclass``, which users download alone."""
+    launcher = (REPO_ROOT / "gvclass").read_text()
 
-    ``gvclass`` can be downloaded standalone via ``wget`` without a repo checkout,
-    while ``src/bin/gvclass_apptainer.py`` is the importable module inside ``src/``.
-    Verify both files declare the same default image URI, resource cache version,
-    and container helper definitions.
-    """
-    wrapper = (REPO_ROOT / "gvclass").read_text()
-    module = (REPO_ROOT / "src" / "bin" / "gvclass_apptainer.py").read_text()
-
+    assert not (REPO_ROOT / "src" / "bin" / "gvclass_apptainer.py").exists()
     for line in [
         f'DEFAULT_IMAGE = "oras://ghcr.io/nelli-team/gvclass:{_software_version()}"',
-        'Path.home() / ".cache" / "gvclass" / "resource-cache" / "v2.1.0"',
         "def ensure_local_image(image: str) -> str:",
-        "def run_container(",
+        "def container_main(",
     ]:
-        assert line in wrapper, f"Missing {line!r} in gvclass"
-        assert line in module, f"Missing {line!r} in src/bin/gvclass_apptainer.py"
+        assert line in launcher, f"Missing {line!r} in gvclass"
 
 
 def test_gitmodules_does_not_reference_missing_submodules() -> None:
@@ -214,7 +205,6 @@ def test_container_runtime_copy_excludes_development_and_host_files() -> None:
         "src/test",
         "src/bin/build_novelty_completeness_resources.py",
         "src/bin/install_cli.py",
-        "src/bin/gvclass_apptainer.py",
         "src/bin/gvclass_apptainer.sh",
         "src/bin/gvclass_docker.sh",
         "src/bin/gvclass_shifter.sh",

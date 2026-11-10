@@ -9,7 +9,6 @@ from unittest.mock import Mock
 
 import pytest
 
-from src.bin.gvclass_cli import CliOutput, combine_summary_files
 from src.core.summarize_full import FullSummarizer
 from src.pipeline.query_processing_engine import _write_contamination_candidates_file
 from src.pipeline.summary_writer import FINAL_SUMMARY_COLUMNS
@@ -127,23 +126,6 @@ def test_add_contamination_metrics_uses_ml_estimate_and_query_fna_path(
     assert result["estimated_contamination_strategy"] == "hist_gbm_v1"
     assert result["suspicious_bp_fraction_v2"] == 33.3
     assert result["suspicious_contig_count_v2"] == 2
-
-
-def test_combine_summary_files_preserves_existing_final_summary(tmp_path: Path) -> None:
-    summary_tsv = tmp_path / "gvclass_summary.tsv"
-    summary_csv = tmp_path / "gvclass_summary.csv"
-    expected_tsv = (
-        "query\ttaxonomy_majority\testimated_contamination\nq1\td_NCLDV\t4.25\n"
-    )
-    expected_csv = "query,taxonomy_majority,estimated_contamination\nq1,d_NCLDV,4.25\n"
-    summary_tsv.write_text(expected_tsv)
-    summary_csv.write_text(expected_csv)
-    (tmp_path / "q1.summary.tab").write_text("query\ttaxonomy_majority\nq1\td_NCLDV\n")
-
-    combine_summary_files(tmp_path, CliOutput(plain_output=True))
-
-    assert summary_tsv.read_text() == expected_tsv
-    assert summary_csv.read_text() == expected_csv
 
 
 def test_final_summary_columns_surface_single_qc_estimates() -> None:

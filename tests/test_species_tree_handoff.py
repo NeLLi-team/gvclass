@@ -278,39 +278,6 @@ def test_reference_indexes_are_shared_between_queries(tmp_path: Path) -> None:
     assert first is second
 
 
-def test_cli_argv_forwards_species_tree_flags() -> None:
-    """The subprocess seam: the launcher must put --species-tree/
-    --species-tree-combined on the runner argv when set, and omit them otherwise."""
-    import argparse
-
-    from src.bin.gvclass_cli import _append_optional_pipeline_flags
-
-    base = dict(
-        cluster_queue=None,
-        cluster_project=None,
-        cluster_walltime=None,
-        verbose=False,
-        resume=False,
-        allow_short=False,
-    )
-    on = argparse.Namespace(
-        species_tree=True, species_tree_combined=True, species_tree_trim="pytrimal", **base
-    )
-    cmd: list = []
-    _append_optional_pipeline_flags(cmd, on, True, "legacy", False)
-    assert "--species-tree" in cmd and "--species-tree-combined" in cmd
-    assert "--species-tree-trim" in cmd and "pytrimal" in cmd
-
-    off = argparse.Namespace(
-        species_tree=False, species_tree_combined=False, species_tree_trim="witchi", **base
-    )
-    cmd_off: list = []
-    _append_optional_pipeline_flags(cmd_off, off, True, "legacy", False)
-    assert "--species-tree" not in cmd_off and "--species-tree-combined" not in cmd_off
-    # Default trim is not forwarded (keeps argv minimal).
-    assert "--species-tree-trim" not in cmd_off
-
-
 def test_combined_excludes_failed_query(tmp_path: Path, monkeypatch) -> None:
     """A query whose sidecar landed but whose pipeline later FAILED is not placed."""
     test_panel = SpeciesTreePanel(

@@ -9,7 +9,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from src.bin import gvclass_apptainer, gvclass_cli, gvclass_screen as screen
+from src.bin import gvclass_cli, gvclass_screen as screen
 from src.contig_screen import extract_genes, layout
 from tests.contig_screen.conftest import write_bundle
 
@@ -282,23 +282,6 @@ def test_the_launcher_hands_the_screen_command_to_the_screen(monkeypatch):
 
     assert code == 0
     assert seen == [["bins", "-o", "out"]]
-
-
-@pytest.mark.parametrize(
-    "flags", [["--apptainer"], ["--image", "x.sif"], ["--image=x.sif"]]
-)
-def test_the_screen_command_goes_to_the_container_launcher_with_a_container_flag(
-    monkeypatch, flags
-):
-    seen: list[list[str]] = []
-    monkeypatch.setattr(gvclass_apptainer, "main", lambda argv: seen.append(argv) or 0)
-    monkeypatch.setattr(screen, "main", lambda argv: pytest.fail("ran natively"))
-    monkeypatch.setattr("sys.argv", ["gvclass", "screen", "--install", *flags])
-
-    code = gvclass_cli.main()
-
-    assert code == 0
-    assert seen == [["screen", "--install", *flags]]
 
 
 def test_a_missing_screen_bundle_is_reported_before_any_work(

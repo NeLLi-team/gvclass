@@ -13,7 +13,7 @@ from Bio import SeqIO
 
 from src.core.alignment import IQTREE_MODEL, align_sequences_pyfamsa, run_veryfasttree
 from src.core.blast import read_fasta, search_proteins, select_references
-from src.utils import setup_logging
+from src.utils.common import setup_logging
 from src.utils.resource_store import ResourceStore
 
 logger = setup_logging(__name__)

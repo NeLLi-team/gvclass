@@ -1,72 +1,26 @@
-"""The options that switch the contig screen: CLI flag, config key, runner flags."""
+"""The options that switch the contig screen: flag, config key, run configuration."""
 
 from __future__ import annotations
 
 import sys
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
 
 import pytest
 import yaml
-from click.testing import CliRunner
 
-from src.bin import gvclass_runner, setup_database
+from src.bin import setup_database
 from src.bin.gvclass_cli import (
     BUILTIN_CONFIG_DEFAULTS,
-    ContigInput,
-    PipelineContext,
-    WorkerPlan,
     build_parser,
-    build_pipeline_command,
     describe_contig_screen,
     resolve_contig_screen,
 )
+from tests.cli_helpers import run_cli
+from tests.pipeline_helpers import make_config
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-
-
-def make_context(*, contig_screen: bool = True, contigs: bool = False) -> Any:
-    return PipelineContext(
-        query_dir=Path("query"),
-        active_query_dir=Path("query"),
-        output_dir=Path("out"),
-        database=Path("resources"),
-        threads=8,
-        tree_method="veryfasttree",
-        iqtree_mode="fast",
-        mode_fast=True,
-        completeness_mode="novelty-aware",
-        sensitive_mode=True,
-        contigs=ContigInput(enabled=contigs),
-        input_min_length=20000,
-        contigs_min_length=10000,
-        validation_min_length=20000,
-        temp_contigs_dir=None,
-        n_queries=2,
-        n_input_files=1,
-        n_skipped=0,
-        workers=WorkerPlan(workers=2, threads_per_worker=4),
-        contig_screen=contig_screen,
-    )
-
-
-def command_for(context: PipelineContext) -> list[str]:
-    args = SimpleNamespace(
-        cluster_type="local",
-        cluster_queue=None,
-        cluster_project=None,
-        cluster_walltime=None,
-        verbose=False,
-        resume=False,
-    )
-    return build_pipeline_command(
-        args=args,
-        context=context,
-        python_exe="python",
-        pixi_cmd=None,
-        use_pixi_run=False,
-    )
 
 
 def test_the_parser_takes_no_screen() -> None:
@@ -89,13 +43,6 @@ def test_the_config_key_turns_the_screen_off() -> None:
     assert resolve_contig_screen(SimpleNamespace(no_screen=False), config) is False
 
 
-def test_a_config_without_the_key_keeps_the_screen_on() -> None:
-    assert (
-        resolve_contig_screen(SimpleNamespace(no_screen=False), {"pipeline": {}})
-        is True
-    )
-
-
 def test_the_builtin_defaults_and_both_yaml_files_enable_the_screen() -> None:
     shipped = yaml.safe_load((REPO_ROOT / "config" / "gvclass_config.yaml").read_text())
     test_config = yaml.safe_load(
@@ -108,64 +55,35 @@ def test_the_builtin_defaults_and_both_yaml_files_enable_the_screen() -> None:
     assert shipped == BUILTIN_CONFIG_DEFAULTS
 
 
-def test_the_runner_command_omits_the_screen_flags_by_default() -> None:
-    command = command_for(make_context())
-
-    assert "--no-screen" not in command
-    assert "--contigs" not in command
-
-
-def test_the_runner_command_forwards_no_screen() -> None:
-    command = command_for(make_context(contig_screen=False))
-
-    assert "--no-screen" in command
-
-
-def test_the_runner_command_tells_the_runner_about_contigs_mode() -> None:
-    command = command_for(make_context(contigs=True))
-
-    assert "--contigs" in command
-
-
-def run_runner(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *flags: str
-) -> dict[str, Any]:
-    seen: dict[str, Any] = {}
-    monkeypatch.setattr(
-        gvclass_runner,
-        "gvclass_flow",
-        lambda config: (
-            seen.update(
-                contig_screen=config.contig_screen, contigs_mode=config.contigs_mode
-            )
-            or "s.tsv"
-        ),
-    )
-    queries = tmp_path / "queries"
-    queries.mkdir(exist_ok=True)
-    outcome = CliRunner().invoke(
-        gvclass_runner.main, [str(queries), "-o", str(tmp_path / "out"), *flags]
-    )
-    assert outcome.exit_code == 0, outcome.output
-    return seen
-
-
-def test_the_runner_screens_by_default(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+def test_the_run_config_screens_by_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    seen = run_runner(monkeypatch, tmp_path)
+    run = run_cli(tmp_path, monkeypatch)
 
-    assert seen["contig_screen"] is True
-    assert seen["contigs_mode"] is False
+    assert run.config.contig_screen is True
+    assert run.config.contigs_mode is False
 
 
-def test_the_runner_takes_no_screen_and_contigs(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+def test_the_run_config_carries_no_screen(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    seen = run_runner(monkeypatch, tmp_path, "--no-screen", "--contigs")
+    run = run_cli(tmp_path, monkeypatch, "--no-screen")
 
-    assert seen["contig_screen"] is False
-    assert seen["contigs_mode"] is True
+    assert run.config.contig_screen is False
+
+
+def test_the_run_config_tells_the_runner_about_contigs_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run = run_cli(
+        tmp_path,
+        monkeypatch,
+        "--contigs",
+        suffix=".fna",
+        body=">c1\n" + "ACGT" * 3000 + "\n",
+    )
+
+    assert run.config.contigs_mode is True
 
 
 def test_setup_db_installs_the_addon_only_when_asked(
@@ -212,23 +130,16 @@ def test_setup_db_never_asks_a_question() -> None:
     assert "prompt_yes_no" not in source
 
 
-def test_the_startup_lines_say_what_the_screen_does(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    context = make_context()
-    context.database = tmp_path
-    assert "gvclass screen --install" in describe_contig_screen(context)
+def test_the_startup_lines_say_what_the_screen_does(tmp_path: Path) -> None:
+    config = make_config(tmp_path, database_path=tmp_path, contig_screen=True)
+    assert "gvclass screen --install" in describe_contig_screen(config)
 
     (tmp_path / "contig_screen").mkdir()
     (tmp_path / "contig_screen" / "manifest.json").write_text("{}")
-    assert describe_contig_screen(context) == "enabled"
+    assert describe_contig_screen(config) == "enabled"
 
-    context.contig_screen = False
-    assert describe_contig_screen(context) == "disabled"
-
-    context.contig_screen = True
-    context.contigs = ContigInput(enabled=True)
-    assert "--contigs" in describe_contig_screen(context)
+    assert describe_contig_screen(replace(config, contig_screen=False)) == "disabled"
+    assert "--contigs" in describe_contig_screen(replace(config, contigs_mode=True))
 
 
 def test_the_startup_lines_survive_an_unreadable_manifest(
@@ -238,10 +149,7 @@ def test_the_startup_lines_survive_an_unreadable_manifest(
         raise PermissionError(13, "Permission denied")
 
     monkeypatch.setattr("src.contig_screen.layout.bundle_present", refuse)
-    context = make_context()
-    context.database = tmp_path
+    config = make_config(tmp_path, database_path=tmp_path, contig_screen=True)
 
-    assert "not readable" in describe_contig_screen(context)
-
-    context.contig_screen = False
-    assert describe_contig_screen(context) == "disabled"
+    assert "not readable" in describe_contig_screen(config)
+    assert describe_contig_screen(replace(config, contig_screen=False)) == "disabled"

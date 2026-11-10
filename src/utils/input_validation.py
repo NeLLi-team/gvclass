@@ -69,7 +69,7 @@ class InputValidator:
         Used for extension-agnostic ``.fasta``/``.fas`` files, both to pick the
         alphabet for :meth:`_validate_sequence_record` and to route the query to
         the nucleotide or protein branch in
-        :func:`~src.pipeline.query_processing_engine._is_nucleotide_input`.
+        :func:`~src.pipeline.query_processing_engine.is_nucleotide_input`.
 
         Three steps, because no one of them is sufficient alone:
 

@@ -95,6 +95,20 @@ def archive_is_intact(output_dir: Path, record: QueryRecord) -> bool:
     return path.is_file() and path.stat().st_size == record.archive["bytes"]
 
 
+def completed_query_names(output_dir: Path) -> set[str]:
+    """Return the queries whose last record is complete and whose archive is intact.
+
+    One read of ``results.jsonl``. The command line shows this count as its preview
+    of ``--resume``; ``resumable_queries`` also compares the input, the settings and
+    the versions, so it can skip fewer queries.
+    """
+    return {
+        name
+        for name, record in read_results(output_dir).items()
+        if record.status == COMPLETE and archive_is_intact(output_dir, record)
+    }
+
+
 def resumable_queries(
     config: RunConfig, query_files: Iterable[Path], database_version: str
 ) -> dict[str, QueryRecord]:

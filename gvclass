@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Unified GVClass launcher supporting native repository execution and Apptainer containers."""
+"""GVClass launcher: runs the repository code natively, or the Apptainer image.
+
+The container mode lives only in this script, so the script also works when it is
+downloaded alone. In container mode it reads the options that it needs for the
+mounts and gives every other option to GVClass in the container unchanged.
+"""
 
 from __future__ import annotations
 
@@ -7,9 +12,11 @@ import argparse
 import hashlib
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
+from collections.abc import Sequence
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -20,6 +27,31 @@ DEFAULT_RESOURCE_CACHE_DIR = (
 )
 CONTAINER_RESOURCE_CACHE_DIR = "/resource-cache"
 CONTAINER_DATABASE_DIR = "/opt/gvclass/resources"
+#: Set before the launcher runs itself again, so that it does so only once.
+RUNTIME_SELECTED_ENV = "GVCLASS_RUNTIME_SELECTED"
+
+#: Options with a value that the container run reads for its mounts.
+OWN_VALUE_OPTIONS = ("-o", "--output-dir", "--image", "--resource-cache-dir")
+#: Options with a value that name host files, which a classification in the
+#: container cannot use: it has the database of the image and no configuration.
+NATIVE_ONLY_VALUE_OPTIONS = ("-c", "--config", "-d", "--database")
+#: Options with a value that go to GVClass in the container as typed. The launcher
+#: must know that they take a value, or the value could pass for the input path. A
+#: test keeps this list equal to the options of ``src/bin/gvclass_cli.py``.
+FORWARDED_VALUE_OPTIONS = (
+    "-t",
+    "--threads",
+    "-j",
+    "--max-workers",
+    "--threads-per-worker",
+    "--tree-method",
+    "--iqtree-mode",
+    "--completeness-mode",
+    "--min-length",
+    "--contigs-min-length",
+    "--species-tree-trim",
+)
+CONTIGS_FILE_SUFFIXES = {".fna", ".fa", ".fasta", ".fas"}
 
 
 def is_gvclass_repo(path: Path) -> bool:
@@ -55,7 +87,8 @@ def resolve_repo_dir(script_path: Path) -> Path:
     return candidate
 
 
-def _should_use_apptainer(argv: list[str], has_local_repo: bool) -> bool:
+def _should_use_apptainer(argv: Sequence[str], *, has_local_repo: bool) -> bool:
+    """Tell whether to run in the image: no checkout, or a container flag."""
     if not has_local_repo:
         return True
     return any(
@@ -64,14 +97,62 @@ def _should_use_apptainer(argv: list[str], has_local_repo: bool) -> bool:
     )
 
 
+def runtime_argv(
+    repo_dir: Path,
+    launcher: Path,
+    argv: Sequence[str],
+    *,
+    running_python: Path,
+    pixi: str | None,
+    selected: bool,
+) -> list[str] | None:
+    """Return the command that runs the launcher again in the runtime of the checkout.
+
+    The runtime is the Python of ``<repo>/.pixi/envs/default``. Without that
+    environment, ``pixi run`` makes it. The result is ``None`` when the launcher
+    already runs in the right Python, when no runtime is available, or when it has
+    already chosen one (``selected``), which keeps it from running itself in a loop.
+    """
+    if selected:
+        return None
+    env_python = repo_dir / ".pixi" / "envs" / "default" / "bin" / "python"
+    if env_python.exists():
+        if env_python.resolve() == running_python.resolve():
+            return None
+        return [str(env_python), str(launcher), *argv]
+    if pixi is not None:
+        manifest = repo_dir / "pixi.toml"
+        return [
+            pixi,
+            "run",
+            "--manifest-path",
+            str(manifest),
+            "python",
+            str(launcher),
+            *argv,
+        ]
+    return None
+
+
+def default_output_dir(input_path: Path) -> Path:
+    """Return ``<name>_results`` in the working directory.
+
+    ``<name>`` is the name of the input directory, or the file name without its
+    suffix for a single file. The native command line gives the same answer.
+    """
+    resolved = input_path.resolve()
+    name = resolved.stem if resolved.is_file() else resolved.name
+    return Path.cwd() / f"{name}_results"
+
+
 def is_remote_image_uri(image: str) -> bool:
-    return image.startswith(
-        ("oras://", "docker://", "library://", "http://", "https://")
-    )
+    """Tell whether ``image`` is an address to pull, not a local file."""
+    return image.startswith(("oras://", "docker://", "library://", "https://"))
 
 
 def cache_filename_for_image(image: str) -> str:
-    if image.startswith(("http://", "https://")):
+    """Return the name of the cache file for a remote image address."""
+    if image.startswith("https://"):
         slug = Path(urlparse(image).path).name
     else:
         slug = image.split("://", 1)[1]
@@ -122,6 +203,9 @@ def validate_cached_image(path: Path) -> None:
 
 
 def ensure_local_image(image: str) -> str:
+    """Return the path of a local image, pulling a remote address into the cache."""
+    if image.startswith("http://"):
+        raise SystemExit(f"Use an https:// address, not a plain http:// one: {image}")
     if not is_remote_image_uri(image):
         return image
 
@@ -149,228 +233,98 @@ def ensure_local_image(image: str) -> str:
     return str(local_image)
 
 
-def _addon_mount(resource_cache: Path) -> list[str]:
-    """Return the ``-B`` option that mounts the screen add-on, or nothing.
+def database_root(database: str | None, resource_cache: Path) -> Path:
+    """Return the host folder that holds the screen add-on.
 
-    The root is the one that ``gvclass screen`` uses: ``GVCLASS_DB`` if set, else the
-    resource cache. The add-on is mounted read-only into the database of the image,
-    where the screen step looks for it; without one, ``screen_status`` reads
-    ``not_installed``.
+    It is the one that ``gvclass screen`` uses: the database named by ``-d``, else
+    ``GVCLASS_DB``, else the resource cache.
     """
-    root = Path(os.environ.get("GVCLASS_DB", "").strip() or resource_cache)
-    addon = root.expanduser().resolve() / "contig_screen"
+    chosen = database or os.environ.get("GVCLASS_DB", "").strip() or resource_cache
+    return Path(chosen).expanduser().resolve()
+
+
+def addon_mount(root: Path) -> list[str]:
+    """Return the ``-B`` option that mounts the add-on of ``root``, or nothing.
+
+    The add-on is mounted read-only into the database of the image, where the screen
+    step looks for it. The base database of the image stays in place, whatever else
+    ``root`` holds. Without an add-on, ``screen_status`` reads ``not_installed``.
+    """
+    addon = root / "contig_screen"
     if not (addon / "manifest.json").is_file():
         return []
     return ["-B", f"{addon}:{CONTAINER_DATABASE_DIR}/contig_screen:ro"]
 
 
-def run_container(
-    query_path: Path,
-    output: Path,
-    threads: int,
-    image: str,
-    resource_cache: Path,
-    tree_method: str | None = None,
-    mode_fast: bool | None = None,
-    max_workers: int | None = None,
-    sensitive_mode: bool = False,
-    no_sensitive: bool = False,
-    contigs_mode: bool = False,
-    min_length: int | None = None,
-    contigs_min_length: int | None = None,
-    threads_per_worker: int | None = None,
-    iqtree_mode: str | None = None,
-    completeness_mode: str | None = None,
-    species_tree: bool = False,
-    species_tree_combined: bool = False,
-    species_tree_trim: str | None = None,
-    resume: bool = False,
-    allow_short: bool = False,
-    plain_output: bool = False,
-    verbose: bool = False,
+def container_command(
     *,
-    no_screen: bool = False,
-) -> int:
-    query_abs = query_path.resolve()
-    output_abs = output.resolve()
-
-    if not query_abs.exists():
-        raise SystemExit(f"Input path not found: {query_abs}")
-    if query_abs.is_file() and not contigs_mode:
-        raise SystemExit(
-            f"Input is a file: {query_abs}. Use --contigs for per-contig mode."
-        )
-    if contigs_mode and query_abs.is_file():
-        if query_abs.suffix.lower() not in {".fna", ".fa", ".fasta", ".fas"}:
-            raise SystemExit(
-                "--contigs requires an FNA/FA/FASTA/FAS file when input is a file."
-            )
-
-    output_abs.mkdir(parents=True, exist_ok=True)
-    resource_cache_abs = resource_cache.expanduser().resolve()
-    resource_cache_abs.mkdir(parents=True, exist_ok=True)
-    resolved_image = ensure_local_image(image)
-
-    if query_abs.is_file():
-        bind_source = query_abs.parent
-        query_in_container = f"/input/{query_abs.name}"
+    image: str,
+    source: Path,
+    output: Path,
+    resource_cache: Path,
+    forwarded: Sequence[str],
+) -> list[str]:
+    """Return the ``apptainer run`` command of a classification."""
+    if source.is_file():
+        bind_source, query_in_container = source.parent, f"/input/{source.name}"
     else:
-        bind_source = query_abs
-        query_in_container = "/input"
-
-    cmd = [
+        bind_source, query_in_container = source, "/input"
+    return [
         "apptainer",
         "run",
         "-B",
         f"{bind_source}:/input:ro",
         "-B",
-        f"{output_abs}:/output",
+        f"{output}:/output",
         "-B",
-        f"{resource_cache_abs}:{CONTAINER_RESOURCE_CACHE_DIR}",
-        *_addon_mount(resource_cache_abs),
+        f"{resource_cache}:{CONTAINER_RESOURCE_CACHE_DIR}",
+        *addon_mount(database_root(None, resource_cache)),
         "--env",
         f"GVCLASS_RESOURCE_CACHE={CONTAINER_RESOURCE_CACHE_DIR}",
         # Apptainer passes the host environment; a host GVCLASS_DB would otherwise
         # replace the database of the image, which holds the mounted add-on.
         "--env",
         f"GVCLASS_DB={CONTAINER_DATABASE_DIR}",
-        resolved_image,
+        image,
         query_in_container,
         "-o",
         "/output",
-        "--threads",
-        str(threads),
+        *forwarded,
     ]
 
-    if tree_method:
-        cmd.extend(["--tree-method", tree_method])
-    if iqtree_mode:
-        cmd.extend(["--iqtree-mode", iqtree_mode])
-    if mode_fast is not None:
-        cmd.append("--mode-fast" if mode_fast else "--extended")
-    if max_workers:
-        cmd.extend(["-j", str(max_workers)])
-    if threads_per_worker:
-        cmd.extend(["--threads-per-worker", str(threads_per_worker)])
-    # Same precedence as the native CLI: --no-sensitive wins over --sensitive.
-    if no_sensitive:
-        cmd.append("--no-sensitive")
-    elif sensitive_mode:
-        cmd.append("--sensitive")
-    if completeness_mode:
-        cmd.extend(["--completeness-mode", completeness_mode])
-    if contigs_mode:
-        cmd.append("--contigs")
-    if min_length is not None:
-        cmd.extend(["--min-length", str(min_length)])
-    if contigs_min_length is not None:
-        cmd.extend(["--contigs-min-length", str(contigs_min_length)])
-    if species_tree:
-        cmd.append("--species-tree")
-    if species_tree_combined:
-        cmd.append("--species-tree-combined")
-    if species_tree_trim:
-        cmd.extend(["--species-tree-trim", species_tree_trim])
-    if resume:
-        cmd.append("--resume")
-    if allow_short:
-        cmd.append("--allow-short")
-    if plain_output:
-        cmd.append("--plain-output")
-    if verbose:
-        cmd.append("--verbose")
-    if no_screen:
-        cmd.append("--no-screen")
 
-    return subprocess.call(cmd)
+class _Forward(argparse.Action):
+    """Remember an option as typed, to give it to GVClass in the container."""
+
+    def __call__(
+        self,
+        _parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: Sequence[str],
+        option_string: str | None = None,
+    ) -> None:
+        namespace.forwarded.extend([option_string, *values])
 
 
-def _build_apptainer_parser(*, add_help: bool = True) -> argparse.ArgumentParser:
+def _build_container_parser(*, add_help: bool = True) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Run GVClass via Apptainer container", add_help=add_help
+        prog="gvclass",
+        description="Run GVClass in an Apptainer container.",
+        epilog=(
+            "Every other option goes to GVClass in the container as typed; "
+            "see docs/reference/cli.md."
+        ),
+        add_help=add_help,
     )
     parser.add_argument(
         "query_path",
         nargs="?",
-        help="Input directory containing FASTA files, or single FNA file with --contigs",
-    )
-    parser.add_argument(
-        "output_dir",
-        nargs="?",
-        default=None,
-        help="Output directory (legacy positional form; optional)",
+        help="Input directory of FASTA files, or one FNA file with --contigs",
     )
     parser.add_argument(
         "-o",
         "--output-dir",
-        dest="output_dir_flag",
-        default=None,
-        help="Output directory for GVClass results (default: <query>_results)",
-    )
-    parser.add_argument(
-        "-t",
-        "--threads",
-        type=int,
-        default=16,
-        help="Total threads to allocate (default: 16)",
-    )
-    parser.add_argument(
-        "-j",
-        "--max-workers",
-        type=int,
-        default=None,
-        help="Maximum parallel workers (default: auto-calculated)",
-    )
-    parser.add_argument(
-        "--threads-per-worker",
-        type=int,
-        default=None,
-        help="Threads per worker (default: auto-calculated)",
-    )
-    parser.add_argument(
-        "--apptainer",
-        action="store_true",
-        help="Run GVClass via Apptainer container",
-    )
-    parser.add_argument(
-        "--tree-method",
-        choices=["veryfasttree", "iqtree", "fasttree"],
-        default=None,
-        help="Tree building method (default: veryfasttree)",
-    )
-    parser.add_argument(
-        "--iqtree-mode",
-        choices=["fast", "ufboot"],
-        default=None,
-        help="IQ-TREE species-tree search mode (default: fast)",
-    )
-    parser.add_argument(
-        "--mode-fast",
-        action="store_true",
-        default=None,
-        help="Enable fast mode - skip order-level markers for faster analysis",
-    )
-    parser.add_argument(
-        "-e",
-        "--extended",
-        action="store_true",
-        help="Extended mode: build trees for all markers (slower but more comprehensive)",
-    )
-    parser.add_argument(
-        "--sensitive",
-        action="store_true",
-        help="Sensitive HMM mode: use E-value 1e-5 instead of GA cutoffs",
-    )
-    parser.add_argument(
-        "--no-sensitive",
-        action="store_true",
-        help="Disable sensitive HMM mode (use model-defined GA cutoffs when available)",
-    )
-    parser.add_argument(
-        "--completeness-mode",
-        choices=["legacy", "novelty-aware"],
-        default=None,
-        help="Completeness estimator to surface as the primary estimate",
+        help="Output directory (default: <name>_results in the current directory)",
     )
     parser.add_argument(
         "-C",
@@ -379,63 +333,7 @@ def _build_apptainer_parser(*, add_help: bool = True) -> argparse.ArgumentParser
         help="Per-contig mode: split input FNA(s) and classify each contig separately",
     )
     parser.add_argument(
-        "--min-length",
-        type=int,
-        default=None,
-        help="Minimum total nucleotide length (bp) for each input FNA",
-    )
-    parser.add_argument(
-        "--contigs-min-length",
-        type=int,
-        default=None,
-        help="Minimum contig length (bp) when splitting inputs with --contigs",
-    )
-    parser.add_argument(
-        "--species-tree",
-        action="store_true",
-        help="Build one supermatrix species tree per query",
-    )
-    parser.add_argument(
-        "--species-tree-combined",
-        action="store_true",
-        help="Implies --species-tree; also build a combined species tree across queries",
-    )
-    parser.add_argument(
-        "--species-tree-trim",
-        choices=["witchi", "pytrimal", "none"],
-        default=None,
-        help="Supermatrix column trimming for --species-tree",
-    )
-    parser.add_argument(
-        "--resume",
-        action="store_true",
-        help="Resume from previous run, skipping completed queries",
-    )
-    parser.add_argument(
-        "--allow-short",
-        action="store_true",
-        help="Bypass the nucleotide length floor",
-    )
-    parser.add_argument(
-        "--plain-output",
-        action="store_true",
-        help="Disable emojis and ANSI colors in CLI output",
-    )
-    parser.add_argument(
-        "-v",
-        "--verbose",
-        action="store_true",
-        help="Verbose output",
-    )
-    parser.add_argument(
-        "--no-screen",
-        action="store_true",
-        help="Skip the contig screen (screen_status is 'disabled')",
-    )
-    parser.add_argument(
-        "--version",
-        action="store_true",
-        help="Show version information",
+        "--apptainer", action="store_true", help="Run GVClass via Apptainer container"
     )
     parser.add_argument(
         "--image",
@@ -453,24 +351,74 @@ def _build_apptainer_parser(*, add_help: bool = True) -> argparse.ArgumentParser
             "Host directory for Parquet materialization cache (default: %(default)s)"
         ),
     )
+    parser.add_argument(
+        "--version", action="store_true", help="Show the default image of the launcher"
+    )
+    for option in NATIVE_ONLY_VALUE_OPTIONS:
+        parser.add_argument(option, dest="native_only", help=argparse.SUPPRESS)
+    for option in FORWARDED_VALUE_OPTIONS:
+        parser.add_argument(
+            option,
+            action=_Forward,
+            nargs=1,
+            dest="forward_unused",
+            help=argparse.SUPPRESS,
+        )
     return parser
 
 
-def resolve_output_path(
-    query_path: Path, output_dir_positional: str | None, output_dir_flag: str | None
-) -> Path:
-    if output_dir_positional and output_dir_flag:
-        raise ValueError(
-            "Use either positional output_dir or -o/--output-dir, not both."
+def _parse_container_args(
+    parser: argparse.ArgumentParser, argv: Sequence[str]
+) -> tuple[argparse.Namespace, list[str]]:
+    """Parse the options of the launcher; return them with the ones for the image."""
+    return parser.parse_known_args(argv, argparse.Namespace(forwarded=[]))
+
+
+def container_main(argv: Sequence[str]) -> int:
+    """Run GVClass, or its ``screen`` command, in the Apptainer image."""
+    given = list(argv)
+    probe, _ = _parse_container_args(_build_container_parser(add_help=False), given)
+    if probe.query_path == "screen":
+        return _screen_main(given)
+    parser = _build_container_parser()
+    args, extras = _parse_container_args(parser, given)
+    if args.version:
+        print(f"GVClass Apptainer launcher (default image: {DEFAULT_IMAGE})")
+        return 0
+    if args.query_path is None:
+        if given:
+            parser.error("the query path is required")
+        parser.print_help()
+        return 0
+    if args.native_only:
+        parser.error(
+            "--config and --database apply to native runs only; "
+            "the container uses the database of the image"
+        )
+    source = Path(args.query_path).resolve()
+    if not source.exists():
+        parser.error(f"Input path not found: {source}")
+    if source.is_file() and not args.contigs:
+        parser.error(f"Input is a file: {source}. Use --contigs for per-contig mode.")
+    if source.is_file() and source.suffix.lower() not in CONTIGS_FILE_SUFFIXES:
+        parser.error(
+            "--contigs requires an FNA/FA/FASTA/FAS file when input is a file."
         )
 
-    resolved_output = output_dir_flag or output_dir_positional
-    if resolved_output:
-        return Path(resolved_output)
-
-    resolved_query = query_path.resolve()
-    query_name = resolved_query.stem if resolved_query.is_file() else resolved_query.name
-    return resolved_query.with_name(f"{query_name}_results")
+    output = (
+        Path(args.output_dir) if args.output_dir else default_output_dir(source)
+    ).resolve()
+    output.mkdir(parents=True, exist_ok=True)
+    resource_cache = Path(args.resource_cache_dir).expanduser().resolve()
+    resource_cache.mkdir(parents=True, exist_ok=True)
+    command = container_command(
+        image=ensure_local_image(args.image),
+        source=source,
+        output=output,
+        resource_cache=resource_cache,
+        forwarded=[*(["--contigs"] if args.contigs else []), *args.forwarded, *extras],
+    )
+    return subprocess.call(command)
 
 
 def _build_screen_parser() -> argparse.ArgumentParser:
@@ -483,7 +431,7 @@ def _build_screen_parser() -> argparse.ArgumentParser:
     parser.add_argument("-o", "--output-dir", type=Path, help="Default: <input>_screen")
     parser.add_argument("-d", "--database", help="Host database (default: GVCLASS_DB)")
     parser.add_argument(
-        "-t", "--threads", type=int, default=4, help="Threads (default: 4)"
+        "-t", "--threads", type=int, help="Threads (default: those of GVClass)"
     )
     parser.add_argument("--apptainer", action="store_true", help="Use Apptainer")
     parser.add_argument(
@@ -498,36 +446,32 @@ def _build_screen_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _screen_database_bind(args: argparse.Namespace) -> tuple[str, str]:
-    host_database = args.database or os.environ.get("GVCLASS_DB", "").strip()
-    root = Path(host_database or args.resource_cache_dir).expanduser().resolve()
-    if args.install:
-        root.mkdir(parents=True, exist_ok=True)
-        return f"{root}:/screen-resources", "/screen-resources"
-    if not (root / "contig_screen" / "manifest.json").is_file():
-        raise SystemExit(
-            f"No contig-screen resources in {root}; run: gvclass screen --install"
-        )
-    if host_database:
-        return f"{root}:/screen-resources:ro", "/screen-resources"
-    return (
-        f"{root}/contig_screen:/opt/gvclass/resources/contig_screen:ro",
-        "/opt/gvclass/resources",
-    )
-
-
-def _screen_main(argv: list[str]) -> int:
+def _screen_main(argv: Sequence[str]) -> int:
     parser = _build_screen_parser()
     args = parser.parse_intermixed_args(argv)
     if not args.install and args.input is None:
         parser.error("an input bin or folder is needed (or --install)")
-    database_bind, database = _screen_database_bind(args)
-    cmd = ["apptainer", "run", "-B", database_bind]
+    root = database_root(args.database, args.resource_cache_dir)
     if args.install:
-        cmd.extend(
-            [ensure_local_image(args.image), "screen", "--install", "-d", database]
+        root.mkdir(parents=True, exist_ok=True)
+        return subprocess.call(
+            [
+                "apptainer",
+                "run",
+                "-B",
+                f"{root}:/screen-resources",
+                ensure_local_image(args.image),
+                "screen",
+                "--install",
+                "-d",
+                "/screen-resources",
+            ]
         )
-        return subprocess.call(cmd)
+    mount = addon_mount(root)
+    if not mount:
+        raise SystemExit(
+            f"No contig-screen resources in {root}; run: gvclass screen --install"
+        )
     source = args.input.expanduser().resolve()
     if not source.exists():
         parser.error(f"Input path not found: {source}")
@@ -536,97 +480,57 @@ def _screen_main(argv: list[str]) -> int:
     output.mkdir(parents=True, exist_ok=True)
     bind_source = source.parent if source.is_file() else source
     container_input = f"/input/{source.name}" if source.is_file() else "/input"
-    cmd.extend(
-        [
-            "-B",
-            f"{bind_source}:/input:ro",
-            "-B",
-            f"{output}:/output",
-            ensure_local_image(args.image),
-            "screen",
-            container_input,
-            "-o",
-            "/output",
-            "-d",
-            database,
-            "-t",
-            str(args.threads),
-        ]
-    )
-    return subprocess.call(cmd)
+    command = [
+        "apptainer",
+        "run",
+        *mount,
+        "-B",
+        f"{bind_source}:/input:ro",
+        "-B",
+        f"{output}:/output",
+        ensure_local_image(args.image),
+        "screen",
+        container_input,
+        "-o",
+        "/output",
+        "-d",
+        CONTAINER_DATABASE_DIR,
+    ]
+    if args.threads is not None:
+        command.extend(["-t", str(args.threads)])
+    return subprocess.call(command)
 
 
-def _standalone_apptainer_main(argv: list[str] | None = None) -> int:
-    given = sys.argv[1:] if argv is None else list(argv)
-    probe = _build_apptainer_parser(add_help=False)
-    probe.add_argument("-d", "--database")
-    probe.add_argument("--install", action="store_true")
-    detected, _ = probe.parse_known_args(given)
-    if detected.query_path == "screen":
-        return _screen_main(given)
-    parser = _build_apptainer_parser()
-    args = parser.parse_args(given)
-    if args.version:
-        print(f"GVClass Apptainer launcher (default image: {DEFAULT_IMAGE})")
-        return 0
-    if not args.query_path:
-        if given:
-            parser.error("the query path is required")
-        parser.print_help()
-        return 0
-
-    query_path = Path(args.query_path)
-    try:
-        output_path = resolve_output_path(
-            query_path, args.output_dir, args.output_dir_flag
-        )
-    except ValueError as exc:
-        parser.error(str(exc))
-
-    return run_container(
-        query_path,
-        output_path,
-        args.threads,
-        args.image or DEFAULT_IMAGE,
-        Path(args.resource_cache_dir or DEFAULT_RESOURCE_CACHE_DIR),
-        tree_method=args.tree_method,
-        mode_fast=False if args.extended else args.mode_fast,
-        max_workers=args.max_workers,
-        sensitive_mode=args.sensitive,
-        no_sensitive=args.no_sensitive,
-        contigs_mode=args.contigs,
-        min_length=args.min_length,
-        contigs_min_length=args.contigs_min_length,
-        threads_per_worker=args.threads_per_worker,
-        iqtree_mode=args.iqtree_mode,
-        completeness_mode=args.completeness_mode,
-        species_tree=args.species_tree,
-        species_tree_combined=args.species_tree_combined,
-        species_tree_trim=args.species_tree_trim,
-        resume=args.resume,
-        allow_short=args.allow_short,
-        plain_output=args.plain_output,
-        verbose=args.verbose,
-        no_screen=args.no_screen,
-    )
-
-
-def main() -> int:
+def main(argv: Sequence[str] | None = None) -> int:
+    """Run in the Apptainer image, or natively in the runtime of the checkout."""
+    given = list(sys.argv[1:] if argv is None else argv)
     script_path = Path(__file__).resolve()
     repo_dir = resolve_repo_dir(script_path)
-    has_local_repo = is_gvclass_repo(repo_dir)
 
-    if _should_use_apptainer(sys.argv[1:], has_local_repo):
-        return _standalone_apptainer_main(sys.argv[1:])
+    if _should_use_apptainer(given, has_local_repo=is_gvclass_repo(repo_dir)):
+        return container_main(given)
+
+    again = runtime_argv(
+        repo_dir,
+        script_path,
+        given,
+        running_python=Path(sys.executable),
+        pixi=shutil.which("pixi"),
+        selected=os.environ.get(RUNTIME_SELECTED_ENV) == "1",
+    )
+    if again is not None:
+        os.environ[RUNTIME_SELECTED_ENV] = "1"
+        os.execvp(again[0], again)
 
     if str(repo_dir) not in sys.path:
         sys.path.insert(0, str(repo_dir))
-
     os.environ.setdefault("GVCLASS_REPO", str(repo_dir))
 
-    from src.bin.gvclass_cli import main as cli_main
+    from src.bin.gvclass_cli import (  # noqa: PLC0415  # needs the runtime chosen above
+        main as cli_main,
+    )
 
-    return cli_main(repo_dir=repo_dir)
+    return cli_main(given, repo_dir=repo_dir)
 
 
 if __name__ == "__main__":
