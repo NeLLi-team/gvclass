@@ -1,6 +1,7 @@
 """Extract marker-specific hits from HMM search results.
 
-This module implements the functionality of the extract_qhits rule from the Snakemake workflow.
+This module implements the functionality of the extract_qhits rule from the
+Snakemake workflow.
 """
 
 import logging
@@ -122,7 +123,8 @@ def extract_marker_hits(
     logger.info(f"Starting marker extraction from {hmm_output}")
     logger.info(f"Query FAA file: {query_faa}, exists: {query_faa.exists()}")
     logger.info(
-        f"Mode fast: {mode_fast} (OG markers will {'be skipped' if mode_fast else 'be included'})"
+        f"Mode fast: {mode_fast} "
+        f"(OG markers will {'be skipped' if mode_fast else 'be included'})"
     )
 
     # Parse HMM output
@@ -159,7 +161,8 @@ def extract_marker_hits(
         filtered_markers = dict(grouped)
         if n_collapsed > 0:
             logger.info(
-                f"Collapsed model-markers into {len(grouped)} family groups (-{n_collapsed})"
+                f"Collapsed model-markers into {len(grouped)} family groups "
+                f"(-{n_collapsed})"
             )
 
     logger.info(f"Processing {len(filtered_markers)} markers with >= {min_hits} hits")

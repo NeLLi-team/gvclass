@@ -177,7 +177,8 @@ class SpeciesTreeClassifier:
             # root-invariance guarantee, so emit no placement rather than a wrong
             # one. VeryFastTree output is unrooted, so this is a pathological guard.
             logger.warning(
-                "set_outgroup failed on %s (%s); skipping species-tree placement for %s",
+                "set_outgroup failed on %s (%s); "
+                "skipping species-tree placement for %s",
                 outgroup.name,
                 exc,
                 tree_file,

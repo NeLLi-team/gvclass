@@ -199,7 +199,8 @@ class InputValidator:
         # Check file extension
         if path.suffix.lower() not in cls.VALID_EXTENSIONS:
             raise ValidationError(
-                f"Invalid file extension: {path.suffix}. Must be one of: {cls.VALID_EXTENSIONS}",
+                f"Invalid file extension: {path.suffix}. "
+                f"Must be one of: {cls.VALID_EXTENSIONS}",
                 field="file_extension",
                 value=path.suffix,
             )
@@ -354,18 +355,21 @@ class InputValidator:
             )
             if seq_length < length_floor:
                 logger.warning(
-                    "Sequence %s (%s) is shorter than recommended minimum (%d bp < %d bp)",
+                    "Sequence %s (%s) is shorter than recommended minimum "
+                    "(%d bp < %d bp)",
                     seq_num,
                     record.id,
                     seq_length,
                     length_floor,
                 )
         elif file_type == "faa":
-            # For proteins, check a different minimum (e.g., 100 amino acids ~ 300 bp equivalent)
+            # For proteins, check a different minimum
+            # (e.g., 100 amino acids ~ 300 bp equivalent)
             min_protein_length = 100
             if seq_length < min_protein_length:
                 logger.warning(
-                    "Protein sequence %s (%s) is shorter than recommended minimum (%d aa < %d aa)",
+                    "Protein sequence %s (%s) is shorter than recommended minimum "
+                    "(%d aa < %d aa)",
                     seq_num,
                     record.id,
                     seq_length,
@@ -381,7 +385,8 @@ class InputValidator:
             invalid_chars = set(seq_str) - cls.VALID_DNA_CHARS
             if invalid_chars:
                 raise ValidationError(
-                    f"Sequence {seq_num} ({record.id}) contains invalid DNA characters: {invalid_chars}",
+                    f"Sequence {seq_num} ({record.id}) contains invalid DNA "
+                    f"characters: {invalid_chars}",
                     field="sequence_content",
                     value=sorted(invalid_chars),
                 )
@@ -391,7 +396,8 @@ class InputValidator:
             invalid_chars = set(seq_str) - cls.VALID_PROTEIN_CHARS
             if invalid_chars:
                 raise ValidationError(
-                    f"Sequence {seq_num} ({record.id}) contains invalid protein characters: {invalid_chars}",
+                    f"Sequence {seq_num} ({record.id}) contains invalid protein "
+                    f"characters: {invalid_chars}",
                     field="sequence_content",
                     value=sorted(invalid_chars),
                 )

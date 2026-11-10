@@ -77,7 +77,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output-dir",
         required=True,
-        help="New directory for the generated resources; the source directory is never overwritten",
+        help=(
+            "New directory for the generated resources; "
+            "the source directory is never overwritten"
+        ),
     )
     parser.add_argument(
         "--smoke",
@@ -141,8 +144,12 @@ def parse_reference_marker_profiles(
     labels: Dict[str, Dict[str, str]],
     order_markers: Dict[str, List[str]],
 ) -> Dict[str, Dict[str, Dict[str, int]]]:
-    relevant_markers = sorted({marker for markers in order_markers.values() for marker in markers})
-    order_profiles: Dict[str, Dict[str, Dict[str, int]]] = defaultdict(lambda: defaultdict(dict))
+    relevant_markers = sorted(
+        {marker for markers in order_markers.values() for marker in markers}
+    )
+    order_profiles: Dict[str, Dict[str, Dict[str, int]]] = defaultdict(
+        lambda: defaultdict(dict)
+    )
     store = ResourceStore(resources_dir)
 
     for marker in relevant_markers:
@@ -446,7 +453,9 @@ def make_validation_plan(
                 if labels.get(genome_id, {}).get("family", "") == family
             ]
             training_ids = [
-                genome_id for genome_id in development_ids if genome_id not in set(validation_ids)
+                genome_id
+                for genome_id in development_ids
+                if genome_id not in set(validation_ids)
             ]
             if len(training_ids) >= 2 and validation_ids:
                 folds.append(
@@ -475,7 +484,9 @@ def make_validation_plan(
     for fold_index in range(n_folds):
         validation_ids = development_ids[fold_index::n_folds]
         training_ids = [
-            genome_id for genome_id in development_ids if genome_id not in set(validation_ids)
+            genome_id
+            for genome_id in development_ids
+            if genome_id not in set(validation_ids)
         ]
         if len(training_ids) >= 2 and validation_ids:
             folds.append(
@@ -564,9 +575,13 @@ def build_training_df(
         order_name = str(sample["order_name"])
         family_name = str(sample["family_name"])
         group_def, tier_set = select_group(tiers, order_name, family_name)
-        raw_score = 100.0 * (len(sample["present_markers"]) / len(order_markers[order_name]))
+        raw_score = 100.0 * (
+            len(sample["present_markers"]) / len(order_markers[order_name])
+        )
         baseline = strategy1_baselines[order_name]
-        strategy1_score = 0.0 if baseline <= 0 else min(100.0, (raw_score / baseline) * 100.0)
+        strategy1_score = (
+            0.0 if baseline <= 0 else min(100.0, (raw_score / baseline) * 100.0)
+        )
         marker_counts = {marker: 1 for marker in sample["present_markers"]}
         tier_scores = score_tier_set(marker_counts, tier_set)
         strategy2_raw_score = float(tier_scores["strategy2_raw"])
@@ -667,7 +682,9 @@ def train_models(
             "training_target": "marker_dropout_fraction_of_source_profile",
             "target_is_nucleotide_completeness": False,
             "reference_ascertainment": "labeled_references_with_detected_order_markers",
-            "marker_panel_ascertainment": "fixed_input_panel_predates_validation_holdouts",
+            "marker_panel_ascertainment": (
+                "fixed_input_panel_predates_validation_holdouts"
+            ),
             "model_reliability": "advisory_only",
             "test_r2": "",
             "test_mae": "",
@@ -689,7 +706,9 @@ def train_models(
                 {
                     **common_metadata,
                     "training_status": "unsupported",
-                    "unsupported_reason": "fewer_than_four_source_genomes_or_two_selection_folds",
+                    "unsupported_reason": (
+                        "fewer_than_four_source_genomes_or_two_selection_folds"
+                    ),
                     "model_name": "",
                     "validation_type": "unsupported_grouped_validation",
                     "n_training_samples": 0,
@@ -776,7 +795,9 @@ def train_models(
                 {
                     **common_metadata,
                     "training_status": "unsupported",
-                    "unsupported_reason": "fewer_than_two_usable_grouped_selection_folds",
+                    "unsupported_reason": (
+                        "fewer_than_two_usable_grouped_selection_folds"
+                    ),
                     "model_name": "",
                     "validation_type": "unsupported_grouped_validation",
                     "n_training_samples": 0,
@@ -861,7 +882,9 @@ def train_models(
             continue
 
         best_model = best_factory()
-        best_model.fit(development_df[FEATURE_NAMES], development_df["true_completeness"])
+        best_model.fit(
+            development_df[FEATURE_NAMES], development_df["true_completeness"]
+        )
         final_predictions = best_model.predict(final_df[FEATURE_NAMES]).tolist()
         final_truth = final_df["true_completeness"].tolist()
         final_mae, final_r2 = _metrics(final_truth, final_predictions)
@@ -894,7 +917,9 @@ def train_models(
                 "training_status": "trained_marker_dropout_only",
                 "unsupported_reason": "",
                 "model_name": best_name,
-                "validation_type": f"independent_{plan['split_unit']}_holdout_marker_dropout",
+                "validation_type": (
+                    f"independent_{plan['split_unit']}_holdout_marker_dropout"
+                ),
                 "selection_validation_type": f"grouped_{plan['split_unit']}_folds",
                 "n_selection_folds": len(fold_frames),
                 "n_development_genomes": len(development_ids),
@@ -1031,7 +1056,9 @@ def write_resources(
     config_payload = {
         "resource_version": "v2_marker_dropout",
         "strategy2_config": asdict(CONFIG),
-        "order_expected_marker_counts": {order: len(markers) for order, markers in order_markers.items()},
+        "order_expected_marker_counts": {
+            order: len(markers) for order, markers in order_markers.items()
+        },
         "training_target": "marker_dropout_fraction_of_source_profile",
         "target_is_nucleotide_completeness": False,
         "reference_ascertainment": "labeled_references_with_detected_order_markers",

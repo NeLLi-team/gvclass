@@ -30,7 +30,7 @@ jobs:
           pixi-version: v0.72.0
           cache: true
 
-      - name: Lint (flake8)
+      - name: Lint (ruff)
         run: pixi run lint
 
       - name: Type-check (mypy)

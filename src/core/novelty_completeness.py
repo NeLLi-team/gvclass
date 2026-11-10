@@ -611,7 +611,9 @@ class NoveltyAwareCompletenessScorer:
                 float(support_metrics["support_score"]), 2
             ),
             "order_completeness_v2_ood_flag": ood_augmented,
-            "order_completeness_v2_reference_group": f"{group_def.level}:{group_def.name}",
+            "order_completeness_v2_reference_group": (
+                f"{group_def.level}:{group_def.name}"
+            ),
             "order_completeness_v2_validation_mode": model_reliability,
             "order_completeness_v2_informative_fraction": round(
                 float(support_metrics["informative_fraction"]), 2

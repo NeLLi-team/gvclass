@@ -60,7 +60,7 @@ def is_gvclass_repo(path: Path) -> bool:
 
 
 def resolve_repo_dir(script_path: Path) -> Path:
-    """Resolve the GVClass repo directory when running from a checkout or installed script."""
+    """Resolve the GVClass repo directory for a checkout or installed script."""
     candidate = script_path.parent
     if is_gvclass_repo(candidate):
         return candidate

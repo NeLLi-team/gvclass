@@ -272,7 +272,7 @@ class MarkerProcessor:
                     sequence_count,
                 )
 
-            # Broad on purpose: the failure is recorded in an .ERROR file, then re-raised.
+            # Broad on purpose: the failure goes to an .ERROR file, then re-raises.
             except Exception as e:
                 error_msg = f"ERROR: VeryFastTree failed for {self.marker}: {e}"
                 logger.error(error_msg)
@@ -316,7 +316,7 @@ class MarkerProcessor:
                     text=True,
                     timeout=600,  # 10 minute timeout
                 )
-            except subprocess.TimeoutExpired:
+            except subprocess.TimeoutExpired as err:
                 error_msg = (
                     f"ERROR: IQ-TREE timed out after 10 minutes for {self.marker}"
                 )
@@ -332,7 +332,7 @@ class MarkerProcessor:
                     f.write("Timeout: 600 seconds\n")
                     f.write(f"Command: {' '.join(cmd)}\n")
 
-                raise RuntimeError(f"IQ-TREE timed out for {self.marker}")
+                raise RuntimeError(f"IQ-TREE timed out for {self.marker}") from err
             except OSError as e:
                 error_msg = f"ERROR: Failed to run IQ-TREE for {self.marker}: {e}"
                 logger.error(error_msg)
@@ -410,7 +410,8 @@ class MarkerProcessor:
         else:
             result["tree_skipped"] = True
             logger.info(
-                f"Tree building was skipped for {self.marker} due to insufficient sequences"
+                f"Tree building was skipped for {self.marker} "
+                "due to insufficient sequences"
             )
 
         return result

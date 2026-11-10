@@ -204,7 +204,9 @@ def _add_mode_arguments(parser: argparse.ArgumentParser) -> None:
         "-e",
         "--extended",
         action="store_true",
-        help="Extended mode: build trees for all markers (slower but more comprehensive)",
+        help=(
+            "Extended mode: build trees for all markers (slower but more comprehensive)"
+        ),
     )
     parser.add_argument(
         "--sensitive",
@@ -230,7 +232,10 @@ def _add_mode_arguments(parser: argparse.ArgumentParser) -> None:
         "-C",
         "--contigs",
         action="store_true",
-        help="Split FNA file(s) into individual contigs for analysis (accepts file or directory)",
+        help=(
+            "Split FNA file(s) into individual contigs for analysis "
+            "(accepts file or directory)"
+        ),
     )
     parser.add_argument(
         "--min-length",
@@ -599,7 +604,8 @@ def resolve_contigs_input(query_dir_abs: Path, enabled: bool) -> ContigInput:
     if query_dir_abs.is_file():
         if query_dir_abs.suffix.lower() not in [".fna", ".fa", ".fasta", ".fas"]:
             raise ValueError(
-                f"--contigs requires FNA file(s) (.fna, .fa, .fasta, .fas): {query_dir_abs}"
+                "--contigs requires FNA file(s) (.fna, .fa, .fasta, .fas): "
+                f"{query_dir_abs}"
             )
         return ContigInput(enabled=True, input_file=query_dir_abs)
 
@@ -618,7 +624,8 @@ def split_contig_inputs(
     if contigs.input_file:
         prefix = contigs.input_file.stem
         output.line(
-            f"Splitting contigs from: {contigs.input_file.name} (min length: {min_length} bp)",
+            f"Splitting contigs from: {contigs.input_file.name} "
+            f"(min length: {min_length} bp)",
             key="contigs",
         )
         _, n_contigs = split_contigs(
@@ -631,7 +638,8 @@ def split_contig_inputs(
         return 1
 
     output.line(
-        f"Splitting contigs from directory: {contigs.input_dir} (min length: {min_length} bp)",
+        f"Splitting contigs from directory: {contigs.input_dir} "
+        f"(min length: {min_length} bp)",
         key="contigs",
     )
     _, n_contigs, n_files = split_contigs_from_directory(

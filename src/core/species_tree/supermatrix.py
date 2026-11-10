@@ -210,7 +210,8 @@ def build_supermatrix(
         groups: Ordered group names (defines partition/column order).
         work_dir: Scratch dir for per-group alignments/pruning artefacts.
         out_dir: Destination dir for the supermatrix + partitions.
-        basename: Output basename (``<basename>.supermatrix.faa`` / ``.partitions.txt``).
+        basename: Output basename (``<basename>.supermatrix.faa`` /
+            ``.partitions.txt``).
         threads: Worker threads for alignment/pruning.
         min_taxa_per_group: Groups with fewer aligned taxa are dropped.
 

@@ -16,6 +16,7 @@ import time
 import uuid
 from collections.abc import Callable, Iterator
 from contextlib import ExitStack, contextmanager
+from functools import partial
 from pathlib import Path, PurePosixPath
 from typing import Optional
 from urllib.error import HTTPError, URLError
@@ -367,7 +368,7 @@ class DatabaseManager:
     def get_latest_database_source(
         cls, preferred_source: Optional[dict] = None
     ) -> Optional[dict]:
-        """Resolve the latest Zenodo-backed database source from the effective source."""
+        """Resolve the latest Zenodo-backed source from the effective source."""
         try:
             effective_source = cls.get_effective_database_source(preferred_source)
         except ValueError:
@@ -407,7 +408,8 @@ class DatabaseManager:
         or replacing holds an exclusive lock, so concurrent processes install once.
 
         Args:
-            database_path: Custom database location. If None, uses 'resources' in current directory.
+            database_path: Custom database location. If None, uses 'resources'
+                in the current directory.
             preferred_source: Optional download source override from config/env.
             force: Replace the database even when it is complete.
 
@@ -1074,7 +1076,8 @@ class DatabaseManager:
         expected_sha256 = source.get("sha256")
         if not expected_sha256:
             logger.warning(
-                "No SHA256 configured for database source %s; skipping checksum verification",
+                "No SHA256 configured for database source %s; "
+                "skipping checksum verification",
                 source["version"],
             )
             return
@@ -1144,7 +1147,8 @@ class DatabaseManager:
             if extracted is None:
                 raise RuntimeError(f"failed to read archive member: {member.name}")
             with extracted, open(target_path, "wb") as out_f:
-                for chunk in iter(lambda: extracted.read(_TRANSFER_CHUNK_SIZE), b""):
+                read_chunk = partial(extracted.read, _TRANSFER_CHUNK_SIZE)
+                for chunk in iter(read_chunk, b""):
                     out_f.write(chunk)
                     progress.advance(len(chunk))
 

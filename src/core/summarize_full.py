@@ -139,7 +139,7 @@ class FullSummarizer:
         accepted_lineage: dict[str, str],
         tree_nn_results: Optional[Dict[str, Dict[str, Dict[str, float]]]] = None,
     ) -> None:
-        """Populate contamination metrics (rule-based, then ML override if available)."""
+        """Populate contamination metrics (rule-based, then ML override if any)."""
         scan = self.contamination_scorer.scan_blast_dir(query_output_dir / "blastp_out")
         result.update(
             self.contamination_scorer.score_rule_based(
@@ -222,7 +222,8 @@ class FullSummarizer:
 
             if not self.contamination_scorer.ml_available:
                 raise RuntimeError(
-                    "A trained contamination model is required for production contamination estimates"
+                    "A trained contamination model is required for production "
+                    "contamination estimates"
                 )
             result.update(
                 self.contamination_scorer.predict_contamination(result, contig_features)
@@ -245,7 +246,8 @@ class FullSummarizer:
             ]
         except Exception as exc:  # noqa: BLE001  # adds the model context to any scorer failure
             raise RuntimeError(
-                f"Failed to compute contamination estimate with the trained model: {exc}"
+                "Failed to compute contamination estimate with the trained model: "
+                f"{exc}"
             ) from exc
 
     def _contamination_reporting_threshold(self) -> float:

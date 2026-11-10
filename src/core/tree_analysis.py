@@ -80,7 +80,8 @@ class TreeAnalyzer:
         # Check if tree file exists and is not a dummy/skipped tree
         if not tree_file.exists():
             logger.debug(
-                f"Tree file {tree_file} does not exist - likely skipped due to insufficient sequences"
+                f"Tree file {tree_file} does not exist - "
+                "likely skipped due to insufficient sequences"
             )
             return neighbors
 
@@ -88,7 +89,8 @@ class TreeAnalyzer:
         skip_file = tree_file.with_suffix(".SKIPPED")
         if skip_file.exists():
             logger.debug(
-                f"Tree building was skipped for {tree_file.stem} - insufficient sequences"
+                f"Tree building was skipped for {tree_file.stem} - "
+                "insufficient sequences"
             )
             return neighbors
 
@@ -271,7 +273,8 @@ class TreeAnalyzer:
         logger.info(f"Found {len(tree_files)} tree files to process")
         if skipped_files:
             logger.info(
-                f"Note: {len(skipped_files)} markers had tree building skipped due to insufficient sequences"
+                f"Note: {len(skipped_files)} markers had tree building skipped "
+                "due to insufficient sequences"
             )
 
         trees_processed = 0

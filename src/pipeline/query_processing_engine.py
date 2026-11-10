@@ -477,7 +477,8 @@ def _process_markers(
         marker_files, threads
     )
     logger.info(
-        f"Processing {len(marker_files)} markers: {max_parallel} parallel × {threads_per_marker} threads each"
+        f"Processing {len(marker_files)} markers: "
+        f"{max_parallel} parallel × {threads_per_marker} threads each"
     )
     _emit_query_progress(
         query_name,
