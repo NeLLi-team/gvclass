@@ -1,17 +1,6 @@
 """Tests for src/utils/error_handling.py."""
 
-import logging
-
-from src.utils.error_handling import ErrorHandler, ValidationError
-
-
-def test_log_warning_appends_context(caplog):
-    handler = ErrorHandler(logger_name="gvclass_test_log_warning")
-
-    with caplog.at_level(logging.WARNING, logger="gvclass_test_log_warning"):
-        handler.log_warning("careful", context={"step": "unit"})
-
-    assert "careful | Context: {'step': 'unit'}" in caplog.text
+from src.utils.error_handling import ValidationError
 
 
 def test_validation_error_str_names_code_and_context():
@@ -21,3 +10,28 @@ def test_validation_error_str_names_code_and_context():
         "[VALIDATION_ERROR] bad input "
         "(Context: {'field': 'filepath', 'value': 'x.fna'})"
     )
+
+
+def test_library_loggers_attach_no_handler_of_their_own():
+    from src.core import marker_processing
+    from src.utils import input_validation
+
+    assert marker_processing.logger.handlers == []
+    assert input_validation.logger.handlers == []
+
+
+def test_sha256_file_reports_every_chunk_it_hashes(tmp_path):
+    import hashlib
+
+    from src.utils.common import sha256_file
+
+    path = tmp_path / "blob.bin"
+    payload = b"x" * 2_500_000
+    path.write_bytes(payload)
+    sizes: list[int] = []
+
+    digest = sha256_file(path, on_chunk=sizes.append)
+
+    assert digest == hashlib.sha256(payload).hexdigest()
+    assert sum(sizes) == len(payload)
+    assert len(sizes) == 3

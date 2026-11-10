@@ -163,7 +163,7 @@ def search_proteins(
         hits_by_query, pattern_warnings = _collect_hits(
             queries, references, threads=threads, top_per_query=top_per_query
         )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # the native pyswrd search raises arbitrary types
         raise ProcessingError(
             f"pyswrd search failed for {m8_path}: {exc}",
             step="pyswrd_search",

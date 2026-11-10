@@ -100,49 +100,7 @@ _TAXONOMY["MIRUS__mir"] = ["MIRUS", "Mirusviricota", "c", "o", "f", "g", "s"]
 _LBL = LabelIndex.from_taxonomy(_TAXONOMY)
 
 
-def test_caps_from_tree_single_caps_neighbor():
-    assert labels_taxonomy._caps_group_from_tree(_LBL, {"mcp_plv": {"q1": {"PPV__pgvv|p": 0.1}}}) == "PgVV"
-
-
-def test_caps_from_tree_generic_and_real_ncldv_neighbor_empty():
-    assert labels_taxonomy._caps_group_from_tree(_LBL, {"mcp_plv": {"q1": {"PPV__generic|p": 0.1}}}) == ""  # PLV_unclassified
-    assert labels_taxonomy._caps_group_from_tree(_LBL, {"mcp_ncldv": {"q1": {"NCLDV__realncldv|p": 0.1}}}) == ""  # IM_01
-
-
-def test_caps_from_tree_tie_and_dominant():
-    assert labels_taxonomy._caps_group_from_tree(_LBL, {"mcp_plv": {"a": {"PPV__pgvv|p": 0.1}, "b": {"PPV__sp|p": 0.1}}}) == ""
-    assert labels_taxonomy._caps_group_from_tree(
-        _LBL, {"mcp_plv": {"a": {"PPV__pgvv|p": 0.1}, "b": {"PPV__pgvv|p": 0.1}, "c": {"PPV__sp|p": 0.1}}}
-    ) == "PgVV"
-
-
-def test_caps_from_tree_nearest_within_marker_wins():
-    assert labels_taxonomy._caps_group_from_tree(
-        _LBL, {"mcp_plv": {"q1": {"PPV__pgvv|p": 0.05, "PPV__sp|p2": 0.9}}}
-    ) == "PgVV"
-
-
-def test_caps_from_tree_no_double_count_across_markers():
-    # SAME protein q1 in BOTH trees; must vote ONCE, resolving to the closest placement
-    # (PgVV at 0.2, not Zephyrvirus at 0.5). Pre-fix this double-counted -> tie -> "".
-    tnn = {"mcp_plv": {"q1": {"PPV__pgvv|p": 0.2}}, "mcp_ncldv": {"q1": {"NCLDV__zeph|p": 0.5}}}
-    assert labels_taxonomy._caps_group_from_tree(_LBL, tnn) == "PgVV"
-
-
-def test_caps_from_tree_equal_distance_cross_marker_is_ambiguous():
-    # SAME protein at EQUAL distance to PgVV (mcp_plv) and Zephyrvirus (mcp_ncldv):
-    # ambiguous -> dropped -> "" (not silently resolved by marker iteration order).
-    tnn = {"mcp_plv": {"q1": {"PPV__pgvv|p": 0.3}}, "mcp_ncldv": {"q1": {"NCLDV__zeph|p": 0.3}}}
-    assert labels_taxonomy._caps_group_from_tree(_LBL, tnn) == ""
-
-
-def test_caps_from_tree_empty():
-    assert labels_taxonomy._caps_group_from_tree(_LBL, {}) == ""
-
-
 # --- unified capsid_group counter --------------------------------------------
-
-
 def test_capsid_group_phylum_fallback_ncldv():
     # generic NCLDV (family not a caps group) -> phylum label
     assert (
@@ -235,27 +193,6 @@ _TIED_LBL = LabelIndex.from_taxonomy(
 
 def _tied(neighbors: list[tuple[str, float]], reverse: bool) -> dict[str, float]:
     return dict(neighbors[::-1] if reverse else neighbors)
-
-
-@pytest.mark.parametrize("reverse", [False, True])
-def test_caps_from_tree_tie_between_caps_groups_names_no_group(reverse):
-    neighbors = _tied([("PPV__pgvv|p", 0.1), ("PPV__sp|p", 0.1)], reverse)
-    tnn = {"mcp_plv": {"q1": neighbors}}
-    assert labels_taxonomy._caps_group_from_tree(_TIED_LBL, tnn) == ""
-
-
-@pytest.mark.parametrize("reverse", [False, True])
-def test_caps_from_tree_tie_between_caps_and_generic_names_no_group(reverse):
-    neighbors = _tied([("PPV__pgvv|p", 0.1), ("PPV__generic|p", 0.1)], reverse)
-    tnn = {"mcp_plv": {"q1": neighbors}}
-    assert labels_taxonomy._caps_group_from_tree(_TIED_LBL, tnn) == ""
-
-
-@pytest.mark.parametrize("reverse", [False, True])
-def test_caps_from_tree_tie_inside_one_caps_group_keeps_the_group(reverse):
-    neighbors = _tied([("PPV__pgvv|p", 0.1), ("PPV__pgvv_twin|p", 0.1)], reverse)
-    tnn = {"mcp_plv": {"q1": neighbors}}
-    assert labels_taxonomy._caps_group_from_tree(_TIED_LBL, tnn) == "PgVV"
 
 
 @pytest.mark.parametrize("reverse", [False, True])

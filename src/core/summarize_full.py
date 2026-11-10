@@ -4,7 +4,7 @@ import logging
 import math
 from collections import Counter, defaultdict
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 
@@ -190,7 +190,6 @@ class FullSummarizer:
         # Collect contig-level features and apply the trained ML model.
         try:
             primary_order = accepted_lineage.get("order", "")
-            primary_family = accepted_lineage.get("family", "")
             query_fna = paths_stats._resolve_query_fna_path(query_id, query_output_dir)
             query_faa = paths_stats._resolve_query_faa_path(query_id, query_output_dir)
             contig_features_raw = self.contamination_scorer.collect_contig_features(
@@ -199,7 +198,6 @@ class FullSummarizer:
                 scan,
                 evidence,
                 primary_order,
-                primary_family,
                 tree_nn_results or {},
             )
             contig_features = {
@@ -281,7 +279,7 @@ class FullSummarizer:
                 }
                 for candidate in contig_features_raw.get("suspicious_contigs", [])
             ]
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # adds the model context to any scorer failure
             raise RuntimeError(
                 f"Failed to compute contamination estimate with the trained model: {exc}"
             ) from exc

@@ -117,37 +117,6 @@ def test_short_fna_rejected_against_custom_min_sequence_length(tmp_path: Path) -
         InputValidator.validate_sequence_file(short_fna, min_sequence_length=500)
 
 
-def test_contig_split_floor_also_validates_split_contigs(tmp_path: Path) -> None:
-    from src.utils.contig_splitter import split_contigs
-    from src.utils.input_validation import InputValidator
-
-    input_fna = tmp_path / "metagenome.fna"
-    input_fna.write_text(">contig15kb\n" + "A" * 15000 + "\n")
-
-    split_dir, count = split_contigs(input_fna, min_length=10000)
-    validated_dir = InputValidator.validate_query_directory(
-        split_dir,
-        min_sequence_length=10000,
-    )
-
-    assert count == 1
-    assert validated_dir == split_dir.resolve()
-
-
-def test_validate_query_directory_reraises_short_input_error(tmp_path: Path) -> None:
-    """Phase 3.2a: the directory-level validator must re-raise the short-
-    input error instead of logging-and-continuing."""
-    from src.utils.error_handling import ValidationError
-    from src.utils.input_validation import InputValidator
-
-    query_dir = tmp_path / "queries"
-    query_dir.mkdir()
-    (query_dir / "short.fna").write_text(">c1\n" + "ACGT" * 10 + "\n")
-
-    with pytest.raises(ValidationError):
-        InputValidator.validate_query_directory(query_dir)
-
-
 def test_fasta_extension_content_is_validated(tmp_path: Path) -> None:
     """Phase 3.2c: .fasta files must go through DNA/protein alphabet checks."""
     from src.utils.error_handling import ValidationError

@@ -85,13 +85,13 @@ def test_copy_gate_writes_for_nucleotide_only(tmp_path):
 
     # Protein input (is_nucleotide=False) -> nothing copied.
     qpe._copy_final_sequence_outputs(
-        Path("q.fasta"), "q", qout, reformatted, protein, None, False, _NullLogger()
+        "q", qout, reformatted, protein, None, False, _NullLogger()
     )
     assert not (qout / "query_fna" / "q.fna").exists()
 
     # Nucleotide input (is_nucleotide=True) -> fna/faa copied.
     qpe._copy_final_sequence_outputs(
-        Path("q.fasta"), "q", qout, reformatted, protein, 11, True, _NullLogger()
+        "q", qout, reformatted, protein, 11, True, _NullLogger()
     )
     assert (qout / "query_fna" / "q.fna").exists()
     assert (qout / "query_faa" / "q.faa").exists()

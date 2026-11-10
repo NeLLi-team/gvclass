@@ -288,7 +288,7 @@ class ContaminationScorer:
             import joblib
 
             bundle = joblib.load(io.BytesIO(model_bytes))
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # unpickling raises arbitrary types
             raise RuntimeError(
                 f"Failed to load contamination model from {bundled_model_path}: {exc}"
             ) from exc
@@ -1019,7 +1019,6 @@ class ContaminationScorer:
         scan: BlastScan,
         evidence: QueryEvidence,
         primary_order: str,
-        primary_family: str,
         tree_nn_results: dict[str, dict[str, dict[str, float]]],
     ) -> dict[str, Any]:
         best_hits = scan.best_hits

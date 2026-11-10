@@ -96,23 +96,6 @@ def test_discover_query_files_finds_any_case_sorted_by_name(tmp_path: Path) -> N
     assert [path.name for path in found] == ["A.FNA", "b.fna", "c.Fasta", "d.faa"]
 
 
-def test_validate_query_directory_accepts_an_uppercase_extension(
-    tmp_path: Path,
-) -> None:
-    (tmp_path / "X.FNA").write_text(f">c\n{LONG_DNA}\n")
-
-    assert InputValidator.validate_query_directory(tmp_path) == tmp_path.resolve()
-
-
-def test_validate_query_directory_without_query_files_is_an_error(
-    tmp_path: Path,
-) -> None:
-    (tmp_path / "notes.txt").write_text("x")
-
-    with pytest.raises(ValidationError, match="No valid sequence files"):
-        InputValidator.validate_query_directory(tmp_path)
-
-
 @pytest.mark.parametrize(
     ("sequence", "expected"),
     [("ACGTACGTACGTNNACGT", "fna"), ("MKWVNDHRYEFLPQ" * 3, "faa")],

@@ -6,6 +6,7 @@ the installed package metadata when the source tree is unavailable, so the versi
 is never hardcoded in the Python code.
 """
 
+import tomllib
 from pathlib import Path
 from typing import Optional
 
@@ -15,11 +16,9 @@ def _version_from_pyproject() -> Optional[str]:
     if not pyproject.is_file():
         return None
     try:
-        import tomllib
-
         with pyproject.open("rb") as handle:
             return str(tomllib.load(handle)["project"]["version"])
-    except Exception:
+    except (OSError, KeyError, tomllib.TOMLDecodeError):
         return None
 
 

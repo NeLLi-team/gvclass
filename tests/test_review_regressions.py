@@ -153,7 +153,6 @@ def test_single_contig_keeps_one_identity_for_nucleotide_and_protein_records(
         scorer.scan_blast_dir(blast),
         QueryEvidence({}, {}, {}),
         "",
-        "",
         tree_neighbors,
     )
 

@@ -175,44 +175,6 @@ def protein_nearest_domain(
     return domains
 
 
-def _caps_group_from_tree(
-    labels: LabelIndex, tree_nn_results: Mapping[str, Mapping[str, Mapping[str, float]]]
-) -> str:
-    """Dominant Bellas&Sommaruga caps group from the caps MCP tree-NN placement.
-
-    A caps reference lineage carries its Bellas group at the family rank; the
-    CAPS_GROUPS whitelist gates out everything else (caps group names occur only on
-    caps references — under PPV or NCLDV domains — never on a non-caps genome).
-    Each query protein votes ONCE: its nearest neighbours are read per MCP group
-    tree (tied neighbours count with the lineage they share), and a cross-reactive
-    MCP that places in BOTH mcp_plv and mcp_ncldv is resolved to its CLOSEST
-    caps-group placement so it cannot double-count (mirrors
-    contamination_scoring._per_protein_dominant_lineage). Dominant group across
-    proteins; a tie, or no caps-group neighbour, resolves to "".
-    """
-    fam_idx = TAX_LEVEL_MAPPING["family"]
-    per_protein: dict[str, tuple[str | None, float]] = {}
-    for marker in ("mcp_plv", "mcp_ncldv"):
-        for protein, neighbors in tree_nn_results.get(marker, {}).items():
-            nearest = labels.nearest_lineage(marker, neighbors)
-            if nearest is None:
-                continue
-            lineage, dist = nearest
-            family = lineage[fam_idx]
-            if family not in CAPS_GROUPS:
-                continue
-            prev = per_protein.get(protein)
-            if prev is None or dist < prev[1]:
-                per_protein[protein] = (family, dist)
-            elif dist == prev[1] and family != prev[0]:
-                # equal-distance placements in different caps groups -> ambiguous, drop
-                per_protein[protein] = (None, dist)
-    groups: Counter = Counter(
-        fam for fam, _dist in per_protein.values() if fam is not None
-    )
-    return _dominant(groups)
-
-
 def capsid_group_counter(
     labels: LabelIndex, tree_nn_results: Mapping[str, Mapping[str, Mapping[str, float]]]
 ) -> str:

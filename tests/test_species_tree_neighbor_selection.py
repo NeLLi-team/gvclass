@@ -179,7 +179,7 @@ def test_select_across_trees(tmp_path: Path) -> None:
 
 def test_top_k_resolves_genome_from_pipe_headers(tmp_path: Path) -> None:
     """Real reference headers are '>NCLDV__<genome>|<protein>'; the genome must
-    resolve via the '|'-split path of _extract_genome_id (synthetic '_'-only
+    resolve via the '|'-split path of LabelIndex.resolve_genome_id (synthetic '_'-only
     headers exercise a different branch)."""
     labels = tmp_path / "labels.tsv"
     labels.write_text(

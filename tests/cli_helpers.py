@@ -6,6 +6,7 @@ configuration and the runner command without any pipeline work.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -45,6 +46,7 @@ def run_cli(
     outcome: RunnerOutcome = SUCCESS,
     runner_error: Exception | None = None,
     validation: dict[str, Any] | None = None,
+    database_check: Callable[..., bool] = lambda *a, **k: True,
 ) -> CliRun:
     """Call ``main`` on a folder of ``n_queries`` small files, with fakes."""
     queries = tmp_path / "queries"
@@ -62,7 +64,7 @@ def run_cli(
             raise runner_error
         return outcome
 
-    monkeypatch.setattr(gvclass_cli, "check_and_setup_database", lambda *a, **k: True)
+    monkeypatch.setattr(gvclass_cli, "check_and_setup_database", database_check)
     monkeypatch.setattr(gvclass_cli, "run_runner", fake_run_runner)
     monkeypatch.setattr(
         "src.utils.output_validator.validate_pipeline_outputs",

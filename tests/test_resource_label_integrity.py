@@ -126,7 +126,9 @@ def _resolve_header_id(
 )
 def test_reference_faa_headers_and_labels_are_bijective() -> None:
     """Every active label should have FAA evidence and every FAA header should resolve."""
-    if not STORE.labels_satisfied(RESOURCE_DIR) or not (
+    if not (
+        (RESOURCE_DIR / "labels.tsv").exists() or STORE.has_parquet_labels()
+    ) or not (
         FAA_DIR.exists() or STORE.has_parquet_faa()
     ):
         pytest.skip("GVClass resource bundle is not installed")

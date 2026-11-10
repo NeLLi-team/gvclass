@@ -139,7 +139,6 @@ def _run_query_stages(
     )
     _create_output_dirs(query_output_dir)
     _copy_final_sequence_outputs(
-        query_file,
         query_name,
         query_output_dir,
         prepared_input.reformatted_file,
@@ -645,19 +644,14 @@ def _run_tree_analysis(
     stats_dir = query_output_dir / "stats"
     stats_dir.mkdir(exist_ok=True, parents=True)
     tree_nn_file = stats_dir / f"{query_name}.tree_nn"
-    try:
-        analyzer = TreeAnalyzer(labels_file)
-        logger.info(f"TreeAnalyzer initialized with labels file: {labels_file}")
-        logger.info(f"Created stats directory: {stats_dir}")
-        logger.info(f"Will write tree_nn results to {tree_nn_file}")
-        tree_nn_results = analyzer.process_marker_trees(
-            tree_dir, query_name, tree_nn_file, tree_paths=tree_files
-        )
-        logger.info(f"Tree analysis complete. Results: {len(tree_nn_results)} markers")
-    except Exception as exc:
-        logger.error(f"Tree analysis failed: {exc}")
-        logger.error(f"Traceback: {traceback.format_exc()}")
-        raise
+    analyzer = TreeAnalyzer(labels_file)
+    logger.info(f"TreeAnalyzer initialized with labels file: {labels_file}")
+    logger.info(f"Created stats directory: {stats_dir}")
+    logger.info(f"Will write tree_nn results to {tree_nn_file}")
+    tree_nn_results = analyzer.process_marker_trees(
+        tree_dir, query_name, tree_nn_file, tree_paths=tree_files
+    )
+    logger.info(f"Tree analysis complete. Results: {len(tree_nn_results)} markers")
     _log_tree_nn_output(tree_nn_file, logger)
     return tree_nn_results
 
@@ -700,19 +694,14 @@ def _generate_summary_data(
     logger,
 ) -> Dict[str, Any]:
     logger.info(f"Generating full summary: {query_name}")
-    try:
-        summary_data = _get_thread_summarizer(config).summarize_query_full(
-            query_id=query_name,
-            query_output_dir=query_output_dir,
-            tree_nn_results=tree_nn_results,
-            mode_fast=config.mode_fast,
-        )
-        logger.info(f"Summary generated successfully for {query_name}")
-        return summary_data
-    except Exception as exc:
-        logger.error(f"Failed to generate summary for {query_name}: {exc}")
-        logger.error(traceback.format_exc())
-        raise
+    summary_data = _get_thread_summarizer(config).summarize_query_full(
+        query_id=query_name,
+        query_output_dir=query_output_dir,
+        tree_nn_results=tree_nn_results,
+        mode_fast=config.mode_fast,
+    )
+    logger.info(f"Summary generated successfully for {query_name}")
+    return summary_data
 
 
 def _create_output_dirs(query_output_dir: Path) -> None:
@@ -787,7 +776,6 @@ def _write_contamination_candidates_file(
 
 
 def _copy_final_sequence_outputs(
-    query_file: Path,
     query_name: str,
     query_output_dir: Path,
     reformatted_file: Path,
@@ -845,7 +833,7 @@ def _post_process_query(
         logger.info("Removed original directory: %s", query_output_dir)
         elapsed = time.time() - post_process_start
         logger.info("Post-processing completed in %.2f seconds", elapsed)
-    except Exception as exc:
+    except (OSError, RuntimeError, tarfile.TarError) as exc:
         elapsed = time.time() - post_process_start
         logger.error(
             "Post-processing failed for %s after %.2f seconds: %s",

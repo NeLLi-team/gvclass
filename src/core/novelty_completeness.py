@@ -375,7 +375,6 @@ class NoveltyAwareCompletenessScorer:
         strategy1_score: float,
         selected_mode: str,
         order_tax: str,
-        family_tax: str,
         fallback_strategy: str,
     ) -> Dict[str, object]:
         """Fallback metrics when no novelty model / tier set is available.
@@ -385,7 +384,7 @@ class NoveltyAwareCompletenessScorer:
         scorer is unavailable is not 0% complete (M13). Legacy mode keeps its
         historical strategy label; non-legacy records the fallback reason.
         """
-        metrics = self.default_metrics(order_tax, family_tax)
+        metrics = self.default_metrics(order_tax)
         metrics["estimated_completeness"] = strategy1_score
         metrics["estimated_completeness_strategy"] = (
             "order_baseline_ratio_v1"
@@ -402,7 +401,6 @@ class NoveltyAwareCompletenessScorer:
     def default_metrics(
         self,
         order_tax: str = "",
-        family_tax: str = "",
         query_support: str = "unassigned",
         model_reliability: str = "unavailable",
     ) -> Dict[str, object]:
@@ -439,7 +437,6 @@ class NoveltyAwareCompletenessScorer:
         if not any(count > 0 for count in marker_counts.values()):
             return self.default_metrics(
                 order_tax,
-                family_tax,
                 query_support="insufficient_evidence",
                 model_reliability="unvalidated_legacy",
             )
@@ -448,7 +445,6 @@ class NoveltyAwareCompletenessScorer:
                 strategy1_score,
                 selected_mode,
                 order_tax,
-                family_tax,
                 "order_baseline_ratio_v1_unavailable",
             )
 
@@ -458,7 +454,6 @@ class NoveltyAwareCompletenessScorer:
                 strategy1_score,
                 selected_mode,
                 order_tax,
-                family_tax,
                 "order_baseline_ratio_v1_no_tier_set",
             )
 
@@ -472,7 +467,6 @@ class NoveltyAwareCompletenessScorer:
                 strategy1_score,
                 selected_mode,
                 order_tax,
-                family_tax,
                 "order_baseline_ratio_v1_invalid_baseline",
             )
         support_metrics = self.compute_support_metrics(

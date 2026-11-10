@@ -124,18 +124,15 @@ class SpeciesTreeClassifier:
         self.analyzer = TreeAnalyzer(labels_file)
 
     def _taxonomy(self, genome_id: str) -> str:
-        labels_str = self.analyzer.labels_dict.get(genome_id)
-        if labels_str is None:
-            labels_str = self.analyzer.labels_dict.get(
-                self.analyzer._extract_genome_id(genome_id)
-            )
-        if labels_str is None:
+        labels = self.analyzer.labels
+        lineage = labels.lineages.get(labels.resolve_genome_id(genome_id))
+        if lineage is None:
             logger.warning(
                 "No taxonomy label for species-tree reference %s; using 'unknown'",
                 genome_id,
             )
             return "unknown"
-        return format_lineage(labels_str)
+        return format_lineage("|".join(lineage))
 
     def classify(self, tree_file: Path) -> List[PlacementRow]:
         """Return one :class:`PlacementRow` per query leaf, sorted by query.

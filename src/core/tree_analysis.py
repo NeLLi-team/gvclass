@@ -4,10 +4,10 @@ Tree analysis module for extracting nearest neighbors from phylogenetic trees.
 
 import logging
 from collections.abc import Sequence
-from functools import cached_property
 from pathlib import Path
 
 from ete3 import Tree
+from ete3.parser.newick import NewickError
 
 from src.core.labels import LabelIndex
 
@@ -20,6 +20,20 @@ def _prefix_tuple(keep_prefix: PrefixFilter) -> tuple[str, ...]:
     if isinstance(keep_prefix, str):
         return (keep_prefix,)
     return tuple(keep_prefix)
+
+
+def _load_tree(tree_file: Path) -> Tree:
+    """Parse a Newick file.
+
+    Raises:
+        ValueError: The file is not valid Newick or cannot be read.
+    """
+    try:
+        return Tree(str(tree_file))
+    except (NewickError, OSError) as exc:
+        raise ValueError(
+            f"Failed to parse phylogenetic tree {tree_file}: {exc}"
+        ) from exc
 
 
 def _is_query_leaf(leaf_name: str | None, query_id: str) -> bool:
@@ -47,14 +61,6 @@ class TreeAnalyzer:
             labels_file: Path to labels file mapping genome IDs to taxonomy
         """
         self.labels = LabelIndex.load(labels_file)
-
-    @cached_property
-    def labels_dict(self) -> dict[str, str]:
-        """Map genome ID to ``domain|phylum|...|species`` (read by the species tree)."""
-        return {
-            genome_id: "|".join(lineage)
-            for genome_id, lineage in self.labels.lineages.items()
-        }
 
     def get_neighbors_from_tree(
         self, tree_file: Path, query_id: str
@@ -86,36 +92,31 @@ class TreeAnalyzer:
             )
             return neighbors
 
-        try:
-            tree = Tree(str(tree_file))
+        tree = _load_tree(tree_file)
 
-            # Debug: Log tree parsing
-            leaf_count = len([n for n in tree.iter_leaves()])
-            logger.debug(f"Loaded tree from {tree_file.name} with {leaf_count} leaves")
 
-            # Find all query nodes in the tree
-            query_nodes = []
-            for node in tree.traverse():
-                if node.is_leaf() and _is_query_leaf(node.name, query_id):
-                    query_nodes.append(node)
+        # Debug: Log tree parsing
+        leaf_count = len([n for n in tree.iter_leaves()])
+        logger.debug(f"Loaded tree from {tree_file.name} with {leaf_count} leaves")
 
-            if len(query_nodes) == 0:
-                # Debug: Show what leaf names we have
-                sample_leaves = [n.name for n in tree.iter_leaves()][:5]
-                logger.debug(f"No query nodes found for {query_id} in {tree_file.name}")
-                logger.debug(f"Sample leaf names: {sample_leaves}")
-                logger.debug(f"Looking for nodes starting with: {query_id}")
+        # Find all query nodes in the tree
+        query_nodes = []
+        for node in tree.traverse():
+            if node.is_leaf() and _is_query_leaf(node.name, query_id):
+                query_nodes.append(node)
 
-            # For each query node, find its nearest non-query neighbors
-            for query_node in query_nodes:
-                nearest = self._find_nearest_neighbor(tree, query_node, query_id)
-                if nearest:
-                    neighbors[query_node.name] = nearest
+        if len(query_nodes) == 0:
+            # Debug: Show what leaf names we have
+            sample_leaves = [n.name for n in tree.iter_leaves()][:5]
+            logger.debug(f"No query nodes found for {query_id} in {tree_file.name}")
+            logger.debug(f"Sample leaf names: {sample_leaves}")
+            logger.debug(f"Looking for nodes starting with: {query_id}")
 
-        except Exception as exc:
-            raise RuntimeError(
-                f"Failed to parse or search phylogenetic tree {tree_file}: {exc}"
-            ) from exc
+        # For each query node, find its nearest non-query neighbors
+        for query_node in query_nodes:
+            nearest = self._find_nearest_neighbor(tree, query_node, query_id)
+            if nearest:
+                neighbors[query_node.name] = nearest
 
         return neighbors
 
@@ -189,12 +190,7 @@ class TreeAnalyzer:
         if not tree_file.exists() or tree_file.with_suffix(".SKIPPED").exists():
             return []
 
-        try:
-            tree = Tree(str(tree_file))
-        except Exception as exc:
-            raise ValueError(
-                f"Failed to parse phylogenetic tree {tree_file}: {exc}"
-            ) from exc
+        tree = _load_tree(tree_file)
 
         prefixes = _prefix_tuple(keep_prefix)
         query_nodes = [
@@ -237,10 +233,6 @@ class TreeAnalyzer:
             key=lambda hit: (hit[2], hit[1]),
         )
         return ranked[:k]
-
-    def _extract_genome_id(self, protein_id: str) -> str:
-        """Return the genome ID of a protein ID (the species-tree code calls this)."""
-        return self.labels.resolve_genome_id(protein_id)
 
     def process_marker_trees(
         self,

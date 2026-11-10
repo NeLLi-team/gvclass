@@ -1,7 +1,5 @@
-"""Exception hierarchy and warning logger for the GVClass pipeline."""
+"""Exception hierarchy for the GVClass pipeline."""
 
-import logging
-import sys
 from typing import Any
 
 
@@ -67,31 +65,3 @@ class FileError(GVClassError):
         if operation:
             context["operation"] = operation
         super().__init__(message, "FILE_ERROR", context)
-
-
-class ErrorHandler:
-    """Logs warnings with structured context to a named logger."""
-
-    def __init__(self, logger_name: str = "gvclass", log_level: str = "INFO"):
-        self.logger = logging.getLogger(logger_name)
-        self.logger.setLevel(getattr(logging, log_level.upper()))
-
-        if not self.logger.handlers:
-            console_handler = logging.StreamHandler(sys.stderr)
-            console_handler.setLevel(logging.WARNING)
-            console_handler.setFormatter(
-                logging.Formatter(
-                    "%(asctime)s - %(name)s - %(levelname)s - "
-                    "%(filename)s:%(lineno)d - %(message)s"
-                )
-            )
-            self.logger.addHandler(console_handler)
-
-    def log_warning(self, message: str, context: dict[str, Any] | None = None) -> None:
-        """Log a warning, appending ``context`` when given."""
-        if context:
-            message += f" | Context: {context}"
-        self.logger.warning(message)
-
-
-error_handler = ErrorHandler()

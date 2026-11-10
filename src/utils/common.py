@@ -1,25 +1,12 @@
-"""Shared helpers: logger setup, path validation and file hashing."""
+"""Shared helpers: path validation and file hashing."""
 
 import hashlib
-import logging
+from collections.abc import Callable
 from pathlib import Path
 
 from .error_handling import FileError, ValidationError
 
-
-def setup_logging(name: str, level: str = "INFO") -> logging.Logger:
-    """Return the logger ``name`` at ``level`` with one stream handler."""
-    logger = logging.getLogger(name)
-    logger.setLevel(getattr(logging, level.upper()))
-
-    if not logger.handlers:
-        handler = logging.StreamHandler()
-        handler.setFormatter(
-            logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-        )
-        logger.addHandler(handler)
-
-    return logger
+_HASH_CHUNK_BYTES = 1 << 20
 
 
 def validate_file_path(file_path: str | Path, *, must_exist: bool = True) -> Path:
@@ -51,11 +38,23 @@ def validate_file_path(file_path: str | Path, *, must_exist: bool = True) -> Pat
     return path
 
 
-def sha256_file(path: str | Path) -> str:
-    """Return the SHA-256 hex digest of ``path``, read in chunks.
+def sha256_file(
+    path: str | Path, *, on_chunk: Callable[[int], None] | None = None
+) -> str:
+    """Return the SHA-256 hex digest of ``path``, read in 1 MiB chunks.
 
-    Shared by the resume log, the bundled-model integrity gate and the
-    contig-screen resource check so all integrity checks hash the same way.
+    Shared by the resume log, the bundled-model integrity gate, the contig-screen
+    resource check and the database download so all integrity checks hash the same
+    way.
+
+    Args:
+        path: File to hash.
+        on_chunk: Called with the size of each chunk read, for progress reports.
     """
+    digest = hashlib.sha256()
     with Path(path).open("rb") as handle:
-        return hashlib.file_digest(handle, "sha256").hexdigest()
+        while chunk := handle.read(_HASH_CHUNK_BYTES):
+            digest.update(chunk)
+            if on_chunk is not None:
+                on_chunk(len(chunk))
+    return digest.hexdigest()

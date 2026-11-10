@@ -4,6 +4,7 @@ Process individual markers through BLAST, alignment, and tree building.
 This module handles the complete processing pipeline for a single marker.
 """
 
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional, Tuple
@@ -13,10 +14,9 @@ from Bio import SeqIO
 
 from src.core.alignment import IQTREE_MODEL, align_sequences_pyfamsa, run_veryfasttree
 from src.core.blast import read_fasta, search_proteins, select_references
-from src.utils.common import setup_logging
 from src.utils.resource_store import ResourceStore
 
-logger = setup_logging(__name__)
+logger = logging.getLogger(__name__)
 
 
 class MarkerProcessor:
@@ -175,7 +175,7 @@ class MarkerProcessor:
             # Write trimmed alignment
             trimmed.dump(str(trim_out))
 
-        except Exception as e:
+        except (OSError, ValueError, RuntimeError) as e:
             logger.warning(
                 f"Trimming failed for {self.marker}: {e}. Using untrimmed alignment."
             )
@@ -272,6 +272,7 @@ class MarkerProcessor:
                     sequence_count,
                 )
 
+            # Broad on purpose: the failure is recorded in an .ERROR file, then re-raised.
             except Exception as e:
                 error_msg = f"ERROR: VeryFastTree failed for {self.marker}: {e}"
                 logger.error(error_msg)
@@ -332,10 +333,10 @@ class MarkerProcessor:
                     f.write(f"Command: {' '.join(cmd)}\n")
 
                 raise RuntimeError(f"IQ-TREE timed out for {self.marker}")
-            except Exception as e:
+            except OSError as e:
                 error_msg = f"ERROR: Failed to run IQ-TREE for {self.marker}: {e}"
                 logger.error(error_msg)
-                raise RuntimeError(f"Failed to run IQ-TREE: {e}")
+                raise RuntimeError(f"Failed to run IQ-TREE: {e}") from e
 
             if result.returncode != 0:
                 error_msg = f"ERROR: IQ-TREE failed for {self.marker}: {result.stderr}"
@@ -386,35 +387,30 @@ class MarkerProcessor:
         """
         logger.info(f"Processing marker {self.marker}")
 
-        try:
-            # BLAST and merge
-            merged_faa = self.blast_and_merge(query_hits_faa, max_blast_hits, threads)
+        # BLAST and merge
+        merged_faa = self.blast_and_merge(query_hits_faa, max_blast_hits, threads)
 
-            # Align and trim
-            align_path, trim_path = self.align_and_trim(merged_faa, threads)
+        # Align and trim
+        align_path, trim_path = self.align_and_trim(merged_faa, threads)
 
-            # Build tree (may return None if insufficient sequences)
-            tree_path = self.build_tree(trim_path, tree_method, threads)
+        # Build tree (may return None if insufficient sequences)
+        tree_path = self.build_tree(trim_path, tree_method, threads)
 
-            result = {
-                "marker": self.marker,
-                "query_hits": query_hits_faa,
-                "merged_faa": merged_faa,
-                "alignment": align_path,
-                "trimmed_alignment": trim_path,
-            }
+        result = {
+            "marker": self.marker,
+            "query_hits": query_hits_faa,
+            "merged_faa": merged_faa,
+            "alignment": align_path,
+            "trimmed_alignment": trim_path,
+        }
 
-            # Only include tree if it was actually built
-            if tree_path is not None:
-                result["tree"] = tree_path
-            else:
-                result["tree_skipped"] = True
-                logger.info(
-                    f"Tree building was skipped for {self.marker} due to insufficient sequences"
-                )
+        # Only include tree if it was actually built
+        if tree_path is not None:
+            result["tree"] = tree_path
+        else:
+            result["tree_skipped"] = True
+            logger.info(
+                f"Tree building was skipped for {self.marker} due to insufficient sequences"
+            )
 
-            return result
-
-        except Exception as e:
-            logger.error(f"Error processing marker {self.marker}: {e}")
-            raise
+        return result

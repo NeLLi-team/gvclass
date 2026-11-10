@@ -10,6 +10,7 @@ import os
 import re
 import signal
 import sys
+import tempfile
 import threading
 from pathlib import Path
 from unittest.mock import Mock
@@ -198,6 +199,35 @@ def test_the_temporary_contig_files_are_removed_when_the_runner_cannot_start(
 
     assert run.exit_code == 1
     assert not run.config.query_path.exists()
+
+
+def test_the_temporary_contig_files_are_removed_when_sigterm_comes_before_the_runner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", None)
+    monkeypatch.setenv("TMPDIR", str(scratch))
+    handler_before = signal.getsignal(signal.SIGTERM)
+
+    def sigterm_during_the_database_check(*_args: object, **_kwargs: object) -> bool:
+        assert any(scratch.iterdir())
+        signal.raise_signal(signal.SIGTERM)
+        return True
+
+    run = run_cli(
+        tmp_path,
+        monkeypatch,
+        "--contigs",
+        suffix=".fna",
+        body=CONTIG_FASTA,
+        database_check=sigterm_during_the_database_check,
+    )
+
+    assert run.exit_code == 1
+    assert run.runner_calls == []
+    assert list(scratch.iterdir()) == []
+    assert signal.getsignal(signal.SIGTERM) == handler_before
 
 
 def _is_running(pid: int) -> bool:

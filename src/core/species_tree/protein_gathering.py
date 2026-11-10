@@ -45,7 +45,7 @@ def _prefix_tuple(keep_prefix: PrefixFilter) -> Tuple[str, ...]:
 class ReferenceProteinIndex:
     """Random-access index over one group's reference faa.
 
-    Provides genome -> proteins resolution (via :meth:`TreeAnalyzer._extract_genome_id`,
+    Provides genome -> proteins resolution (via ``LabelIndex.resolve_genome_id``,
     so it matches neighbor selection's genome ids exactly), longest-protein
     selection, and lazy sequence fetch. Backed by ``Bio.SeqIO.index`` (offset
     index; ~0.4 s and ~50 MB for a 63k-record group faa).
@@ -60,7 +60,7 @@ class ReferenceProteinIndex:
         try:
             self._genome_to_proteins: Dict[str, List[str]] = defaultdict(list)
             for protein_id in self._index.keys():
-                genome_id = analyzer._extract_genome_id(protein_id)
+                genome_id = analyzer.labels.resolve_genome_id(protein_id)
                 self._genome_to_proteins[genome_id].append(protein_id)
         except Exception:
             # Don't leak the file handle if genome resolution fails mid-build.

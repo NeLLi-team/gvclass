@@ -11,10 +11,10 @@ from __future__ import annotations
 import argparse
 import copy
 import os
-import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from collections import deque
@@ -607,10 +607,10 @@ def resolve_contigs_input(query_dir_abs: Path, enabled: bool) -> ContigInput:
     raise ValueError(f"--contigs input not found: {query_dir_abs}")
 
 
-def split_contig_inputs(contigs: ContigInput, output: CliOutput, min_length: int):
-    if not contigs.enabled:
-        return None, 0, 0
-
+def split_contig_inputs(
+    contigs: ContigInput, output: CliOutput, min_length: int, workdir: Path
+) -> int:
+    """Write the contigs of the input into ``workdir``; return the input file count."""
     from src.utils.contig_splitter import split_contigs, split_contigs_from_directory
 
     if contigs.input_file:
@@ -619,27 +619,29 @@ def split_contig_inputs(contigs: ContigInput, output: CliOutput, min_length: int
             f"Splitting contigs from: {contigs.input_file.name} (min length: {min_length} bp)",
             key="contigs",
         )
-        temp_dir, n_contigs = split_contigs(
+        _, n_contigs = split_contigs(
             contigs.input_file,
             prefix=prefix,
             min_length=min_length,
+            output_dir=workdir,
         )
         output.line(f"Found {n_contigs} contigs >= {min_length} bp", key="success")
-        return temp_dir, n_contigs, 1
+        return 1
 
     output.line(
         f"Splitting contigs from directory: {contigs.input_dir} (min length: {min_length} bp)",
         key="contigs",
     )
-    temp_dir, n_contigs, n_files = split_contigs_from_directory(
+    _, n_contigs, n_files = split_contigs_from_directory(
         contigs.input_dir,
         min_length=min_length,
+        output_dir=workdir,
     )
     output.line(
         f"Found {n_contigs} contigs >= {min_length} bp from {n_files} files",
         key="success",
     )
-    return temp_dir, n_contigs, n_files
+    return n_files
 def inspect_local_database_state(db_path: Path) -> dict:
     from src.utils.database_manager import DatabaseManager
 
@@ -802,11 +804,6 @@ def install_database(
         return False
     output.line("Database setup complete!", key="success")
     return True
-def cleanup_temp_dir(temp_dir: Path | None) -> None:
-    """Remove the temporary folder of the split contigs, if there is one."""
-    if temp_dir and Path(temp_dir).exists():
-        shutil.rmtree(temp_dir)
-
 
 def discover_queries(query_dir: Path) -> list[Path]:
     """Return the query files of ``query_dir``, a folder that must hold some."""
@@ -968,6 +965,16 @@ def _sigterm_as_keyboard_interrupt() -> Iterator[None]:
         yield
     finally:
         signal.signal(signal.SIGTERM, previous)
+
+
+@contextmanager
+def _contig_workdir(contigs: ContigInput) -> Iterator[Path | None]:
+    """Give a ``--contigs`` run its temporary folder, removed on every way out."""
+    if not contigs.enabled:
+        yield None
+        return
+    with tempfile.TemporaryDirectory(prefix="gvclass_contigs_") as name:
+        yield Path(name)
 
 
 def _stop_process_group(process: subprocess.Popen) -> None:
@@ -1178,26 +1185,24 @@ def run_cli(args: argparse.Namespace, repo_dir: Path, output: CliOutput) -> int:
             key="warning",
             file=sys.stderr,
         )
-    if not check_and_setup_database(run_config.database_path, config, output):
-        output.line("Database setup failed", key="error")
-        return 1
-
-    temp_contigs_dir = None
-    try:
-        temp_contigs_dir, _, n_input_files = split_contig_inputs(
-            contigs, output, min_length=run_config.contigs_min_length
-        )
+    with _sigterm_as_keyboard_interrupt(), _contig_workdir(contigs) as workdir:
+        if not check_and_setup_database(run_config.database_path, config, output):
+            output.line("Database setup failed", key="error")
+            return 1
+        n_input_files = 0
+        if workdir is not None:
+            n_input_files = split_contig_inputs(
+                contigs, output, run_config.contigs_min_length, workdir
+            )
         context = plan_run(
             args,
             run_config,
-            temp_contigs_dir or run_config.query_path,
+            workdir or run_config.query_path,
             config_file=config_file,
             contigs=contigs,
             n_input_files=n_input_files,
         )
         return execute_pipeline(args, context, repo_dir, output)
-    finally:
-        cleanup_temp_dir(temp_contigs_dir)
 
 
 def show_version(args: argparse.Namespace, repo_dir: Path) -> None:
@@ -1262,6 +1267,9 @@ def main(argv: Sequence[str] | None = None, repo_dir: Path | None = None) -> int
         return 2
     except ValueError as exc:
         output.line(str(exc), key="error", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        output.line("\nPipeline interrupted by user", key="warning")
         return 1
     except Exception as exc:
         output.line(f"Pipeline failed: {exc}", key="error")

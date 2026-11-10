@@ -231,7 +231,6 @@ def test_weak_attribution_emits_info_log(tmp_path: Path, caplog) -> None:
         scan=scorer.scan_blast_dir(blast_dir),
         evidence=QueryEvidence({}, {}, {}),
         primary_order="",
-        primary_family="",
         tree_nn_results={},
     )
     assert features["contig_length_basis"] == "protein_estimate"

@@ -5,6 +5,7 @@ This module provides comprehensive input validation for files, parameters,
 and other user inputs to ensure data integrity and security.
 """
 
+import logging
 import os
 import re
 from pathlib import Path
@@ -12,7 +13,9 @@ from typing import Union, Optional
 from Bio import SeqIO
 from Bio.SeqRecord import SeqRecord
 
-from .error_handling import ValidationError, FileError, error_handler
+from .error_handling import ValidationError, FileError
+
+logger = logging.getLogger(__name__)
 
 #: Query names that would overwrite or hide run-level outputs in the output directory.
 RESERVED_QUERY_STEMS = frozenset(
@@ -210,12 +213,12 @@ class InputValidator:
         # Validate file content
         try:
             sequences = list(SeqIO.parse(str(path), "fasta"))
-        except Exception as e:
+        except (OSError, ValueError) as e:
             raise ValidationError(
                 f"Error parsing FASTA file: {str(e)}",
                 field="file_content",
                 value=str(filepath),
-            )
+            ) from e
 
         if not sequences:
             raise ValidationError(
@@ -260,10 +263,7 @@ class InputValidator:
                     f"{filepath}. Pass --allow-short to override this gate."
                 )
                 if allow_short:
-                    error_handler.log_warning(
-                        message,
-                        context={"file": str(filepath), "total_length": total_length},
-                    )
+                    logger.warning(message)
                 else:
                     raise ValidationError(
                         message,
@@ -343,17 +343,23 @@ class InputValidator:
                 else int(min_sequence_length)
             )
             if seq_length < length_floor:
-                error_handler.log_warning(
-                    f"Sequence {seq_num} ({record.id}) is shorter than recommended minimum ({seq_length} bp < {length_floor} bp)",
-                    context={"sequence_id": record.id, "length": seq_length},
+                logger.warning(
+                    "Sequence %s (%s) is shorter than recommended minimum (%d bp < %d bp)",
+                    seq_num,
+                    record.id,
+                    seq_length,
+                    length_floor,
                 )
         elif file_type == "faa":
             # For proteins, check a different minimum (e.g., 100 amino acids ~ 300 bp equivalent)
             min_protein_length = 100
             if seq_length < min_protein_length:
-                error_handler.log_warning(
-                    f"Protein sequence {seq_num} ({record.id}) is shorter than recommended minimum ({seq_length} aa < {min_protein_length} aa)",
-                    context={"sequence_id": record.id, "length": seq_length},
+                logger.warning(
+                    "Protein sequence %s (%s) is shorter than recommended minimum (%d aa < %d aa)",
+                    seq_num,
+                    record.id,
+                    seq_length,
+                    min_protein_length,
                 )
         _ = allow_short
 
@@ -443,57 +449,6 @@ class InputValidator:
                 )
 
         return path
-
-    @classmethod
-    def validate_query_directory(
-        cls,
-        query_dir: Union[str, Path],
-        allow_short: bool = False,
-        min_sequence_length: Optional[int] = None,
-    ) -> Path:
-        """
-        Validate query directory and its contents.
-
-        Args:
-            query_dir: Path to query directory
-            allow_short: Forwarded to :meth:`validate_sequence_file` so
-                ``--contigs`` and ``--allow-short`` runs can opt out of the
-                configured aggregate nucleotide minimum.
-            min_sequence_length: Minimum aggregate nucleotide length in bp.
-                Forwarded to :meth:`validate_sequence_file`.
-
-        Returns:
-            Validated Path object
-
-        Raises:
-            ValidationError: If directory or contents are invalid. The
-                previous implementation swallowed per-file
-                ``ValidationError`` into ``log_warning`` and silently
-                proceeded, which allowed malformed FASTA to reach the
-                downstream pipeline. The Codex audit required this to be
-                fail-closed.
-        """
-        dir_path = cls.validate_directory(query_dir, must_exist=True)
-
-        valid_files = discover_query_files(dir_path)
-
-        if not valid_files:
-            raise ValidationError(
-                f"No valid sequence files found in query directory: {query_dir}",
-                field="query_directory",
-                value=str(query_dir),
-            )
-
-        # Validate each file — fail-closed on the first invalid file so
-        # bad inputs do not reach the pipeline silently.
-        for file_path in valid_files:
-            cls.validate_sequence_file(
-                file_path,
-                allow_short=allow_short,
-                min_sequence_length=min_sequence_length,
-            )
-
-        return dir_path
 
 
 def discover_query_files(directory: Path) -> list[Path]:

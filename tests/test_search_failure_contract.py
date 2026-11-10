@@ -173,7 +173,6 @@ def test_contig_features_rejects_malformed_m8_record(tmp_path: Path) -> None:
             scorer.scan_blast_dir(blast_dir),
             QueryEvidence({}, {}, {}),
             "Imitervirales",
-            "Mimiviridae",
             {},
         )
 
@@ -201,7 +200,7 @@ def test_tree_analyzer_rejects_malformed_tree(tmp_path: Path) -> None:
     tree_file = tmp_path / "marker.treefile"
     tree_file.write_text("(query_1:0.1,NCLDV__ref_1", encoding="utf-8")
 
-    with pytest.raises(RuntimeError, match="Failed to parse or search"):
+    with pytest.raises(ValueError, match="Failed to parse phylogenetic tree"):
         TreeAnalyzer(labels_file).get_neighbors_from_tree(tree_file, "query")
 
 

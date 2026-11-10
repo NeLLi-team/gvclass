@@ -4,7 +4,6 @@ Handles downloading and validating the reference database.
 """
 
 import fcntl
-import hashlib
 import json
 import logging
 import os
@@ -22,6 +21,8 @@ from typing import Optional
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
+
+from src.utils.common import sha256_file
 
 logger = logging.getLogger(__name__)
 
@@ -629,7 +630,7 @@ class DatabaseManager:
 
         def attempt() -> None:
             cls._download_archive(part["url"], part_path)
-            observed = cls._compute_sha256(part_path)
+            observed = sha256_file(part_path)
             if observed.lower() != part["sha256"].lower():
                 raise DownloadError(
                     f"checksum mismatch in part{number:03d} "
@@ -1018,9 +1019,12 @@ class DatabaseManager:
             )
             return
 
-        observed_sha256 = cls._compute_sha256(
-            archive_path, progress_label="Verifying archive checksum"
+        progress = _ProgressReporter(
+            "Verifying archive checksum", total_bytes=archive_path.stat().st_size
         )
+        progress.start()
+        observed_sha256 = sha256_file(archive_path, on_chunk=progress.advance)
+        progress.finish()
         if observed_sha256.lower() != expected_sha256.lower():
             raise DownloadError(
                 "checksum mismatch "
@@ -1028,26 +1032,6 @@ class DatabaseManager:
                 retryable=True,
             )
         logger.info(f"SHA256 verified for source {source['version']}")
-
-    @staticmethod
-    def _compute_sha256(file_path: Path, progress_label: Optional[str] = None) -> str:
-        """Compute SHA256 checksum for a file."""
-        digest = hashlib.sha256()
-        progress = None
-        if progress_label:
-            progress = _ProgressReporter(
-                progress_label,
-                total_bytes=file_path.stat().st_size,
-            )
-            progress.start()
-        with open(file_path, "rb") as f:
-            for chunk in iter(lambda: f.read(_TRANSFER_CHUNK_SIZE), b""):
-                digest.update(chunk)
-                if progress is not None:
-                    progress.advance(len(chunk))
-        if progress is not None:
-            progress.finish()
-        return digest.hexdigest()
 
     @classmethod
     def _extract_archive(cls, archive_path: Path, db_path: Path) -> None:

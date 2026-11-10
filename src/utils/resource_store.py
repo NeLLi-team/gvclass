@@ -130,13 +130,6 @@ class ResourceStore:
             self._link_or_copy(source, target)
         return cache_dir
 
-    @classmethod
-    def labels_satisfied(cls, database_path: Path | str) -> bool:
-        store = cls(database_path)
-        return (
-            store.database_path / "labels.tsv"
-        ).exists() or store.has_parquet_labels()
-
     def _legacy_marker_candidates(self, marker: str) -> tuple[Path, Path]:
         filename = self._marker_filename(marker)
         return (

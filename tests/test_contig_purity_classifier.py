@@ -478,7 +478,6 @@ def test_dna_lengths_are_exact_and_mixed_contigs_are_review_only(
         scan=scorer.scan_blast_dir(blast_dir),
         evidence=QueryEvidence({}, {}, {}),
         primary_order="Imitervirales",
-        primary_family="Mimiviridae",
         tree_nn_results=tree,
     )
 
@@ -642,7 +641,6 @@ def _contig_features_with_unplaced_cellular_contig(
         scan=scorer.scan_blast_dir(blast_dir),
         evidence=QueryEvidence({}, {}, {}),
         primary_order="Imitervirales",
-        primary_family="Mimiviridae",
         tree_nn_results=tree,
     )
 
@@ -717,7 +715,6 @@ def _two_group_contig_features(
         scan=scorer.scan_blast_dir(blast_dir),
         evidence=QueryEvidence({}, {}, scores),
         primary_order="Imitervirales",
-        primary_family="Mimiviridae",
         tree_nn_results={},
     )
 
