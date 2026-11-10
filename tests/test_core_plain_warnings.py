@@ -8,16 +8,15 @@ from unittest.mock import Mock
 import pytest
 
 from src.core import blast
-from src.core.hmm_search import process_hmmout
 from src.pipeline import query_processing_engine
 
 
 @pytest.mark.parametrize(
     ("alignment_length", "warning"),
     [
-        (0, "WARNING: No hits found despite having query and reference sequences."),
-        (6, "WARNING: Suspicious patterns detected in BLAST results:"),
-        (12, "WARNING: 1/1 (100.0%) hits show perfect identity!"),
+        (0, "No hits found despite having query and reference sequences."),
+        (6, "Suspicious patterns detected in BLAST results"),
+        (12, "1/1 (100.0%) hits show perfect identity!"),
     ],
 )
 def test_blast_warnings_are_plain(
@@ -25,7 +24,7 @@ def test_blast_warnings_are_plain(
     warning: str,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Exercise warning branches using valid FASTA input and controlled search hits."""
     query = tmp_path / "query.faa"
@@ -42,35 +41,19 @@ def test_blast_warnings_are_plain(
             target_start=0,
             query_end=alignment_length - 1,
             target_end=alignment_length - 1,
+            alignment="M" * alignment_length,
             identity=lambda: 1.0,
         ),
     )
     hits = [hit] if alignment_length else []
     monkeypatch.setattr(blast.pyswrd, "search", Mock(return_value=iter(hits)))
 
-    blast.run_blastp(str(query), str(reference), str(tmp_path / "hits.m8"))
+    with caplog.at_level(logging.WARNING, logger=blast.logger.name):
+        blast.run_blastp(str(query), str(reference), str(tmp_path / "hits.m8"))
 
-    output = capsys.readouterr().out
-    assert warning in output.splitlines()
-    assert "⚠" not in output
-    assert "\x1b[" not in output
-
-
-def test_empty_hmm_results_warn_in_plain_text(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """An empty HMM result still emits the warning without a styled prefix."""
-    source = tmp_path / "hmm.out"
-    source.write_text("", encoding="utf-8")
-
-    counts, scores = process_hmmout([], str(source), str(tmp_path / "filtered.out"), {})
-
-    assert counts.empty
-    assert scores.empty
-    assert (
-        capsys.readouterr().out
-        == "WARNING: No markers detected in HMM search results!\n"
-    )
+    assert any(warning in message for message in caplog.messages)
+    assert "⚠" not in caplog.text
+    assert "\x1b[" not in caplog.text
 
 
 def test_post_processing_success_logs_are_plain(

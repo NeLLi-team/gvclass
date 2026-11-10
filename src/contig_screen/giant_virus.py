@@ -41,7 +41,7 @@ from src.contig_screen.gv_order import IdentityCache, bin_features
 from src.contig_screen.gv_order_build import Genome
 from src.contig_screen.gv_taxa import taxa_for_bin
 from src.contig_screen.tables import read_table
-from src.contig_screen.thresholds import sliding_calls
+from src.contig_screen.thresholds import called_bp
 
 logger = logging.getLogger(__name__)
 
@@ -146,6 +146,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             sequences, resources, bundle, Settings(args.threads, args.diamond)
         )
     if table.empty:
+        args.out.unlink(missing_ok=True)
         print("fewer than two contigs of 5 kb or more with genes: nothing to compare")
     else:
         table["called_foreign"] = table["p_foreign"] >= threshold
@@ -169,8 +170,10 @@ def score_bin(
     """Return the contig table of one bin with P(foreign).
 
     The table is empty when the bin has fewer than two contigs of 5 kb or more with
-    genes.
+    genes. A bin with fewer than two contigs of 5 kb or more is not searched at all.
     """
+    if sum(len(sequence) >= MIN_SCORED_BP for sequence in sequences.values()) < 2:
+        return pd.DataFrame()
     calls = call_genes(sequences, resources.path(layout.HMM_FILE), settings.threads)
     taxa = None
     if any(column.startswith("tx_") for column in bundle.columns):
@@ -233,13 +236,13 @@ def union_totals(
     """
     windows = read_table(cellular, ["source_contig"])
     score = "p_context" if "p_context" in windows else "p_cellular"
-    calls = sliding_calls(windows.assign(p=windows[score]), dict(lengths), threshold)
-    cellular_bp = union_bp = 0
-    for contig, mask in calls.items():
-        cellular_bp += int(mask.sum())
-        union_bp += len(mask) if contig in foreign else int(mask.sum())
-    for contig in set(foreign) - set(calls):
-        union_bp += lengths[contig]
+    calls = called_bp(windows.assign(p=windows[score]), dict(lengths), threshold)
+    cellular_bp = sum(calls.values())
+    union_bp = sum(
+        lengths[contig] if contig in foreign else called
+        for contig, called in calls.items()
+    )
+    union_bp += sum(lengths[contig] for contig in set(foreign) - set(calls))
     return UnionTotals(cellular_bp, union_bp)
 
 

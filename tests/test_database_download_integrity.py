@@ -59,9 +59,9 @@ def test_source_resolution_uses_only_environment_override(monkeypatch):
         "sha256": "b" * 64,
     }
 
-    sources = DatabaseManager._resolve_database_sources(preferred)
+    source = DatabaseManager.get_effective_database_source(preferred)
 
-    assert [source["url"] for source in sources] == ["https://example.com/env.tar.gz"]
+    assert source["url"] == "https://example.com/env.tar.gz"
 
 
 def test_source_resolution_uses_only_preferred_source(monkeypatch):
@@ -72,24 +72,23 @@ def test_source_resolution_uses_only_preferred_source(monkeypatch):
         "sha256": "b" * 64,
     }
 
-    sources = DatabaseManager._resolve_database_sources(preferred)
+    source = DatabaseManager.get_effective_database_source(preferred)
 
-    assert sources == [
-        {
-            "version": "v8.0.0",
-            "url": "https://example.com/config.tar.gz",
-            "filename": "config.tar.gz",
-            "sha256": "b" * 64,
-        }
-    ]
+    assert source == {
+        "version": "v8.0.0",
+        "url": "https://example.com/config.tar.gz",
+        "sha256": "b" * 64,
+    }
 
 
 def test_source_resolution_uses_only_pinned_default(monkeypatch):
     monkeypatch.delenv("GVCLASS_DB_URL", raising=False)
 
-    sources = DatabaseManager._resolve_database_sources()
+    source = DatabaseManager.get_effective_database_source()
 
-    assert sources == [DatabaseManager.DEFAULT_DATABASE_SOURCE]
+    assert source == DatabaseManager._normalize_source(
+        DatabaseManager.DEFAULT_DATABASE_SOURCE
+    )
 
 
 def test_preferred_source_without_checksum_is_rejected(monkeypatch):
@@ -97,7 +96,7 @@ def test_preferred_source_without_checksum_is_rejected(monkeypatch):
     preferred = {"url": "https://example.com/config.tar.gz"}
 
     with pytest.raises(ValueError, match="no SHA-256 checksum"):
-        DatabaseManager._resolve_database_sources(preferred)
+        DatabaseManager.get_effective_database_source(preferred)
 
 
 @pytest.mark.parametrize("checksum", ["", "abc123", "g" * 64])

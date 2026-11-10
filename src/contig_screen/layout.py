@@ -63,6 +63,8 @@ MARKER_REFS_DIR = f"{SCREEN_DIR}/refs"
 MODEL_TO_GROUP_FILE = f"{MARKER_REFS_DIR}/model_to_group.json"
 BOOSTING_FILE = f"{SCREEN_DIR}/models/boosting.joblib"
 SET_MODEL_DIR = f"{SCREEN_DIR}/models/set"
+#: The set model variant that the cellular screen runs and the builder places.
+SET_VARIANT = "hits_struct"
 STAGE2_FILE = f"{SCREEN_DIR}/models/stage2/stage2.joblib"
 STAGE2_NORM_FILE = f"{SCREEN_DIR}/models/stage2/norm.npz"
 ESM_DIR = f"{SCREEN_DIR}/esm2_t6_8M_UR50D"

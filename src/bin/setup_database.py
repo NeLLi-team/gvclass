@@ -34,6 +34,12 @@ def parse_args():
         help="Database path (overrides GVCLASS_DB and config)",
     )
     parser.add_argument(
+        "--update",
+        action="store_true",
+        help="Replace a complete database with the pinned version "
+        "(without it, a complete database is never replaced)",
+    )
+    parser.add_argument(
         "--with-screen",
         action="store_true",
         help="Also install the contig-screen add-on (gvclass screen --install)",
@@ -51,7 +57,9 @@ def main():
     target_path = resolve_database_path(args, config, repo_dir)
 
     try:
-        if not check_and_setup_database(target_path, config, output):
+        if not check_and_setup_database(
+            target_path, config, output, update=args.update
+        ):
             print("❌ Database setup was not completed")
             return 1
         print(f"✅ Database successfully set up at: {target_path}")

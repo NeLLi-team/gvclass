@@ -5,7 +5,6 @@ Tree analysis module for extracting nearest neighbors from phylogenetic trees.
 import logging
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Sequence, Union
-from collections import Counter
 from ete3 import Tree
 
 logger = logging.getLogger(__name__)
@@ -150,8 +149,7 @@ class TreeAnalyzer:
     def _find_nearest_neighbor(
         self, tree: Tree, query_node: Tree, query_id: str
     ) -> Tuple[Optional[str], float]:
-        """
-        Find the nearest non-query neighbor for a query node.
+        """Find the nearest non-query neighbor for a query node.
 
         Args:
             tree: The phylogenetic tree
@@ -159,20 +157,18 @@ class TreeAnalyzer:
             query_id: Query genome identifier
 
         Returns:
-            Tuple of (neighbor_name, distance) or (None, inf)
+            Tuple of (neighbor_name, distance) or (None, inf). Equal distances go
+            to the smaller leaf name, so the result does not depend on leaf order.
         """
-        min_distance = float("inf")
-        nearest_neighbor = None
-
-        # Get all non-query leaf nodes
-        for node in tree.iter_leaves():
-            if not _is_query_leaf(node.name, query_id):
-                distance = tree.get_distance(query_node.name, node.name)
-                if distance < min_distance:
-                    min_distance = distance
-                    nearest_neighbor = node.name
-
-        return nearest_neighbor, min_distance
+        distances = [
+            (tree.get_distance(query_node, leaf), leaf.name)
+            for leaf in tree.iter_leaves()
+            if not _is_query_leaf(leaf.name, query_id)
+        ]
+        if not distances:
+            return None, float("inf")
+        distance, name = min(distances)
+        return name, distance
 
     def get_top_k_neighbors(
         self,
@@ -302,85 +298,6 @@ class TreeAnalyzer:
         # Third try: strip protein suffix from full ID even if not in labels
         # (for writing to tree_nn file - taxonomy will be "unknown")
         return stripped
-
-    def get_taxonomy_consensus(
-        self,
-        all_neighbors: Dict[str, Dict[str, Dict[str, float]]],
-        tax_level: str = "order",
-    ) -> Optional[str]:
-        """
-        Get consensus taxonomy from all nearest neighbors across markers.
-
-        Args:
-            all_neighbors: Dictionary mapping markers to their neighbors
-            tax_level: Taxonomic level ('order', 'family', or 'genus')
-
-        Returns:
-            Consensus taxonomy or None
-        """
-
-        # Collect all taxonomies
-        taxonomies = []
-
-        for marker, query_neighbors in all_neighbors.items():
-            for query_protein, neighbors in query_neighbors.items():
-                for neighbor, distance in neighbors.items():
-                    # Extract genome ID from protein ID
-                    genome_id = self._extract_genome_id(neighbor)
-
-                    if genome_id in self.labels_dict:
-                        tax_str = self.labels_dict[genome_id]
-                        # Split taxonomy string, handling various separators
-                        if "|" in tax_str:
-                            tax_parts = tax_str.split("|")
-                        else:
-                            # Handle single value or unknown format
-                            tax_parts = [tax_str]
-
-                        if len(tax_parts) >= 7:
-                            # 7-rank format: [Domain, Phylum, Class, Order, Family, Genus, Species]
-                            tax_idx_map = {
-                                "domain": 0,
-                                "kingdom": 0,
-                                "phylum": 1,
-                                "class": 2,
-                                "order": 3,
-                                "family": 4,
-                                "genus": 5,
-                                "species": 6,
-                            }
-                            default_idx = 3
-                        else:
-                            # Legacy 6-rank format: [Kingdom, Class, Order, Family, Genus, Species]
-                            tax_idx_map = {
-                                "domain": 0,
-                                "kingdom": 0,
-                                "class": 1,
-                                "order": 2,
-                                "family": 3,
-                                "genus": 4,
-                                "species": 5,
-                            }
-                            default_idx = 2
-                        tax_idx = tax_idx_map.get(tax_level, default_idx)
-
-                        if len(tax_parts) > tax_idx and tax_parts[tax_idx].strip():
-                            taxonomies.append(tax_parts[tax_idx].strip())
-
-        if not taxonomies:
-            return None
-
-        # Get most common taxonomy
-        tax_counter = Counter(taxonomies)
-        most_common = tax_counter.most_common(1)
-
-        if most_common:
-            consensus_tax, count = most_common[0]
-            # Require at least 50% agreement
-            if count >= len(taxonomies) * 0.5:
-                return consensus_tax
-
-        return None
 
     def process_marker_trees(
         self,

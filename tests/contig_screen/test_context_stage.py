@@ -100,3 +100,39 @@ def test_a_bin_with_embedding_columns_gets_features_in_embedding_space() -> None
 
     assert "d_bulk_e" in out
     assert "knn_z_e" in out
+
+
+def tied_windows() -> pd.DataFrame:
+    """Return seven windows with the same composition and different scores."""
+    frame = bin_windows([0.05, 0.9, 0.3, 0.6, 0.15, 0.75, 0.45], [0.5] * 7)
+    frame["c_aa_A"] = 0.1
+    frame["e_0"] = 1.0
+    return frame
+
+
+@pytest.mark.parametrize("comp", [COMP, [*COMP, "e_0"]])
+def test_bin_context_with_tied_neighbours_does_not_depend_on_the_row_order(
+    comp: list[str],
+) -> None:
+    frame = tied_windows()
+    shuffled = frame.iloc[[4, 6, 1, 0, 5, 3, 2]]
+    mu, sd = np.zeros(len(comp)), np.ones(len(comp))
+
+    first = cs.bin_context(frame, comp, mu, sd)
+    second = cs.bin_context(shuffled, comp, mu, sd)
+
+    assert np.allclose(
+        second.loc[frame.index].to_numpy(dtype=float),
+        first.to_numpy(dtype=float),
+        equal_nan=True,
+    )
+
+
+def test_tied_neighbours_are_taken_in_the_order_of_their_score() -> None:
+    distance = np.zeros((7, 7))
+    z = np.array([5.0, 1.0, 4.0, 2.0, 7.0, 3.0, 6.0])
+
+    knn_z, knn_d = cs.nearest_means(distance, z)
+
+    assert knn_z[0] == pytest.approx(np.mean([1.0, 2.0, 3.0, 4.0, 6.0]))
+    assert knn_d.tolist() == [0.0] * 7

@@ -20,7 +20,7 @@ training, cross-validation, hold-out and evaluation code is left out.
 | `set_model.py` | `set_model.py` | `SetNet`, `Scaler`, `EmbeddingScale`, scoring | training, `cv`, `fit`, `nested`, folds |
 | `stack_context.py` | `stack_context.py` | `stack_scores` | out-of-fold tables, nested tables, threshold fitting |
 | `context_stage.py` | `context_stage.py` | `bin_context`, `context_table`, `tilings` | synthetic bins, training, `bin_thresholds` |
-| `thresholds.py` | `thresholds.py` | `window_cover`, `sliding_calls` | `threshold_for_fpr`, hysteresis, length thresholds |
+| `thresholds.py` | `thresholds.py` | `window_segments`, `called_bp` (the prototype's `window_cover`, `sliding_calls`, with interval arithmetic) | `threshold_for_fpr`, hysteresis, length thresholds |
 | `export_fasta.py`, `prepare_queries.py` | `cellular.py` (`query_index`, `write_queries`) | the protein FASTA and the per-window gene count | window FASTA files, gzip, the CLI |
 | (new) | `layout.py`, `torch_stack.py` | manifest, hash checks, optional-dependency error | |
 
@@ -35,7 +35,7 @@ report of the port) compares the stage 1 and stage 2 scores of four bins.
 | `cellular.py:202` `window_features` | One process, no subprocess; intermediate tables stay in memory except the three extraction tables. The window FASTA and `export_fasta.py` are gone; the proteins come from the gene calls of `extract_genes`. | Design decision 1 and 5. The prototype called the genes a second time with the same function and seeds; the tables are identical. |
 | `cellular.py:202` `window_features` | DIAMOND and the set model always run. | The prototype ran them for `r_` features and `--set-dir`. The stack needs both. |
 | `cellular.py:311` `diamond_search` | Binary found beside the interpreter, on `PATH`, or by `--diamond`; `--tmpdir` is the work directory; the search runs with captured output. | The prototype had a fixed path. |
-| `cellular.py:404` `open_text` | `fasta_bp` and `contig_lengths` read gzipped files. | `read_fasta` already did; the summary failed on `.gz` input. |
+| `extract_genes.open_text` | `fasta_bp` and `contig_lengths` read gzipped files. | `read_fasta` already did; the summary failed on `.gz` input. |
 | `extract_genes.py:54` `extract_bin` | Raises `ValueError` for a bin without a contig of 3 kb. | The prototype wrote a done marker and failed later at `pd.concat([])`. |
 | `extract_genes.py:217` `load_models`, `:244` `reference_search` | The HMM catalog and the marker references are read from the verified bundle (`layout.py`), not from fixed paths. | Design decision 2 and 3. |
 | `build_features.py:80` `load_labels`, `:93` `unit_features`, `:109` `annotate_hits` | Only hold-out `none`. The `r2` to `r7` lineage keys and the `proxy_*` columns are not built; `annotate_hits` takes the label table as an argument instead of a module global; the output keeps `holdout = "none"`. | The other levels and the keys feed only the training hold-outs. No model column uses them. |
@@ -50,7 +50,7 @@ report of the port) compares the stage 1 and stage 2 scores of four bins.
 | `set_model.py:176` `load_fitted` | Reads each file once, checks it against the manifest, then `torch.load(BytesIO, weights_only=True)`. | Design decision 3. |
 | `set_model.py:200` `score_contigs` | Scores the requested variant only (`hits_struct`). | The prototype scored all saved variants and used one. |
 | `stack_context.py:15` `stack_scores` | The clip value is the constant `PROBABILITY_CLIP`. | Same value, 1e-6. |
-| `thresholds.py:28` `sliding_calls` | No `low` (hysteresis) argument. | `--threshold2-low` is not offered. |
+| `thresholds.py` `called_bp` | No `low` (hysteresis) argument. | `--threshold2-low` is not offered. |
 
 ## Seeded protein sample
 
@@ -115,7 +115,7 @@ left out.
 | `gv_taxa.py` | `gv_taxa.py` | `best_catalog_hits`, `gene_table`, `taxa_for_bin` | fold and unit exclusions, the hold-out inputs, the CLI |
 | `gv_proteins.py` | `gv_taxa.py` (`fasta_text`) | the FASTA text of the proteins | the second gene call and its comparison, the CLI |
 | `ncldv_taxonomy_panel.py` | `gv_taxa.py` (`codes`) | family and genus code of a lineage | the panel evaluation |
-| `thresholds.py` | `thresholds.py` (cellular port) | `sliding_calls` | hysteresis (`--cellular-low`) |
+| `thresholds.py` | `thresholds.py` (cellular port) | `called_bp` | hysteresis (`--cellular-low`) |
 | (new) | `gv_model.py` | bundle and threshold loading | |
 
 ## Logic changes
@@ -136,7 +136,7 @@ calls of four bins with the prototype.
 | `gv_model.py:35` `BundleUnpickler` | `model.joblib` is read once, hashed, and unpickled from those bytes; the prototype's class name `gv_order.Priors` maps to `gv_order.Priors` of this package. | The file holds a pickled `Priors` object. No module named `gv_order` has to exist, and no other project class is accepted. |
 | `gv_model.py:43` `load_bundle` | A model without priors raises `ValueError`, which `main` reports with exit code 2. | The prototype exited through `SystemExit`. |
 | `giant_virus.py:115` `main` | `--resources DIR` replaces `model dir` and `--ref-dir`. The threshold is key `0.01` of `giant_virus/thresholds.json` unless `--threshold` is given. Errors print `error: ...` to stderr and return 2. | Design decisions 1, 2 and 4. |
-| `giant_virus.py:115` `main` | `--cellular-threshold` is optional: the default is the stage 2 threshold of the cellular `thresholds.json`, when the bundle lists it. Without either, the union is not computed (as in the prototype without `--cellular-threshold`). `--cellular-low` is not offered. | The cellular port has no hysteresis (`thresholds.sliding_calls`). |
+| `giant_virus.py:115` `main` | `--cellular-threshold` is optional: the default is the stage 2 threshold of the cellular `thresholds.json`, when the bundle lists it. Without either, the union is not computed (as in the prototype without `--cellular-threshold`). `--cellular-low` is not offered. | The cellular port has no hysteresis (`thresholds.called_bp`). |
 | `giant_virus.py:115` `main` | The output directory is created. | |
 
 ## Resources

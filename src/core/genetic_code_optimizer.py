@@ -1,555 +1,350 @@
+"""Genetic-code selection for nucleotide queries.
+
+Every code in the panel gene-calls the query with pyrodigal, and the proteins
+of each call are searched against the marker models. Pyrodigal's metagenomic
+mode (code 0, "meta") is the baseline: another code replaces it only with
+marker evidence, never with coding density alone.
 """
-Genetic code optimization module for GVClass.
 
-This module implements the same logic as opgecall.py for selecting the optimal
-genetic code based on HMM search results, coding density, and other metrics.
+from __future__ import annotations
 
-Uses thread-based parallelism for better Dask compatibility.
-"""
-
+import csv
 import logging
+from collections.abc import Iterable, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Tuple
-import shutil
-from Bio import SeqIO
-import pyrodigal  # Using tomasbruna's fork with codes 106, 129
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import multiprocessing
-import pandas as pd
 
-from src.core.gene_calling import run_hmmsearch, calc_stats
+import pyrodigal  # Using tomasbruna's fork with codes 106, 129
+from Bio import SeqIO
+from Bio.SeqRecord import SeqRecord
+from pyhmmer.plan7 import HMM
+
+from src.core.hmm_search import (
+    DomainHit,
+    digitize_proteins,
+    load_profiles,
+    search_default_thresholds,
+)
 
 logger = logging.getLogger(__name__)
 
+__all__ = [
+    "META_CODE",
+    "AssemblyStats",
+    "CodeEvaluation",
+    "GeneCallingResult",
+    "optimize_genetic_code",
+    "select_best_code",
+]
 
-class GeneticCodeOptimizer:
-    """Optimize genetic code selection based on multiple metrics using thread-based parallelism."""
+META_CODE = 0
 
-    def __init__(self, database_path: Path, threads: int = None):
-        """
-        Initialize with database path and thread configuration.
+#: Pyrodigal cannot train a single-genome model on less sequence.
+MIN_TRAINING_BP = 20_000
 
-        Args:
-            database_path: Path to database
-            threads: Total threads available (defaults to CPU count)
-        """
-        self.database_path = database_path
-        self.hmm_file = str(database_path / "hmm" / "combined.hmm")
-        self.threads = threads or multiprocessing.cpu_count()
+#: A protein is a complete hit when its best domain covers more than this
+#: fraction of the model.
+COMPLETE_COVERAGE = 0.66
 
-    def run_gene_calling_for_code(
-        self, query_file: Path, code: int, temp_dir: Path, records: List
-    ) -> Tuple[Path, Path, Path, List[str], List[str]]:
-        """
-        Run gene calling for a specific genetic code.
+#: A code qualifies over meta with this many more complete hits, or ...
+COMPLETE_HITS_MARGIN = 2
+#: ... with at least as many complete hits and an average best-hit score this
+#: many percent above meta.
+SCORE_MARGIN_PERCENT = 10
 
-        Returns:
-            Tuple of (faa_file, fna_file, gff_file, proteins_list, genes_list)
-        """
-        faa_file = temp_dir / f"code_{code}.faa"
-        fna_file = temp_dir / f"code_{code}.fna"
-        gff_file = temp_dir / f"code_{code}.gff"
-        proteins = []
-        genes = []
-        gff_lines = []
+# Preferred first. The standard codes come before the exotic ones.
+_PREFERENCE = (11, 1, 4, 6, 15, 29, 106, 129)
 
-        # tomasbruna's fork supports codes 106 and 129 natively!
-        if code == 0:
-            # Metagenomic mode
-            orf_finder = pyrodigal.GeneFinder(meta=True)
-        else:
-            # Single genome mode with specific genetic code
-            orf_finder = pyrodigal.GeneFinder(meta=False)
-            # Prepare training sequence
-            training_seq = self._prepare_training_sequence(records)
-            orf_finder.train(training_seq, force_nonsd=True, translation_table=code)
+_STATS_HEADER = f"""\
+# Genetic code optimization results
+# * marks the selected code
+# Code 0 (meta) is kept unless another code has marker evidence over it:
+#   at least 1 complete_hits, and
+#   at least {COMPLETE_HITS_MARGIN} more complete_hits than meta, OR
+#   at least as many complete_hits and an avg_best_hit_score at least \
+{SCORE_MARGIN_PERCENT}% above meta.
+# Qualifying codes rank by complete_hits, avg_best_hit_score, then code preference.
+# coding_density is reported but does not decide.
+# Input under {MIN_TRAINING_BP} bp is evaluated with meta only.
+#
+"""
 
-        # Process all records
-        for record in records:
-            # Extract both base name and contig identifier from record ID
-            # Format: 'base_name|contig_name' or just 'name' for single contig
-            # Example: 'GVMAG-S-1096109-37|1096109_contig_155'
-            if "|" in record.id:
-                base_name = record.id.split("|")[0]  # e.g., "GVMAG-S-1096109-37"
-                contig_name = record.id.split("|")[1]  # e.g., "1096109_contig_155"
-            else:
-                # Single contig case - use same identifier for both
-                base_name = record.id
-                contig_name = record.id
+_STATS_COLUMNS = (
+    "query",
+    "genetic_code",
+    "ttable",
+    "complete_hits",
+    "avg_best_hit_score",
+    "coding_density",
+    "gene_count",
+    "contigs",
+    "LENbp",
+    "GCperc",
+)
 
-            # Remove _reformatted suffix if present
-            base_name = base_name.replace("_reformatted", "")
-            contig_name = contig_name.replace("_reformatted", "")
 
-            # Create full identifier for this contig (for GFF and protein IDs)
-            full_contig_id = (
-                f"{base_name}|{contig_name}" if "|" in record.id else base_name
-            )
+@dataclass(frozen=True, slots=True)
+class AssemblyStats:
+    """Size and composition of the query, computed once."""
 
-            # pyrodigal accepts both str and bytes; use str for consistency
-            seq_str = str(record.seq)
-            genes_found = orf_finder.find_genes(seq_str)
+    contigs: int
+    length_bp: int
+    gc_percent: float
 
-            # Write GFF header for this contig
-            gff_lines.append("##gff-version  3")
-            gff_lines.append(
-                f'# Sequence Data: seqnum=1;seqlen={len(record.seq)};seqhdr="{full_contig_id}"'
-            )
-            if code == 0:
-                gff_lines.append(
-                    "# Model Data: version=pyrodigal.v3.3.0;run_type=Metagenomic;transl_table=11;uses_sd=1"
-                )
-            else:
-                gff_lines.append(
-                    f"# Model Data: version=pyrodigal.v3.3.0;run_type=Single;transl_table={code};uses_sd=1"
-                )
 
-            gene_num = 0
-            for gene in genes_found:
-                gene_num += 1
-                # Create unique protein ID: base_name|contig_name_gene_number
-                protein_id = f"{full_contig_id}_{gene_num}"
+@dataclass(frozen=True, slots=True)
+class CodeEvaluation:
+    """Gene calling and marker support of one genetic code."""
 
-                if code == 0:
-                    protein_seq = gene.translate()
-                else:
-                    protein_seq = gene.translate(translation_table=code)
+    code: int
+    gene_count: int
+    coding_density: float
+    complete_hits: int
+    avg_best_hit_score: float
 
-                # Use the contig_id with protein number for FAA headers
-                proteins.append(f">{protein_id}\n{protein_seq}")
-                # Strand-aware coding sequence. A raw forward slice
-                # (record.seq[begin-1:end]) returns the sense strand and is
-                # WRONG for minus-strand genes; gene.sequence() reverse-
-                # complements them so the .fna agrees with the .faa.
-                genes.append(f">{protein_id}\n{gene.sequence()}")
 
-                # Create GFF line with full pyrodigal attributes
-                strand = "+" if gene.strand == 1 else "-"
+@dataclass(frozen=True, slots=True)
+class GeneCallingResult:
+    """The selected code, every evaluation, and the written gene files."""
 
-                # Pyrodigal calls one complete CDS per feature and its native GFF
-                # writer emits phase 0 for complete and partial genes on both strands.
-                phase = 0
+    best_code: int
+    evaluations: dict[int, CodeEvaluation]
+    assembly: AssemblyStats
+    faa: Path
+    fna: Path
+    gff: Path
 
-                # Build attributes string with all pyrodigal information
-                attributes = []
-                attributes.append(f"ID={protein_id}")
 
-                # Add partial information
-                partial_info = "00"  # neither end partial
-                if gene.partial_begin and gene.partial_end:
-                    partial_info = "11"  # both ends partial
-                elif gene.partial_begin:
-                    partial_info = "10"  # begin partial
-                elif gene.partial_end:
-                    partial_info = "01"  # end partial
-                attributes.append(f"partial={partial_info}")
+def optimize_genetic_code(
+    query_file: Path,
+    output_dir: Path,
+    hmm_path: Path,
+    genetic_codes: Sequence[int],
+    *,
+    threads: int,
+) -> GeneCallingResult:
+    """Select the genetic code of a nucleotide query and write its gene files.
 
-                # Add start type
-                attributes.append(f"start_type={gene.start_type}")
+    Evaluations run in parallel, one single-threaded evaluation per worker. The
+    protein, gene and GFF files of the selected code go to
+    ``<output_dir>/gene_calling/<query stem>/``, together with a ``.statsout``
+    table of all evaluations.
 
-                # Add RBS motif and spacer
-                rbs_motif = str(gene.rbs_motif) if gene.rbs_motif else "None"
-                attributes.append(f"rbs_motif={rbs_motif}")
-                attributes.append("rbs_spacer=None")  # Not available from pyrodigal API
-
-                # Add GC content
-                attributes.append(f"gc_cont={gene.gc_cont:.3f}")
-
-                # Add confidence (not directly available, estimate from score)
-                conf = min(99.99, 50 + gene.score * 2)  # Simple heuristic
-                attributes.append(f"conf={conf:.2f}")
-
-                # Add all score components
-                attributes.append(f"score={gene.score:.2f}")
-                attributes.append(f"cscore={gene.cscore:.2f}")
-                attributes.append(f"sscore={gene.sscore:.2f}")
-                attributes.append(f"rscore={gene.rscore:.2f}")
-                attributes.append(f"uscore={gene.uscore:.2f}")
-                attributes.append(f"tscore={gene.tscore:.2f}")
-
-                attrs_str = ";".join(attributes)
-
-                gff_line = (
-                    f"{full_contig_id}\tpyrodigal_v3.3.0\tCDS\t{gene.begin}\t{gene.end}\t"
-                    f"{gene.score:.1f}\t{strand}\t{phase}\t{attrs_str}"
-                )
-                gff_lines.append(gff_line)
-
-        # Write output files
-        with open(faa_file, "w") as f:
-            f.write("\n".join(proteins))
-        with open(fna_file, "w") as f:
-            f.write("\n".join(genes))
-        with open(gff_file, "w") as f:
-            f.write("\n".join(gff_lines) + "\n")
-
-        logger.info(f"Gene calling for code {code}: found {len(proteins)} proteins")
-
-        return faa_file, fna_file, gff_file, proteins, genes
-
-    def _prepare_training_sequence(self, records: List) -> bytes:
-        """Prepare concatenated training sequence for pyrodigal."""
-        sequences = []
-        for i, record in enumerate(records):
-            if i > 0:
-                # Add stop codons in all frames between sequences
-                sequences.append("TTAATTAATTAA")
-            sequences.append(str(record.seq))
-        if len(sequences) > 1:
-            sequences.append("TTAATTAATTAA")
-        return bytes("".join(sequences), "utf-8")
-
-    def evaluate_genetic_code(
-        self, query_file: Path, faa_file: Path, code: int
-    ) -> Dict[str, float]:
-        """
-        Evaluate a genetic code by running HMM search and calculating metrics.
-
-        Returns:
-            Dictionary with all metrics
-        """
-        # Run HMM search with detailed metrics
-        (
-            hit_count,
-            avg_score,
-            profile_hits,
-            avg_best_hit_score,
-            avg_coverage,
-            complete_hits,
-            avg_complete_score,
-            avg_proteins_per_profile,
-        ) = run_hmmsearch(str(faa_file), self.hmm_file, completeCutoff=0.66)
-
-        # Calculate coding density and other stats
-        stats = calc_stats(str(query_file), str(faa_file))
-        coding_density = stats[4] if len(stats) > 4 else 0.0
-
-        return {
-            "code": code,
-            "hit_count": hit_count,
-            "avg_score": avg_score,
-            "profile_hits": profile_hits,
-            "avg_best_hit_score": avg_best_hit_score,
-            "avg_coverage": avg_coverage,
-            "complete_hits": complete_hits,
-            "avg_complete_score": avg_complete_score,
-            "avg_proteins_per_profile": avg_proteins_per_profile,
-            "coding_density": coding_density,
-            "gene_count": stats[3] if len(stats) > 3 else 0,
-            "faa_file": str(faa_file),
-            # Store all stats for later use
-            "contigs": stats[0] if len(stats) > 0 else 0,
-            "LENbp": stats[1] if len(stats) > 1 else 0,
-            "GCperc": stats[2] if len(stats) > 2 else 0.0,
-        }
-
-    # Lower rank = preferred. Standard codes (11, 1, 4) beat meta (0),
-    # which in turn beats the exotic codes (6, 15, 29, 106, 129). The
-    # previous tiebreaker used ``-abs(code - 11)`` which incorrectly ranked
-    # 15 ahead of 4 because their absolute distances happen to coincide.
-    _CODE_PREFERENCE_RANK = {
-        11: 0,
-        1: 1,
-        4: 2,
-        0: 3,
-        6: 4,
-        15: 5,
-        29: 6,
-        106: 7,
-        129: 8,
-    }
-
-    #: Minimum absolute improvement over meta required to switch to a
-    #: non-meta code. The previous 5% relative margin allowed noise-driven
-    #: switches to exotic codes on fragmented bins.
-    _COMPLETE_HITS_ABSOLUTE_MARGIN = 2
-    #: Minimum relative improvement over meta on ``avg_best_hit_score``
-    #: required to override meta when ``complete_hits`` tie. Raised from
-    #: 5% to 10% so a small noise fluctuation cannot flip the code call.
-    _SCORE_RELATIVE_MARGIN = 1.10
-    #: Minimum relative improvement over meta on ``coding_density`` required to
-    #: override meta when neither the hits nor the score gate is met. This is a
-    #: genuine third override criterion (not just a tiebreaker): a non-meta code
-    #: with >=5% higher coding density than meta is preferred.
-    _CODING_DENSITY_RELATIVE_MARGIN = 1.05
-
-    def _score_key(self, code: int, metrics: Dict) -> Tuple[int, float, float, int]:
-        """Ranking key: (complete_hits, avg_best_hit_score, coding_density,
-        inverted preference rank). Sorted descending, higher is better."""
-        rank = self._CODE_PREFERENCE_RANK.get(code, 99)
-        return (
-            metrics["complete_hits"],
-            round(metrics["avg_best_hit_score"], 2),
-            round(metrics["coding_density"], 4),
-            -rank,
-        )
-
-    def select_best_code(
-        self, code_results: Dict[int, Dict], genetic_codes: List[int]
-    ) -> Tuple[int, Dict]:
-        """
-        Select the best genetic code with a deterministic preference map.
-
-        Primary sort is by ``complete_hits``, then ``avg_best_hit_score``,
-        then ``coding_density``, with the ``_CODE_PREFERENCE_RANK`` map as
-        the final tiebreaker so standard codes (11, 1, 4) always beat
-        exotic codes (6, 15, 29, 106, 129) given otherwise equal metrics.
-
-        When meta (code 0) is available and the top-ranked candidate is a
-        non-meta code, that candidate is kept only if it clears at least one
-        margin over meta: at least ``_COMPLETE_HITS_ABSOLUTE_MARGIN`` extra
-        complete hits, OR at least ``_SCORE_RELATIVE_MARGIN`` higher
-        ``avg_best_hit_score``, OR — when neither of those holds — at least
-        ``_CODING_DENSITY_RELATIVE_MARGIN`` higher ``coding_density``. If the
-        top-ranked non-meta candidate clears none of the three gates, the
-        selector keeps meta. (Meta also wins outright whenever it is itself the
-        top-ranked code, so a lower-ranked code cannot override a clearly
-        better meta on coding density alone.)
-
-        Returns:
-            Tuple of (best_code, best_metrics)
-        """
-        if not code_results:
-            raise ValueError("select_best_code called with no per-code metrics")
-
-        ranked = sorted(
-            code_results.items(),
-            key=lambda item: self._score_key(item[0], item[1]),
-            reverse=True,
-        )
-        best_code, best_metrics = ranked[0]
-
-        # If meta is present and the top-ranked candidate is a non-meta code,
-        # require an override margin over meta before keeping it.
-        if best_code != 0 and 0 in code_results:
-            if not self._beats_meta(best_metrics, code_results[0]):
-                best_code = 0
-                best_metrics = code_results[0]
-
-        return best_code, best_metrics
-
-    def _beats_meta(self, metrics: Dict, meta: Dict) -> bool:
-        """True if ``metrics`` clears any override gate over meta: a +2
-        absolute complete-hit margin, a 10% relative avg_best_hit_score
-        margin, or a 5% relative coding_density margin."""
-        passes_hits_margin = (
-            metrics["complete_hits"]
-            >= meta["complete_hits"] + self._COMPLETE_HITS_ABSOLUTE_MARGIN
-        )
-        passes_score_margin = (
-            metrics["avg_best_hit_score"] > meta["avg_best_hit_score"]
-            and metrics["avg_best_hit_score"]
-            >= meta["avg_best_hit_score"] * self._SCORE_RELATIVE_MARGIN
-        )
-        passes_density_margin = (
-            metrics["coding_density"] > meta["coding_density"]
-            and metrics["coding_density"]
-            >= meta["coding_density"] * self._CODING_DENSITY_RELATIVE_MARGIN
-        )
-        return passes_hits_margin or passes_score_margin or passes_density_margin
-
-    def optimize_genetic_code(
-        self,
-        query_file: Path,
-        output_dir: Path,
-        genetic_codes: List[int],
-    ) -> Tuple[int, Dict[str, Path], Dict, Dict[int, Dict]]:
-        """
-        Run genetic code optimization with thread-based parallelism.
-
-        Returns:
-            Tuple of (best_code, output_paths, metrics, all_code_results)
-        """
-        # Create temp directory
-        temp_dir = output_dir / "gene_calling" / "temp"
-        temp_dir.mkdir(parents=True, exist_ok=True)
-
-        # Read input sequences
-        records = list(SeqIO.parse(str(query_file), "fasta"))
+    Raises:
+        RuntimeError: If no evaluated code predicts a gene.
+    """
+    records = list(SeqIO.parse(str(query_file), "fasta"))
+    assembly = _assembly_stats(records)
+    codes = list(genetic_codes)
+    if assembly.length_bp < MIN_TRAINING_BP:
         logger.info(
-            f"Processing {len(records)} sequences with {len(genetic_codes)} genetic codes"
+            "Input has %d bp, under %d: evaluating meta mode only",
+            assembly.length_bp,
+            MIN_TRAINING_BP,
         )
-        logger.info(f"Using threaded processing with {self.threads} total threads")
-
-        # Calculate threads for parallel execution
-        # Use fewer workers to leave threads for HMM search within each code test
-        n_workers = min(len(genetic_codes), max(1, self.threads // 2))
-
-        logger.info(f"Thread strategy: {n_workers} parallel genetic code tests")
-
-        # Process codes in parallel using threads
-        code_results = {}
-
-        def test_single_code(code):
-            """Test a single genetic code."""
-            logger.info(f"Testing genetic code {code}")
-
-            try:
-                # Run gene calling
-                faa_file, fna_file, gff_file, proteins, genes = (
-                    self.run_gene_calling_for_code(query_file, code, temp_dir, records)
-                )
-
-                # Skip if no genes found
-                if not proteins:
-                    logger.warning(f"No genes found with code {code}")
-                    return None
-
-                # Evaluate the code
-                metrics = self.evaluate_genetic_code(query_file, faa_file, code)
-                metrics["fna_file"] = str(fna_file)
-                metrics["gff_file"] = str(gff_file)
-
-                # Add total_bases from the records
-                total_bases = sum(len(rec.seq) for rec in records)
-                metrics["total_bases"] = total_bases
-
-                logger.info(
-                    f"Code {code}: complete_hits={metrics['complete_hits']}, "
-                    f"avg_score={metrics['avg_best_hit_score']:.2f}, "
-                    f"coding_density={metrics['coding_density']:.2f}%"
-                )
-
-                return (code, metrics)
-
-            except Exception as e:
-                logger.error(f"Failed to process code {code}: {e}")
-                import traceback
-
-                traceback.print_exc()
-                return None
-
-        # Use ThreadPoolExecutor for parallel processing
-        with ThreadPoolExecutor(max_workers=n_workers) as executor:
-            # Submit all tasks
-            futures = {
-                executor.submit(test_single_code, code): code for code in genetic_codes
-            }
-
-            # Collect results as they complete
-            for future in as_completed(futures):
-                result = future.result()
-                if result:
-                    code, metrics = result
-                    code_results[code] = metrics
-
-        if not code_results:
-            raise RuntimeError("No genetic codes produced valid results")
-
-        logger.info(f"Tested {len(code_results)} genetic codes successfully")
-
-        # Select best code
-        best_code, best_metrics = self.select_best_code(code_results, genetic_codes)
-
-        logger.info(
-            f"Selected genetic code {best_code} with complete_hits={best_metrics['complete_hits']}, "
-            f"avg_score={best_metrics['avg_best_hit_score']:.2f}, "
-            f"coding_density={best_metrics['coding_density']:.2f}%"
-        )
-
-        # Prepare output files
-        prefix = query_file.stem
-        gene_dir = output_dir / "gene_calling" / prefix
-        gene_dir.mkdir(parents=True, exist_ok=True)
-
-        outputs = {
-            "fna": gene_dir / f"{prefix}.fna",
-            "faa": gene_dir / f"{prefix}.faa",
-            "gff": gene_dir / f"{prefix}.gff",
-            "gvogout": gene_dir / f"{prefix}.gvogout",
-            "scoreout": gene_dir / f"{prefix}.scoreout",
-            "statsout": gene_dir / f"{prefix}.statsout",
+        codes = [META_CODE]
+    profiles = load_profiles(hmm_path)
+    logger.info("Evaluating %d genetic codes with %d threads", len(codes), threads)
+    with ThreadPoolExecutor(max_workers=max(1, min(len(codes), threads))) as pool:
+        evaluations = {
+            evaluation.code: evaluation
+            for evaluation in pool.map(
+                lambda code: _evaluate_code(records, code, assembly, profiles), codes
+            )
         }
+    if all(evaluation.gene_count == 0 for evaluation in evaluations.values()):
+        raise RuntimeError(f"No genes predicted for {query_file} under any code")
+    best_code = select_best_code(evaluations)
+    best = evaluations[best_code]
+    logger.info(
+        "Selected genetic code %d: complete_hits=%d avg_best_hit_score=%.2f "
+        "coding_density=%.2f%%",
+        best_code,
+        best.complete_hits,
+        best.avg_best_hit_score,
+        best.coding_density,
+    )
+    gene_dir = output_dir / "gene_calling" / query_file.stem
+    gene_dir.mkdir(parents=True, exist_ok=True)
+    result = GeneCallingResult(
+        best_code=best_code,
+        evaluations=evaluations,
+        assembly=assembly,
+        faa=gene_dir / f"{query_file.stem}.faa",
+        fna=gene_dir / f"{query_file.stem}.fna",
+        gff=gene_dir / f"{query_file.stem}.gff",
+    )
+    _write_gene_files(records, result)
+    _write_stats(result, query_file.stem, gene_dir / f"{query_file.stem}.statsout")
+    return result
 
-        # Copy best results
-        shutil.copy(code_results[best_code]["faa_file"], outputs["faa"])
-        shutil.copy(code_results[best_code]["fna_file"], outputs["fna"])
 
-        # Copy GFF file
-        if "gff_file" in code_results[best_code]:
-            shutil.copy(code_results[best_code]["gff_file"], outputs["gff"])
-            logger.info(
-                f"Copied GFF file from {code_results[best_code]['gff_file']} to {outputs['gff']}"
-            )
-        else:
-            logger.warning(f"No GFF file found for code {best_code}")
+def select_best_code(evaluations: Mapping[int, CodeEvaluation]) -> int:
+    """Return meta unless another code has marker evidence over it.
 
-        # Create stats file with ALL tested codes
-        stats_rows = []
-        for code, metrics in code_results.items():
-            # Determine the ttable string representation
-            if code == 0:
-                ttable_str = "codemeta"
-            else:
-                ttable_str = f"code{code}"
+    A nonzero code qualifies with at least one complete hit and either
+    ``COMPLETE_HITS_MARGIN`` more complete hits than meta, or at least as many
+    and an average best-hit score ``SCORE_MARGIN_PERCENT`` percent above meta.
+    Qualifying codes rank by complete hits, then score, then ``_PREFERENCE``.
+    """
+    meta = evaluations[META_CODE]
+    qualifying = [
+        evaluation
+        for code, evaluation in evaluations.items()
+        if code != META_CODE and _has_evidence_over_meta(evaluation, meta)
+    ]
+    if not qualifying:
+        return META_CODE
+    return max(qualifying, key=_ranking_key).code
 
-            # Mark the selected code
-            is_selected = "*" if code == best_code else ""
 
-            stats_rows.append(
-                {
-                    "query": query_file.stem,
-                    "genetic_code": f"{code}{is_selected}",
-                    "complete_hits": metrics["complete_hits"],
-                    "avg_best_hit_score": metrics["avg_best_hit_score"],
-                    "coding_density": metrics["coding_density"],
-                    "gene_count": metrics["gene_count"],
-                    "ttable": ttable_str,
-                    "contigs": metrics.get("contigs", 1),
-                    "LENbp": metrics.get("LENbp", 0),
-                    "GCperc": metrics.get("GCperc", 0.0),
-                    "genecount": metrics["gene_count"],
-                    "CODINGperc": metrics["coding_density"],
-                    "profile_hits": metrics.get("profile_hits", 0),
-                    "avg_coverage": metrics.get("avg_coverage", 0.0),
-                }
-            )
+def _has_evidence_over_meta(candidate: CodeEvaluation, meta: CodeEvaluation) -> bool:
+    if candidate.complete_hits == 0:
+        return False
+    if candidate.complete_hits >= meta.complete_hits + COMPLETE_HITS_MARGIN:
+        return True
+    return (
+        candidate.complete_hits >= meta.complete_hits
+        and candidate.avg_best_hit_score * 100
+        >= meta.avg_best_hit_score * (100 + SCORE_MARGIN_PERCENT)
+    )
 
-        # Create DataFrame and sort by complete_hits (descending) then avg_best_hit_score (descending)
-        stats_df = pd.DataFrame(stats_rows)
-        stats_df = stats_df.sort_values(
-            by=["complete_hits", "avg_best_hit_score", "coding_density"],
-            ascending=[False, False, False],
+
+def _ranking_key(evaluation: CodeEvaluation) -> tuple[int, float, int]:
+    preference = (
+        _PREFERENCE.index(evaluation.code)
+        if evaluation.code in _PREFERENCE
+        else len(_PREFERENCE)
+    )
+    return (
+        evaluation.complete_hits,
+        round(evaluation.avg_best_hit_score, 2),
+        -preference,
+    )
+
+
+def _assembly_stats(records: Sequence[SeqRecord]) -> AssemblyStats:
+    length_bp = sum(len(record.seq) for record in records)
+    gc_bases = sum(
+        str(record.seq).upper().count("G") + str(record.seq).upper().count("C")
+        for record in records
+    )
+    return AssemblyStats(
+        contigs=len(records),
+        length_bp=length_bp,
+        gc_percent=round(gc_bases / length_bp * 100, 2),
+    )
+
+
+def _call_genes(
+    records: Sequence[SeqRecord], code: int
+) -> list[tuple[str, pyrodigal.Genes]]:
+    """Gene-call every record under one code; meta mode needs no training."""
+    if code == META_CODE:
+        finder = pyrodigal.GeneFinder(meta=True)
+    else:
+        finder = pyrodigal.GeneFinder(meta=False)
+        finder.train(
+            *(str(record.seq) for record in records),
+            force_nonsd=True,
+            translation_table=code,
         )
+    return [(record.id, finder.find_genes(str(record.seq))) for record in records]
 
-        # Add a comment header to explain the selection logic
-        with open(outputs["statsout"], "w") as f:
-            f.write("# Genetic code optimization results\n")
-            f.write("# * indicates the selected code\n")
-            f.write(
-                "# Rank by complete_hits, avg_best_hit_score, coding_density, "
-                "then code preference.\n"
-            )
-            f.write(
-                "# If the top-ranked code is not meta and meta is available, "
-                "keep it only with:\n"
-            )
-            f.write(
-                f"#   at least {self._COMPLETE_HITS_ABSOLUTE_MARGIN} extra "
-                "complete_hits, OR\n"
-            )
-            f.write(
-                "#   avg_best_hit_score >= meta * "
-                f"{self._SCORE_RELATIVE_MARGIN:.2f}, OR\n"
-            )
-            f.write(
-                "#   coding_density >= meta * "
-                f"{self._CODING_DENSITY_RELATIVE_MARGIN:.2f}.\n"
-            )
-            f.write(
-                "# Otherwise keep meta. Lower-ranked candidates do not override "
-                "the selected code.\n"
-            )
-            f.write("#\n")
 
-        # Append the dataframe to the file
-        stats_df.to_csv(outputs["statsout"], sep="\t", index=False, mode="a")
+def _evaluate_code(
+    records: Sequence[SeqRecord],
+    code: int,
+    assembly: AssemblyStats,
+    profiles: Sequence[HMM],
+) -> CodeEvaluation:
+    proteins = [
+        (f"{contig_id}_{number}", gene.translate())
+        for contig_id, genes in _call_genes(records, code)
+        for number, gene in enumerate(genes, start=1)
+    ]
+    domains = search_default_thresholds(profiles, digitize_proteins(proteins))
+    complete_hits, avg_best_hit_score = _marker_support(domains)
+    coding_bases = 3 * sum(len(sequence) for _, sequence in proteins)
+    evaluation = CodeEvaluation(
+        code=code,
+        gene_count=len(proteins),
+        coding_density=round(coding_bases / assembly.length_bp * 100, 2),
+        complete_hits=complete_hits,
+        avg_best_hit_score=avg_best_hit_score,
+    )
+    logger.info(
+        "Code %d: genes=%d complete_hits=%d avg_best_hit_score=%.2f "
+        "coding_density=%.2f%%",
+        code,
+        evaluation.gene_count,
+        evaluation.complete_hits,
+        evaluation.avg_best_hit_score,
+        evaluation.coding_density,
+    )
+    return evaluation
 
-        # Log output paths
-        logger.info(f"Final outputs: faa={outputs['faa']}, fna={outputs['fna']}")
-        logger.info(f"Gene count in final faa: {best_metrics['gene_count']}")
 
-        # Clean up temp directory
-        shutil.rmtree(temp_dir)
+def _marker_support(domains: Iterable[DomainHit]) -> tuple[int, float]:
+    """Return the complete hits and the mean best-domain score per hit protein."""
+    best_domain: dict[str, DomainHit] = {}
+    for domain in domains:
+        current = best_domain.get(domain.protein)
+        if current is None or domain.domain_score > current.domain_score:
+            best_domain[domain.protein] = domain
+    if not best_domain:
+        return 0, 0.0
+    complete_hits = sum(
+        1
+        for domain in best_domain.values()
+        if (domain.hmm_to - domain.hmm_from + 1) / domain.model_length
+        > COMPLETE_COVERAGE
+    )
+    mean_score = sum(domain.domain_score for domain in best_domain.values()) / len(
+        best_domain
+    )
+    return complete_hits, round(mean_score, 2)
 
-        return best_code, outputs, best_metrics, code_results
+
+def _write_gene_files(records: Sequence[SeqRecord], result: GeneCallingResult) -> None:
+    with (
+        result.faa.open("w", encoding="utf-8") as faa,
+        result.fna.open("w", encoding="utf-8") as fna,
+        result.gff.open("w", encoding="utf-8") as gff,
+    ):
+        for contig_id, genes in _call_genes(records, result.best_code):
+            genes.write_translations(faa, contig_id)
+            genes.write_genes(fna, contig_id)
+            genes.write_gff(gff, contig_id, include_translation_table=True)
+
+
+def _write_stats(result: GeneCallingResult, query_name: str, path: Path) -> None:
+    ranked = sorted(
+        result.evaluations.values(),
+        key=lambda item: (
+            -item.complete_hits,
+            -item.avg_best_hit_score,
+            -item.coding_density,
+        ),
+    )
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        handle.write(_STATS_HEADER)
+        writer = csv.writer(handle, delimiter="\t", lineterminator="\n")
+        writer.writerow(_STATS_COLUMNS)
+        for item in ranked:
+            selected = "*" if item.code == result.best_code else ""
+            writer.writerow(
+                (
+                    query_name,
+                    f"{item.code}{selected}",
+                    "codemeta" if item.code == META_CODE else f"code{item.code}",
+                    item.complete_hits,
+                    item.avg_best_hit_score,
+                    item.coding_density,
+                    item.gene_count,
+                    result.assembly.contigs,
+                    result.assembly.length_bp,
+                    result.assembly.gc_percent,
+                )
+            )

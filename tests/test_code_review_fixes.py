@@ -14,7 +14,6 @@ from src.bin.gvclass_cli import (
     resolve_sensitive_mode,
 )
 from src.core.contamination_scoring import ContaminationScorer
-from src.core.hmm_search_multi import _has_model_cutoffs, _load_hmms, clean_hmm_file
 from src.core.reformat import calculate_stats
 from src.core.species_tree.protein_gathering import (
     select_query_representative_from_tree,
@@ -75,11 +74,31 @@ def test_find_nearest_neighbors_and_query_reps_ignore_prefix_colliding_refs(
     assert rep[0] == "G1|q_1"
 
 
-def test_taxonomy_consensus_and_marker_trees_use_7_rank_indices(
+@pytest.mark.parametrize(
+    "newick",
+    [
+        "(query_1:0.1,ref_b_1:0.2,ref_a_1:0.2);",
+        "(query_1:0.1,ref_a_1:0.2,ref_b_1:0.2);",
+    ],
+)
+def test_nearest_neighbor_tie_goes_to_smaller_name_in_any_leaf_order(
+    tmp_path: Path, newick: str
+) -> None:
+    labels = tmp_path / "labels.tsv"
+    labels.write_text("ref_a\tNCLDV|p|c|o|f|g|s\n", encoding="utf-8")
+    tree_file = tmp_path / "OG1.treefile"
+    tree_file.write_text(newick + "\n", encoding="utf-8")
+
+    neighbors = TreeAnalyzer(labels).get_neighbors_from_tree(tree_file, "query")
+
+    assert neighbors == {"query_1": {"ref_a_1": pytest.approx(0.3)}}
+
+
+def test_marker_trees_use_7_rank_indices(
     tmp_path: Path,
 ) -> None:
     """7-rank labels (domain|phylum|class|order|family|genus|species) must map
-    indices 3..6 to order, family, genus, species."""
+    indices 3..6 to order, family, genus, species in the tree_nn file."""
     labels = tmp_path / "labels.tsv"
     labels.write_text(
         "NCLDV__G1\td_Viruses|p_Nucleocytoviricota|c_Megaviricetes|"
@@ -95,52 +114,8 @@ def test_taxonomy_consensus_and_marker_trees_use_7_rank_indices(
     all_neighbors = analyzer.process_marker_trees(tree_dir, "QUERY", output_tsv)
     assert "GVOGm0003" in all_neighbors
 
-    assert analyzer.get_taxonomy_consensus(all_neighbors, "order") == "o_Imitervirales"
-    assert analyzer.get_taxonomy_consensus(all_neighbors, "family") == "f_Mimiviridae"
-    assert analyzer.get_taxonomy_consensus(all_neighbors, "genus") == "g_Mimivirus"
-    assert (
-        analyzer.get_taxonomy_consensus(all_neighbors, "species")
-        == "s_Mimivirus_bradfordmassiliense"
-    )
-
     content = output_tsv.read_text()
     assert "d_Viruses;o_Imitervirales;f_Mimiviridae;g_Mimivirus" in content
-
-
-def test_clean_hmm_file_preserves_cutoffs_and_has_model_cutoffs_checks_ga(
-    tmp_path: Path,
-) -> None:
-    """clean_hmm_file must retain GA/TC/NC lines, and _has_model_cutoffs must check GA."""
-    hmm_with_tc_only = (
-        "HMMER3/f [3.3.2 | Nov 2020]\n"
-        "NAME  test_tc\n"
-        "LENG  1\n"
-        "ALPH  amino\n"
-        "TC    25.00 25.00;\n"
-        "HMM          A        C        D        E        F        G        H        I        K        L        M        N        P        Q        R        S        T        V        W        Y\n"
-        "            m->m     m->i     m->d     i->m     i->i     d->m     d->d\n"
-        "  COMPO   2.68618  4.42225  2.77519  2.73123  3.46354  2.40513  3.72494  3.29354  2.67741  2.69355  4.24690  2.90347  2.73739  3.18146  2.91696  2.42397  2.77519  2.98518  4.58477  3.61503\n"
-        "          2.68618  4.42225  2.77519  2.73123  3.46354  2.40513  3.72494  3.29354  2.67741  2.69355  4.24690  2.90347  2.73739  3.18146  2.91696  2.42397  2.77519  2.98518  4.58477  3.61503\n"
-        "          0.01656  4.52135  5.29832  0.61904  0.77255  0.00000     *   \n"
-        "      1   2.68618  4.42225  2.77519  2.73123  3.46354  2.40513  3.72494  3.29354  2.67741  2.69355  4.24690  2.90347  2.73739  3.18146  2.91696  2.42397  2.77519  2.98518  4.58477  3.61503      1 a - - -\n"
-        "          2.68618  4.42225  2.77519  2.73123  3.46354  2.40513  3.72494  3.29354  2.67741  2.69355  4.24690  2.90347  2.73739  3.18146  2.91696  2.42397  2.77519  2.98518  4.58477  3.61503\n"
-        "          0.01656  4.52135  5.29832  0.61904  0.77255  0.48551  0.95551\n"
-        "//\n"
-    )
-    tc_file = tmp_path / "tc_only.hmm"
-    tc_file.write_text(hmm_with_tc_only)
-    tc_hmms = _load_hmms(str(tc_file))
-    assert len(tc_hmms) == 1
-    assert _has_model_cutoffs(tc_hmms[0]) is False
-
-    ga_file = tmp_path / "with_ga.hmm"
-    ga_file.write_text(hmm_with_tc_only.replace("TC    25.00 25.00;", "GA    25.00 25.00;"))
-    cleaned_ga = clean_hmm_file(str(ga_file))
-    cleaned_text = Path(cleaned_ga).read_text()
-    assert "GA    25.00 25.00;" in cleaned_text
-    ga_hmms = _load_hmms(cleaned_ga)
-    assert len(ga_hmms) == 1
-    assert _has_model_cutoffs(ga_hmms[0]) is True
 
 
 def test_protein_to_contig_id_only_strips_numeric_cds_suffix() -> None:

@@ -207,11 +207,16 @@ The bin may not be a giant-virus bin, or its family may be absent from training.
   other bins of the batch still run.
 - The giant-virus screen needs two contigs of 5 kb or more with genes; for a bin with
   fewer it writes no table and its status is `not_scored`.
-- The random draw of proteins for the embedding depends on the sequence content of the
-  bin, not on the file name or the contig order. Ties between equal distances inside
-  the bin-context features can still follow the row order, so a reordered copy of a
-  bin can change a score slightly. Two contigs with an identical sequence can change
-  the draw.
+- The cellular screen needs at least one called gene. For a bin with contigs of 3 kb
+  or more but no called gene it writes no table and prints that the bin is not scored.
+- The scores do not depend on the file name or the contig order. The random draw of
+  proteins for the embedding depends on the sequence content of the bin. Windows or
+  contigs that tie (equal distances, equal marker counts) are ordered by their
+  content, and two contigs with an identical sequence share one draw.
+- The module command lines (`python -m src.contig_screen.cellular` and
+  `python -m src.contig_screen.giant_virus`) reject a FASTA file with two records of
+  one identifier and read `.gz` in any case. A run that scores nothing removes the
+  table of an earlier run at `--out`.
 - `torch` and `transformers` come with the pixi environment and the image. The
   screens read the ESM-2 weights from the add-on and use no network.
 

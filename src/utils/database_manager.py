@@ -3,6 +3,7 @@ Database management utilities for GVClass.
 Handles downloading and validating the reference database.
 """
 
+import fcntl
 import hashlib
 import json
 import logging
@@ -11,7 +12,11 @@ import re
 import shutil
 import sys
 import tarfile
+import tempfile
 import time
+import uuid
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
 from typing import Optional
 from urllib.error import HTTPError, URLError
@@ -21,6 +26,17 @@ from urllib.request import Request, urlopen
 logger = logging.getLogger(__name__)
 
 _TRANSFER_CHUNK_SIZE = 1 << 20
+DOWNLOAD_TIMEOUT_S = 60
+#: Pauses before the first, second and third retry of a failed download.
+DOWNLOAD_RETRY_PAUSES_S = (2, 8, 30)
+
+
+class DownloadError(RuntimeError):
+    """A download failed; ``retryable`` says whether another attempt can help."""
+
+    def __init__(self, message: str, *, retryable: bool) -> None:
+        super().__init__(message)
+        self.retryable = retryable
 
 
 class _ProgressReporter:
@@ -208,7 +224,6 @@ def split_source(
     return {
         "version": "v2.1.0",
         "url": parts[0]["url"],
-        "filename": filename,
         "sha256": sha256,
         "parts": parts,
     }
@@ -240,6 +255,9 @@ class DatabaseManager:
     REQUIRED_FILE_ALTERNATIVES = {
         "labels.tsv": ("labels.tsv", "parquet/labels/labels.parquet"),
     }
+    #: Optional directories that live inside the database but come from their own
+    #: archive; a base install or update keeps an installed one.
+    ADDON_NAMES = ("contig_screen",)
 
     #: The archive is stored as parts (the Zenodo server cuts a long request); each
     #: part and the joined archive are checked against these hashes.
@@ -311,8 +329,8 @@ class DatabaseManager:
     @classmethod
     def is_newer_version(cls, candidate_version: str, current_version: str) -> bool:
         """Compare two database version labels, falling back gracefully for unknowns."""
-        candidate_parts = cls._parse_version(candidate_version)
-        current_parts = cls._parse_version(current_version)
+        candidate_parts = cls.parse_version(candidate_version)
+        current_parts = cls.parse_version(current_version)
 
         if candidate_parts is not None and current_parts is not None:
             return candidate_parts > current_parts
@@ -326,7 +344,7 @@ class DatabaseManager:
         ) != cls.normalize_version_label(current_version)
 
     @staticmethod
-    def _parse_version(version: Optional[str]) -> Optional[tuple[int, ...]]:
+    def parse_version(version: str | None) -> tuple[int, ...] | None:
         """Parse dotted numeric versions such as v1.4.0."""
         normalized = str(version or "").strip()
         match = re.search(r"(\d+(?:\.\d+)*)", normalized)
@@ -338,11 +356,11 @@ class DatabaseManager:
     def get_effective_database_source(
         cls, preferred_source: Optional[dict] = None
     ) -> dict:
-        """Return the highest-priority download source after env/config resolution."""
-        sources = cls._resolve_database_sources(preferred_source)
-        if not sources:
-            raise ValueError("No database download source is configured")
-        return sources[0]
+        """Return the one source selected by env, config, or the built-in default."""
+        candidate = (
+            cls._source_from_env() or preferred_source or cls.DEFAULT_DATABASE_SOURCE
+        )
+        return cls._normalize_source(candidate)
 
     @classmethod
     def get_latest_database_source(
@@ -382,18 +400,19 @@ class DatabaseManager:
         preferred_source: Optional[dict] = None,
         force: bool = False,
     ) -> Path:
-        """
-        Setup the GVClass database.
+        """Set up the GVClass database.
+
+        A complete database is used as it is unless ``force`` is set. Installing
+        or replacing holds an exclusive lock, so concurrent processes install once.
 
         Args:
             database_path: Custom database location. If None, uses 'resources' in current directory.
             preferred_source: Optional download source override from config/env.
-            force: Reinstall even when the current database appears complete.
+            force: Replace the database even when it is complete.
 
         Returns:
             Path to the database directory
         """
-        # Determine database path
         if database_path:
             db_path = Path(database_path).resolve()
         else:
@@ -401,29 +420,67 @@ class DatabaseManager:
 
         logger.info(f"Setting up database at: {db_path}")
 
-        # Check if database exists and is complete
-        if db_path.exists() and not force:
-            missing_files = cls._check_missing_files(db_path)
-            if not missing_files:
-                logger.info("Database already exists and is complete")
+        if not force and cls._is_complete(db_path):
+            logger.info("Database already exists and is complete")
+            return db_path
+
+        source = cls.get_effective_database_source(preferred_source)
+        with cls._install_lock(db_path) as waited:
+            if cls._wanted_state_present(db_path, source, force=force, waited=waited):
+                logger.info("Another process installed the database; using it")
                 return db_path
-            else:
-                logger.warning(f"Database exists but missing files: {missing_files}")
-        elif db_path.exists() and force:
-            logger.info("Forcing database reinstall at: %s", db_path)
-
-        # Download and extract database
-        cls._download_database(db_path, preferred_source=preferred_source)
-
-        # Verify all files are present
-        missing_files = cls._check_missing_files(db_path)
-        if missing_files:
-            raise ValueError(
-                "Database download failed. Missing files:\n" + "\n".join(missing_files)
-            )
+            if db_path.exists() and not force:
+                logger.warning(
+                    "Database exists but missing files: %s",
+                    cls._check_missing_files(db_path),
+                )
+            cls._install_database(db_path, source)
 
         logger.info("Database setup complete")
         return db_path
+
+    @classmethod
+    def _is_complete(cls, db_path: Path) -> bool:
+        return db_path.is_dir() and not cls._check_missing_files(db_path)
+
+    @classmethod
+    def _wanted_state_present(
+        cls, db_path: Path, source: dict, *, force: bool, waited: bool
+    ) -> bool:
+        """Tell whether the state this call wants exists once it holds the lock.
+
+        A plain setup wants a complete database. A forced one wants the source's
+        version, but only counts another process's install as that when it had to
+        wait for the lock; without a wait nobody has installed in between.
+        """
+        if not cls._is_complete(db_path):
+            return False
+        if not force:
+            return True
+        return waited and cls.get_database_version(db_path) == source["version"]
+
+    @classmethod
+    @contextmanager
+    def _install_lock(cls, db_path: Path) -> Iterator[bool]:
+        """Hold an exclusive lock on ``<parent>/.<name>.lock``; yield if it waited."""
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        lock_path = db_path.parent / f".{db_path.name}.lock"
+        with lock_path.open("a", encoding="utf-8") as lock_file:
+            waited = False
+            try:
+                fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                waited = True
+                logger.info(
+                    "Waiting for another process that installs %s (lock %s)",
+                    db_path,
+                    lock_path,
+                )
+                fcntl.flock(lock_file, fcntl.LOCK_EX)
+            try:
+                yield waited
+            finally:
+                fcntl.flock(lock_file, fcntl.LOCK_UN)
 
     @classmethod
     def _check_missing_files(cls, db_path: Path) -> list:
@@ -455,64 +512,6 @@ class DatabaseManager:
         return missing
 
     @classmethod
-    def _download_database(cls, db_path: Path, preferred_source: Optional[dict] = None):
-        """Download and extract the database via an atomic staging swap.
-
-        Extraction writes into ``<db_path>.new`` and only swaps into place
-        after the archive is verified, fully extracted, and the DB_VERSION
-        marker is checked or created if absent. A mid-extraction crash leaves the prior
-        ``db_path`` (if any) untouched and the half-built staging directory
-        is removed on the next attempt. The downloaded archive is parked in
-        ``db_path.parent`` as a sibling so it never contaminates the
-        staging tree.
-        """
-        db_path.parent.mkdir(parents=True, exist_ok=True)
-        # Clean up any leftover staging directory from a prior failed attempt
-        # before we start, so the swap logic sees a predictable state.
-        staging_path = db_path.parent / f"{db_path.name}.new"
-        if staging_path.exists():
-            logger.warning(f"Removing stale database staging directory: {staging_path}")
-            shutil.rmtree(staging_path, ignore_errors=True)
-
-        errors = []
-        for source in cls._resolve_database_sources(preferred_source):
-            version = source["version"]
-            # Archive lands outside db_path and outside staging_path, so the
-            # staging tree contains only extracted content.
-            archive_path = db_path.parent / source["filename"]
-
-            try:
-                cls._install_database_source_atomic(
-                    db_path, source, archive_path, staging_path
-                )
-                logger.info(f"Database version {version} installed")
-                return
-            except Exception as exc:
-                errors.append(f"{version}: {exc}")
-                logger.warning(f"Database source {version} failed: {exc}")
-            finally:
-                archive_path.unlink(missing_ok=True)
-                if staging_path.exists():
-                    shutil.rmtree(staging_path, ignore_errors=True)
-
-        raise RuntimeError(
-            "Failed to download database. Attempts: " + "; ".join(errors)
-            if errors
-            else "Failed to download database: no sources succeeded"
-        )
-
-    @classmethod
-    def _resolve_database_sources(
-        cls, preferred_source: Optional[dict] = None
-    ) -> list[dict]:
-        """Resolve the one exact source selected by env, config, or the default."""
-        candidate = (
-            cls._source_from_env() or preferred_source or cls.DEFAULT_DATABASE_SOURCE
-        )
-        normalized = cls._normalize_source(candidate)
-        return [normalized] if normalized else []
-
-    @classmethod
     def _source_from_env(cls) -> Optional[dict]:
         """Read an optional database source override from environment variables."""
         url = os.environ.get("GVCLASS_DB_URL", "").strip()
@@ -523,10 +522,9 @@ class DatabaseManager:
         allow_unverified = os.environ.get(
             "GVCLASS_DB_ALLOW_UNVERIFIED", ""
         ).strip().lower() in {"1", "true", "yes", "on"}
-        # Fail closed here, at source resolution, BEFORE _download_database can
-        # catch a per-source failure and silently fall back to the default
-        # source: an attacker-influenced GVCLASS_DB_URL with no checksum would
-        # otherwise feed an unverified, pickle-bearing archive into extraction.
+        # Fail closed here, at source resolution, before any download: an
+        # attacker-influenced GVCLASS_DB_URL with no checksum would otherwise
+        # feed an unverified, pickle-bearing archive into extraction.
         if sha256 is None and not allow_unverified:
             raise RuntimeError(
                 "GVCLASS_DB_URL is set but GVCLASS_DB_SHA256 is not. Refusing to "
@@ -541,20 +539,16 @@ class DatabaseManager:
                 cls.DEFAULT_DATABASE_SOURCE["version"],
             ).strip(),
             "url": url,
-            "filename": os.environ.get("GVCLASS_DB_FILENAME", "").strip() or None,
             "sha256": sha256,
             "allow_unverified": allow_unverified,
         }
 
     @classmethod
-    def _normalize_source(cls, source: Optional[dict]) -> Optional[dict]:
-        """Fill in missing download-source metadata and discard empty entries."""
-        if not source:
-            return None
-
+    def _normalize_source(cls, source: dict) -> dict:
+        """Validate a download source and fill in its missing version."""
         url = str(source.get("url", "")).strip()
         if not url:
-            return None
+            raise ValueError("The database source has no URL")
 
         scheme = urlparse(url).scheme.lower()
         if scheme != "https":
@@ -563,12 +557,6 @@ class DatabaseManager:
                 f"'{scheme or 'none'}': {url}. Database archives must be "
                 "fetched over https."
             )
-
-        filename = str(source.get("filename", "")).strip()
-        if not filename:
-            filename = PurePosixPath(urlparse(url).path).name
-        if not filename:
-            raise ValueError(f"Could not derive archive filename from URL: {url}")
 
         version = cls.normalize_version_label(
             str(source.get("version", "")).strip()
@@ -590,7 +578,6 @@ class DatabaseManager:
         normalized = {
             "version": version,
             "url": url,
-            "filename": filename,
             "sha256": sha256,
         }
         if "parts" in source:
@@ -622,16 +609,35 @@ class DatabaseManager:
             normalized.append({"url": part_url, "sha256": part_sha})
         return normalized
 
+    @staticmethod
+    def _with_retries(attempt: Callable[[], None], what: str) -> None:
+        """Run ``attempt``; repeat it after each pause while the error is retryable."""
+        for pause_s in (*DOWNLOAD_RETRY_PAUSES_S, None):
+            try:
+                attempt()
+            except DownloadError as exc:  # noqa: PERF203  # the loop exists to retry
+                if pause_s is None or not exc.retryable:
+                    raise
+                logger.warning("%s: %s; retrying in %s s", what, exc, pause_s)
+                time.sleep(pause_s)
+            else:
+                return
+
     @classmethod
     def _fetch_verified_part(cls, part: dict, number: int, part_path: Path) -> None:
         """Download one part and check its SHA-256; the file is the part on success."""
-        cls._download_archive(part["url"], part_path)
-        observed = cls._compute_sha256(part_path)
-        if observed.lower() != part["sha256"].lower():
-            raise RuntimeError(
-                f"checksum mismatch in part{number:03d} "
-                f"(expected {part['sha256'].lower()}, got {observed.lower()})"
-            )
+
+        def attempt() -> None:
+            cls._download_archive(part["url"], part_path)
+            observed = cls._compute_sha256(part_path)
+            if observed.lower() != part["sha256"].lower():
+                raise DownloadError(
+                    f"checksum mismatch in part{number:03d} "
+                    f"(expected {part['sha256'].lower()}, got {observed.lower()})",
+                    retryable=True,
+                )
+
+        cls._with_retries(attempt, f"part{number:03d}")
 
     @classmethod
     def _download_parts(cls, source: dict, archive_path: Path) -> None:
@@ -656,81 +662,121 @@ class DatabaseManager:
                 part_path.unlink(missing_ok=True)
 
     @classmethod
-    def _install_database_source_atomic(
-        cls,
-        db_path: Path,
-        source: dict,
-        archive_path: Path,
-        staging_path: Path,
-    ) -> None:
-        """Download, verify, extract to staging, then atomically swap into db_path.
-
-        Replaces the previous in-place extraction so a crash or verification
-        failure cannot leave a half-installed database tree. See
-        :meth:`_download_database` for caller-level orchestration.
-        """
-        version = source["version"]
-        url = source["url"]
-
-        logger.info(f"Attempting download of database {version} from {url}")
+    def _fetch_archive(cls, source: dict, archive_path: Path) -> None:
+        """Download the archive of ``source`` to ``archive_path`` and verify it."""
         if source.get("parts"):
             cls._download_parts(source, archive_path)
-        else:
-            cls._download_archive(url, archive_path)
-        cls._verify_archive_checksum(source, archive_path)
+            cls._verify_archive_checksum(source, archive_path)
+            return
 
-        staging_path.mkdir(parents=True, exist_ok=False)
-        cls._extract_archive(archive_path, staging_path)
-        cls._ensure_database_version(staging_path, version=version)
+        def attempt() -> None:
+            cls._download_archive(source["url"], archive_path)
+            cls._verify_archive_checksum(source, archive_path)
 
-        cls._atomic_swap_directory(staging_path, db_path)
+        cls._with_retries(attempt, "database archive")
+
+    @classmethod
+    def _install_database(cls, db_path: Path, source: dict) -> None:
+        """Download, extract and validate in a private directory, then swap in.
+
+        The staging directory is created next to ``db_path`` and removed in every
+        case. An installed database stays untouched unless the new tree is
+        complete; its add-ons move into the new tree before the swap.
+        """
+        version = source["version"]
+        logger.info(
+            "Attempting download of database %s from %s", version, source["url"]
+        )
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        staging_dir = Path(
+            tempfile.mkdtemp(prefix=f".{db_path.name}.install.", dir=db_path.parent)
+        )
+        try:
+            archive_path = staging_dir / "archive.tar.gz"
+            new_tree = staging_dir / "tree"
+            cls._fetch_archive(source, archive_path)
+            new_tree.mkdir()
+            cls._extract_archive(archive_path, new_tree)
+            cls._ensure_database_version(new_tree, version=version)
+            missing_files = cls._check_missing_files(new_tree)
+            if missing_files:
+                raise ValueError(
+                    "Downloaded database is incomplete; the installed database "
+                    "was not changed. Missing files:\n" + "\n".join(missing_files)
+                )
+            cls._replace_database(new_tree, db_path)
+        finally:
+            shutil.rmtree(staging_dir, ignore_errors=True)
+        logger.info("Database version %s installed", version)
+
+    @classmethod
+    def _replace_database(cls, new_tree: Path, db_path: Path) -> None:
+        """Swap ``new_tree`` in for ``db_path``, keeping the installed add-ons."""
+        kept = cls._carry_over_addons(db_path, new_tree)
+        try:
+            cls._atomic_swap_directory(new_tree, db_path)
+        except BaseException:
+            # The rollback restored the old tree; give it its add-ons back.
+            for name in kept:
+                if db_path.is_dir():
+                    (new_tree / name).replace(db_path / name)
+            raise
+
+    @classmethod
+    def _carry_over_addons(cls, db_path: Path, new_tree: Path) -> list[str]:
+        """Move installed add-ons into ``new_tree`` unless the archive has them."""
+        kept = []
+        for name in cls.ADDON_NAMES:
+            installed = db_path / name
+            if installed.is_dir() and not (new_tree / name).exists():
+                installed.replace(new_tree / name)
+                kept.append(name)
+        return kept
 
     @classmethod
     def install_addon(cls, db_path: Path, name: str, source: dict) -> Path:
         """Install an optional archive as ``<db_path>/<name>``, replacing it whole.
 
         The archive holds one top-level directory. It is downloaded (in parts if the
-        source lists them), checked against its SHA-256, extracted to a staging
-        directory and swapped into place; a failure keeps the installed add-on.
+        source lists them), checked against its SHA-256, extracted to a private
+        staging directory and swapped into place; a failure keeps the installed
+        add-on. The install holds the same lock as the database install. A process
+        that had to wait for the lock uses an add-on that the other one installed.
         """
         if re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]*", name) is None:
             raise ValueError(f"Invalid add-on name: {name!r}")
         normalized = cls._normalize_source(source)
-        if normalized is None:
-            raise ValueError("The add-on source has no URL")
         db_path = Path(db_path)
-        archive_path = db_path / f".{name}.download"
-        staging_path = db_path / f".{name}.new"
-        shutil.rmtree(staging_path, ignore_errors=True)
-        try:
-            if normalized.get("parts"):
-                cls._download_parts(normalized, archive_path)
-            else:
-                cls._download_archive(normalized["url"], archive_path)
-            cls._verify_archive_checksum(normalized, archive_path)
-            staging_path.mkdir(parents=True)
-            cls._extract_archive(archive_path, staging_path)
-            target = db_path / name
-            cls._atomic_swap_directory(staging_path, target)
-        finally:
-            archive_path.unlink(missing_ok=True)
-            shutil.rmtree(staging_path, ignore_errors=True)
+        target = db_path / name
+        with cls._install_lock(db_path) as waited:
+            if waited and target.is_dir():
+                logger.info("Another process installed %s; using it", name)
+                return target
+            staging_dir = Path(
+                tempfile.mkdtemp(prefix=f".{name}.install.", dir=db_path)
+            )
+            try:
+                archive_path = staging_dir / "archive.tar.gz"
+                new_tree = staging_dir / "tree"
+                cls._fetch_archive(normalized, archive_path)
+                new_tree.mkdir()
+                cls._extract_archive(archive_path, new_tree)
+                cls._atomic_swap_directory(new_tree, target)
+            finally:
+                shutil.rmtree(staging_dir, ignore_errors=True)
         return target
 
     @classmethod
     def _atomic_swap_directory(cls, staging_path: Path, db_path: Path) -> None:
         """Swap ``staging_path`` into ``db_path`` with rollback on failure.
 
-        If ``db_path`` already exists it is renamed aside, the staging tree
-        is moved into place, and the old tree is removed. On any failure
-        the previous database is restored. A parent-directory fsync on
+        If ``db_path`` already exists it is renamed aside under a unique name, the
+        staging tree is moved into place, and the old tree is removed. On any
+        failure the previous database is restored. A parent-directory fsync on
         POSIX anchors the rename in the filesystem journal so a crash
         immediately after the swap still resolves to a durable state.
         """
-        backup_path = db_path.parent / f"{db_path.name}.old"
-        if backup_path.exists():
-            logger.warning(f"Removing stale database backup: {backup_path}")
-            shutil.rmtree(backup_path, ignore_errors=True)
+        backup_path = db_path.parent / f".{db_path.name}.old.{uuid.uuid4().hex[:12]}"
 
         had_previous = db_path.exists()
         remove_backup = False
@@ -745,7 +791,9 @@ class DatabaseManager:
                     os.replace(backup_path, db_path)
                 except OSError as restore_exc:
                     logger.error(
-                        f"Failed to restore previous database from backup: {restore_exc}"
+                        "Failed to restore previous database from backup %s: %s",
+                        backup_path,
+                        restore_exc,
                     )
                 else:
                     remove_backup = True
@@ -856,7 +904,6 @@ class DatabaseManager:
                 record.get("metadata", {}).get("version")
             ),
             "url": archive_url,
-            "filename": archive_name,
             "sha256": sha256,
             "record_id": str(record.get("id") or record.get("recid") or "").strip()
             or None,
@@ -897,7 +944,6 @@ class DatabaseManager:
                 record.get("metadata", {}).get("version")
             ),
             "url": parts[0]["url"],
-            "filename": archive_name,
             "sha256": whole[archive_name],
             "parts": parts,
             "record_id": str(record.get("id") or record.get("recid") or "").strip()
@@ -924,7 +970,10 @@ class DatabaseManager:
         """Download database archive with streamed progress reporting."""
         request = Request(url, headers={"User-Agent": "gvclass-database-manager"})
         try:
-            with urlopen(request) as response, open(archive_path, "wb") as out_f:
+            with (
+                urlopen(request, timeout=DOWNLOAD_TIMEOUT_S) as response,
+                archive_path.open("wb") as out_f,
+            ):
                 progress = _ProgressReporter(
                     "Downloading database archive",
                     total_bytes=cls._response_content_length(response),
@@ -934,13 +983,18 @@ class DatabaseManager:
                     out_f.write(chunk)
                     progress.advance(len(chunk))
                 progress.finish()
-        except (HTTPError, URLError, OSError, TimeoutError) as exc:
+        except HTTPError as exc:
             archive_path.unlink(missing_ok=True)
-            raise RuntimeError(f"download failed ({exc})") from exc
+            raise DownloadError(
+                f"download failed ({exc})", retryable=exc.code >= 500
+            ) from exc
+        except (URLError, OSError, TimeoutError) as exc:
+            archive_path.unlink(missing_ok=True)
+            raise DownloadError(f"download failed ({exc})", retryable=True) from exc
 
         if not archive_path.exists() or archive_path.stat().st_size == 0:
             archive_path.unlink(missing_ok=True)
-            raise RuntimeError("download failed (empty archive)")
+            raise DownloadError("download failed (empty archive)", retryable=True)
 
     @staticmethod
     def _response_content_length(response) -> Optional[int]:
@@ -968,9 +1022,10 @@ class DatabaseManager:
             archive_path, progress_label="Verifying archive checksum"
         )
         if observed_sha256.lower() != expected_sha256.lower():
-            raise RuntimeError(
+            raise DownloadError(
                 "checksum mismatch "
-                f"(expected {expected_sha256.lower()}, got {observed_sha256.lower()})"
+                f"(expected {expected_sha256.lower()}, got {observed_sha256.lower()})",
+                retryable=True,
             )
         logger.info(f"SHA256 verified for source {source['version']}")
 
@@ -1080,20 +1135,3 @@ class DatabaseManager:
                 f"path traversal detected in archive member: {member_name}"
             ) from exc
         return target_path
-
-    @classmethod
-    def validate_database(cls, db_path: Path) -> bool:
-        """
-        Validate that all required database files exist.
-
-        Args:
-            db_path: Path to database directory
-
-        Returns:
-            True if valid, False otherwise
-        """
-        missing_files = cls._check_missing_files(db_path)
-        if missing_files:
-            logger.error(f"Missing database files: {missing_files}")
-            return False
-        return True

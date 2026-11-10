@@ -10,10 +10,11 @@ from __future__ import annotations
 import hashlib
 import os
 import shutil
+import stat
 import tempfile
+from collections.abc import Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator, Iterable, Sequence
 
 
 class ResourceStore:
@@ -49,7 +50,7 @@ class ResourceStore:
     }
 
     def __init__(self, database_path: Path | str):
-        self.database_path = Path(database_path)
+        self.database_path = Path(database_path).resolve()
         self._cache_identity: str | None = None
 
     @property
@@ -221,7 +222,8 @@ class ResourceStore:
         digest covers the resource manifest (member digests) and the size and
         modification time of each Parquet table. A replacement archive keeps its
         build-time modification time, so the modification time alone cannot tell
-        a new resource from a cache of the old one.
+        a new resource from a cache of the old one. A tree without a manifest
+        adds its resolved path, so two such trees never share a cache.
         """
         if self._cache_identity is None:
             parts: list[str] = []
@@ -229,7 +231,7 @@ class ResourceStore:
             try:
                 parts.append(hashlib.sha256(manifest.read_bytes()).hexdigest())
             except OSError:
-                parts.append("no-manifest")
+                parts.append(f"no-manifest:{self.database_path}")
             tables = [self.faa_parquet]
             if self.label_parquet_dir.is_dir():
                 tables.extend(sorted(self.label_parquet_dir.glob("*.parquet")))
@@ -263,17 +265,30 @@ class ResourceStore:
 
         try:
             root.mkdir(parents=True, exist_ok=True)
-            probe = root / ".write_test"
-            probe.write_text("")
-            probe.unlink(missing_ok=True)
+            fd, probe = tempfile.mkstemp(dir=root)
+            os.close(fd)
+            Path(probe).unlink()
             return root
         except OSError:
-            key = hashlib.sha256(
-                str(self.database_path.resolve()).encode()
-            ).hexdigest()[:16]
-            fallback = Path(tempfile.gettempdir()) / "gvclass_resource_cache" / key
-            fallback.mkdir(parents=True, exist_ok=True)
-            return fallback
+            return self._fallback_cache_root()
+
+    def _fallback_cache_root(self) -> Path:
+        """Return a private per-user, per-database cache under the system temp dir."""
+        uid = os.getuid()
+        top = Path(tempfile.gettempdir()) / f"gvclass_resource_cache_{uid}"
+        top.mkdir(mode=0o700, exist_ok=True)
+        # lstat: a symlink planted at this name is not our directory.
+        info = top.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != uid:
+            raise PermissionError(
+                f"Refusing to use {top} as the resource cache: it is not a "
+                "directory owned by the current user"
+            )
+        top.chmod(0o700)
+        key = hashlib.sha256(str(self.database_path).encode()).hexdigest()[:16]
+        fallback = top / key
+        fallback.mkdir(exist_ok=True)
+        return fallback
 
     @staticmethod
     def _target_current(target: Path, source: Path, allow_empty: bool) -> bool:

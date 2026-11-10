@@ -4,14 +4,15 @@ Process individual markers through BLAST, alignment, and tree building.
 This module handles the complete processing pipeline for a single marker.
 """
 
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional, Tuple
-from datetime import datetime
-from Bio import SeqIO, AlignIO
+
 import pytrimal
+from Bio import SeqIO
 
 from src.core.alignment import IQTREE_MODEL, align_sequences_pyfamsa, run_veryfasttree
-from src.core.blast import run_blastp, parse_blastp
+from src.core.blast import read_fasta, search_proteins, select_references
 from src.utils import setup_logging
 from src.utils.resource_store import ResourceStore
 
@@ -49,81 +50,65 @@ class MarkerProcessor:
             dir_path.mkdir(parents=True, exist_ok=True)
 
     def get_database_path(self) -> Path:
-        """Get the path to the marker-specific database."""
-        try:
-            return ResourceStore(self.database_path).marker_faa_path(self.marker)
-        except FileNotFoundError:
-            return self.database_path / "database" / "faa" / f"{self.marker}.faa"
+        """Return the marker's reference FASTA.
+
+        Raises:
+            FileNotFoundError: If the marker has no reference set.
+        """
+        return ResourceStore(self.database_path).marker_faa_path(self.marker)
 
     def blast_and_merge(
         self, query_hits_faa: Path, max_hits: int = 100, threads: int = 4
     ) -> Path:
-        """
-        Run BLAST against marker database and merge with query sequences.
+        """Search the marker's reference set and merge the chosen references.
+
+        Every query protein gets its own best hits among the references
+        (see :func:`src.core.blast.select_references`). The merged FASTA holds
+        the query sequences first, then the references in selection order. The
+        reference file is read once. The search is written to ``blastp_out``
+        as ``<marker>.m8``, which contamination scoring reads.
 
         Args:
             query_hits_faa: Path to query sequences that hit this marker
-            max_hits: Maximum number of BLAST hits to include
-            threads: Number of threads for BLAST
+            max_hits: Maximum number of hits per query and of references kept
+            threads: Number of threads for the search
 
         Returns:
             Path to merged FASTA file
-        """
-        logger.info(f"Processing BLAST for marker {self.marker}")
 
-        # Output files
-        blast_out = self.blast_dir / f"{self.marker}.m8"
+        Raises:
+            FileNotFoundError: If the marker has no reference set.
+        """
+        logger.info("Processing BLAST for marker %s", self.marker)
         merged_out = self.merged_dir / f"{self.marker}.faa"
 
-        # Get reference database
-        ref_faa = self.get_database_path()
-
-        if not ref_faa.exists():
-            logger.warning(f"Reference database not found for {self.marker}: {ref_faa}")
-            # If no reference database, just copy query sequences
-            import shutil
-
-            shutil.copy(query_hits_faa, merged_out)
-            return merged_out
-
-        # Run BLAST
-        run_blastp(
-            queryfaa=str(query_hits_faa),
-            refdb=str(ref_faa),
-            blastpout=str(blast_out),
+        queries = read_fasta(query_hits_faa)
+        references = read_fasta(self.get_database_path())
+        hits_by_query = search_proteins(
+            queries,
+            references,
+            self.blast_dir / f"{self.marker}.m8",
             threads=threads,
+            top_per_query=max_hits,
+        )
+        selected_ids = select_references(hits_by_query, max_hits)
+        logger.info(
+            "Found %d unique reference sequences for %s", len(selected_ids), self.marker
         )
 
-        # Parse BLAST results and extract top hits. Keep the per-query cap in
-        # sync with max_hits so parse_blastp's default (10) does not silently
-        # gate below the intended reference count.
-        blast_hits = parse_blastp(str(blast_out), max_hits_per_query=max_hits)
-
-        # Get top hit IDs (up to max_hits)
-        # parse_blastp returns a flat list of best hits
-        top_hit_ids = set(blast_hits[:max_hits])
+        references_by_id = {record.id: record for record in references}
+        with merged_out.open("w", encoding="utf-8") as out_f:
+            for record in queries:
+                out_f.write(f">{record.title}\n{record.sequence}\n")
+            for subject_id in selected_ids:
+                record = references_by_id[subject_id]
+                out_f.write(f">{record.title}\n{record.sequence}\n")
 
         logger.info(
-            f"Found {len(top_hit_ids)} unique reference sequences for {self.marker}"
+            "Merged %d reference sequences with query for %s",
+            len(selected_ids),
+            self.marker,
         )
-
-        # Merge query sequences with top reference hits
-        with open(merged_out, "w") as out_f:
-            # Write query sequences
-            for record in SeqIO.parse(str(query_hits_faa), "fasta"):
-                SeqIO.write(record, out_f, "fasta")
-
-            # Write reference sequences
-            ref_count = 0
-            for record in SeqIO.parse(str(ref_faa), "fasta"):
-                if record.id in top_hit_ids or record.description in top_hit_ids:
-                    SeqIO.write(record, out_f, "fasta")
-                    ref_count += 1
-
-        logger.info(
-            f"Merged {ref_count} reference sequences with query for {self.marker}"
-        )
-
         return merged_out
 
     def align_and_trim(self, merged_faa: Path, threads: int = 4) -> Tuple[Path, Path]:
@@ -231,19 +216,18 @@ class MarkerProcessor:
         ):
             stale_output.unlink(missing_ok=True)
 
-        # Short marker sets are intentionally copied without alignment. Count
-        # their raw FASTA records before asking AlignIO to require equal widths.
-        sequence_count = sum(1 for _ in SeqIO.parse(trimmed_alignment, "fasta"))
+        # Short marker sets are intentionally copied without alignment, so the
+        # equal-width check applies only to sets that go on to a tree.
+        records = list(SeqIO.parse(trimmed_alignment, "fasta"))
+        sequence_count = len(records)
 
         # Critical validation for tree building
         if sequence_count < 3:
-            warning_msg = (
-                f"WARNING: Too few sequences ({sequence_count}) for tree building "
-                f"of {self.marker}"
+            logger.warning(
+                "Too few sequences (%d) for tree building of %s; skipping",
+                sequence_count,
+                self.marker,
             )
-            logger.warning(warning_msg)
-            print(warning_msg)
-            print(f"   Skipping tree building for {self.marker} - insufficient data")
 
             # Create a SKIP file to indicate tree was not built
             skip_file = tree_out.with_suffix(".SKIPPED")
@@ -259,7 +243,11 @@ class MarkerProcessor:
             # Return None to indicate no tree was built
             return None
 
-        aln_records = list(AlignIO.read(str(trimmed_alignment), "fasta"))
+        if len({len(record.seq) for record in records}) != 1:
+            raise ValueError(
+                f"Sequences in {trimmed_alignment} must all be the same length "
+                f"to build the tree of {self.marker}"
+            )
 
         if tree_method in ("veryfasttree", "fasttree"):
             # Use VeryFastTree
@@ -279,13 +267,14 @@ class MarkerProcessor:
                     )
 
                 logger.info(
-                    f"Successfully built tree for {self.marker} with {len(aln_records)} sequences"
+                    "Successfully built tree for %s with %d sequences",
+                    self.marker,
+                    sequence_count,
                 )
 
             except Exception as e:
                 error_msg = f"ERROR: VeryFastTree failed for {self.marker}: {e}"
                 logger.error(error_msg)
-                print(error_msg)
 
                 # Create an error file to document the failure
                 error_file = tree_out.with_suffix(".ERROR")
@@ -293,7 +282,7 @@ class MarkerProcessor:
                     f.write(f"TREE BUILDING FAILED AT {datetime.now()}\n")
                     f.write(f"Marker: {self.marker}\n")
                     f.write(f"Method: {tree_method}\n")
-                    f.write(f"Sequences: {len(aln_records)}\n")
+                    f.write(f"Sequences: {sequence_count}\n")
                     f.write(f"Error: {str(e)}\n")
 
                 raise
@@ -314,6 +303,7 @@ class MarkerProcessor:
                 "-pre",
                 str(self.tree_dir / self.marker),
                 "-quiet",
+                "-redo",  # overwrite the outputs of an earlier run
             ]
 
             logger.info(f"Running IQ-TREE with command: {' '.join(cmd)}")
@@ -330,7 +320,6 @@ class MarkerProcessor:
                     f"ERROR: IQ-TREE timed out after 10 minutes for {self.marker}"
                 )
                 logger.error(error_msg)
-                print(error_msg)
 
                 # Create an error file to document the timeout
                 error_file = tree_out.with_suffix(".TIMEOUT")
@@ -338,7 +327,7 @@ class MarkerProcessor:
                     f.write(f"TREE BUILDING TIMEOUT AT {datetime.now()}\n")
                     f.write(f"Marker: {self.marker}\n")
                     f.write(f"Method: {tree_method}\n")
-                    f.write(f"Sequences: {len(aln_records)}\n")
+                    f.write(f"Sequences: {sequence_count}\n")
                     f.write("Timeout: 600 seconds\n")
                     f.write(f"Command: {' '.join(cmd)}\n")
 
@@ -346,13 +335,11 @@ class MarkerProcessor:
             except Exception as e:
                 error_msg = f"ERROR: Failed to run IQ-TREE for {self.marker}: {e}"
                 logger.error(error_msg)
-                print(error_msg)
                 raise RuntimeError(f"Failed to run IQ-TREE: {e}")
 
             if result.returncode != 0:
                 error_msg = f"ERROR: IQ-TREE failed for {self.marker}: {result.stderr}"
                 logger.error(error_msg)
-                print(error_msg)
 
                 # Create an error file to document the failure
                 error_file = tree_out.with_suffix(".ERROR")
@@ -360,7 +347,7 @@ class MarkerProcessor:
                     f.write(f"TREE BUILDING FAILED AT {datetime.now()}\n")
                     f.write(f"Marker: {self.marker}\n")
                     f.write(f"Method: {tree_method}\n")
-                    f.write(f"Sequences: {len(aln_records)}\n")
+                    f.write(f"Sequences: {sequence_count}\n")
                     f.write(f"Error: {result.stderr}\n")
                     f.write(f"Command: {' '.join(cmd)}\n")
 
@@ -371,7 +358,9 @@ class MarkerProcessor:
                 raise RuntimeError(f"Tree file empty or not created for {self.marker}")
 
             logger.info(
-                f"Successfully built tree for {self.marker} with {len(aln_records)} sequences using IQ-TREE"
+                "Successfully built tree for %s with %d sequences using IQ-TREE",
+                self.marker,
+                sequence_count,
             )
 
         return tree_out

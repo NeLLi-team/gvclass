@@ -44,16 +44,16 @@ quality:
 | `path` | `resources` | Database directory. Relative paths resolve from the repository root. |
 | `cache_path` | unset | Cache for TSV/FASTA files materialized from Parquet. Relative paths resolve inside the database directory. |
 | `download_url` | unset | URL of a single resource archive, used with `download_sha256` as a mirror. When unset, setup uses the built-in source: the v2.1.0 archive in 24 parts on Zenodo, each part and the joined archive checked against pinned SHA-256 values. |
-| `download_version` | `v2.1.0` | Pinned database version. An older installed `DB_VERSION` triggers a download. |
+| `download_version` | `v2.1.0` | Pinned database version. An older installed `DB_VERSION` produces a prompt (terminal) or a warning (no terminal); `setup-db --update` installs it. |
 | `download_sha256` | unset | Expected checksum of the archive at `download_url`. Required when `download_url` is set. |
 
 Database path precedence is `--database`, then `GVCLASS_DB`, then `database.path`.
 
-Setup uses one download source, chosen in this order: the `GVCLASS_DB_URL` environment variable, the `database.download_*` keys, then the built-in v2.1.0 source. An environment URL requires `GVCLASS_DB_SHA256`. The optional `GVCLASS_DB_VERSION` and `GVCLASS_DB_FILENAME` values describe the same archive. Setup uses only the selected source. It does not follow Zenodo's latest link or fall back to an older bundle. A Zenodo archive that GVClass finds automatically must have a valid SHA-256 sidecar. Set `GVCLASS_DB_ALLOW_UNVERIFIED=1` to opt in to an unverified environment archive.
+Setup uses one download source, chosen in this order: the `GVCLASS_DB_URL` environment variable, the `database.download_*` keys, then the built-in v2.1.0 source. An environment URL requires `GVCLASS_DB_SHA256`. The optional `GVCLASS_DB_VERSION` value describes the same archive. Setup uses only the selected source. It does not follow Zenodo's latest link or fall back to an older bundle. A Zenodo archive that GVClass finds automatically must have a valid SHA-256 sidecar. Set `GVCLASS_DB_ALLOW_UNVERIFIED=1` to opt in to an unverified environment archive.
 
 Compact resource bundles can store labels and reference proteins as Parquet (`parquet/labels/labels.parquet` and `parquet/faa.parquet`). Validation accepts reference proteins from `parquet/faa.parquet` or from nonempty legacy `database/faa/*.faa` files.
 
-`GVCLASS_RESOURCE_CACHE` overrides `cache_path`. The default is `<database.path>/.gvclass_cache`, with a hashed system-temporary cache used when the database directory is unwritable. The cache keeps one subdirectory per resource identity (the resource manifest digest and the size and modification time of each Parquet table), so a replaced resource never reads files cached from an older one, and two resources can share one cache directory. Remove old subdirectories to free space. See [configure the database](../how-to/configure-the-database.md).
+`GVCLASS_RESOURCE_CACHE` overrides `cache_path`. The default is `<database.path>/.gvclass_cache`. When that directory is unwritable, GVClass uses `<system temp>/gvclass_resource_cache_<uid>/<database-path hash>`, which it creates with mode 0700 and refuses to use if another user owns it. The cache keeps one subdirectory per resource identity (the resource manifest digest, or the resolved database path when there is no manifest, and the size and modification time of each Parquet table), so a replaced resource never reads files cached from an older one, and two resources can share one cache directory. Remove old subdirectories to free space. See [configure the database](../how-to/configure-the-database.md).
 
 ## Pipeline keys
 

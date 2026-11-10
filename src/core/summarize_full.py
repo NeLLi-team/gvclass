@@ -122,7 +122,6 @@ class FullSummarizer:
         self,
         result: Dict[str, Any],
         tax_counters: Dict[str, Counter],
-        per_marker_counters: Dict[str, Dict[str, Counter]],
         per_marker_lineage_counters: Dict[str, Counter[Tuple[str, ...]]],
         distances: List[float],
         mode_fast: bool,
@@ -134,13 +133,8 @@ class FullSummarizer:
             )
 
         result["avgdist"] = sum(distances) / len(distances) if distances else 0.0
-        taxonomy_majority, _taxonomy_strict, taxonomy_confidence = (
-            consensus._build_consensus_taxonomies(
-                tax_counters,
-                per_marker_counters,
-                mode_fast,
-                per_marker_lineage_counters,
-            )
+        taxonomy_majority, taxonomy_confidence = consensus._build_consensus_taxonomies(
+            per_marker_lineage_counters, mode_fast=mode_fast
         )
         result["taxonomy_majority"] = taxonomy_majority
         result["taxonomy_confidence"] = taxonomy_confidence
@@ -394,14 +388,13 @@ class FullSummarizer:
 
         (
             tax_counters,
-            per_marker_counters,
+            _per_marker_counters,
             per_marker_lineage_counters,
             distances,
         ) = labels_taxonomy._collect_taxonomy_counts(self.labels_dict, tree_nn_results)
         self._add_taxonomy_summary(
             result,
             tax_counters,
-            per_marker_counters,
             per_marker_lineage_counters,
             distances,
             mode_fast,

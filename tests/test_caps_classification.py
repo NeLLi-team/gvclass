@@ -1,25 +1,6 @@
-"""capscan caps markers now follow the standard per-model GA cutoff logic (no special floor):
-GA enforced in normal mode, dropped in sensitive mode, exactly like every other model."""
-from src.core.hmm_search import _should_keep_filtered_hit
+"""capscan caps marker groups and their derivation from hits and tree placements."""
+
 from src.config.marker_sets import CAPS_MARKER_GROUP
-
-
-def test_caps_markers_follow_standard_ga():
-    m = "plv_mcp_caps_PgVV_Aquinto"
-    # sensitive mode (no GA cutoffs): caps kept regardless of score, like any other model
-    assert _should_keep_filtered_hit(m, 50.0, 50.0, False, {}) is True
-    # normal mode with the stamped GA=75: enforced the standard way (both seq and dom)
-    assert _should_keep_filtered_hit(m, 80.0, 80.0, True, {m: (75.0, 75.0)}) is True
-    assert _should_keep_filtered_hit(m, 74.9, 80.0, True, {m: (75.0, 75.0)}) is False
-    assert _should_keep_filtered_hit(m, 80.0, 74.9, True, {m: (75.0, 75.0)}) is False
-
-
-def test_non_caps_markers_follow_standard_ga():
-    # no GA cutoffs -> kept regardless of score (sensitive-mode behaviour)
-    assert _should_keep_filtered_hit("VP_MCP_A", 10.0, 10.0, False, {}) is True
-    # GA cutoffs applied in normal mode
-    assert _should_keep_filtered_hit("OG1352", 50.0, 50.0, True, {"OG1352": (60.0, 60.0)}) is False
-    assert _should_keep_filtered_hit("OG1352", 65.0, 65.0, True, {"OG1352": (60.0, 60.0)}) is True
 
 
 def test_caps_marker_group_map():

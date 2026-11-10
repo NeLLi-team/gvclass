@@ -4,8 +4,9 @@ Per window the output holds the mean ESM-2 embedding of up to ``esm_genes`` call
 proteins. The proteins are those of the gene calls of ``extract_genes``; the sample
 is seeded with a digest of the sequences of the bin and drawn window by window in
 the order of the window content, so it does not depend on the file name or on the
-order of the contigs (``draw_plan``). ``sample_seed`` reproduces the prototype, which
-seeded with the file stem and drew in file order.
+order of the contigs (``draw_plan``). Windows of identical content (same sequence,
+same start) share one draw. ``sample_seed`` reproduces the prototype, which seeded
+with the file stem and drew in file order.
 """
 
 from __future__ import annotations
@@ -107,18 +108,27 @@ def draw_plan(
     """Return the seed text and the windows in the order in which they are drawn.
 
     By default the seed is ``content_seed`` of the contigs of 3 kb or more and the
-    windows are sorted by (sequence hash of the contig, start). With ``sample_seed``
-    (the file stem of the prototype) the seed is that name and the windows keep the
-    file order, which reproduces the numbers of the research prototype.
+    windows are sorted by (sequence hash of the contig, start); each window gets a
+    ``draw_key`` of that pair, so that windows of identical content share one draw.
+    With ``sample_seed`` (the file stem of the prototype) the seed is that name and
+    the windows keep the file order, without keys, which reproduces the numbers of
+    the research prototype.
     """
     if sample_seed is not None:
         return sample_seed, list(windows)
     hashes = {name: sequence_hash(sequence) for name, sequence in sequences.items()}
-    ordered = sorted(
-        windows,
-        key=lambda w: (hashes[str(w["source_contig"])], int(str(w["source_start"]))),
-    )
-    return content_seed(sequences), ordered
+    keyed = [
+        {
+            **window,
+            "draw_key": (
+                hashes[str(window["source_contig"])],
+                int(str(window["source_start"])),
+            ),
+        }
+        for window in windows
+    ]
+    keyed.sort(key=lambda window: window["draw_key"])
+    return content_seed(sequences), keyed
 
 
 def contig_proteins(
@@ -151,7 +161,8 @@ def window_embeddings(
 
     A window without an eligible protein has no embedding (missing values). The
     windows are visited in the order given and share one random generator seeded
-    with ``seed`` (see ``draw_plan``).
+    with ``seed`` (see ``draw_plan``); a window whose ``draw_key`` was seen before
+    reuses that draw.
     """
     by_contig: dict[str, list[dict[str, object]]] = {}
     for gene in genes:
@@ -160,10 +171,18 @@ def window_embeddings(
     rows: list[dict[str, object]] = [
         {"contig_id": contig["contig_id"]} for contig in contigs
     ]
-    wanted = [
-        contig_proteins(by_contig.get(str(contig["contig_id"]), []), esm_genes, rng)
-        for contig in contigs
-    ]
+    drawn: dict[object, dict[str, str]] = {}
+    wanted = []
+    for contig in contigs:
+        key = contig.get("draw_key")
+        found = drawn.get(key) if key is not None else None
+        if found is None:
+            found = contig_proteins(
+                by_contig.get(str(contig["contig_id"]), []), esm_genes, rng
+            )
+            if key is not None:
+                drawn[key] = found
+        wanted.append(found)
     every = {h: p for found in wanted for h, p in found.items()}
     vectors = embedder.embed(every)
     for record, found in zip(rows, wanted, strict=True):

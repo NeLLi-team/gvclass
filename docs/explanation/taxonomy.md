@@ -4,9 +4,13 @@
 
 ## From marker trees to a lineage
 
-Each marker contributes one taxonomic vote, even when several copies occur in a query. If a protein matches overlapping marker models, its closest tree placement is counted once. At each rank, GVClass selects the taxon supported by the most markers and restricts the next rank to that parent lineage.
+Each marker contributes at most one taxonomic vote per rank, even when several copies occur in a query. If a protein matches overlapping marker models, its closest tree placement is counted once. At each rank, a marker votes for the taxon with the most placements among those under the parent lineage already selected. A marker whose two best taxa have the same number of placements casts no vote. It still counts in the total for that rank. The total at a rank is the number of markers with at least one placement at that rank under the selected parent.
 
-Assignments require two distinct supporting markers at most ranks. Order assignments require three in extended mode or two in fast mode. If a rank lacks support, that rank and all lower ranks are left unassigned.
+GVClass then selects the taxon with the most marker votes and restricts the next rank to that parent lineage. If two taxa have the most votes, that rank and all lower ranks are left unassigned and the confidence includes `tie`, whether or not the tied taxa reach the support floor below. The result does not depend on the order of the markers or the files.
+
+Assignments require two distinct supporting markers at most ranks. Order assignments require three in extended mode or two in fast mode. If a rank lacks support, that rank and all lower ranks are left unassigned. A rank is also left unassigned, with no flag, when no marker has a placement at that rank under the selected parent. This happens when the references of that lineage carry no label at the rank.
+
+A winner is reported even when it holds half or fewer of the markers at its rank. In that case the confidence includes `plurality`. For example, three markers for one order and nine other markers that each name a different order give that order the call, flagged `plurality`.
 
 A eukaryotic domain needs more than a plurality. Its markers must be at least 80% of the markers that vote for a cellular domain (bacterial, archaeal, or eukaryotic). Distant homologs and contaminated reference sequences give a prokaryotic genome a minority of eukaryotic votes, and a plurality of them can win. When eukaryotic markers win without reaching 80%, the domain and all lower ranks are left unassigned and the confidence is `mixed_cellular`. Bacterial, archaeal, and viral domains keep the plurality rule.
 
@@ -16,13 +20,15 @@ The detailed `domain` through `species` columns contain taxon counts from indivi
 
 | `taxonomy_confidence` | Meaning |
 | --- | --- |
-| `high` | No support warning was triggered. |
-| `low_support` | Evidence was present, but too few distinct markers supported a rank. |
-| `mixed_cellular` | Eukaryotic markers won the domain vote without reaching 80% of the cellular-domain markers, so the domain is unassigned. |
-| `reduced_fastmode` | An order assignment relied on the relaxed fast-mode threshold of two markers. |
+| `high` | No flag was set: there was no tie, enough markers supported every assigned rank, and more than half of the markers at every assigned rank agreed. |
 | `no_support` | No usable taxonomic evidence was available. |
+| `low_support` | Evidence was present, but too few distinct markers supported the leading taxon at a rank, so that rank and all lower ranks are unassigned. |
+| `tie` | Two taxa had the most marker votes at a rank, so that rank and all lower ranks are unassigned. |
+| `mixed_cellular` | Eukaryotic markers won the domain vote without reaching 80% of the cellular-domain markers, so the domain is unassigned. |
+| `plurality` | A rank is assigned, but the winning taxon holds half or fewer of the markers at that rank. |
+| `reduced_fastmode` | An order assignment relied on the relaxed fast-mode threshold of two markers. |
 
-Multiple flags are comma-separated. Fast mode alone does not cause `reduced_fastmode`: an order supported by three or more markers clears the extended-mode threshold too. `high` describes marker support, not a measured probability that the classification is correct.
+Multiple flags are comma-separated, in the order of the table: `no_support`, `low_support`, `tie`, `mixed_cellular`, `plurality`, `reduced_fastmode`. Fast mode alone does not cause `reduced_fastmode`: an order supported by three or more markers clears the extended-mode threshold too. `high` describes marker support, not a measured probability that the classification is correct.
 
 ## Reference labels
 

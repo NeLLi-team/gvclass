@@ -41,7 +41,6 @@ REF_FILES = {
     "ref_genomes.tsv": layout.REF_GENOMES_FILE,
     "ref_genomes_x.tsv": layout.REFX_GENOMES_FILE,
 }
-DEFAULT_SET_VARIANT = "hits_struct"
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,7 +56,6 @@ class Inputs:
     refs_dir: Path
     threshold1: float
     threshold2: float
-    set_variant: str = DEFAULT_SET_VARIANT
     hmm: Path | None = None
     labels: Path | None = None
     gv_dir: Path | None = None
@@ -82,11 +80,26 @@ def build_resources(inputs: Inputs, out_root: Path, *, link: bool = False) -> st
     )
     placed.append(layout.THRESHOLDS_FILE)
     placed.extend(shared_files(out_root))
+    remove_unlisted(out_root, placed)
     manifest = layout.build_manifest(out_root, placed)
     (out_root / layout.MANIFEST_FILE).write_bytes(manifest)
     digest = hashlib.sha256(manifest).hexdigest()
     check_complete(out_root, digest)
     return digest
+
+
+def remove_unlisted(out_root: Path, listed: Sequence[str]) -> None:
+    """Delete the files of an earlier build that the new tree does not list.
+
+    Only ``contig_screen/`` is cleaned. The old manifest stays: the caller replaces it.
+    """
+    keep = {*listed, layout.MANIFEST_FILE}
+    for path in sorted((out_root / layout.SCREEN_DIR).rglob("*"), reverse=True):
+        if path.is_dir() and not path.is_symlink():
+            if not any(path.iterdir()):
+                path.rmdir()
+        elif path.relative_to(out_root).as_posix() not in keep:
+            path.unlink()
 
 
 def planned_files(inputs: Inputs) -> list[tuple[Path, str]]:
@@ -101,7 +114,7 @@ def planned_files(inputs: Inputs) -> list[tuple[Path, str]]:
         (path, f"{layout.MARKER_REFS_DIR}/{path.name}")
         for path in sorted(inputs.refs_dir.glob("*.faa"))
     )
-    variant = inputs.set_variant
+    variant = layout.SET_VARIANT
     set_files = [
         *sorted(inputs.set_dir.glob(f"model_{variant}_k*.pt")),
         inputs.set_dir / f"scaler_{variant}.json",
@@ -169,7 +182,6 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser.add_argument("--ref-dir", type=Path, required=True)
     parser.add_argument("--boosting", type=Path, required=True)
     parser.add_argument("--set-dir", type=Path, required=True)
-    parser.add_argument("--set-variant", default=DEFAULT_SET_VARIANT)
     parser.add_argument("--stage2-dir", type=Path, required=True)
     parser.add_argument("--threshold1", type=float, required=True)
     parser.add_argument("--threshold2", type=float, required=True)
@@ -202,7 +214,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         refs_dir=args.refs_dir,
         threshold1=args.threshold1,
         threshold2=args.threshold2,
-        set_variant=args.set_variant,
         hmm=args.hmm,
         labels=args.labels,
         gv_dir=args.gv_dir,

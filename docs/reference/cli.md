@@ -16,7 +16,7 @@ CLI flags override [configuration values](configuration.md), which override buil
 | `-o`, `--output-dir` | path; `<query_dir>_results` | Output directory. |
 | `-c`, `--config` | path; `config/gvclass_config.yaml` | YAML configuration file. |
 | `-d`, `--database` | path | Database directory. Overrides `GVCLASS_DB` and `database.path`. |
-| `--resource-cache-dir` | path; `GVCLASS_RESOURCE_CACHE`, then `database.cache_path`, else `<database>/.gvclass_cache` | Native Parquet materialization cache. Precedence: flag, environment variable, configuration, default. A relative configured path is resolved under the database directory. If the selected directory is not writable, use `<system temp>/gvclass_resource_cache/<database-path hash>`. |
+| `--resource-cache-dir` | path; `GVCLASS_RESOURCE_CACHE`, then `database.cache_path`, else `<database>/.gvclass_cache` | Native Parquet materialization cache. Precedence: flag, environment variable, configuration, default. A relative configured path is resolved under the database directory. If the selected directory is not writable, use `<system temp>/gvclass_resource_cache_<uid>/<database-path hash>` (mode 0700, owned by the current user). |
 
 ## Threads and workers
 
@@ -135,14 +135,15 @@ the selected output directory. Screen mode keeps its default of four threads and
 ## `setup-db`
 
 ```bash
-pixi run setup-db [-c CONFIG] [-d DATABASE] [--with-screen]
+pixi run setup-db [-c CONFIG] [-d DATABASE] [--with-screen] [--update]
 ```
 
-Downloads and installs the database. `-c` and `-d` select the configuration file and
-the database directory, as for `gvclass`.
+Downloads and installs the database when it is missing or incomplete. `-c` and `-d`
+select the configuration file and the database directory, as for `gvclass`.
 
 | Option | Description |
 | --- | --- |
+| `--update` | Replace a complete database with the pinned source, whatever its installed version. Without this option, setup never replaces a complete database. The contig-screen add-on is kept. |
 | `--with-screen` | Also install the contig-screen add-on, as `gvclass screen --install` does. Setup asks no questions, so it also runs in CI. |
 
 ## Apptainer container mode

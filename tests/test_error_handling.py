@@ -34,6 +34,5 @@ def test_retry_on_failure_reraises_original(caplog):
 
 
 def test_global_error_handler_has_log_error():
-    # The live call sites in hmm_search.py / hmm_search_multi.py use the module
-    # singleton; it must expose log_error.
+    # The module singleton must expose log_error.
     assert hasattr(error_handler, "log_error")

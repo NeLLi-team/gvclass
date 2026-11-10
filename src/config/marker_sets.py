@@ -1,11 +1,14 @@
-"""
-Marker sets configuration for GVClass pipeline.
+"""Marker sets configuration for the GVClass pipeline.
+
 Based on docs/markers_gvclassV1.tsv
+
+Every model name below must exist in the reference database;
+``missing_panel_models`` lists the names a database lacks.
 
 Marker Categories:
 ------------------
 NCLDV (Nucleocytoviricota):
-  - MCP: gamadvirusMCP, yaravirusMCP, PoxMCP, GVOGm0003, OG1352, OG484
+  - MCP: gamadvirusMCP, GVOGm0003, OG1352, OG484
 
 VP (Virophage) - 4-gene core for completeness:
   - MCP: VP_MCP_* (prefix match)
@@ -23,6 +26,8 @@ Mirus (Mirusviricota) - 4-category core for completeness:
   - Portal: Mirus_Portal
   - Triplex: Mirus_Triplex1, Mirus_Triplex2
 """
+
+from pathlib import Path
 
 # =============================================================================
 # VP (Virophage) marker categories - prefix-based matching
@@ -50,301 +55,104 @@ MIRUS_CATEGORY_MODELS = {
     "Triplex": ["Mirus_Triplex1", "Mirus_Triplex2"],
 }
 
-# Legacy MIRUS models (v1.1.x database naming)
-MIRUS_MODELS_LEGACY = [
-    "mOG0000014",  # MCP (Mirusviricota)
-    "mOG0000019",  # Portal (Mirusviricota)
-    "mOG0000020",  # Triplex1 (Mirusviricota)
-    "mOG0000030",  # Triplex2 (Mirusviricota)
-    "mOG0000040",  # Maturation (Mirusviricota)
-]
+# All Mirus models (flat list)
+MIRUS_MODELS = [model for models in MIRUS_CATEGORY_MODELS.values() for model in models]
 
-# All Mirus models (flat list for backward compatibility)
-MIRUS_MODELS = [
-    model for models in MIRUS_CATEGORY_MODELS.values() for model in models
-] + MIRUS_MODELS_LEGACY
-
-# BUSCO markers
+# BUSCO markers: the 69 BUSCO models that the database ships
 BUSCO_MODELS = [
-    "1001705at2759",
     "1003258at2759",
-    "100698at2759",
-    "1010730at2759",
-    "1014314at2759",
-    "1018517at2759",
     "1019762at2759",
-    "1025450at2759",
-    "1030907at2759",
     "1032689at2759",
     "1038775at2759",
-    "1041560at2759",
-    "1049599at2759",
-    "1051021at2759",
-    "1053181at2759",
     "1057950at2759",
-    "1065019at2759",
-    "1076134at2759",
     "1079130at2759",
     "1079827at2759",
-    "1085752at2759",
-    "1087488at2759",
     "1090038at2759",
-    "1094121at2759",
-    "1096688at2759",
     "1106766at2759",
-    "1107630at2759",
-    "1108845at2759",
     "1111142at2759",
-    "1112002at2759",
-    "1115196at2759",
-    "1128607at2759",
-    "1129824at2759",
-    "1138059at2759",
     "1157302at2759",
     "1161199at2759",
-    "1173229at2759",
     "1178688at2759",
-    "1182451at2759",
     "1193442at2759",
     "1194691at2759",
-    "1194797at2759",
     "1197019at2759",
     "1200489at2759",
-    "1217666at2759",
     "1220881at2759",
     "1222562at2759",
-    "1223488at2759",
-    "1228942at2759",
-    "1233814at2759",
     "1236198at2759",
-    "1247641at2759",
-    "1248958at2759",
     "1249159at2759",
-    "1251252at2759",
-    "1257440at2759",
-    "1258856at2759",
-    "1259741at2759",
     "1260807at2759",
-    "1264469at2759",
-    "1266231at2759",
-    "1269244at2759",
-    "1269649at2759",
     "1275837at2759",
     "1284731at2759",
-    "1287094at2759",
-    "1287401at2759",
     "1291729at2759",
-    "1304061at2759",
     "1309031at2759",
-    "1312453at2759",
-    "1314980at2759",
     "1322299at2759",
-    "1322642at2759",
-    "1323575at2759",
-    "1324510at2759",
     "1338131at2759",
-    "1339553at2759",
-    "1342242at2759",
     "1346165at2759",
     "1346432at2759",
     "1348942at2759",
-    "1355894at2759",
-    "1358374at2759",
-    "1364586at2759",
-    "1370285at2759",
-    "1370304at2759",
-    "1377237at2759",
-    "1379600at2759",
     "1380409at2759",
     "1382842at2759",
-    "1395649at2759",
-    "1398309at2759",
-    "1404162at2759",
-    "1405073at2759",
-    "1405146at2759",
-    "1407446at2759",
-    "1421503at2759",
     "1423847at2759",
-    "142542at2759",
-    "1426075at2759",
-    "1428265at2759",
-    "1428854at2759",
     "1430056at2759",
     "1432328at2759",
     "1434266at2759",
-    "1440961at2759",
-    "1441854at2759",
-    "1442062at2759",
-    "1445102at2759",
-    "1450538at2759",
-    "1454155at2759",
     "1455730at2759",
-    "1459797at2759",
-    "1474000at2759",
-    "1479417at2759",
-    "1488235at2759",
     "1488436at2759",
-    "1490022at2759",
     "1504863at2759",
-    "1513531at2759",
-    "1525971at2759",
-    "1526152at2759",
     "1530008at2759",
-    "1538526at2759",
-    "1545004at2759",
     "1552706at2759",
-    "1558822at2759",
-    "156083at2759",
-    "1563319at2759",
     "1567796at2759",
-    "1575179at2759",
     "1576404at2759",
     "1588798at2759",
-    "1593937at2759",
-    "160593at2759",
     "1617752at2759",
-    "1620056at2759",
     "1623701at2759",
-    "1626636at2759",
-    "1633672at2759",
     "1645187at2759",
-    "166920at2759",
     "176625at2759",
-    "179362at2759",
-    "245208at2759",
     "257318at2759",
-    "261328at2759",
-    "261419at2759",
-    "270107at2759",
-    "271586at2759",
-    "290630at2759",
-    "293315at2759",
     "296129at2759",
-    "299766at2759",
-    "306227at2759",
     "320059at2759",
-    "324863at2759",
-    "325552at2759",
-    "330169at2759",
-    "331411at2759",
-    "341721at2759",
-    "345441at2759",
-    "355408at2759",
-    "369837at2759",
-    "375960at2759",
     "383503at2759",
-    "388820at2759",
-    "390348at2759",
-    "392369at2759",
-    "39650at2759",
-    "396755at2759",
-    "418107at2759",
     "426305at2759",
-    "450058at2759",
-    "453044at2759",
-    "457861at2759",
-    "464990at2759",
-    "491869at2759",
-    "513979at2759",
     "543764at2759",
-    "549762at2759",
-    "551907at2759",
-    "570797at2759",
     "582756at2759",
-    "598949at2759",
-    "604979at2759",
-    "621827at2759",
     "625387at2759",
-    "655400at2759",
-    "664730at2759",
-    "671536at2759",
-    "671846at2759",
-    "673132at2759",
     "674160at2759",
-    "674169at2759",
-    "679187at2759",
-    "679771at2759",
-    "687505at2759",
     "692986at2759",
-    "708105at2759",
-    "719531at2759",
-    "720340at2759",
-    "721605at2759",
-    "722805at2759",
-    "734341at2759",
     "734666at2759",
     "736068at2759",
-    "751335at2759",
-    "759498at2759",
-    "761109at2759",
-    "768809at2759",
-    "774318at2759",
     "777920at2759",
-    "779909at2759",
-    "801857at2759",
-    "814241at2759",
-    "817008at2759",
     "834694at2759",
-    "836599at2759",
-    "83779at2759",
-    "844748at2759",
     "855834at2759",
-    "858842at2759",
-    "865202at2759",
-    "866359at2759",
     "869548at2759",
-    "878143at2759",
-    "87842at2759",
-    "887370at2759",
-    "891751at2759",
-    "898782at2759",
-    "901894at2759",
-    "905026at2759",
-    "911863at2759",
-    "917326at2759",
-    "918816at2759",
-    "919955at2759",
     "923657at2759",
-    "924753at2759",
-    "931188at2759",
-    "937275at2759",
-    "937686at2759",
     "939345at2759",
-    "944899at2759",
-    "946128at2759",
-    "956854at2759",
-    "97116at2759",
-    "973442at2759",
     "974865at2759",
-    "975158at2759",
-    "975557at2759",
     "976469at2759",
-    "981902at2759",
-    "996662at2759",
 ]
 
 # Phage markers (genomad)
 PHAGE_MODELS = [
-    "genomad000023",
-    "genomad000026",
-    "genomad000172",
-    "genomad000217",
-    "genomad000254",
-    "genomad000616",
-    "genomad000979",
-    "genomad001596",
-    "genomad001683",
-    "genomad006053",
-    "genomad008072",
-    "genomad016854",
-    "genomad020215",
-    "genomad020681",
-    "genomad029205",
-    "genomad051630",
-    "genomad057391",
-    "genomad066074",
-    "genomad090963",
-    "genomad132751",
+    "GENOMAD.000023.VV",
+    "GENOMAD.000026.VV",
+    "GENOMAD.000172.VV",
+    "GENOMAD.000217.VV",
+    "GENOMAD.000254.VV",
+    "GENOMAD.000616.VV",
+    "GENOMAD.000979.VV",
+    "GENOMAD.001596.VV",
+    "GENOMAD.001683.VV",
+    "GENOMAD.006053.VV",
+    "GENOMAD.008072.VV",
+    "GENOMAD.016854.VV",
+    "GENOMAD.020215.VV",
+    "GENOMAD.020681.VV",
+    "GENOMAD.029205.VV",
+    "GENOMAD.051630.VV",
+    "GENOMAD.057391.VV",
+    "GENOMAD.066074.VV",
+    "GENOMAD.090963.VV",
+    "GENOMAD.132751.VV",
 ]
 
 # GVOG markers - 4 marker set
@@ -432,19 +240,13 @@ UNI56_MODELS = [
 # =============================================================================
 NCLDV_MCP_MODELS = [
     "gamadvirusMCP",  # NCLDV major capsid protein (Gamadvirus)
-    "yaravirusMCP",  # NCLDV major capsid protein (Yaravirus)
-    "PoxMCP",  # NCLDV major capsid protein (Poxviruses)
     "GVOGm0003",  # NCLDV major capsid protein (GVOG)
     "OG1352",  # NCLDV major capsid protein
     "OG484",  # NCLDV major capsid protein
 ]
 
 # All MCP markers (NCLDV + Mirusviricota)
-MCP_MODELS = NCLDV_MCP_MODELS + [
-    "mOG0000014",  # MCP (Mirusviricota) - legacy naming
-    "Mirus_MCP",  # MCP (Mirusviricota) - v1.2 naming
-    "Mirus_JellyRoll",  # MCP (Mirusviricota) - v1.2 naming
-]
+MCP_MODELS = NCLDV_MCP_MODELS + MIRUS_CATEGORY_MODELS["MCP"]
 
 # MRYA markers (Metagenomic Russian Yokohama-Asfarviridae)
 MRYA_MODELS = [
@@ -510,6 +312,46 @@ CAPS_MARKER_GROUP = {
     "gamadvirusmcp_caps_yaravirus_MCP_NCV_like": "Mriyavirus",
 }
 
+# =============================================================================
+# Panel registry: every model name that a panel metric reads.
+# =============================================================================
+PANEL_MODELS: dict[str, list[str]] = {
+    "gvog4": GVOG4M_MODELS,
+    "gvog8": GVOG8M_MODELS,
+    "busco": BUSCO_MODELS,
+    "cog": UNI56_MODELS,
+    "mrya": MRYA_MODELS,
+    "phage": PHAGE_MODELS,
+    "ncldv_mcp": NCLDV_MCP_MODELS,
+    "mirus": MIRUS_MODELS,
+}
+
+# Panels that match every model name with a given prefix.
+PANEL_PREFIXES: dict[str, str] = {
+    **{
+        f"vp_{category.lower()}": prefix
+        for category, prefix in VP_CATEGORY_PREFIXES.items()
+    },
+    "plv": PLV_PREFIX,
+}
+
+
+def missing_panel_models(available_models: set[str]) -> dict[str, list[str]]:
+    """Return, per panel, the panel models that ``available_models`` lacks.
+
+    A prefix panel is missing, reported as ``"<prefix>*"``, when no available
+    model starts with its prefix. The result is empty when every panel is present.
+    """
+    missing: dict[str, list[str]] = {}
+    for panel, models in PANEL_MODELS.items():
+        absent = [model for model in models if model not in available_models]
+        if absent:
+            missing[panel] = absent
+    for panel, prefix in PANEL_PREFIXES.items():
+        if not any(model.startswith(prefix) for model in available_models):
+            missing[panel] = [f"{prefix}*"]
+    return missing
+
 
 # =============================================================================
 # Marker groups (data-driven gene families sharing reference proteins).
@@ -518,30 +360,38 @@ CAPS_MARKER_GROUP = {
 # -> one nearest-neighbour vote, removing the per-model vote over-counting that
 # otherwise fragments classification (e.g. an MCP cross-hitting 8 profiles -> 8 votes).
 # =============================================================================
-import os
-
-_MARKER_GROUPS_TSV = os.path.join(os.path.dirname(__file__), "marker_groups.tsv")
+_MARKER_GROUPS_TSV = Path(__file__).with_name("marker_groups.tsv")
 # Flags whose groups are safe to combine into a shared tree. REVIEW_mixed groups
 # (possible over-merge) are excluded so their members stay one-model-per-tree.
 _COMBINE_FLAGS = frozenset({"ok", "no_annotation"})
+_GROUP_TABLE_FIELDS = 8
 
 
-def load_marker_groups(path=_MARKER_GROUPS_TSV, combine_flags=_COMBINE_FLAGS):
+def load_marker_groups(
+    path: Path = _MARKER_GROUPS_TSV,
+    combine_flags: frozenset[str] = _COMBINE_FLAGS,
+) -> tuple[dict[str, list[str]], dict[str, str]]:
     """Return (group_to_models, model_to_group) for groups that are safe to combine.
 
     Reads the lookup written by ``scripts/build_marker_groups.py``. Only groups whose
     flag is in ``combine_flags`` are returned; REVIEW_mixed groups are skipped.
+
+    Raises:
+        FileNotFoundError: The table does not exist.
+        ValueError: A row has too few fields, or the table holds no combinable group.
     """
-    group_to_models, model_to_group = {}, {}
-    if not os.path.exists(path):
-        return group_to_models, model_to_group
-    with open(path) as handle:
-        for line in handle:
-            if line.startswith("#") or line.startswith("group_name\t"):
+    group_to_models: dict[str, list[str]] = {}
+    model_to_group: dict[str, str] = {}
+    with path.open(encoding="utf-8") as handle:
+        for line_no, line in enumerate(handle, start=1):
+            if line.startswith(("#", "group_name\t")):
                 continue
             parts = line.rstrip("\n").split("\t")
-            if len(parts) < 8:
-                continue
+            if len(parts) < _GROUP_TABLE_FIELDS:
+                raise ValueError(
+                    f"{path}: line {line_no} has {len(parts)} fields, "
+                    f"expected {_GROUP_TABLE_FIELDS}"
+                )
             name, flag = parts[0], parts[6]
             members = [m for m in parts[7].split(";") if m]
             if flag not in combine_flags or len(members) < 2:
@@ -549,6 +399,8 @@ def load_marker_groups(path=_MARKER_GROUPS_TSV, combine_flags=_COMBINE_FLAGS):
             group_to_models[name] = members
             for model in members:
                 model_to_group[model] = name
+    if not group_to_models:
+        raise ValueError(f"no marker groups found in {path}")
     return group_to_models, model_to_group
 
 

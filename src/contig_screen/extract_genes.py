@@ -18,7 +18,7 @@ import logging
 import time
 from collections import Counter, defaultdict
 from pathlib import Path
-from typing import TypeAlias
+from typing import TextIO, TypeAlias
 
 import pandas as pd
 import pyhmmer
@@ -46,6 +46,30 @@ HIT_COLUMNS = [
     "score",
     "evalue",
     "aln_len",
+]
+
+GENE_COLUMNS = [
+    "contig_id",
+    "gene_idx",
+    "begin",
+    "end",
+    "strand",
+    "partial",
+    "start_type",
+    "rbs_motif",
+    "rbs_spacer",
+    "gc_cont",
+    "score",
+    "cscore",
+    "rscore",
+    "sscore",
+    "tscore",
+    "uscore",
+    "conf",
+    "ttable",
+    "aa_len",
+    "prot_hash",
+    "protein",
 ]
 
 HmmHits: TypeAlias = dict[str, list[tuple[str, float, float]]]
@@ -89,12 +113,28 @@ def extract_bin(
     return contigs, genes
 
 
-def read_fasta(path: str) -> dict[str, str]:
-    """Return contig name to upper-case sequence for contigs of at least 3 kb."""
-    opener = gzip.open if path.endswith(".gz") else open
+def open_text(path: Path | str) -> TextIO:
+    """Open a FASTA file for reading text, gzipped (``.gz`` in any case) or not."""
+    path = Path(path)
+    if path.suffix.lower() == ".gz":
+        return gzip.open(path, "rt", encoding="utf-8")
+    return path.open(encoding="utf-8")
+
+
+def read_fasta(path: Path | str) -> dict[str, str]:
+    """Return contig name to upper-case sequence for contigs of at least 3 kb.
+
+    Raises:
+        ValueError: Two records have the same identifier.
+    """
     contigs: dict[str, str] = {}
-    with opener(path, "rt", encoding="utf-8") as handle:
+    seen: set[str] = set()
+    with open_text(path) as handle:
         for record in SeqIO.parse(handle, "fasta"):
+            if record.id in seen:
+                msg = f"duplicate FASTA identifier {record.id!r} in {path}"
+                raise ValueError(msg)
+            seen.add(record.id)
             if len(record.seq) >= MIN_SOURCE_CONTIG:
                 contigs[record.id] = str(record.seq).upper()
     return contigs
@@ -338,7 +378,7 @@ def write_tables(
 ) -> None:
     """Write the contig, gene and hit tables of one genome."""
     pd.DataFrame(contig_rows).to_parquet(out / f"{name}.contigs.parquet", index=False)
-    gene_frame = pd.DataFrame(genes).drop(columns=["protein"])
+    gene_frame = pd.DataFrame(genes, columns=GENE_COLUMNS).drop(columns=["protein"])
     best = {key: max(found, key=lambda item: item[1]) for key, found in models.items()}
     counts = {key: len({hit[0] for hit in found}) for key, found in models.items()}
     gene_frame["best_model"] = gene_frame["prot_hash"].map(

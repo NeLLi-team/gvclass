@@ -165,7 +165,9 @@ def test_setup_db_installs_the_addon_only_when_asked(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     installed: list[Path] = []
-    monkeypatch.setattr(setup_database, "check_and_setup_database", lambda *a: True)
+    monkeypatch.setattr(
+        setup_database, "check_and_setup_database", lambda *a, **k: True
+    )
     monkeypatch.setattr(
         "src.bin.gvclass_screen.install_bundle",
         lambda database: installed.append(database) or 0,
@@ -185,7 +187,9 @@ def test_setup_db_installs_the_addon_only_when_asked(
 def test_setup_db_reports_a_failed_addon_install(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setattr(setup_database, "check_and_setup_database", lambda *a: True)
+    monkeypatch.setattr(
+        setup_database, "check_and_setup_database", lambda *a, **k: True
+    )
     monkeypatch.setattr("src.bin.gvclass_screen.install_bundle", lambda database: 1)
     monkeypatch.setattr(
         sys, "argv", ["setup_database", "-d", str(tmp_path / "db"), "--with-screen"]

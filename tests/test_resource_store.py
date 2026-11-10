@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import stat
+import tempfile
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -226,13 +228,98 @@ def test_resource_store_keeps_trees_that_share_a_cache_apart(
     assert one.parent.parent.parent == shared
 
 
-def test_marker_processor_preserves_missing_marker_fallback(tmp_path: Path) -> None:
+def test_marker_processor_rejects_missing_marker_reference_set(
+    tmp_path: Path,
+) -> None:
     processor = MarkerProcessor(
         "MISSING",
         database_path=tmp_path / "db",
         output_dir=tmp_path / "out",
     )
 
-    assert processor.get_database_path() == (
-        tmp_path / "db" / "database" / "faa" / "MISSING.faa"
-    )
+    with pytest.raises(FileNotFoundError, match="MISSING"):
+        processor.get_database_path()
+
+
+def test_resource_store_resolves_a_relative_database_path(
+    tmp_path: Path, monkeypatch
+) -> None:
+    (tmp_path / "db").mkdir()
+    monkeypatch.chdir(tmp_path)
+    store = ResourceStore("db")
+
+    monkeypatch.chdir(tmp_path / "db")
+
+    assert store.database_path == (tmp_path / "db").resolve()
+
+
+def test_resource_store_probe_does_not_follow_a_planted_write_test_link(
+    tmp_path: Path, monkeypatch
+) -> None:
+    victim = tmp_path / "victim.txt"
+    victim.write_text("precious")
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    (cache / ".write_test").symlink_to(victim)
+    monkeypatch.setenv("GVCLASS_RESOURCE_CACHE", str(cache))
+    _write_parquet(tmp_path / "db" / "parquet" / "faa.parquet", [_faa_row("EUK__a|1")])
+
+    ResourceStore(tmp_path / "db").marker_faa_path("PRESENT")
+
+    assert victim.read_text() == "precious"
+
+
+def _unwritable_cache(tmp_path: Path, monkeypatch) -> Path:
+    """Point the cache below a regular file, so no directory can be made there."""
+    blocker = tmp_path / "blocker"
+    blocker.write_text("file")
+    monkeypatch.setenv("GVCLASS_RESOURCE_CACHE", str(blocker / "cache"))
+    system_temp = tmp_path / "system-temp"
+    system_temp.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(system_temp))
+    return system_temp
+
+
+def test_resource_store_fallback_cache_is_private_to_the_user(
+    tmp_path: Path, monkeypatch
+) -> None:
+    system_temp = _unwritable_cache(tmp_path, monkeypatch)
+    _write_parquet(tmp_path / "db" / "parquet" / "faa.parquet", [_faa_row("EUK__a|1")])
+
+    cached = ResourceStore(tmp_path / "db").marker_faa_path("PRESENT")
+
+    top = system_temp / f"gvclass_resource_cache_{os.getuid()}"
+    assert cached.is_relative_to(top)
+    assert stat.S_IMODE(top.stat().st_mode) == 0o700
+
+
+def test_resource_store_refuses_a_fallback_cache_of_another_user(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _unwritable_cache(tmp_path, monkeypatch)
+    _write_parquet(tmp_path / "db" / "parquet" / "faa.parquet", [_faa_row("EUK__a|1")])
+    real_uid = os.getuid()
+    # This user creates the directory, so it is foreign to a user with another id.
+    monkeypatch.setattr(os, "getuid", lambda: real_uid + 1)
+
+    with pytest.raises(PermissionError, match="owned"):
+        ResourceStore(tmp_path / "db").marker_faa_path("PRESENT")
+
+
+def test_resource_store_keeps_trees_without_manifest_apart(
+    tmp_path: Path, monkeypatch
+) -> None:
+    shared = tmp_path / "shared-cache"
+    monkeypatch.setenv("GVCLASS_RESOURCE_CACHE", str(shared))
+    first, second = tmp_path / "first", tmp_path / "second"
+    _write_parquet(first / "parquet" / "faa.parquet", [_faa_row("EUK__one|1")])
+    _write_parquet(second / "parquet" / "faa.parquet", [_faa_row("EUK__two|1")])
+    stamp = (first / "parquet" / "faa.parquet").stat().st_mtime_ns
+    os.utime(second / "parquet" / "faa.parquet", ns=(stamp, stamp))
+
+    one = ResourceStore(first).marker_faa_path("PRESENT")
+    two = ResourceStore(second).marker_faa_path("PRESENT")
+
+    assert one.read_text() == ">EUK__one|1\nMKK\n"
+    assert two.read_text() == ">EUK__two|1\nMKK\n"
+    assert one.parent != two.parent

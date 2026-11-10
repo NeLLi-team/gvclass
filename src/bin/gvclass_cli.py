@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import sys
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -648,10 +649,12 @@ def inspect_local_database_state(db_path: Path) -> dict:
         }
 
     missing_files = DatabaseManager._check_missing_files(db_path)
+    version = DatabaseManager.get_database_version(db_path)
     return {
         "exists": True,
         "complete": not missing_files,
-        "version": DatabaseManager.get_database_version(db_path),
+        "version": version,
+        "has_release_version": DatabaseManager.parse_version(version) is not None,
         "missing_files": missing_files,
     }
 
@@ -674,68 +677,87 @@ def prompt_yes_no(prompt: str, default: bool = True) -> bool:
         print("Please answer yes or no.")
 
 
+def is_interactive_terminal() -> bool:
+    """Tell whether both stdin and stdout are terminals, so a prompt can be shown."""
+    return sys.stdin.isatty() and sys.stdout.isatty()
+
+
 def should_offer_database_update(
     local_version: str, latest_source: Optional[dict]
 ) -> bool:
+    """Tell whether the pinned source is newer than a comparable installed version.
+
+    A database without a release version number is a custom one; it is never
+    offered an update.
+    """
     from src.utils.database_manager import DatabaseManager
 
     if not latest_source:
         return False
+    if DatabaseManager.parse_version(local_version) is None:
+        return False
     return DatabaseManager.is_newer_version(latest_source["version"], local_version)
 
 
-def check_and_setup_database(db_path: Path, config, output: CliOutput) -> bool:
+def confirm_database_update(db_state: dict, source: dict, output: CliOutput) -> bool:
+    """Apply the update policy to a complete database; True means replace it.
+
+    A complete database is replaced only after a "yes" at a terminal prompt
+    (default No). Without a terminal, one warning names the update command and
+    the run goes on with the installed database.
+    """
+    installed, pinned = db_state["version"], source["version"]
+    if not db_state["has_release_version"]:
+        output.line(
+            f"Installed database has no release version ({installed}); "
+            "treating it as a custom database and not checking for updates.",
+            key="database",
+        )
+        return False
+    if not should_offer_database_update(installed, source):
+        return False
+    if is_interactive_terminal():
+        return prompt_yes_no(
+            f"Update database from {installed} to {pinned}?", default=False
+        )
+    output.line(
+        f"Installed database {installed} is older than the pinned {pinned}; "
+        "continuing with the installed database. "
+        "To update, run: pixi run setup-db --update",
+        key="warning",
+        file=sys.stderr,
+    )
+    return False
+
+
+def check_and_setup_database(
+    db_path: Path, config: dict, output: CliOutput, *, update: bool = False
+) -> bool:
+    """Install a missing or incomplete database; replace a complete one on consent.
+
+    ``update`` is the explicit consent of ``setup-db --update``.
+    """
     from src.utils.database_manager import DatabaseManager
 
     preferred_source = resolve_database_download_source(config)
     db_state = inspect_local_database_state(db_path)
-    update_source = DatabaseManager.get_effective_database_source(preferred_source)
+    source = DatabaseManager.get_effective_database_source(preferred_source)
 
     if db_state["exists"] and db_state["complete"]:
         output.line(f"Database found at: {db_path}", key="success")
         output.line(
             f"Installed database version: {db_state['version']}", key="database"
         )
-        if update_source and update_source.get("version"):
-            output.line(
-                f"Configured database version: {update_source['version']}",
-                key="download",
-            )
-
-        if should_offer_database_update(db_state["version"], update_source):
-            target_version = update_source["version"]
-            if sys.stdin.isatty() and sys.stdout.isatty():
-                wants_update = prompt_yes_no(
-                    f"Update database from {db_state['version']} to {target_version}?",
-                    default=True,
-                )
-            else:
-                # The config pins a newer version; update automatically rather than
-                # silently running against a stale database.
-                output.line(
-                    f"Installed database {db_state['version']} is older than the "
-                    f"configured {target_version}; updating automatically.",
-                    key="download",
-                )
-                wants_update = True
-
-            if wants_update:
-                output.line(
-                    f"Updating database from {db_state['version']} to {target_version}...",
-                    key="download",
-                )
-                try:
-                    DatabaseManager.setup_database(
-                        str(db_path),
-                        preferred_source=update_source,
-                        force=True,
-                    )
-                    output.line("Database setup complete!", key="success")
-                except Exception as exc:
-                    output.line(f"\nFailed to setup database: {exc}", key="error")
-                    output.line("You can try manually with: pixi run setup-db")
-                    return False
-        return True
+        output.line(f"Configured database version: {source['version']}", key="download")
+        if not update and not confirm_database_update(db_state, source, output):
+            return True
+        output.line(
+            f"Updating database from {db_state['version']} to {source['version']}...",
+            key="download",
+        )
+        return install_database(
+            DatabaseManager.setup_database, db_path, source, output, force=True
+        )
 
     if db_state["exists"]:
         output.line(
@@ -754,29 +776,29 @@ def check_and_setup_database(db_path: Path, config, output: CliOutput) -> bool:
             f"Latest database version on Zenodo: {latest_source['version']}",
             key="download",
         )
+    output.line("Setting up database...", key="download")
+    return install_database(
+        DatabaseManager.setup_database, db_path, source, output, force=False
+    )
 
-    if db_state["exists"] and should_offer_database_update(
-        db_state["version"], update_source
-    ):
-        output.line(
-            f"Updating database from {db_state['version']} "
-            f"to {update_source['version']}...",
-            key="download",
-        )
-    else:
-        output.line("Setting up database...", key="download")
 
+def install_database(
+    setup_database: Callable[..., Path],
+    db_path: Path,
+    source: dict,
+    output: CliOutput,
+    *,
+    force: bool,
+) -> bool:
+    """Run the installer and report the outcome; False means it failed."""
     try:
-        DatabaseManager.setup_database(
-            str(db_path),
-            preferred_source=update_source,
-        )
-        output.line("Database setup complete!", key="success")
-        return True
+        setup_database(str(db_path), preferred_source=source, force=force)
     except Exception as exc:
         output.line(f"\nFailed to setup database: {exc}", key="error")
         output.line("You can try manually with: pixi run setup-db")
         return False
+    output.line("Database setup complete!", key="success")
+    return True
 
 
 def count_resume_skips(

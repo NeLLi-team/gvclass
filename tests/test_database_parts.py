@@ -8,7 +8,13 @@ import tarfile
 
 import pytest
 
+from src.utils import database_manager as database_manager_module
 from src.utils.database_manager import DatabaseManager
+
+
+@pytest.fixture(autouse=True)
+def _no_retry_pause(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(database_manager_module, "DOWNLOAD_RETRY_PAUSES_S", (0, 0, 0))
 
 
 def sha(data: bytes) -> str:
@@ -20,7 +26,6 @@ def parts_source(chunks: list[bytes]) -> dict:
     return {
         "version": "v9.9.9",
         "url": "https://example.com/db.tar.gz.part000",
-        "filename": "db.tar.gz",
         "sha256": sha(whole),
         "parts": [
             {
@@ -80,12 +85,34 @@ def test_install_of_a_split_source_checks_the_whole_archive(monkeypatch, tmp_pat
     serve(
         monkeypatch, {p["url"]: c for p, c in zip(source["parts"], chunks, strict=True)}
     )
-    archive = tmp_path / "db.tar.gz"
 
     with pytest.raises(RuntimeError, match="checksum mismatch"):
-        DatabaseManager._install_database_source_atomic(
-            tmp_path / "db", source, archive, tmp_path / "db.new"
-        )
+        DatabaseManager._install_database(tmp_path / "db", source)
+
+    assert not (tmp_path / "db").exists()
+    assert [p.name for p in tmp_path.iterdir()] == []
+
+
+def test_a_part_is_downloaded_again_after_a_checksum_mismatch(monkeypatch, tmp_path):
+    chunks = [b"alpha", b"beta"]
+    source = parts_source(chunks)
+    answers = {
+        source["parts"][0]["url"]: [chunks[0]],
+        source["parts"][1]["url"]: [b"BETA", chunks[1]],
+    }
+    asked: list[str] = []
+
+    def fake(url: str, path) -> None:
+        asked.append(url)
+        path.write_bytes(answers[url].pop(0))
+
+    monkeypatch.setattr(DatabaseManager, "_download_archive", staticmethod(fake))
+    archive = tmp_path / "db.tar.gz"
+
+    DatabaseManager._download_parts(source, archive)
+
+    assert archive.read_bytes() == b"alphabeta"
+    assert asked == [p["url"] for p in source["parts"]] + [source["parts"][1]["url"]]
 
 
 def test_normalize_keeps_the_parts():
@@ -151,7 +178,6 @@ def test_zenodo_record_with_parts_builds_a_split_source(monkeypatch):
 
     source = DatabaseManager._source_from_zenodo_record(record)
 
-    assert source["filename"] == "db.tar.gz"
     assert source["sha256"] == whole
     assert [p["sha256"] for p in source["parts"]] == part_hashes
     assert [p["url"] for p in source["parts"]] == [
@@ -218,7 +244,6 @@ def addon_source(archive, chunk=200):
     data = archive.read_bytes()
     chunks = [data[i : i + chunk] for i in range(0, len(data), chunk)]
     source = parts_source(chunks)
-    source["filename"] = archive.name
     return source, chunks
 
 
@@ -279,7 +304,6 @@ def test_an_addon_name_with_a_path_is_refused(tmp_path):
 def test_the_built_in_database_source_is_the_split_archive_with_pinned_hashes():
     source = DatabaseManager._normalize_source(DatabaseManager.DEFAULT_DATABASE_SOURCE)
 
-    assert source["filename"] == "resources_v2_1_0.tar.gz"
     assert len(source["sha256"]) == 64
     assert len(source["parts"]) == 24
     assert all(
@@ -293,7 +317,9 @@ def test_the_built_in_database_source_is_the_split_archive_with_pinned_hashes():
 def test_the_contig_screen_source_is_the_split_add_on_archive():
     source = DatabaseManager._normalize_source(DatabaseManager.CONTIG_SCREEN_SOURCE)
 
-    assert source["filename"] == "contig_screen_v2_1_0.tar.gz"
+    assert [p["url"].split("/files/")[1].split("?")[0] for p in source["parts"]] == [
+        f"contig_screen_v2_1_0.tar.gz.part{i:03d}" for i in range(48)
+    ]
     assert len(source["parts"]) == 48
     assert all(len(p["sha256"]) == 64 for p in source["parts"])
     records = {p["url"].split("/")[4] for p in source["parts"]}

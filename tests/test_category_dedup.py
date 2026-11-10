@@ -45,7 +45,7 @@ def test_add_marker_metrics_deduplicates_proteins_within_categories():
     assert result["mrya_dup"] == 1.5
     assert result["phage_completeness"] == "2/20"
     assert result["phage_dup"] == 1.5
-    assert result["busco_completeness"] == "1/255"
+    assert result["busco_completeness"] == "1/69"
     assert result["busco_dup"] == 1.0
     assert result["cog_completeness"] == "1/56"
     assert result["cog_dup"] == 2.0

@@ -13,6 +13,7 @@ from src.contig_screen.gv_order import (
     IdentityCache,
     Priors,
     bin_features,
+    choose_partner,
     composition,
     contig_from_genes,
     contig_taxonomy,
@@ -166,3 +167,41 @@ def test_the_taxonomy_columns_are_added_only_when_every_contig_has_hits() -> Non
 
     assert "tx_hit_frac" not in without
     assert with_hits["tx_hit_frac"].tolist() == [1.0, 1.0]
+
+
+def tied_partner_bin() -> list[Contig]:
+    """Return a contig that shares one marker each with two others of unequal length."""
+    return [
+        make_contig("a", ["OG1", "OG2"], 20_000),
+        make_contig("b", ["OG1"], 8_000),
+        make_contig("c", ["OG2"], 12_000),
+    ]
+
+
+def test_the_partner_with_equal_marker_counts_is_the_longer_contig() -> None:
+    contigs = tied_partner_bin()
+
+    assert choose_partner({1: 1, 2: 1}, contigs) == 2
+    assert choose_partner({1: 2, 2: 1}, contigs) == 1
+    assert choose_partner({}, contigs) == -1
+
+
+def test_the_partner_with_equal_counts_and_lengths_is_the_smaller_name() -> None:
+    contigs = [make_contig(name, ["OG1"], 9_000) for name in ("a", "z", "m")]
+
+    assert choose_partner({1: 1, 2: 1}, contigs) == 2
+
+
+@pytest.mark.parametrize("order", [[0, 2, 1], [1, 0, 2], [2, 1, 0]])
+def test_bin_features_with_tied_partners_do_not_depend_on_the_contig_order(
+    order: list[int],
+) -> None:
+    contigs = tied_partner_bin()
+    first = bin_features(contigs, make_priors(), IdentityCache())
+    second = bin_features([contigs[i] for i in order], make_priors(), IdentityCache())
+
+    expected = first.set_index("contig").drop(columns="genome")
+    got = second.set_index("contig").drop(columns="genome").loc[expected.index]
+    assert np.allclose(
+        got.to_numpy(dtype=float), expected.to_numpy(dtype=float), equal_nan=True
+    )

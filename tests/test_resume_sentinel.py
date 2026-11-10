@@ -486,6 +486,7 @@ def _fake_resume_validate(query_dir: Path, output_path: Path):
             "output_path": output_path,
             "database_path": output_path / "db",
             "query_files": query_files,
+            "rejected_inputs": [],
         }
 
     return validate_and_setup_task
@@ -760,7 +761,6 @@ def test_atomic_swap_directory_preserves_backup_when_restore_fails(
 
     db_path = tmp_path / "resources"
     staging_path = tmp_path / "resources.new"
-    backup_path = tmp_path / "resources.old"
     db_path.mkdir()
     (db_path / "existing.txt").write_text("old")
     staging_path.mkdir()
@@ -782,6 +782,7 @@ def test_atomic_swap_directory_preserves_backup_when_restore_fails(
         DatabaseManager._atomic_swap_directory(staging_path, db_path)
 
     assert not db_path.exists()
+    (backup_path,) = tmp_path.glob(".resources.old.*")
     assert (backup_path / "existing.txt").read_text() == "old"
     assert (staging_path / "new.txt").read_text() == "new"
 
@@ -803,7 +804,7 @@ def test_atomic_swap_directory_replaces_previous_and_cleans_backup(
     assert db_path.exists()
     assert (db_path / "new.txt").read_text() == "new"
     assert not (db_path / "existing.txt").exists()
-    assert not (tmp_path / "resources.old").exists()
+    assert not list(tmp_path.glob("*.old*"))
     assert not staging_path.exists()
 
 
@@ -1026,11 +1027,6 @@ def test_validate_and_setup_rejects_duplicate_stems_before_side_effects(
     (query_dir / "same.fna").write_text(">c\nACGT\n")
     (query_dir / "same.faa").write_text(">p\nM\n")
 
-    monkeypatch.setattr(
-        parallel_runner.InputValidator,
-        "validate_query_directory",
-        lambda *args, **kwargs: query_dir,
-    )
     setup_database = Mock()
     monkeypatch.setattr(parallel_runner.DatabaseManager, "setup_database", setup_database)
 

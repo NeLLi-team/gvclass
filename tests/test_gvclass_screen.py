@@ -590,7 +590,9 @@ def test_bins_that_cannot_be_read_get_failed_rows_and_the_batch_goes_on(
     folder = tmp_path / "bins"
     folder.mkdir()
     write_bin(folder / "a.fna", {"c1": 4000})
-    (folder / "b.fna").write_text("\n>c1\n" + "ACGT" * 1000 + "\n", encoding="utf-8")
+    (folder / "b.fna").write_text(
+        ">c1\n" + "ACGT" * 1000 + "\n>c1\nACGT\n", encoding="utf-8"
+    )
     whole = gzip.compress((">c1\n" + "ACGT" * 1000 + "\n").encode())
     (folder / "c.fna.gz").write_bytes(whole[: len(whole) // 2])
     write_bin(folder / "d.fna", {"c1": 4000})

@@ -1,778 +1,319 @@
-from typing import List, Tuple, Dict, Optional, Any, TextIO, Iterable
-from collections import defaultdict
-import pandas as pd
-import pyhmmer
+"""Marker HMM search with pyhmmer.
+
+The search keeps only the hits and domains that pass the reporting thresholds,
+parses each model file once per process, and writes the three marker tables the
+rest of the pipeline reads: ``models.out`` (one row per reported domain),
+``models.out.filtered`` (the best row per protein and model), and
+``models.counts`` (proteins per model).
+"""
+
+from __future__ import annotations
+
+import logging
+import threading
+from collections import Counter
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 
-from src.utils.error_handling import error_handler, ProcessingError
+import pyhmmer
+from pyhmmer.easel import Alphabet, DigitalSequenceBlock
+from pyhmmer.plan7 import HMM, Hit
 
-# Default E-value threshold when no GA/TC/NC cutoffs are defined in HMM models
-DEFAULT_EVALUE_THRESHOLD = 1e-5
+logger = logging.getLogger(__name__)
+
+__all__ = [
+    "COMBINED_HMM",
+    "DomainHit",
+    "best_domain_per_pair",
+    "count_proteins_per_model",
+    "digitize_proteins",
+    "load_profiles",
+    "read_proteins",
+    "run_marker_search",
+    "search",
+    "search_default_thresholds",
+    "write_counts",
+    "write_domain_table",
+]
+
+#: Location of the marker models inside a GVClass database.
+COMBINED_HMM = "hmm/combined.hmm"
+
+#: Sequence and domain E-value threshold of sensitive mode, and of models without
+#: gathering cutoffs in the other mode.
+EVALUE_THRESHOLD = 1e-5
+
+RAW_TABLE = "models.out"
+FILTERED_TABLE = "models.out.filtered"
+COUNTS_TABLE = "models.counts"
+
+# Downstream readers take the protein from column 1, the model from column 4,
+# the sequence score from column 8 and the domain score from column 14.
+_TABLE_HEADER = (
+    "# target name\taccession\ttlen\tquery name\taccession\tqlen\tE-value\tscore\t"
+    "bias\t#\tof\tc-Evalue\ti-Evalue\tscore\tbias\tfrom\tto\tfrom\tto\tfrom\tto\t"
+    "acc\n"
+)
+
+_AMINO = Alphabet.amino()
+_profile_cache: dict[Path, tuple[tuple[int, int], tuple[HMM, ...]]] = {}
+_profile_cache_lock = threading.Lock()
 
 
-def load_cutoffs_simple(cutoffs_file: str) -> Dict[str, float]:
+@dataclass(frozen=True, slots=True)
+class DomainHit:
+    """One reported domain of one reported hit, in domain-table terms.
+
+    Coordinates are 1-based and inclusive. ``domain_index`` counts the reported
+    domains of the hit, as does ``domain_count``.
     """
-    Load cutoff values for each HMM model (score only).
 
-    Args:
-        cutoffs_file: Path to cutoffs file
+    protein: str
+    protein_length: int
+    model: str
+    model_accession: str
+    model_length: int
+    evalue: float
+    score: float
+    bias: float
+    domain_index: int
+    domain_count: int
+    c_evalue: float
+    i_evalue: float
+    domain_score: float
+    domain_bias: float
+    hmm_from: int
+    hmm_to: int
+    ali_from: int
+    ali_to: int
+    env_from: int
+    env_to: int
 
-    Returns:
-        Dictionary mapping model names to cutoff scores
+
+def load_profiles(hmm_path: Path | str) -> tuple[HMM, ...]:
+    """Return the models of an HMM file, parsing the file once per process.
+
+    The cache is keyed by the resolved path and replaced when the file size or
+    modification time changes. The call is safe to make from several threads.
+
+    Raises:
+        FileNotFoundError: If ``hmm_path`` is not a file.
     """
-    cutoffs = {}
-    try:
-        with open(cutoffs_file, "r") as f:
-            for line in f:
-                parsed = _parse_cutoff_line(line)
-                if parsed is None:
-                    continue
-                model_name, cutoff_score = parsed
-                cutoffs[model_name] = cutoff_score
-    except Exception as e:
-        error_handler.log_error(f"Error loading cutoffs: {e}")
-    return cutoffs
+    path = Path(hmm_path).resolve()
+    if not path.is_file():
+        raise FileNotFoundError(f"HMM file not found: {path}")
+    stat = path.stat()
+    signature = (stat.st_size, stat.st_mtime_ns)
+    with _profile_cache_lock:
+        cached = _profile_cache.get(path)
+        if cached is not None and cached[0] == signature:
+            return cached[1]
+        profiles = _parse_profiles(path)
+        _profile_cache[path] = (signature, profiles)
+        return profiles
 
 
-def _parse_cutoff_line(line: str) -> Optional[Tuple[str, float]]:
-    stripped = line.strip()
-    if not stripped or line.startswith("#") or line.startswith("Model"):
-        return None
-
-    parts = stripped.split("\t")
-    if len(parts) < 2:
-        return None
-
-    try:
-        return parts[0], float(parts[1])
-    except ValueError:
-        return None
-
-
-def extract_cutoffs_from_hmm(
-    hmm_file: str,
-) -> Tuple[Dict[str, Tuple[float, float]], bool]:
-    """
-    Extract cutoff values from HMM model headers.
-
-    Args:
-        hmm_file: Path to HMM models file
-
-    Returns:
-        Tuple of:
-        - Dictionary mapping model names to (seq_cutoff, dom_cutoff) tuples
-        - Boolean indicating if any GA/TC/NC cutoffs were found
-    """
-    cutoffs: Dict[str, Tuple[float, float]] = {}
-    has_cutoffs = False
-    try:
-        with pyhmmer.plan7.HMMFile(hmm_file) as hmm_handle:
-            for hmm in hmm_handle:
-                hmm_name = _decode_hmm_name(hmm.name)
-                cutoff = _extract_model_cutoff(hmm)
-                if cutoff is None:
-                    continue
-                cutoffs[hmm_name] = cutoff
-                has_cutoffs = True
-    except Exception as e:
-        error_handler.log_error(f"Error extracting cutoffs from HMM: {e}")
-    return cutoffs, has_cutoffs
-
-
-def _decode_hmm_name(value: bytes | str) -> str:
-    return value.decode() if isinstance(value, bytes) else value
-
-
-def _extract_model_cutoff(hmm: Any) -> Optional[Tuple[float, float]]:
-    if not hasattr(hmm, "cutoffs") or not hmm.cutoffs:
-        return None
-    if hmm.cutoffs.gathering is not None:
-        return hmm.cutoffs.gathering
-    if hmm.cutoffs.trusted is not None:
-        return hmm.cutoffs.trusted
-    if hmm.cutoffs.noise is not None:
-        return hmm.cutoffs.noise
-    return None
-
-
-def _log_filtering_search_inputs(
-    query_file: str, hmm_file: str, output_file: str
-) -> None:
-    error_handler.log_info("Starting HMM search with filtering:")
-    error_handler.log_info(
-        f"  Query file: {query_file}, exists: {Path(query_file).exists()}"
-    )
-    error_handler.log_info(f"  HMM file: {hmm_file}, exists: {Path(hmm_file).exists()}")
-    error_handler.log_info(f"  Output file: {output_file}")
-
-
-def _resolve_filter_cutoffs(
-    hmm_file: str, sensitive_mode: bool
-) -> Tuple[Dict[str, Tuple[float, float]], bool]:
-    if sensitive_mode:
-        error_handler.log_info(
-            f"Sensitive mode enabled - using E-value threshold {DEFAULT_EVALUE_THRESHOLD} and skipping GA/TC/NC cutoffs"
-        )
-        return {}, False
-
-    cutoffs, has_ga_cutoffs = extract_cutoffs_from_hmm(hmm_file)
-    if has_ga_cutoffs:
-        error_handler.log_info(
-            f"Found {len(cutoffs)} GA/TC/NC cutoffs - will apply during search"
-        )
-    else:
-        error_handler.log_info(
-            f"No GA cutoffs found - using E-value threshold {DEFAULT_EVALUE_THRESHOLD}"
-        )
-    return cutoffs, has_ga_cutoffs
-
-
-def _should_keep_filtered_hit(
-    model_name: str,
-    seq_score: float,
-    dom_score: float,
-    has_ga_cutoffs: bool,
-    cutoffs: Dict[str, Tuple[float, float]],
-) -> bool:
-    if has_ga_cutoffs and model_name in cutoffs:
-        seq_cutoff, dom_cutoff = cutoffs[model_name]
-        return seq_score >= seq_cutoff and dom_score >= dom_cutoff
-    return True
-
-
-def _collect_filtered_search_results(
-    output_file: str,
-    cutoffs: Dict[str, Tuple[float, float]],
-    has_ga_cutoffs: bool,
-) -> Tuple[Dict[str, List[Tuple[str, float]]], List[str], int, int, int]:
-    best_hits: Dict[Tuple[str, str], Tuple[float, float, str]] = {}
-    header_lines: List[str] = []
-    total_lines = 0
-    hit_lines = 0
-
-    with open(output_file, "r") as f:
-        for line in f:
-            total_lines += 1
-            if line.startswith("#"):
-                header_lines.append(line)
-                continue
-
-            parts = line.strip().split()
-            if len(parts) < 15:
-                continue
-
-            hit_lines += 1
-            query_name = parts[0]
-            model_name = parts[3]
-            seq_score = float(parts[7])
-            dom_score = float(parts[13])
-
-            if not _should_keep_filtered_hit(
-                model_name, seq_score, dom_score, has_ga_cutoffs, cutoffs
-            ):
-                continue
-
-            key = (query_name, model_name)
-            current = best_hits.get(key)
-            candidate = (seq_score, dom_score, line)
-            if current is None or (seq_score, dom_score) > (current[0], current[1]):
-                best_hits[key] = candidate
-
-    model_hits: Dict[str, List[Tuple[str, float]]] = defaultdict(list)
-    filtered_lines = list(header_lines)
-    for (query_name, model_name), (seq_score, _, line) in best_hits.items():
-        filtered_lines.append(line)
-        model_hits[model_name].append((query_name, seq_score))
-
-    passed_cutoffs = len(best_hits)
-
-    return model_hits, filtered_lines, total_lines, hit_lines, passed_cutoffs
-
-
-def _write_filtered_output_file(
-    filtered_output: str, filtered_lines: List[str]
-) -> None:
-    with open(filtered_output, "w") as f:
-        f.writelines(filtered_lines)
-
-
-def _write_model_hit_counts(
-    counts_file: str, model_hits: Dict[str, List[Tuple[str, float]]]
-) -> None:
-    with open(counts_file, "w") as f:
-        for model, hits in sorted(model_hits.items()):
-            f.write(f"{model}\t{len(hits)}\n")
-
-
-def _write_model_hit_scores(
-    score_file: str, model_hits: Dict[str, List[Tuple[str, float]]]
-) -> None:
-    with open(score_file, "w") as f:
-        total_score = sum(
-            max(score for _, score in hits) for hits in model_hits.values() if hits
-        )
-        f.write(f"Total score: {total_score}\n")
-        for model, hits in sorted(model_hits.items()):
-            if hits:
-                max_score = max(score for _, score in hits)
-                f.write(f"{model}\t{max_score}\n")
-
-
-def run_pyhmmer_search_with_filtering(
-    query_file: str,
-    hmm_file: str,
-    output_file: str,
-    filtered_output: str,
-    cutoffs_file: str,  # Kept for compatibility but not used
-    counts_file: str,
-    score_file: str,
-    threads: int = 4,
-    sensitive_mode: bool = False,
-) -> None:
-    """Run pyhmmer, apply post-filtering, and emit filtered/count/score outputs."""
-    _ = cutoffs_file
-    _log_filtering_search_inputs(query_file, hmm_file, output_file)
-    cutoffs, has_ga_cutoffs = _resolve_filter_cutoffs(hmm_file, sensitive_mode)
-
-    run_pyhmmer_search(
-        hmm_file,
-        query_file,
-        output_file,
-        threads,
-        sensitive_mode=sensitive_mode,
-    )
-
-    output_size = (
-        Path(output_file).stat().st_size if Path(output_file).exists() else "NOT FOUND"
-    )
-    error_handler.log_info(f"HMM search output file size: {output_size}")
-
-    model_hits, filtered_lines, total_lines, hit_lines, passed_cutoffs = (
-        _collect_filtered_search_results(output_file, cutoffs, has_ga_cutoffs)
-    )
-    error_handler.log_info(
-        f"Parsed {total_lines} lines, {hit_lines} hits, {passed_cutoffs} passed cutoffs"
-    )
-
-    _write_filtered_output_file(filtered_output, filtered_lines)
-    error_handler.log_info(f"Wrote {len(filtered_lines)} lines to filtered output")
-    error_handler.log_info(f"Found hits for {len(model_hits)} unique models")
-
-    _write_model_hit_counts(counts_file, model_hits)
-    _write_model_hit_scores(score_file, model_hits)
-
-
-def _decode_name(value: Any) -> Any:
-    if isinstance(value, bytes):
-        return value.decode()
-    return value
-
-
-def _decode_accession(value: Any) -> Any:
-    if value and isinstance(value, bytes):
-        return value.decode()
-    return value or "-"
-
-
-def _has_model_cutoffs(model: Any) -> bool:
-    return bool(
-        hasattr(model, "cutoffs")
-        and model.cutoffs
-        and model.cutoffs.gathering is not None
-    )
-
-
-def _load_hmm_profiles(hmm_file: str) -> List[Any]:
-    with pyhmmer.plan7.HMMFile(hmm_file) as hmm_handle:
-        return list(hmm_handle)
-
-
-def _load_query_sequences(query_file: str) -> List[Any]:
+def read_proteins(faa_path: Path | str) -> DigitalSequenceBlock:
+    """Read a protein FASTA file, forcing the amino alphabet."""
     with pyhmmer.easel.SequenceFile(
-        query_file,
-        digital=True,
-        alphabet=pyhmmer.easel.Alphabet.amino(),
-    ) as seq_handle:
-        return list(seq_handle)
+        str(faa_path), digital=True, alphabet=_AMINO
+    ) as handle:
+        return handle.read_block()
 
 
-def _run_hmmsearch_with_strategy(
-    profiles: List[Any],
-    sequences: List[Any],
+def digitize_proteins(proteins: Iterable[tuple[str, str]]) -> DigitalSequenceBlock:
+    """Build a search target from ``(name, sequence)`` pairs."""
+    sequences = [
+        pyhmmer.easel.TextSequence(name=name.encode(), sequence=sequence).digitize(
+            _AMINO
+        )
+        for name, sequence in proteins
+    ]
+    return DigitalSequenceBlock(_AMINO, sequences)
+
+
+def search(
+    profiles: Sequence[HMM],
+    sequences: DigitalSequenceBlock,
+    *,
     threads: int,
-    evalue_threshold: float,
-    sensitive_mode: bool,
-) -> Iterable[Any]:
-    all_have_cutoffs = all(_has_model_cutoffs(hmm) for hmm in profiles)
-    if sensitive_mode:
-        error_handler.log_info(
-            f"Sensitive mode enabled, using E-value threshold: {evalue_threshold}"
-        )
-        return pyhmmer.hmmsearch(
-            profiles,
-            sequences,
-            cpus=threads,
-            E=evalue_threshold,
-            domE=evalue_threshold,
-        )
+    sensitive: bool,
+) -> list[DomainHit]:
+    """Search the proteins and return the reported domains of reported hits.
 
-    if all_have_cutoffs:
-        error_handler.log_info("Using GA/TC/NC bit-score cutoffs from HMM models")
-        return pyhmmer.hmmsearch(
-            profiles,
-            sequences,
-            cpus=threads,
-            bit_cutoffs="gathering",
+    With ``sensitive`` every model uses ``E = domE = 1e-5``. Otherwise a model
+    with gathering cutoffs uses them and a model without them uses the E-value
+    threshold. Rows follow the search calls (models with gathering cutoffs
+    first), then the model, the hit and the domain.
+    """
+    if sensitive:
+        return _search(
+            profiles, sequences, threads, E=EVALUE_THRESHOLD, domE=EVALUE_THRESHOLD
         )
-
-    error_handler.log_info(
-        f"Not all HMMs have GA cutoffs, using E-value threshold: {evalue_threshold}"
-    )
-    return pyhmmer.hmmsearch(
-        profiles,
-        sequences,
-        cpus=threads,
-        E=evalue_threshold,
-        domE=evalue_threshold,
+    with_cutoffs = [hmm for hmm in profiles if hmm.cutoffs.gathering is not None]
+    without_cutoffs = [hmm for hmm in profiles if hmm.cutoffs.gathering is None]
+    return _search(with_cutoffs, sequences, threads, bit_cutoffs="gathering") + _search(
+        without_cutoffs, sequences, threads, E=EVALUE_THRESHOLD, domE=EVALUE_THRESHOLD
     )
 
 
-def _domain_coordinates(
-    domain: Any, hmm_length: int, target_length: int
-) -> Tuple[int, int, int, int, int]:
-    if domain.alignment:
-        ali = domain.alignment
-        return (
-            ali.hmm_from,
-            ali.hmm_to,
-            ali.target_from,
-            ali.target_to,
-            ali.target_length,
-        )
-    return 1, hmm_length, domain.env_from, domain.env_to, target_length
+def search_default_thresholds(
+    profiles: Sequence[HMM], sequences: DigitalSequenceBlock, *, threads: int = 1
+) -> list[DomainHit]:
+    """Search with pyhmmer's default thresholds (``E = domE = 10``)."""
+    return _search(profiles, sequences, threads)
 
 
-def _write_domtbl_header(out_handle: TextIO) -> None:
-    out_handle.write(
-        "# target name\taccession\ttlen\tquery name\taccession\tqlen\tE-value\tscore\tbias\t#\tof\tc-Evalue\ti-Evalue\tscore\tbias\tfrom\tto\tfrom\tto\tfrom\tto\tacc\n"
+def best_domain_per_pair(domains: Iterable[DomainHit]) -> list[DomainHit]:
+    """Keep the best row per protein and model.
+
+    The best row has the highest sequence score, then the highest domain score;
+    the first row wins a full tie. Rows keep the order of their first appearance.
+    """
+    best: dict[tuple[str, str], DomainHit] = {}
+    for domain in domains:
+        key = (domain.protein, domain.model)
+        current = best.get(key)
+        if current is None or (domain.score, domain.domain_score) > (
+            current.score,
+            current.domain_score,
+        ):
+            best[key] = domain
+    return list(best.values())
+
+
+def count_proteins_per_model(best_rows: Iterable[DomainHit]) -> dict[str, int]:
+    """Count proteins per model from the output of :func:`best_domain_per_pair`."""
+    return dict(Counter(row.model for row in best_rows))
+
+
+def write_domain_table(domains: Iterable[DomainHit], path: Path) -> None:
+    """Write domain rows in the 22-column layout downstream readers parse."""
+    with path.open("w", encoding="utf-8") as handle:
+        handle.write(_TABLE_HEADER)
+        for domain in domains:
+            handle.write(_format_row(domain))
+
+
+def write_counts(counts: dict[str, int], path: Path) -> None:
+    """Write ``model<TAB>count`` lines sorted by model."""
+    path.write_text(
+        "".join(f"{model}\t{count}\n" for model, count in sorted(counts.items())),
+        encoding="utf-8",
     )
 
 
-def _write_domain_result_line(
-    out_handle: TextIO,
-    target_name: str,
-    target_accession: str,
-    target_length: int,
-    hmm_name: str,
-    hmm_accession: str,
-    hmm_length: int,
-    hit: Any,
-    domain: Any,
-    domain_idx: int,
-    hmm_from: int,
-    hmm_to: int,
-    target_from: int,
-    target_to: int,
-) -> None:
-    out_handle.write(f"{target_name}\t{target_accession}\t{target_length}\t")
-    out_handle.write(f"{hmm_name}\t{hmm_accession}\t{hmm_length}\t")
-    out_handle.write(f"{hit.evalue:.2e}\t{hit.score:.1f}\t{hit.bias:.1f}\t")
-    out_handle.write(f"{domain_idx+1}\t{len(hit.domains)}\t")
-    out_handle.write(f"{domain.c_evalue:.2e}\t{domain.i_evalue:.2e}\t")
-    out_handle.write(f"{domain.score:.1f}\t{domain.bias:.1f}\t")
-
-    # PyHMMER coordinates use the domtblout 1-based, inclusive convention.
-    out_handle.write(f"{hmm_from}\t{hmm_to}\t")
-    out_handle.write(f"{target_from}\t{target_to}\t")
-    out_handle.write(f"{domain.env_from}\t{domain.env_to}\t")
-    out_handle.write("0.90\n")
-
-
-def _write_pyhmmer_results(
-    output_file: str, profiles: List[Any], results: Iterable[Any]
-) -> None:
-    with open(output_file, "w") as out_handle:
-        _write_domtbl_header(out_handle)
-        for _, (hmm, top_hits) in enumerate(zip(profiles, results)):
-            hmm_name = _decode_name(hmm.name)
-            hmm_accession = _decode_accession(hmm.accession)
-            hmm_length = hmm.M
-
-            for hit in top_hits:
-                target_name = _decode_name(hit.name)
-                target_accession = "-"
-                target_length = 1000
-
-                for domain_idx, domain in enumerate(hit.domains):
-                    hmm_from, hmm_to, target_from, target_to, target_length = (
-                        _domain_coordinates(domain, hmm_length, target_length)
-                    )
-                    _write_domain_result_line(
-                        out_handle,
-                        target_name,
-                        target_accession,
-                        target_length,
-                        hmm_name,
-                        hmm_accession,
-                        hmm_length,
-                        hit,
-                        domain,
-                        domain_idx,
-                        hmm_from,
-                        hmm_to,
-                        target_from,
-                        target_to,
-                    )
-
-
-def run_pyhmmer_search(
-    hmm_file: str,
-    query_file: str,
-    output_file: str,
-    threads: int = 4,
-    evalue_threshold: Optional[float] = None,
-    sensitive_mode: bool = False,
-) -> None:
-    """
-    Run HMM search using pyhmmer instead of external hmmsearch command.
-
-    Args:
-        hmm_file: Path to HMM model file
-        query_file: Path to query sequence file
-        output_file: Path to output file
-        threads: Number of threads to use
-        evalue_threshold: E-value threshold (uses DEFAULT_EVALUE_THRESHOLD if None)
-        sensitive_mode: If True, force E-value filtering and skip GA cutoffs
-    """
-    evalue_threshold = (
-        DEFAULT_EVALUE_THRESHOLD if evalue_threshold is None else evalue_threshold
-    )
-    try:
-        error_handler.log_info(
-            f"Running pyhmmer search on {query_file} with {hmm_file}"
-        )
-        profiles = _load_hmm_profiles(hmm_file)
-        sequences = _load_query_sequences(query_file)
-        results = _run_hmmsearch_with_strategy(
-            profiles, sequences, threads, evalue_threshold, sensitive_mode
-        )
-        _write_pyhmmer_results(output_file, profiles, results)
-        error_handler.log_info(
-            f"pyhmmer search completed. Results written to {output_file}"
-        )
-    except Exception as e:
-        raise ProcessingError(
-            f"pyhmmer search failed: {str(e)}",
-            step="pyhmmer_search",
-            input_file=query_file,
-        ) from e
-
-
-def generate_counts_from_output(output_file: str, counts_file: str) -> None:
-    """
-    Generate counts file from HMM search output.
-
-    Args:
-        output_file: Path to HMM search output
-        counts_file: Path to write counts file
-    """
-    counts: dict[str, int] = defaultdict(int)
-    seen_hits: set[tuple[str, str]] = set()
-
-    with Path(output_file).open(encoding="utf-8") as handle:
-        for line_number, line in enumerate(handle, start=1):
-            stripped = line.strip()
-            if not stripped or stripped.startswith("#"):
-                continue
-            parts = stripped.split("\t")
-            if len(parts) < 4:
-                raise ValueError(
-                    f"Malformed HMM output record in {output_file} at line "
-                    f"{line_number}: expected at least 4 tab-separated fields, "
-                    f"found {len(parts)}"
-                )
-            query_name = parts[0]
-            model_name = parts[3]
-            if not query_name or not model_name:
-                raise ValueError(
-                    f"Malformed HMM output record in {output_file} at line "
-                    f"{line_number}: query and model names must be nonempty"
-                )
-            key = (query_name, model_name)
-            if key in seen_hits:
-                continue
-            seen_hits.add(key)
-            counts[model_name] += 1
-
-    counts_text = "".join(
-        f"{model}\t{count}\n" for model, count in sorted(counts.items())
-    )
-    Path(counts_file).write_text(counts_text, encoding="utf-8")
-
-    error_handler.log_info(f"Generated counts file: {counts_file}")
-
-
-def get_models(modelsin: str) -> List[str]:
-    """
-    Generate a list of all model names from the combined HMM model file.
-
-    Args:
-        modelsin (str): Path to the combined HMM model file.
+def run_marker_search(
+    protein_faa: Path,
+    hmm_path: Path,
+    out_dir: Path,
+    *,
+    threads: int,
+    sensitive: bool,
+) -> Path:
+    """Search the proteins and write the marker tables into ``out_dir``.
 
     Returns:
-        List[str]: List of model names.
+        The path of ``models.out.filtered``.
     """
-    with open(modelsin, "r") as f:
-        models = [line.split()[1].strip() for line in f if line.startswith("NAME")]
-        # only get stats for general models not order level modes ("OG")
-        models_general = [x for x in models if not x.startswith("OG")]
-
-    return models_general
-
-
-HitKey = Tuple[str, str]
-HitRecord = Tuple[str, float, int, str]
-GenomeHits = Dict[str, Dict[HitKey, HitRecord]]
-
-
-def _parse_hmmout_hit(line: str) -> Tuple[str, str, str, float, int]:
-    parts = line.split()
-    protein_id = parts[0]
-    genomeid = protein_id.split("|")[0]
-    model = parts[3]
-    score = float(parts[7])
-    length = int(parts[2])
-    return protein_id, genomeid, model, score, length
-
-
-def _passes_process_cutoff(
-    model: str, score: float, length: int, cutoffs: Dict[str, Tuple[float, float]]
-) -> bool:
-    if model not in cutoffs:
-        return False
-    score_cutoff, length_cutoff = cutoffs[model]
-    return score >= score_cutoff and length >= length_cutoff
+    profiles = load_profiles(hmm_path)
+    sequences = read_proteins(protein_faa)
+    logger.info(
+        "Searching %d proteins against %d models (sensitive=%s)",
+        len(sequences),
+        len(profiles),
+        sensitive,
+    )
+    domains = search(profiles, sequences, threads=threads, sensitive=sensitive)
+    best = best_domain_per_pair(domains)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    write_domain_table(domains, out_dir / RAW_TABLE)
+    write_domain_table(best, out_dir / FILTERED_TABLE)
+    write_counts(count_proteins_per_model(best), out_dir / COUNTS_TABLE)
+    logger.info(
+        "Marker search kept %d domains of %d protein-model pairs",
+        len(domains),
+        len(best),
+    )
+    return out_dir / FILTERED_TABLE
 
 
-def _store_og_hit(
-    protein_hits_order: GenomeHits,
-    genomeid: str,
-    key: HitKey,
-    record: HitRecord,
-) -> None:
-    if key not in protein_hits_order[genomeid]:
-        protein_hits_order[genomeid][key] = record
-        return
-
-    if record[1] > protein_hits_order[genomeid][key][1]:
-        protein_hits_order[genomeid][key] = record
+def _parse_profiles(path: Path) -> tuple[HMM, ...]:
+    logger.info("Parsing HMM file %s", path)
+    with pyhmmer.plan7.HMMFile(str(path)) as handle:
+        return tuple(handle)
 
 
-def _find_existing_non_og_hit(
-    protein_dict: Dict[HitKey, HitRecord], protein_id: str
-) -> Optional[HitKey]:
-    for existing_key in list(protein_dict.keys()):
-        if existing_key[0] == protein_id:
-            return existing_key
-    return None
+def _search(
+    profiles: Sequence[HMM],
+    sequences: DigitalSequenceBlock,
+    threads: int,
+    **thresholds: object,
+) -> list[DomainHit]:
+    if not profiles:
+        return []
+    results = pyhmmer.hmmsearch(profiles, sequences, cpus=threads, **thresholds)
+    domains: list[DomainHit] = []
+    for hmm, top_hits in zip(profiles, results, strict=True):
+        for hit in top_hits:
+            if hit.reported:
+                domains.extend(_reported_domains(hmm, hit))
+    return domains
 
 
-def _store_non_og_hit(
-    protein_hits: GenomeHits, genomeid: str, key: HitKey, record: HitRecord
-) -> None:
-    existing_hit = _find_existing_non_og_hit(protein_hits[genomeid], key[0])
-    if existing_hit is None:
-        protein_hits[genomeid][key] = record
-        return
-
-    if record[1] > protein_hits[genomeid][existing_hit][1]:
-        del protein_hits[genomeid][existing_hit]
-        protein_hits[genomeid][key] = record
-
-
-def _process_hmmout_hit_line(
-    line: str,
-    cutoffs: Dict[str, Tuple[float, float]],
-    protein_hits: GenomeHits,
-    protein_hits_order: GenomeHits,
-) -> None:
-    protein_id, genomeid, model, score, length = _parse_hmmout_hit(line)
-    if not _passes_process_cutoff(model, score, length, cutoffs):
-        return
-
-    key: HitKey = (protein_id, model)
-    record: HitRecord = (model, score, length, line)
-    if model.startswith("OG"):
-        _store_og_hit(protein_hits_order, genomeid, key, record)
-        return
-
-    _store_non_og_hit(protein_hits, genomeid, key, record)
-
-
-def _write_og_hits(outfile: TextIO, protein_hits_order: GenomeHits) -> None:
-    for _, protein_dict in protein_hits_order.items():
-        for _, (_, _, _, line) in protein_dict.items():
-            outfile.write(f"{line.rstrip()}\n")
-
-
-def _write_non_og_hits(outfile: TextIO, protein_hits: GenomeHits) -> None:
-    for _, protein_dict in protein_hits.items():
-        for _, (_, _, _, line) in protein_dict.items():
-            outfile.write(f"{line.rstrip()}\n")
-
-
-def _filter_hmmout_to_hits(
-    hmmout: str,
-    filtered_hmmout: str,
-    cutoffs: Dict[str, Tuple[float, float]],
-    protein_hits: GenomeHits,
-    protein_hits_order: GenomeHits,
-) -> None:
-    with open(hmmout, "r") as infile, open(filtered_hmmout, "w") as outfile:
-        for line in infile:
-            if line.startswith("#"):
-                outfile.write(line)
-                continue
-            _process_hmmout_hit_line(line, cutoffs, protein_hits, protein_hits_order)
-        _write_og_hits(outfile, protein_hits_order)
-        _write_non_og_hits(outfile, protein_hits)
-
-
-def _count_non_og_hits(
-    protein_hits: GenomeHits,
-    counts: Dict[str, Dict[str, int]],
-    scores: Dict[str, Dict[str, float]],
-) -> int:
-    total_non_og_markers = 0
-    for genomeid, protein_dict in protein_hits.items():
-        for (_, model), (_, score, _, _) in protein_dict.items():
-            counts[genomeid][model] += 1
-            scores[genomeid][model] = max(scores[genomeid][model], score)
-            total_non_og_markers += 1
-    return total_non_og_markers
-
-
-def _count_og_hits(
-    protein_hits_order: GenomeHits,
-    counts: Dict[str, Dict[str, int]],
-    scores: Dict[str, Dict[str, float]],
-) -> Tuple[int, Dict[str, set]]:
-    total_og_markers = 0
-    proteins_seen: Dict[str, set] = defaultdict(set)
-    for genomeid, protein_dict in protein_hits_order.items():
-        for (protein_id, model), (_, score, _, _) in protein_dict.items():
-            counts[genomeid][model] += 1
-            scores[genomeid][model] = max(scores[genomeid][model], score)
-            total_og_markers += 1
-            proteins_seen[protein_id].add(model)
-    return total_og_markers, proteins_seen
-
-
-def _count_proteins_with_multiple_og_markers(proteins_seen: Dict[str, set]) -> int:
-    proteins_with_multiple_markers = 0
-    for _, model_set in proteins_seen.items():
-        if len(model_set) > 1:
-            proteins_with_multiple_markers += 1
-    return proteins_with_multiple_markers
-
-
-def _print_process_hmmout_stats(
-    total_og_markers: int,
-    total_non_og_markers: int,
-    proteins_with_multiple_markers: int,
-) -> None:
-    if proteins_with_multiple_markers > 0:
-        print(
-            f"Note: {proteins_with_multiple_markers} proteins matched multiple OG markers (expected behavior)"
+def _reported_domains(hmm: HMM, hit: Hit) -> list[DomainHit]:
+    reported = [domain for domain in hit.domains if domain.reported]
+    return [
+        DomainHit(
+            protein=hit.name,
+            protein_length=hit.length,
+            model=hmm.name,
+            model_accession=hmm.accession or "-",
+            model_length=hmm.M,
+            evalue=hit.evalue,
+            score=hit.score,
+            bias=hit.bias,
+            domain_index=index,
+            domain_count=len(reported),
+            c_evalue=domain.c_evalue,
+            i_evalue=domain.i_evalue,
+            domain_score=domain.score,
+            domain_bias=domain.bias,
+            hmm_from=domain.alignment.hmm_from,
+            hmm_to=domain.alignment.hmm_to,
+            ali_from=domain.alignment.target_from,
+            ali_to=domain.alignment.target_to,
+            env_from=domain.env_from,
+            env_to=domain.env_to,
         )
-    if total_og_markers == 0 and total_non_og_markers == 0:
-        print("WARNING: No markers detected in HMM search results!")
-    elif total_og_markers > 0:
-        print(
-            f"HMM search found {total_og_markers} OG markers and {total_non_og_markers} other markers"
-        )
+        for index, domain in enumerate(reported, start=1)
+    ]
 
 
-def _initialize_missing_models(
-    models: List[str],
-    counts: Dict[str, Dict[str, int]],
-    scores: Dict[str, Dict[str, float]],
-) -> None:
-    for genomeid in counts.keys():
-        for model in models:
-            counts[genomeid].setdefault(model, 0)
-            scores[genomeid].setdefault(model, 0.0)
-
-
-def process_hmmout(
-    models: List[str],
-    hmmout: str,
-    filtered_hmmout: str,
-    cutoffs: Dict[str, Tuple[float, float]],
-) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    Process HMM output to generate count and score matrices including all models.
-
-    Args:
-        models (List[str]): List of model names.
-        hmmout (str): Path to the HMM output file.
-        filtered_hmmout (str): Path to the filtered HMM output file.
-        cutoffs (Dict[str, Tuple[float, float]]): Dictionary mapping model names to (score_cutoff, length_cutoff) tuples.
-
-    Returns:
-        Tuple[pd.DataFrame, pd.DataFrame]: Tuple containing count and score matrices.
-    """
-    scores: Dict[str, Dict[str, float]] = defaultdict(lambda: defaultdict(float))
-    counts: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
-    protein_hits: GenomeHits = defaultdict(dict)
-    protein_hits_order: GenomeHits = defaultdict(dict)
-
-    _filter_hmmout_to_hits(
-        hmmout, filtered_hmmout, cutoffs, protein_hits, protein_hits_order
+def _format_row(domain: DomainHit) -> str:
+    fields = (
+        domain.protein,
+        "-",
+        str(domain.protein_length),
+        domain.model,
+        domain.model_accession,
+        str(domain.model_length),
+        f"{domain.evalue:.2e}",
+        f"{domain.score:.1f}",
+        f"{domain.bias:.1f}",
+        str(domain.domain_index),
+        str(domain.domain_count),
+        f"{domain.c_evalue:.2e}",
+        f"{domain.i_evalue:.2e}",
+        f"{domain.domain_score:.1f}",
+        f"{domain.domain_bias:.1f}",
+        str(domain.hmm_from),
+        str(domain.hmm_to),
+        str(domain.ali_from),
+        str(domain.ali_to),
+        str(domain.env_from),
+        str(domain.env_to),
+        "-",
     )
-    total_non_og_markers = _count_non_og_hits(protein_hits, counts, scores)
-    total_og_markers, proteins_seen = _count_og_hits(protein_hits_order, counts, scores)
-    proteins_with_multiple_markers = _count_proteins_with_multiple_og_markers(
-        proteins_seen
-    )
-    _print_process_hmmout_stats(
-        total_og_markers, total_non_og_markers, proteins_with_multiple_markers
-    )
-    _initialize_missing_models(models, counts, scores)
-
-    count_df = pd.DataFrame(counts).T.fillna(0).astype(int)
-    score_df = pd.DataFrame(scores).T.fillna(0)
-    return count_df, score_df
-
-
-def load_cutoffs(cutoff_file: str) -> Dict[str, Tuple[float, float]]:
-    """
-    Load cutoff values from a file.
-
-    Args:
-        cutoff_file (str): Path to the cutoff file.
-
-    Returns:
-        Dict[str, Tuple[float, float]]: Dictionary mapping model names to (score_cutoff, length_cutoff) tuples.
-    """
-    cutoffs = {}
-    try:
-        with open(cutoff_file, "r") as file:
-            next(file)  # Skip header
-            for line in file:
-                model, score_cutoff, length_cutoff = line.strip().split("\t")
-                cutoffs[model] = (float(score_cutoff), float(length_cutoff))
-    except Exception as e:
-        print(f"Error reading {cutoff_file}: {e}")
-    return cutoffs
-
-
-def main() -> None:
-    """Compatibility entry point delegated to src.core.hmm_search_cli."""
-    from src.core.hmm_search_cli import main as cli_main
-
-    cli_main()
-
-
-if __name__ == "__main__":
-    main()
+    return "\t".join(fields) + "\n"

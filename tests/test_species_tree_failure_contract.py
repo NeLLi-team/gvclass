@@ -76,6 +76,7 @@ def flow_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, P
         Mock(
             return_value={
                 "query_files": [query],
+                "rejected_inputs": [],
                 "output_path": output,
                 "database_path": tmp_path / "database",
             }

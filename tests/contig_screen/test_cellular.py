@@ -395,6 +395,9 @@ def window_scores(
     contigs: dict[str, str],
     stem: str,
     sample_seed: str | None = None,
+    *,
+    pooling: str = "mean",
+    embedders: list[object] | None = None,
 ) -> pd.Series:
     """Return ``p_gbm`` per window content, with gene calls and sampling real.
 
@@ -435,14 +438,24 @@ def window_scores(
     monkeypatch.setattr(
         cellular, "add_reference_hits", lambda features, *_: (features, None)
     )
-    monkeypatch.setattr(cellular, "make_embedder", lambda *_: HashEmbedder())
-    monkeypatch.setattr(
-        cellular, "add_set_logits", lambda features, *_: features.assign(set_logit=0.0)
-    )
+    made: list[object] = [] if embedders is None else embedders
+
+    def make_embedder(*_: object) -> HashEmbedder:
+        made.append(HashEmbedder())
+        return made[-1]
+
+    def add_set_logits(
+        features: pd.DataFrame, _best: object, _queries: object, _index: object, *rest
+    ) -> pd.DataFrame:
+        assert rest[0] is made[0]
+        return features.assign(set_logit=0.0)
+
+    monkeypatch.setattr(cellular, "make_embedder", make_embedder)
+    monkeypatch.setattr(cellular, "add_set_logits", add_set_logits)
     boosting = {
         "model": SigmoidOfFirst(),
         "columns": ["e_0"],
-        "embedding_pooling": "mean",
+        "embedding_pooling": pooling,
     }
     settings = cellular.Settings(threads=1, sample_seed=sample_seed)
     features = cellular.window_features(fasta, resources, settings, boosting, work)
@@ -513,3 +526,95 @@ def test_contig_lengths_refuses_two_records_with_one_name(tmp_path: Path) -> Non
 
     with pytest.raises(ValueError, match="duplicate FASTA identifier 'c'"):
         cellular.contig_lengths(fasta)
+
+
+def test_window_features_build_one_embedder_and_pass_it_to_the_set_model(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tests.contig_screen.test_extract_genes import coding_dna  # noqa: PLC0415
+
+    embedders: list[object] = []
+
+    window_scores(
+        tmp_path, monkeypatch, {"c1": coding_dna(35, 1)}, "one", embedders=embedders
+    )
+
+    assert len(embedders) == 1
+
+
+def test_window_features_refuse_a_boosting_model_that_is_not_mean_pooled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tests.contig_screen.test_extract_genes import coding_dna  # noqa: PLC0415
+
+    with pytest.raises(ValueError, match="mean pooled"):
+        window_scores(
+            tmp_path, monkeypatch, {"c1": coding_dna(35, 1)}, "one", pooling="legacy"
+        )
+
+
+def test_window_features_of_a_bin_without_genes_are_empty(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_resources: BundleFactory,
+) -> None:
+    fasta = tmp_path / "b.fna"
+    fasta.write_text(">c1\n" + "A" * 4000 + "\n")
+    resources = make_resources(tmp_path / "bundle", {layout.LABELS_FILE: b"l"})
+    monkeypatch.setattr(cellular, "extract_bin", lambda *_, **__: ([{}], []))
+    work = tmp_path / "work"
+    work.mkdir()
+
+    features = cellular.window_features(
+        fasta, resources, cellular.Settings(threads=1), {"columns": []}, work
+    )
+
+    assert features.empty
+
+
+def test_main_writes_no_table_and_removes_an_old_one_when_no_gene_is_called(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = tmp_path / "bundle"
+    root.mkdir()
+    digest = write_bundle(
+        root, {layout.THRESHOLDS_FILE: b'{"stage1": 0.5, "stage2": 0.6}'}
+    )
+    fasta = tmp_path / "b.fna"
+    fasta.write_text(">c1\n" + "A" * 20_000 + "\n")
+    out = tmp_path / "result.tsv"
+    out.write_text("old\n")
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: object())
+    monkeypatch.setattr(
+        cellular,
+        "score_bin",
+        lambda *a, **k: pd.DataFrame(columns=cellular.OUTPUT_COLUMNS),
+    )
+    argv = [str(fasta), "--resources", str(root), "--manifest-sha256", digest]
+
+    code = cellular.main([*argv, "--out", str(out)])
+
+    assert code == 0
+    assert not out.exists()
+    assert "not scored" in capsys.readouterr().out
+
+
+def test_contig_lengths_skip_blank_lines_before_the_first_header(
+    tmp_path: Path,
+) -> None:
+    fasta = tmp_path / "bin.fna"
+    fasta.write_text("\n\n>c1\nACGT\n\nAC\n", encoding="utf-8")
+
+    assert cellular.contig_lengths(fasta) == {"c1": 6}
+    assert cellular.fasta_bp(fasta) == 6
+
+
+def test_fasta_helpers_read_gzipped_files_whatever_the_case_of_the_suffix(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "bin.FNA.GZ"
+    with gzip.open(path, "wt") as handle:
+        handle.write(">c1\nACGT\nAC\n")
+
+    assert cellular.fasta_bp(path) == 6
+    assert cellular.contig_lengths(path) == {"c1": 6}

@@ -18,8 +18,12 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from Bio import SeqIO
 
-from src.core.genetic_code_optimizer import GeneticCodeOptimizer
-from src.core.hmm_search import run_pyhmmer_search_with_filtering
+from src.core.genetic_code_optimizer import (
+    META_CODE,
+    GeneCallingResult,
+    optimize_genetic_code,
+)
+from src.core.hmm_search import COMBINED_HMM, run_marker_search
 from src.core.marker_extraction import extract_marker_hits, get_marker_database_path
 from src.core.marker_processing import MarkerProcessor
 from src.core.reformat import calculate_stats, reformat_sequences
@@ -36,17 +40,6 @@ from src.utils.input_validation import InputValidator
 from src.utils.resource_store import ResourceStore
 
 _THREAD_LOCAL = threading.local()
-
-HMM_MODEL_FILES = [
-    "busco69.hmm",
-    "genomad_hmm_v1.7_selection20.hmm",
-    "GVOG9.hmm",
-    "mirus.hmm",
-    "MRYA.hmm",
-    "OGv2_order.hmm",
-    "UNI56.hmm",
-]
-
 
 def _pipeline_logger():
     return logging.getLogger("gvclass_runner")
@@ -297,7 +290,7 @@ def _prepare_nucleotide_query(
     records = list(SeqIO.parse(str(query_file), "fasta"))
     _write_reformatted_sequences(records, query_file, reformatted_file)
     _write_nucleotide_stats_tsv(records, query_file, query_output_dir, query_name)
-    best_code, outputs, all_code_results = _optimize_genetic_code(
+    gene_calling = _optimize_genetic_code(
         query_name,
         reformatted_file,
         query_output_dir,
@@ -306,11 +299,11 @@ def _prepare_nucleotide_query(
         threads,
         logger,
     )
-    _write_genecalling_tables(query_output_dir, query_name, best_code, all_code_results)
+    _write_genecalling_tables(query_output_dir, query_name, gene_calling)
     return PreparedQueryInput(
-        protein_file=Path(outputs["faa"]),
+        protein_file=gene_calling.faa,
         reformatted_file=reformatted_file,
-        best_code=best_code,
+        best_code=gene_calling.best_code,
         is_nucleotide=True,
     )
 
@@ -360,85 +353,63 @@ def _optimize_genetic_code(
     genetic_codes: List[int],
     threads: int,
     logger,
-) -> Tuple[int, Dict[str, Any], Dict[int, Dict[str, Any]]]:
+) -> GeneCallingResult:
     logger.info(f"Optimizing genetic code for: {query_name}")
-    optimizer = GeneticCodeOptimizer(database_path=database_path, threads=threads)
-    best_code, outputs, _best_metrics, all_code_results = (
-        optimizer.optimize_genetic_code(
-            query_file=reformatted_file,
-            output_dir=query_output_dir,
-            genetic_codes=genetic_codes,
-        )
+    return optimize_genetic_code(
+        reformatted_file,
+        query_output_dir,
+        database_path / COMBINED_HMM,
+        genetic_codes,
+        threads=threads,
     )
-    return best_code, outputs, all_code_results
 
 
 def _write_genecalling_tables(
     query_output_dir: Path,
     query_name: str,
-    best_code: int,
-    all_code_results: Dict[int, Dict[str, Any]],
+    gene_calling: GeneCallingResult,
 ) -> None:
-    _write_genecalling_comparison_table(query_output_dir, query_name, all_code_results)
-    _write_selected_genecode_table(
-        query_output_dir, query_name, best_code, all_code_results
-    )
+    _write_genecalling_comparison_table(query_output_dir, query_name, gene_calling)
+    _write_selected_genecode_table(query_output_dir, query_name, gene_calling)
 
 
 def _write_genecalling_comparison_table(
     query_output_dir: Path,
     query_name: str,
-    all_code_results: Dict[int, Dict[str, Any]],
+    gene_calling: GeneCallingResult,
 ) -> None:
     comparison_file = query_output_dir / "stats" / f"{query_name}.genecalling.tab"
+    ranked = sorted(
+        gene_calling.evaluations.values(),
+        key=lambda item: (-item.complete_hits, -item.avg_best_hit_score),
+    )
     with open(comparison_file, "w") as handle:
         handle.write(
             "ttable\tGenes\tBases\tCodingDensity\tcomplete_bestHits\tavg_bestHit_score\n"
         )
-        for row in _iter_sorted_genecalling_rows(all_code_results):
-            handle.write(
-                f"{row['code']}\t{row['genes']}\t{row['bases']}\t"
-                f"{row['coding_density']:.3f}\t{row['complete_hits']}\t"
-                f"{row['avg_best_hit_score']:.1f}\n"
-            )
-
-
-def _iter_sorted_genecalling_rows(
-    all_code_results: Dict[int, Dict[str, Any]],
-) -> List[Dict[str, Any]]:
-    rows = []
-    for code, metrics in all_code_results.items():
-        rows.append(
-            {
-                "code": code,
-                "genes": metrics.get("gene_count", 0),
-                "bases": metrics.get("total_bases", 0),
-                "coding_density": metrics.get("coding_density", 0.0),
-                "complete_hits": metrics.get("complete_hits", 0),
-                "avg_best_hit_score": metrics.get("avg_best_hit_score", 0.0),
-            }
+        handle.writelines(
+            f"{item.code}\t{item.gene_count}\t{gene_calling.assembly.length_bp}\t"
+            f"{item.coding_density:.3f}\t{item.complete_hits}\t"
+            f"{item.avg_best_hit_score:.1f}\n"
+            for item in ranked
         )
-    return sorted(
-        rows, key=lambda item: (-item["complete_hits"], -item["avg_best_hit_score"])
-    )
 
 
 def _write_selected_genecode_table(
     query_output_dir: Path,
     query_name: str,
-    best_code: int,
-    all_code_results: Dict[int, Dict[str, Any]],
+    gene_calling: GeneCallingResult,
 ) -> None:
     stats_file = query_output_dir / "stats" / f"{query_name}.stats.tab"
-    ttable_str = "codemeta" if best_code == 0 else str(best_code)
+    selected = gene_calling.evaluations[gene_calling.best_code]
+    ttable_str = (
+        "codemeta" if gene_calling.best_code == META_CODE else str(selected.code)
+    )
     with open(stats_file, "w") as handle:
         handle.write(f"ttable\t{ttable_str}\n")
-        if best_code not in all_code_results:
-            return
-        selected = all_code_results[best_code]
-        handle.write(f"genes\t{selected.get('gene_count', 0)}\n")
-        handle.write(f"bases\t{selected.get('total_bases', 0)}\n")
-        handle.write(f"coding_density\t{selected.get('coding_density', 0.0):.3f}\n")
+        handle.write(f"genes\t{selected.gene_count}\n")
+        handle.write(f"bases\t{gene_calling.assembly.length_bp}\n")
+        handle.write(f"coding_density\t{selected.coding_density:.3f}\n")
 
 
 def _write_protein_stats(
@@ -484,109 +455,17 @@ def _run_hmm_and_blast(
     sensitive_mode: bool,
     logger,
 ) -> Path:
-    """Run the per-query HMM search.
+    """Run the per-query marker HMM search and return ``models.out.filtered``.
 
-    Historically this also ran a separate per-marker BLAST pass that wrote
-    ``*.blastpout`` files. Those files were never read downstream —
-    contamination scoring reads ``*.m8`` files produced by
-    :class:`MarkerProcessor`, and the tree-building pipeline also owns its
-    own BLAST pass. The redundant pass was removed in v1.4.3 to halve the
-    per-query BLAST workload.
+    The reference BLAST pass belongs to :class:`MarkerProcessor`.
     """
     logger.info(f"Running HMM search: {query_name}")
-    hmmout_dir = query_output_dir / "hmmout"
-    hmmout_dir.mkdir(exist_ok=True)
-    hmm_files = _resolve_hmm_files(database_path)
-    models_out, models_out_filtered, models_counts, models_score = (
-        _get_hmm_output_paths(hmmout_dir)
-    )
-    _run_hmm_search(
+    return run_marker_search(
         protein_file,
-        hmm_files,
-        models_out,
-        models_out_filtered,
-        models_counts,
-        models_score,
-        threads,
-        sensitive_mode,
-    )
-    for required_output in (models_out, models_out_filtered, models_counts):
-        if not required_output.is_file():
-            raise ProcessingError(
-                f"HMM search did not create {required_output}", step="hmm_search"
-            )
-    return models_out_filtered
-
-
-def _resolve_hmm_files(database_path: Path) -> List[str]:
-    model_dir = database_path / "hmm"
-    hmm_files = [str(model_dir / model_name) for model_name in HMM_MODEL_FILES]
-    existing_hmm_files = [
-        hmm_file for hmm_file in hmm_files if Path(hmm_file).is_file()
-    ]
-    if len(existing_hmm_files) == len(hmm_files):
-        return existing_hmm_files
-    combined_hmm = model_dir / "combined.hmm"
-    if combined_hmm.is_file():
-        _pipeline_logger().info("Using fallback combined.hmm file")
-        return [str(combined_hmm)]
-    missing = [Path(path).name for path in hmm_files if not Path(path).is_file()]
-    raise ProcessingError(
-        "No combined HMM and incomplete individual HMM set: " + ", ".join(missing),
-        step="hmm_search",
-    )
-
-
-def _get_hmm_output_paths(hmmout_dir: Path) -> Tuple[Path, Path, Path, Path]:
-    models_out = hmmout_dir / "models.out"
-    models_out_filtered = hmmout_dir / "models.out.filtered"
-    models_counts = hmmout_dir / "models.counts"
-    models_score = hmmout_dir / "models.score"
-    return models_out, models_out_filtered, models_counts, models_score
-
-
-def _run_hmm_search(
-    protein_file: Path,
-    hmm_files: List[str],
-    models_out: Path,
-    models_out_filtered: Path,
-    models_counts: Path,
-    models_score: Path,
-    threads: int,
-    sensitive_mode: bool,
-) -> None:
-    if len(hmm_files) > 1:
-        from src.core.hmm_search import generate_counts_from_output
-        from src.core.hmm_search_multi import (
-            dedup_domtbl_file,
-            run_pyhmmer_search_multi,
-        )
-
-        run_pyhmmer_search_multi(
-            hmm_files=hmm_files,
-            query_file=str(protein_file),
-            output_file=str(models_out),
-            threads=threads,
-            sensitive_mode=sensitive_mode,
-        )
-        # Collapse per-domain duplicates in models.out.filtered so it matches the
-        # single-HMM filter-path semantics (one row per (query, model) pair).
-        # Without this, any protein that aligned through multiple HMM domains
-        # would leak extra rows into downstream count/score/marker aggregators.
-        dedup_domtbl_file(str(models_out), str(models_out_filtered))
-        generate_counts_from_output(str(models_out_filtered), str(models_counts))
-        return
-
-    run_pyhmmer_search_with_filtering(
-        query_file=str(protein_file),
-        hmm_file=hmm_files[0],
-        output_file=str(models_out),
-        filtered_output=str(models_out_filtered),
-        cutoffs_file=str(None),
-        counts_file=str(models_counts),
-        score_file=str(models_score),
+        database_path / COMBINED_HMM,
+        query_output_dir / "hmmout",
         threads=threads,
-        sensitive_mode=sensitive_mode,
+        sensitive=sensitive_mode,
     )
 
 
@@ -987,19 +866,13 @@ def _copy_final_sequence_outputs(
 
 
 def _find_query_gff_file(query_output_dir: Path, query_name: str) -> Optional[Path]:
-    gff_candidates = [
+    gff_file = (
         query_output_dir
         / "gene_calling"
         / f"{query_name}_reformatted"
-        / f"{query_name}_reformatted.gff",
-        query_output_dir / "gene_calling" / f"{query_name}.gff",
-    ]
-    for gff_candidate in gff_candidates:
-        if gff_candidate.exists():
-            return gff_candidate
-    for gff_file in query_output_dir.glob("**/*.gff"):
-        return gff_file
-    return None
+        / f"{query_name}_reformatted.gff"
+    )
+    return gff_file if gff_file.is_file() else None
 
 
 def _post_process_query(

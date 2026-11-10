@@ -8,10 +8,9 @@ from unittest.mock import Mock
 
 import pytest
 
-from src.core import blast, hmm_search_multi, marker_processing
-from src.core.blast import parse_blastp, run_blastp
+from src.core import blast, hmm_search, marker_processing
+from src.core.blast import iter_blastp_records, run_blastp
 from src.core.contamination_scoring import ContaminationScorer
-from src.core.hmm_search import generate_counts_from_output
 from src.core.marker_processing import MarkerProcessor
 from src.core.tree_analysis import TreeAnalyzer
 from src.utils.error_handling import ProcessingError
@@ -32,14 +31,13 @@ def _search_hit() -> SimpleNamespace:
         query_end=5,
         target_start=0,
         target_end=5,
+        alignment="MMMMMM",
     )
     return SimpleNamespace(
         evalue=1e-20,
         query_index=0,
         target_index=0,
         result=search_result,
-        query_aln="MKVLAA",
-        target_aln="MKVLAA",
         score=42.0,
     )
 
@@ -107,97 +105,32 @@ def test_blast_successful_zero_hits_publishes_empty_output(
     assert output.read_bytes() == b""
 
 
-def test_parse_blastp_rejects_malformed_record(tmp_path: Path) -> None:
+def test_iter_blastp_records_rejects_malformed_record(tmp_path: Path) -> None:
     output = tmp_path / "malformed.m8"
     output.write_text("query\tsubject\t90\n", encoding="utf-8")
 
     with pytest.raises(ValueError, match=r"malformed\.m8 at line 1"):
-        parse_blastp(str(output))
+        list(iter_blastp_records(output))
 
 
-def test_multi_hmm_rejects_missing_requested_file_before_search(
+def test_marker_search_failure_publishes_no_tables(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    present_hmm = tmp_path / "present.hmm"
-    present_hmm.touch()
-    missing_hmm = tmp_path / "missing.hmm"
     query = tmp_path / "query.faa"
     query.write_text(">query\nMKVLAA\n", encoding="utf-8")
-    load_sequences = Mock(return_value=[])
-    monkeypatch.setattr(hmm_search_multi, "_load_query_sequences", load_sequences)
-
-    with pytest.raises(FileNotFoundError, match=r"missing\.hmm"):
-        hmm_search_multi.run_pyhmmer_search_multi(
-            [str(present_hmm), str(missing_hmm)],
-            str(query),
-            str(tmp_path / "models.out"),
-            threads=1,
-        )
-
-    load_sequences.assert_not_called()
-
-
-def test_multi_hmm_aborts_when_selected_file_fails(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    first_hmm = tmp_path / "first.hmm"
-    second_hmm = tmp_path / "second.hmm"
-    first_hmm.touch()
-    second_hmm.touch()
-    output = tmp_path / "models.out"
+    out_dir = tmp_path / "hmmout"
+    monkeypatch.setattr(hmm_search, "load_profiles", Mock(return_value=()))
     monkeypatch.setattr(
-        hmm_search_multi, "_load_query_sequences", Mock(return_value=[])
+        hmm_search, "search", Mock(side_effect=RuntimeError("injected search failure"))
     )
-    process_hmm = Mock(
-        side_effect=[
-            ("first", str(first_hmm), [object()], []),
-            RuntimeError("injected second HMM failure"),
-        ]
-    )
-    monkeypatch.setattr(hmm_search_multi, "_process_single_hmm_file", process_hmm)
 
-    with pytest.raises(RuntimeError, match="injected second HMM failure"):
-        hmm_search_multi.run_pyhmmer_search_multi(
-            [str(first_hmm), str(second_hmm)],
-            str(tmp_path / "query.faa"),
-            str(output),
-            threads=1,
+    with pytest.raises(RuntimeError, match="injected search failure"):
+        hmm_search.run_marker_search(
+            query, tmp_path / "models.hmm", out_dir, threads=1, sensitive=True
         )
 
-    assert process_hmm.call_count == 2
-    assert not output.exists()
-
-
-def test_generate_counts_propagates_missing_input(tmp_path: Path) -> None:
-    with pytest.raises(FileNotFoundError, match=r"missing\.filtered"):
-        generate_counts_from_output(
-            str(tmp_path / "missing.filtered"),
-            str(tmp_path / "models.counts"),
-        )
-
-
-def test_generate_counts_rejects_malformed_record(tmp_path: Path) -> None:
-    hmm_output = tmp_path / "models.out.filtered"
-    counts = tmp_path / "models.counts"
-    hmm_output.write_text("protein\t-\t100\n", encoding="utf-8")
-
-    with pytest.raises(ValueError, match=r"models\.out\.filtered at line 1"):
-        generate_counts_from_output(str(hmm_output), str(counts))
-
-    assert not counts.exists()
-
-
-def test_generate_counts_propagates_output_failure(tmp_path: Path) -> None:
-    hmm_output = tmp_path / "models.out.filtered"
-    hmm_output.write_text("protein\t-\t100\tmodel\n", encoding="utf-8")
-
-    with pytest.raises(FileNotFoundError):
-        generate_counts_from_output(
-            str(hmm_output),
-            str(tmp_path / "missing" / "models.counts"),
-        )
+    assert not out_dir.exists()
 
 
 def test_contamination_empty_m8_is_valid_no_hit_evidence(tmp_path: Path) -> None:

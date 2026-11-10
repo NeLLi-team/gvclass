@@ -6,7 +6,17 @@ strings.
 """
 
 from collections import Counter
-from typing import Dict, List, Optional, Tuple
+from collections.abc import Iterable
+
+# Order of the flags in ``taxonomy_confidence``.
+_CONFIDENCE_FLAG_ORDER = (
+    "no_support",
+    "low_support",
+    "tie",
+    "mixed_cellular",
+    "plurality",
+    "reduced_fastmode",
+)
 
 _TAXONOMY_PREFIX_TO_LEVEL = {
     "d": "domain",
@@ -19,7 +29,7 @@ _TAXONOMY_PREFIX_TO_LEVEL = {
 }
 
 
-def parse_taxonomy_majority(taxonomy_majority: str) -> Dict[str, str]:
+def parse_taxonomy_majority(taxonomy_majority: str) -> dict[str, str]:
     """Return unprefixed ranks from an accepted consensus lineage."""
     lineage = {level: "" for level in _TAXONOMY_PREFIX_TO_LEVEL.values()}
     for token in str(taxonomy_majority or "").split(";"):
@@ -94,37 +104,6 @@ def _low_frequency_tax_group_key(tax_key: str, level: str | None = None) -> str:
     return f"{tax_key}_other"
 
 
-def get_tax_consensus(tax_counter: Counter, level: str) -> Tuple[str, str]:
-    """Get majority and strict consensus for a taxonomic level."""
-    if not tax_counter:
-        return f"{level[0]}_", f"{level[0]}_"
-
-    total = sum(tax_counter.values())
-    most_common = tax_counter.most_common(1)[0]
-    tax, count = most_common
-
-    # For domain level, use the full domain name (e.g., "NCLDV" -> "d_NCLDV")
-    # For other levels, use the full taxonomy with prefix (e.g., "NCLDV__Mesomimiviridae" -> "f_Mesomimiviridae")
-    if level == "domain":
-        # Domain is just the prefix part (e.g., "NCLDV", "BAC", "EUK")
-        tax_name = tax
-    else:
-        # For other levels, extract the name after the domain prefix
-        if "__" in tax:
-            parts = tax.split("__")
-            tax_name = parts[-1] if len(parts) > 1 and parts[-1] else tax
-        else:
-            tax_name = tax
-
-    # Strict consensus: 100% agreement
-    strict = f"{level[0]}_{tax_name}" if count == total else f"{level[0]}_"
-
-    # Majority consensus: >50% agreement
-    majority = f"{level[0]}_{tax_name}" if count > total * 0.5 else f"{level[0]}_"
-
-    return majority, strict
-
-
 def _build_taxonomy_key(level: str, domain_prefix: str, tax_value: str) -> str:
     if level == "domain":
         return domain_prefix or tax_value
@@ -133,28 +112,8 @@ def _build_taxonomy_key(level: str, domain_prefix: str, tax_value: str) -> str:
     return tax_value
 
 
-def _stable_top(counter: Counter) -> Optional[Tuple[str, int]]:
-    """Return the counter entry with the highest count, breaking ties on
-    lexicographic key so the result does not depend on upstream insertion
-    order. ``Counter.most_common(1)`` alone is insertion-stable, which is
-    non-deterministic when the feeder iterates an unordered glob
-    (``tree_dir.glob("*.treefile")``)."""
-    if not counter:
-        return None
-    # Sort descending by (count, key) with key as tiebreaker. Negative
-    # count keeps the primary sort descending; key asc ensures stable
-    # alphabetic tiebreak across runs.
-    return min(counter.items(), key=lambda kv: (-kv[1], kv[0]))
-
-
-def _tax_key_matches_domain(tax_key: str, domain: Optional[str]) -> bool:
-    if not domain:
-        return True
-    return tax_key.startswith(f"{domain}__")
-
-
 def _lineage_matches_prefix(
-    lineage: Tuple[str, ...], selected_prefix: Tuple[str, ...]
+    lineage: tuple[str, ...], selected_prefix: tuple[str, ...]
 ) -> bool:
     return lineage[: len(selected_prefix)] == selected_prefix
 
@@ -170,16 +129,7 @@ def _format_tax_label(level: str, tax_key: str) -> str:
     return f"{level[0]}_{tax_name}"
 
 
-def _aggregate_confidence_flags(flags: List[str]) -> str:
-    if not flags:
-        return "high"
-    # Preserve a stable priority so the string always reports the
-    # strongest caveat first.
-    priority = {
-        "no_support": 0,
-        "low_support": 1,
-        "mixed_cellular": 2,
-        "reduced_fastmode": 3,
-    }
-    unique = sorted(set(flags), key=lambda flag: priority.get(flag, 99))
-    return ",".join(unique)
+def _aggregate_confidence_flags(flags: Iterable[str]) -> str:
+    """Join confidence flags in their fixed order, or return ``high`` for none."""
+    unique = sorted(set(flags), key=_CONFIDENCE_FLAG_ORDER.index)
+    return ",".join(unique) or "high"

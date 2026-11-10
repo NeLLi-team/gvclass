@@ -11,7 +11,7 @@ Results are written to `-o OUTPUT_DIR`, or `<query_dir>_results` by default. The
 | `gvclass_summary.tsv` | Main summary table, one row per query, tab-separated. |
 | `gvclass_summary.csv` | Same content as `gvclass_summary.tsv`, comma-separated. |
 | `gvclass_summary.extended.tar.gz` | Archive containing `gvclass_summary.extended.tsv` and `gvclass_summary.extended.csv`, the per-contig contamination diagnostics. |
-| `gvclass_failed_queries.tsv` | Written only when one or more queries fail; one row per failed query with its error. Tab-separated. A failed required search, tree, or summary step fails the query; GVClass does not fall back silently. |
+| `gvclass_failed_queries.tsv` | Written only when one or more queries fail; one row per failed query with its error, including input files rejected by validation (status `invalid_input`). Tab-separated. A failed required search, tree, or summary step fails the query; GVClass does not fall back silently. |
 | `gvclass_failed_queries.csv` | Same content as the failed-queries TSV, comma-separated. |
 | `run_status.json` | Resume manifest: software and database versions, database path, settings, query status, timestamps, and artifact names, sizes, and checksums. |
 | `run.log` | Run and query start, completion, and failure messages. |
@@ -63,9 +63,9 @@ old search results and sequence files cannot affect its scores.
 | Column | Description |
 | --- | --- |
 | `query` | Input filename for the query. |
-| `taxonomy_majority` | Accepted lineage from per-marker nearest-neighbor votes. Unsupported ranks are blank. |
+| `taxonomy_majority` | Accepted lineage from per-marker nearest-neighbor votes. Tied and unsupported ranks are blank, with all lower ranks. |
 | `species_tree_nn_taxonomy` | Nearest-reference lineage from the query's concatenated-marker tree; `nd` if unavailable. |
-| `taxonomy_confidence` | `high`, or flags: `low_support` for insufficient marker support; `mixed_cellular` when eukaryotic markers win the domain vote without 80% of the cellular-domain markers; `reduced_fastmode` for an order accepted with two markers in fast mode; `no_support` for absent taxonomy evidence. |
+| `taxonomy_confidence` | `high`, or comma-separated flags in this order: `no_support` for absent taxonomy evidence; `low_support` for insufficient marker support; `tie` when two taxa have the most marker votes at a rank; `mixed_cellular` when eukaryotic markers win the domain vote without 80% of the cellular-domain markers; `plurality` when an assigned rank is held by half or fewer of the markers; `reduced_fastmode` for an order accepted with two markers in fast mode. See [Taxonomy](../explanation/taxonomy.md#confidence-flags). |
 | `capsid_group` | Combined capsid-type tally as `label:count` across the Nucleocytoviricota, Mirusviricota, and Bellas & Sommaruga capsid groups. |
 | `species` | Species-rank call with per-taxon counts. |
 | `genus` | Genus-rank call with per-taxon counts. |
@@ -90,7 +90,7 @@ old search results and sequence files cannot affect its scores.
 | `gvog4_dup` | GVOG4 duplication factor (total marker hits / distinct markers present). |
 | `gvog8_completeness` | Distinct core NCLDV GVOG8 markers present, as `n/8`. |
 | `gvog8_dup` | GVOG8 duplication factor. |
-| `busco_completeness` | Eukaryotic BUSCO markers present, as `n/255`. |
+| `busco_completeness` | Eukaryotic BUSCO markers present, as `n/69`. |
 | `busco_dup` | BUSCO duplication factor; elevated values can reflect eukaryotic sequence contamination. |
 | `cog_completeness` | Universal COG (UNI56) markers present, as `n/56`. |
 | `cog_dup` | COG duplication factor; elevated values can reflect cellular sequence contamination. |

@@ -199,23 +199,18 @@ def test_single_contig_keeps_one_identity_for_nucleotide_and_protein_records(
     assert result["cellular_coherent_bp_fraction"] == 100.0
 
 
-def test_partial_hmm_set_fails_without_combined_resource(tmp_path):
-    hmm_dir = tmp_path / "hmm"
-    hmm_dir.mkdir()
-    (hmm_dir / "busco69.hmm").write_text("partial", encoding="utf-8")
+def test_missing_combined_hmm_fails_the_marker_search(tmp_path):
+    protein = tmp_path / "query.faa"
+    protein.write_text(">q|p_1\nMKVLAA\n", encoding="utf-8")
+    (tmp_path / "db" / "hmm").mkdir(parents=True)
+    (tmp_path / "db" / "hmm" / "busco69.hmm").write_text("partial", encoding="utf-8")
 
-    with pytest.raises(ProcessingError, match="incomplete individual HMM set"):
-        query_processing_engine._resolve_hmm_files(tmp_path)
+    with pytest.raises(FileNotFoundError, match=r"combined\.hmm"):
+        query_processing_engine._run_hmm_and_blast(
+            "q", tmp_path / "out", protein, tmp_path / "db", 1, True, LOGGER
+        )
 
-
-def test_partial_hmm_set_uses_complete_combined_resource(tmp_path):
-    hmm_dir = tmp_path / "hmm"
-    hmm_dir.mkdir()
-    (hmm_dir / "busco69.hmm").write_text("partial", encoding="utf-8")
-    combined = hmm_dir / "combined.hmm"
-    combined.write_text("combined", encoding="utf-8")
-
-    assert query_processing_engine._resolve_hmm_files(tmp_path) == [str(combined)]
+    assert not (tmp_path / "out" / "hmmout" / "models.out").exists()
 
 
 def test_marker_failure_propagates_from_thread_worker(tmp_path, monkeypatch):

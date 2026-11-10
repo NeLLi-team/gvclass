@@ -9,7 +9,6 @@ file; here it stays in memory.
 
 from __future__ import annotations
 
-import gzip
 import logging
 import time
 from collections.abc import Mapping
@@ -19,7 +18,12 @@ from pathlib import Path
 import pandas as pd
 import pyrodigal
 
-from src.contig_screen.extract_genes import gene_row, hmm_search, unique_proteins
+from src.contig_screen.extract_genes import (
+    gene_row,
+    hmm_search,
+    open_text,
+    unique_proteins,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -48,14 +52,20 @@ class GeneCalls:
 
 
 def read_fasta(path: Path) -> dict[str, str]:
-    """Return contig name to upper-case sequence (plain or gzip)."""
-    opener = gzip.open if path.suffix == ".gz" else open
+    """Return contig name to upper-case sequence (plain or gzip).
+
+    Raises:
+        ValueError: Two records have the same identifier.
+    """
     records: dict[str, list[str]] = {}
     name = ""
-    with opener(path, "rt", encoding="utf-8") as handle:
+    with open_text(path) as handle:
         for line in handle:
             if line.startswith(">"):
                 name = line[1:].split()[0]
+                if name in records:
+                    msg = f"duplicate FASTA identifier {name!r} in {path}"
+                    raise ValueError(msg)
                 records[name] = []
             elif name:
                 records[name].append(line.strip().upper())

@@ -21,7 +21,6 @@ contamination estimate.
 from __future__ import annotations
 
 import argparse
-import gzip
 import logging
 import shutil
 import subprocess
@@ -30,7 +29,6 @@ import tempfile
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TextIO
 
 import numpy as np
 import pandas as pd
@@ -39,17 +37,16 @@ from src.contig_screen import layout, torch_stack
 from src.contig_screen.build_features import load_labels, unit_features
 from src.contig_screen.context_stage import context_table, tilings
 from src.contig_screen.extra_features import Embedder, draw_plan, window_embeddings
-from src.contig_screen.extract_genes import extract_bin, read_fasta
+from src.contig_screen.extract_genes import extract_bin, open_text, read_fasta
 from src.contig_screen.gene_embeddings import extend_tokens
 from src.contig_screen.hit_tokens import SCALARS, window_tokens
 from src.contig_screen.ref_hits import load_reference, reference_features
 from src.contig_screen.stack_context import stack_scores
-from src.contig_screen.thresholds import sliding_calls
+from src.contig_screen.thresholds import called_bp
 
 logger = logging.getLogger(__name__)
 
 ESM_GENES = 8
-SET_VARIANT = "hits_struct"
 MOSTLY_CELLULAR_PCT = 80.0
 SKIPPED_CLASSES = ["NCLDV"]
 DIAMOND_COLUMNS = ["qseqid", "sseqid", "pident", "length", "qlen", "slen", "evalue"]
@@ -161,6 +158,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     with torch_stack.limit_threads(args.threads):
         result = score_bin(args.fasta, resources, settings, keep=args.keep)
+    if result.empty:
+        args.out.unlink(missing_ok=True)
+        print("no genes called on the contigs of 3 kb or more: not scored")
+        return 0
     result["called_cellular"] = result["p_context"] >= stage2
     args.out.parent.mkdir(parents=True, exist_ok=True)
     result.to_csv(args.out, sep="\t", index=False)
@@ -185,13 +186,15 @@ def score_bin(
     The choice of the proteins for the embedding is seeded from the sequences of
     the bin, so the file name and the contig order do not change the scores (see
     ``extra_features.draw_plan``). The intermediate files go to ``keep`` or a
-    temporary directory.
+    temporary directory. The result is empty (no rows) when no gene is called.
     """
     boosting = layout.load_joblib(resources, layout.BOOSTING_FILE)
     with tempfile.TemporaryDirectory() as scratch:
         work = keep if keep is not None else Path(scratch)
         work.mkdir(parents=True, exist_ok=True)
         features = window_features(fasta, resources, settings, boosting, work)
+    if features.empty:
+        return pd.DataFrame(columns=OUTPUT_COLUMNS)
     for column in boosting["columns"]:
         if column not in features:
             features[column] = float("nan")
@@ -207,7 +210,13 @@ def window_features(
     boosting: dict[str, object],
     work: Path,
 ) -> pd.DataFrame:
-    """Return the feature table of the windows, with the set model logit joined."""
+    """Return the feature table of the windows, with the set model logit joined.
+
+    The table is empty when no gene is called on the windows.
+
+    Raises:
+        ValueError: The boosting model reads embeddings that are not mean pooled.
+    """
     genome = {
         "genome_id": fasta.stem,
         "class": "BIN",
@@ -223,6 +232,8 @@ def window_features(
         step_kb=settings.step_kb or None,
         threads=settings.threads,
     )
+    if not genes:
+        return pd.DataFrame()
     labels = load_labels(
         resources.path(layout.LABELS_FILE), resources.path(layout.LABEL_DOMAIN_FILE)
     )
@@ -232,9 +243,12 @@ def window_features(
     features, best = add_reference_hits(
         features, queries, index, resources, settings, work
     )
+    embedder = make_embedder(resources, settings)
     if any(c.startswith("e_") for c in boosting["columns"]):
-        pooling = str(boosting.get("embedding_pooling", "legacy"))
-        embedder = make_embedder(resources, settings, pooling)
+        pooling = boosting.get("embedding_pooling")
+        if pooling != "mean":
+            msg = f"the boosting model needs mean pooled embeddings, not {pooling!r}"
+            raise ValueError(msg)
         seed, drawn = draw_plan(
             contigs,
             read_fasta(genome["fasta_path"]),
@@ -243,14 +257,12 @@ def window_features(
         embedded = window_embeddings(seed, drawn, genes, embedder, ESM_GENES)
         keep = ["contig_id", *[c for c in embedded.columns if c.startswith("e_")]]
         features = features.merge(embedded[keep], on="contig_id", how="left")
-    return add_set_logits(features, best, queries, index, resources, settings)
+    return add_set_logits(features, best, queries, index, embedder, resources, settings)
 
 
-def make_embedder(
-    resources: layout.ScreenResources, settings: Settings, pooling: str
-) -> Embedder:
-    """Return an ESM-2 embedder over the verified local model files."""
-    return Embedder(resources.directory(layout.ESM_DIR), settings.threads, pooling)
+def make_embedder(resources: layout.ScreenResources, settings: Settings) -> Embedder:
+    """Return a mean pooling ESM-2 embedder over the verified local model files."""
+    return Embedder(resources.directory(layout.ESM_DIR), settings.threads, "mean")
 
 
 def stage1_scores(features: pd.DataFrame, boosting: dict[str, object]) -> pd.DataFrame:
@@ -382,31 +394,26 @@ def add_set_logits(
     best: pd.DataFrame,
     queries: Sequence[tuple[str, str]],
     index: pd.DataFrame,
+    embedder: Embedder,
     resources: layout.ScreenResources,
     settings: Settings,
 ) -> pd.DataFrame:
     """Join ``set_logit``: the logit of the set model of the hit tokens and embeddings.
 
     The tokens come from the best hits of ``add_reference_hits``, the embeddings are
-    those of every protein of the windows, and the models are the fitted set models
-    of the bundle.
+    those of every protein of the windows (``embedder``, the one that embedded the
+    sampled proteins), and the models are the fitted set models of the bundle.
     """
     from src.contig_screen import set_model  # noqa: PLC0415  # imports torch
 
     set_model.set_threads(settings.threads)
     genes, offsets, raw, pieces = window_tokens(token_features(features), best, index)
-    embedder = make_embedder(resources, settings, "mean")
     tokens = extend_tokens(queries, genes, offsets, pieces, embedder)
-    logits = set_model.score_contigs(resources, SET_VARIANT, tokens, offsets, raw)
+    logits = set_model.score_contigs(
+        resources, layout.SET_VARIANT, tokens, offsets, raw
+    )
     table = pieces[["contig_id"]].assign(set_logit=logits)
     return features.merge(table, on="contig_id", how="left")
-
-
-def open_text(path: Path) -> TextIO:
-    """Open a FASTA file for reading text, gzipped or not."""
-    if path.suffix == ".gz":
-        return gzip.open(path, "rt", encoding="utf-8")
-    return path.open(encoding="utf-8")
 
 
 def fasta_bp(path: Path) -> int:
@@ -436,7 +443,7 @@ def contig_lengths(path: Path) -> dict[str, int]:
                     msg = f"duplicate FASTA identifier {name!r} in {path}"
                     raise ValueError(msg)
                 lengths[name] = 0
-            else:
+            elif name:
                 lengths[name] += len(line.strip())
     return lengths
 
@@ -462,8 +469,7 @@ def summarize(
     else:
         print(f"{len(result)} overlapping windows scored, input {total} bp")
         windows = result.rename(columns={score: "p"})
-        calls = sliding_calls(windows, lengths, threshold)
-        called = sum(int(c.sum()) for c in calls.values())
+        called = sum(called_bp(windows, lengths, threshold).values())
     share = 100.0 * called / total
     print(f"called cellular: {called} bp ({share:.1f}% of the input)")
     if share >= MOSTLY_CELLULAR_PCT:

@@ -1,40 +1,65 @@
 import os
-from typing import List
-from Bio import SeqIO
-from Bio.SeqRecord import SeqRecord
+from pathlib import Path
+
 import pandas as pd
-import click
+from Bio.SeqRecord import SeqRecord
+
+from src.utils.error_handling import ValidationError
 
 
-def reformat_sequences(records: List[SeqRecord], input_file: str) -> List[SeqRecord]:
+def reformat_sequences(records: list[SeqRecord], input_file: str) -> list[SeqRecord]:
+    """Rename every record to ``<input basename>|<original ID>``.
+
+    The original ID is kept whole so that distinct IDs stay distinct. A leading
+    ``<basename>|`` is dropped first, so GVClass output used as input keeps its
+    IDs. Empty fields at either end are dropped, every other ``|`` becomes
+    ``__``, and ``:`` becomes ``__``. Descriptions are cleared.
+
+    Raises:
+        ValidationError: If an ID has no content, or if two records end up with
+            the same new ID. The error names both original IDs.
     """
-    Reformat the sequence IDs and descriptions.
-
-    Args:
-        records (List[SeqRecord]): List of sequence records.
-        input_file (str): Path to the input FASTA file.
-
-    Returns:
-        List[SeqRecord]: List of reformatted sequence records.
-    """
-    input_basename = os.path.splitext(os.path.basename(input_file))[0]
+    basename = Path(input_file).stem
+    originals_by_new_id: dict[str, str] = {}
     for record in records:
-        if "|" in record.id:
-            record.id = (
-                f"{input_basename}|{record.id.split('|')[-1].replace(':', '__')}"
+        new_id = f"{basename}|{_flatten_id(record.id, basename)}"
+        if new_id in originals_by_new_id:
+            raise ValidationError(
+                f"Sequence IDs {originals_by_new_id[new_id]!r} and {record.id!r} "
+                f"in {input_file} both become {new_id!r}. Rename one of them.",
+                field="sequence_id",
+                value=record.id,
             )
-        else:
-            record.id = f"{input_basename}|{record.id.replace(':', '__')}"
+        originals_by_new_id[new_id] = record.id
+    for record, new_id in zip(records, originals_by_new_id, strict=True):
+        record.id = new_id
         record.description = ""
     return records
 
 
-def calculate_stats(records: List[SeqRecord], input_file: str) -> pd.DataFrame:
-    """
-    Calculate statistics for the input FASTA file.
+def _flatten_id(sequence_id: str, basename: str) -> str:
+    """Drop the basename prefix and empty end fields; replace ``|`` and ``:``."""
+    prefix = f"{basename}|"
+    unprefixed = sequence_id.removeprefix(prefix)
+    fields = unprefixed.split("|")
+    while fields and not fields[0]:
+        fields.pop(0)
+    while fields and not fields[-1]:
+        fields.pop()
+    if not fields:
+        raise ValidationError(
+            f"Sequence ID {sequence_id!r} has no content",
+            field="sequence_id",
+            value=sequence_id,
+        )
+    return "__".join(fields).replace(":", "__")
+
+
+def calculate_stats(records: list[SeqRecord], input_file: str) -> pd.DataFrame:
+    """Calculate statistics for the input FASTA file.
 
     Args:
-        records (List[SeqRecord]): List of sequence records.
+        records (list[SeqRecord]): List of sequence records.
         input_file (str): Path to the input FASTA file.
 
     Returns:
@@ -56,38 +81,3 @@ def calculate_stats(records: List[SeqRecord], input_file: str) -> pd.DataFrame:
         "ttable": "no_fna",
     }
     return pd.DataFrame([stats_dict])
-
-
-@click.command()
-@click.option(
-    "--input",
-    "-i",
-    type=click.Path(exists=True),
-    help="Input FASTA file",
-    required=True,
-)
-@click.option(
-    "--output", "-o", type=click.Path(), help="Output FASTA file", required=True
-)
-@click.option(
-    "--stats", "-s", type=click.Path(), help="Genome stats outfile", required=True
-)
-def main(input: str, output: str, stats: str) -> None:
-    """
-    Reformat sequences and calculate statistics for the input FASTA file.
-
-    Args:
-        input (str): Path to the input FASTA file.
-        output (str): Path to the output FASTA file.
-        stats (str): Path to the genome stats output file.
-    """
-    records = list(SeqIO.parse(input, "fasta"))
-    reformatted_records = reformat_sequences(records, input)
-    SeqIO.write(reformatted_records, output, "fasta")
-
-    stats_df = calculate_stats(records, input)
-    stats_df.to_csv(stats, sep="\t", index=False)
-
-
-if __name__ == "__main__":
-    main()

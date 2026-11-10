@@ -197,3 +197,53 @@ def test_place_refuses_a_link_that_resolves_to_its_source(tmp_path: Path) -> Non
         build.place(source, alias, link=True)
 
     assert source.read_bytes() == b"x"
+
+
+def test_rebuilding_removes_the_files_that_the_new_tree_no_longer_lists(
+    tmp_path: Path,
+) -> None:
+    out = tmp_path / "bundle"
+    inputs = make_inputs(tmp_path, with_shared=True)
+    build.build_resources(inputs, out)
+    (inputs.esm_dir / "vocab.txt").unlink()
+
+    digest = build.build_resources(inputs, out)
+
+    assert not (out / layout.ESM_DIR / "vocab.txt").exists()
+    assert (out / layout.ESM_DIR / "config.json").is_file()
+    assert (out / layout.HMM_FILE).is_file()
+    assert layout.ScreenResources.open(out, manifest_sha256=digest)
+
+
+def test_rebuilding_removes_an_empty_directory_of_the_old_tree(tmp_path: Path) -> None:
+    out = tmp_path / "bundle"
+    inputs = make_inputs(tmp_path, with_shared=True)
+    build.build_resources(inputs, out)
+    stray = out / layout.SCREEN_DIR / "old" / "deeper"
+    stray.mkdir(parents=True)
+    (stray / "file.bin").write_bytes(b"x")
+
+    build.build_resources(inputs, out)
+
+    assert not (out / layout.SCREEN_DIR / "old").exists()
+
+
+def test_the_builder_offers_no_set_variant_option(tmp_path: Path) -> None:
+    inputs = make_inputs(tmp_path, with_shared=True)
+
+    with pytest.raises(SystemExit):
+        build.parse_args(
+            [
+                "--out-root", str(tmp_path / "bundle"),
+                "--ref-dir", str(inputs.ref_dir),
+                "--boosting", str(inputs.boosting),
+                "--set-dir", str(inputs.set_dir),
+                "--set-variant", "hits",
+                "--stage2-dir", str(inputs.stage2_dir),
+                "--threshold1", "0.4",
+                "--threshold2", "0.3",
+                "--esm-dir", str(inputs.esm_dir),
+                "--label-domain", str(inputs.label_domain),
+                "--refs-dir", str(inputs.refs_dir),
+            ]
+        )  # fmt: skip

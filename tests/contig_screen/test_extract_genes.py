@@ -135,6 +135,56 @@ def test_write_tables_adds_the_best_model_of_each_gene(tmp_path: Path) -> None:
     )
 
 
+def test_the_gene_columns_are_the_fields_of_a_called_gene(tmp_path: Path) -> None:
+    genome = write_fasta(tmp_path / "b.fna", {"c1": coding_dna(8, 3)})
+
+    genes, _ = eg.call_genes(genome, eg.tile_contigs(genome, 0))
+
+    assert list(genes[0]) == eg.GENE_COLUMNS
+
+
+def test_a_bin_without_called_genes_gets_tables_with_the_declared_columns(
+    tmp_path: Path,
+) -> None:
+    sequence = "".join(random.Random(55).choices("AT", k=3000))
+    genome = write_fasta(tmp_path / "b.fna", {"c1": sequence})
+    windows = eg.tile_contigs(genome, 0)
+    genes, rows = eg.call_genes(genome, windows)
+
+    eg.write_tables(tmp_path, "b", rows, genes, {}, [])
+
+    table = pd.read_parquet(tmp_path / "b.genes.parquet")
+    expected = [c for c in eg.GENE_COLUMNS if c != "protein"]
+    assert genes == []
+    assert table.columns.tolist() == [
+        *expected,
+        "best_model",
+        "best_hmm_score",
+        "n_models",
+    ]
+    assert table.empty
+
+
+def test_read_fasta_reads_gzipped_files_with_an_upper_case_suffix(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "b.FNA.GZ"
+    with gzip.open(path, "wt") as handle:
+        handle.write(">c1\n" + "ACGT" * 1000 + "\n")
+
+    assert eg.read_fasta(path) == {"c1": "ACGT" * 1000}
+
+
+def test_read_fasta_refuses_two_records_with_one_name_even_when_one_is_short(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "b.fna"
+    path.write_text(f">dup\n{'A' * 3000}\n>dup\nACGT\n")
+
+    with pytest.raises(ValueError, match="duplicate FASTA identifier 'dup'"):
+        eg.read_fasta(path)
+
+
 def write_catalog(path: Path) -> None:
     alphabet = pyhmmer.easel.Alphabet.amino()
     sequence = pyhmmer.easel.TextSequence(name=b"q", sequence=PROTEIN).digitize(

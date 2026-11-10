@@ -44,15 +44,19 @@ CELLULAR_MODELS = set(BUSCO_MODELS + UNI56_MODELS)
 PHAGE_MODELS_SET = set(PHAGE_MODELS)
 
 
-def _category_group_names(base_models):
-    """Collapsed group markers whose members belong to ``base_models``. A group is a
-    single gene family, so it inherits its members' category — this lets the name-based
-    cellular/phage checks recognise group names (e.g. a grouped BUSCO family) and not
-    misread them as viral after the model->group collapse."""
+def _category_group_names(base_models: set[str]) -> set[str]:
+    """Collapsed group markers whose members all belong to ``base_models``.
+
+    A group is a single gene family, so it inherits its members' category. This lets
+    the name-based cellular/phage checks recognise group names (e.g. a grouped BUSCO
+    family) and not misread them as viral after the model->group collapse. A mixed
+    group (e.g. a viral gene family that also holds a cellular or geNomad model) gets
+    no category, so it stays viral.
+    """
     return {
         group
         for group, members in GROUP_TO_MODELS.items()
-        if any(m in base_models for m in members)
+        if all(m in base_models for m in members)
     }
 
 

@@ -64,8 +64,9 @@ def _install_archive(
 ) -> Path:
     """Install a small local archive through the real verification and swap path."""
     archive = tmp_path / "resources.tar.gz"
+    required = dict.fromkeys(DatabaseManager.REQUIRED_FILES, b"x\n")
     with tarfile.open(archive, "w:gz") as handle:
-        for name, content in files.items():
+        for name, content in {**required, **files}.items():
             member = tarfile.TarInfo(f"resources/{name}")
             member.size = len(content)
             handle.addfile(member, io.BytesIO(content))
@@ -74,11 +75,13 @@ def _install_archive(
         "version": "v2.1.0",
         "sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
     }
-    monkeypatch.setattr(DatabaseManager, "_download_archive", lambda *_: None)
+    monkeypatch.setattr(
+        DatabaseManager,
+        "_download_archive",
+        staticmethod(lambda url, path: path.write_bytes(archive.read_bytes())),
+    )
     database = tmp_path / "resources"
 
-    DatabaseManager._install_database_source_atomic(
-        database, source, archive, tmp_path / "resources.new"
-    )
+    DatabaseManager._install_database(database, source)
 
     return database

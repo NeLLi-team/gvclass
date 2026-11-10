@@ -6,9 +6,21 @@ as one query.
 ## 1. Prepare the input
 
 Create a directory containing nucleotide FASTA (`.fna`) or protein FASTA (`.faa`)
-files. `.fasta` and `.fas` are also accepted; GVClass infers their sequence type
-from the content. Give each file a distinct name, using letters, numbers, `_`, or
-`-` before the extension.
+files. `.fasta`, `.fas` and `.fa` are also accepted; GVClass infers their
+sequence type from the content. Extensions are matched without regard to case.
+Give each file a distinct name, using letters, numbers, `_`, or `-` before the
+extension. The names `gvclass_summary`, `gvclass_summary.extended`,
+`gvclass_failed_queries`, `run_status`, `run`, `results`, `species_tree` and
+`_combined` are reserved for GVClass outputs; GVClass stops and asks you to
+rename a file that uses one.
+
+Sequence IDs inside a file must be unique. GVClass renames each record to
+`<file name>|<original ID>`, with every `|` and `:` in the original ID replaced
+by `__` and empty fields at either end dropped. For example, `binA|contig_1` in
+`q.fna` becomes `q|binA__contig_1`, and `gi|9626243|ref|NC_001416.1|` becomes
+`q|gi__9626243__ref__NC_001416.1`. GVClass output used as input keeps its IDs.
+If two IDs in a file become the same name, or a file has a repeated ID, that file
+is rejected with a message that names the IDs.
 
 Copy the two bundled nucleotide bins to try this workflow:
 
@@ -53,6 +65,12 @@ The copied example contains two bins, so the summary should have two data rows.
 Each row reports the query, assigned lineage, and classification confidence.
 The full TSV and CSV summaries include quality estimates. Each query's files
 are stored in a `<query>.tar.gz` archive inside `bin_results/`.
+
+A file that fails validation (for example an empty file, a repeated sequence ID,
+or a total length below the minimum) does not stop the other files. It is
+reported as a failed query with status `invalid_input`, the remaining files are
+processed, and the run ends with a non-zero exit code. If no file is valid, the
+run stops before it processes anything.
 
 If a query fails, inspect `bin_results/gvclass_failed_queries.tsv` and
 `bin_results/run.log`. After correcting the cause, repeat the command with

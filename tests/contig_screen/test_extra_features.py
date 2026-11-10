@@ -6,9 +6,11 @@ import random
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from src.contig_screen import extra_features as ef
 from src.contig_screen.extract_genes import SEED
+from tests.contig_screen.screen_fixtures import embedding_features
 
 
 def protein(seed: int, length: int = 80) -> str:
@@ -210,3 +212,36 @@ def test_a_given_sample_seed_reproduces_the_prototype_draw() -> None:
     assert seed == "NAME"
     assert ordered == windows
     assert set(embedder.asked[0]) == set(expected)
+
+
+DUPLICATED = {"c1": SEQS[0], "c2": SEQS[1], "c3": SEQS[0]}
+
+
+def test_windows_of_identical_sequences_get_the_same_embeddings() -> None:
+    table = embedding_features(DUPLICATED)
+
+    first = table.loc[[i for i in table.index if "|c1|" in i]].to_numpy()
+    third = table.loc[[i for i in table.index if "|c3|" in i]].to_numpy()
+    assert np.array_equal(first, third)
+
+
+@pytest.mark.parametrize("order", [["c3", "c2", "c1"], ["c2", "c1", "c3"]])
+def test_window_embeddings_with_duplicate_sequences_ignore_the_contig_order(
+    order: list[str],
+) -> None:
+    first = embedding_features(DUPLICATED)
+
+    second = embedding_features({name: DUPLICATED[name] for name in order})
+
+    assert np.array_equal(second.loc[first.index].to_numpy(), first.to_numpy())
+
+
+def test_windows_without_a_draw_key_each_make_their_own_draw() -> None:
+    genes = [gene("w1", i, protein(i)) for i in range(20)]
+    genes += [gene("w2", i, protein(i)) for i in range(20)]
+    embedder = FakeEmbedder()
+    windows = [{"contig_id": "w1"}, {"contig_id": "w2"}]
+
+    ef.window_embeddings("bin", windows, genes, embedder, 8)
+
+    assert len(embedder.asked[0]) > 8

@@ -14,6 +14,20 @@ from Bio.SeqRecord import SeqRecord
 
 from .error_handling import ValidationError, FileError, error_handler
 
+#: Query names that would overwrite or hide run-level outputs in the output directory.
+RESERVED_QUERY_STEMS = frozenset(
+    {
+        "gvclass_summary",
+        "gvclass_summary.extended",
+        "gvclass_failed_queries",
+        "run_status",
+        "run",
+        "results",
+        "species_tree",
+        "_combined",
+    }
+)
+
 
 class InputValidator:
     """Comprehensive input validation for GVClass pipeline."""
@@ -91,6 +105,16 @@ class InputValidator:
             unambiguous = sum(1 for c in informative if c in cls.UNAMBIGUOUS_BASES)
             return "fna" if unambiguous / len(informative) >= 0.5 else "faa"
         return "fna"
+
+    @classmethod
+    def infer_fasta_type(cls, path: Path) -> str:
+        """Return ``'fna'`` or ``'faa'`` for a FASTA file.
+
+        Reads records only until the first non-empty one, so a large file is not
+        parsed. The rule is :meth:`_infer_fasta_type_from_content`.
+        """
+        with Path(path).open(encoding="utf-8") as handle:
+            return cls._infer_fasta_type_from_content(SeqIO.parse(handle, "fasta"))
 
     @classmethod
     def validate_sequence_file(
@@ -200,6 +224,8 @@ class InputValidator:
                 value=0,
             )
 
+        cls._reject_duplicate_ids(sequences, path)
+
         # Determine file type if not provided. ``.fasta``/``.fas``/``.fa`` files
         # previously fell through to an extension-based branch that skipped
         # DNA/protein validation entirely (Codex-audit finding). Now we
@@ -208,7 +234,7 @@ class InputValidator:
         if file_type is None:
             suffix_type = path.suffix.lower().replace(".", "")
             if suffix_type in ("fas", "fasta", "fa"):
-                file_type = cls._infer_fasta_type_from_content(sequences)
+                file_type = cls.infer_fasta_type(path)
             else:
                 file_type = suffix_type
 
@@ -246,6 +272,20 @@ class InputValidator:
                     )
 
         return path
+
+    @staticmethod
+    def _reject_duplicate_ids(sequences: list[SeqRecord], path: Path) -> None:
+        """Raise ``ValidationError`` naming the first record ID that occurs twice."""
+        seen: set[str] = set()
+        for record in sequences:
+            if record.id in seen:
+                raise ValidationError(
+                    f"Duplicate sequence ID {record.id!r} in {path}. "
+                    "Every record ID in a file must be unique.",
+                    field="sequence_id",
+                    value=record.id,
+                )
+            seen.add(record.id)
 
     @classmethod
     def _validate_sequence_record(
@@ -435,10 +475,7 @@ class InputValidator:
         """
         dir_path = cls.validate_directory(query_dir, must_exist=True)
 
-        # Check for valid sequence files
-        valid_files = []
-        for ext in cls.VALID_EXTENSIONS:
-            valid_files.extend(dir_path.glob(f"*{ext}"))
+        valid_files = discover_query_files(dir_path)
 
         if not valid_files:
             raise ValidationError(
@@ -449,7 +486,7 @@ class InputValidator:
 
         # Validate each file — fail-closed on the first invalid file so
         # bad inputs do not reach the pipeline silently.
-        for file_path in sorted(valid_files):
+        for file_path in valid_files:
             cls.validate_sequence_file(
                 file_path,
                 allow_short=allow_short,
@@ -457,3 +494,19 @@ class InputValidator:
             )
 
         return dir_path
+
+
+def discover_query_files(directory: Path) -> list[Path]:
+    """List the query files directly inside ``directory``, sorted by name.
+
+    A file is a query file when its suffix, compared case-insensitively, is one
+    of :attr:`InputValidator.VALID_EXTENSIONS`.
+    """
+    return sorted(
+        (
+            path
+            for path in Path(directory).iterdir()
+            if path.suffix.lower() in InputValidator.VALID_EXTENSIONS and path.is_file()
+        ),
+        key=lambda path: path.name,
+    )

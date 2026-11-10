@@ -48,6 +48,22 @@ def loo_centroid_distance(u: np.ndarray, weight: np.ndarray) -> np.ndarray:
     return distance
 
 
+def nearest_means(distance: np.ndarray, z: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Return the mean score and mean distance of the nearest windows of each window.
+
+    Windows at equal distance are taken in the order of their score, so the choice
+    depends on the content of the windows and not on their row order. ``distance``
+    is the full square matrix; its diagonal is ignored.
+    """
+    n = len(distance)
+    distance = distance.copy()
+    np.fill_diagonal(distance, np.inf)
+    scores = np.broadcast_to(z, distance.shape)
+    nearest = np.lexsort((scores, distance), axis=1)[:, : min(K_NEAREST, n - 1)]
+    rows = np.arange(n)[:, None]
+    return z[nearest].mean(axis=1), distance[rows, nearest].mean(axis=1)
+
+
 def bin_context(
     part: pd.DataFrame, comp: list[str], mu: np.ndarray, sd: np.ndarray
 ) -> pd.DataFrame:
@@ -75,13 +91,7 @@ def bin_context(
     with np.errstate(divide="ignore", invalid="ignore"):
         out["d_ratio"] = out["d_viral"] / (out["d_viral"] + out["d_cell"])
     if n > 1:
-        distance = pairwise_distances(u)
-        np.fill_diagonal(distance, np.inf)
-        k = min(K_NEAREST, n - 1)
-        nearest = np.argsort(distance, axis=1)[:, :k]
-        rows = np.arange(n)[:, None]
-        out["knn_z"] = z[nearest].mean(axis=1)
-        out["knn_d"] = distance[rows, nearest].mean(axis=1)
+        out["knn_z"], out["knn_d"] = nearest_means(pairwise_distances(u), z)
         out["z_minus_knn"] = z - out["knn_z"]
         # tied scores share their mean rank: the row order of a bin must not decide it
         ranks = pd.Series(z).rank(method="average").to_numpy() - 1
@@ -107,13 +117,7 @@ def embedding_context(
     with np.errstate(divide="ignore", invalid="ignore"):
         out["d_ratio_e"] = out["d_viral_e"] / (out["d_viral_e"] + out["d_cell_e"])
     if n > 1:
-        distance = pairwise_distances(v)
-        np.fill_diagonal(distance, np.inf)
-        k = min(K_NEAREST, n - 1)
-        nearest = np.argsort(distance, axis=1)[:, :k]
-        rows = np.arange(n)[:, None]
-        out["knn_z_e"] = z[nearest].mean(axis=1)
-        out["knn_d_e"] = distance[rows, nearest].mean(axis=1)
+        out["knn_z_e"], out["knn_d_e"] = nearest_means(pairwise_distances(v), z)
         out["z_minus_knn_e"] = z - out["knn_z_e"]
     else:
         for name in ("knn_z_e", "knn_d_e", "z_minus_knn_e"):

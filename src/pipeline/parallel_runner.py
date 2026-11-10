@@ -23,6 +23,8 @@ from src.pipeline.summary_writer import (
 )
 from src.utils import InputValidator, ValidationError
 from src.utils.database_manager import DatabaseManager
+from src.utils.error_handling import FileError
+from src.utils.input_validation import RESERVED_QUERY_STEMS, discover_query_files
 
 #: Genetic codes evaluated for every nucleotide query. This is deliberately not
 #: configurable: GVClass always runs the full optimization and picks the
@@ -37,23 +39,80 @@ def validate_and_setup_task(
     allow_short: bool = False,
     min_sequence_length: int | None = None,
 ) -> dict[str, Any]:
-    """Validate inputs and setup directories."""
-    logger = logging.getLogger("gvclass_runner")
-    logger.info(f"Validating inputs - Query: {query_dir}, Output: {output_dir}")
-    query_path = InputValidator.validate_query_directory(
-        query_dir,
-        allow_short=allow_short,
-        min_sequence_length=min_sequence_length,
-    )
-    # InputValidator already accepts .fna / .faa / .fasta / .fas via
-    # alphabet inference, so enumerate the same set here — otherwise a
-    # directory of .fasta inputs would validate but yield zero queries
-    # (Codex-audit finding).
-    query_files = []
-    for ext in (".fna", ".faa", ".fasta", ".fas", ".fa"):
-        query_files.extend(query_path.glob(f"*{ext}"))
-    query_files = sorted(query_files)
+    """Validate inputs and setup directories.
 
+    Each query file is validated on its own. Valid files become ``query_files``;
+    each invalid file becomes a ``(stem, error text)`` pair in ``rejected_inputs``
+    so one bad file does not stop the batch. Colliding or reserved query names
+    and a directory without any valid file are errors for the whole run.
+    """
+    logger = logging.getLogger("gvclass_runner")
+    logger.info("Validating inputs - Query: %s, Output: %s", query_dir, output_dir)
+    query_path = InputValidator.validate_directory(query_dir, must_exist=True)
+    discovered_files = discover_query_files(query_path)
+    if not discovered_files:
+        raise ValidationError(
+            f"No valid sequence files found in query directory: {query_dir}",
+            field="query_directory",
+            value=str(query_dir),
+        )
+    _reject_colliding_stems(discovered_files)
+    _reject_reserved_stems(discovered_files)
+
+    query_files: list[Path] = []
+    rejected_inputs: list[tuple[str, str]] = []
+    for query_file in discovered_files:
+        error = _validation_error(
+            query_file,
+            allow_short=allow_short,
+            min_sequence_length=min_sequence_length,
+        )
+        if error is None:
+            query_files.append(query_file)
+            continue
+        logger.error("Rejected input %s: %s", query_file.name, error)
+        rejected_inputs.append((query_file.stem, error))
+    if not query_files:
+        details = "; ".join(f"{stem}: {error}" for stem, error in rejected_inputs)
+        raise ValidationError(
+            f"No valid query file in {query_dir}. {details}",
+            field="query_directory",
+            value=str(query_dir),
+        )
+
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    db_path = DatabaseManager.setup_database(database_path)
+    logger.info("Using database at: %s", db_path)
+
+    logger.info(
+        "Found %d query files, %d rejected", len(query_files), len(rejected_inputs)
+    )
+    return {
+        "query_path": query_path,
+        "output_path": output_path,
+        "database_path": db_path,
+        "query_files": query_files,
+        "rejected_inputs": rejected_inputs,
+    }
+
+
+def _validation_error(
+    query_file: Path, *, allow_short: bool, min_sequence_length: int | None
+) -> str | None:
+    """Return why ``query_file`` is invalid, or ``None`` when it is valid."""
+    try:
+        InputValidator.validate_sequence_file(
+            query_file,
+            allow_short=allow_short,
+            min_sequence_length=min_sequence_length,
+        )
+    except (ValidationError, FileError) as exc:
+        return exc.message
+    return None
+
+
+def _reject_colliding_stems(query_files: list[Path]) -> None:
     files_by_stem: dict[str, list[Path]] = {}
     for query_file in query_files:
         files_by_stem.setdefault(query_file.stem, []).append(query_file)
@@ -70,18 +129,18 @@ def validate_and_setup_task(
             f"files. Rename these colliding inputs: {details}"
         )
 
-    output_path = Path(output_dir)
-    output_path.mkdir(parents=True, exist_ok=True)
-    db_path = DatabaseManager.setup_database(database_path)
-    logger.info(f"Using database at: {db_path}")
 
-    logger.info(f"Found {len(query_files)} query files")
-    return {
-        "query_path": query_path,
-        "output_path": output_path,
-        "database_path": db_path,
-        "query_files": query_files,
-    }
+def _reject_reserved_stems(query_files: list[Path]) -> None:
+    reserved = sorted(
+        query_file.name
+        for query_file in query_files
+        if query_file.stem in RESERVED_QUERY_STEMS
+    )
+    if reserved:
+        raise ValidationError(
+            "These query filenames use a reserved name that GVClass needs for its "
+            f"own outputs. Rename them: {', '.join(reserved)}"
+        )
 
 
 def process_query_task(
@@ -521,7 +580,11 @@ def gvclass_flow(
     all_query_files = {
         query_file.stem: query_file for query_file in config["query_files"]
     }
-    all_query_names = list(all_query_files)
+    rejected_results = [
+        {"query": stem, "status": "invalid_input", "error": error}
+        for stem, error in config["rejected_inputs"]
+    ]
+    all_query_names = [*all_query_files, *(r["query"] for r in rejected_results)]
     _apply_resume_filter(config, resume=resume, logger=logger)
 
     n_queries = len(config["query_files"])
@@ -550,6 +613,8 @@ def gvclass_flow(
         },
     )
     run_status.start()
+    for rejected in rejected_results:
+        run_status.record_query_failed(rejected["query"], rejected["error"])
     run_status_finished = False
 
     try:
@@ -578,7 +643,9 @@ def gvclass_flow(
                     "from this run's queries, so it is not regenerated. Re-run without "
                     "--resume to rebuild out/species_tree/combined.*"
                 )
-            all_results = _combine_with_resume_skipped_results(config, [], logger)
+            all_results = _combine_with_resume_skipped_results(
+                config, rejected_results, logger
+            )
             _screen_results(
                 config, all_query_files, all_results, screen_options, logger
             )
@@ -590,8 +657,9 @@ def gvclass_flow(
             run_status_finished = True
             if failed_results:
                 raise RuntimeError(
-                    f"GVClass failed to recover summaries for {len(failed_results)} "
-                    "resume-skipped queries; see run_status.json and the final summary."
+                    f"GVClass failed for {len(failed_results)} of "
+                    f"{len(all_results)} queries; see run_status.json and "
+                    "gvclass_failed_queries.tsv."
                 )
             logger.info(f"Pipeline completed! Results in: {config['output_path']}")
             logger.info(f"Summary written to: {summary_file}")
@@ -649,7 +717,9 @@ def gvclass_flow(
         )
 
         logger.info("Creating final summary...")
-        all_results = _combine_with_resume_skipped_results(config, results, logger)
+        all_results = _combine_with_resume_skipped_results(
+            config, [*results, *rejected_results], logger
+        )
         _screen_results(config, all_query_files, all_results, screen_options, logger)
         summary_file = create_final_summary_task(all_results, config["output_path"])
 

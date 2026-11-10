@@ -83,3 +83,21 @@ def test_call_genes_skips_contigs_shorter_than_one_kb(
 
     assert calls.table.empty
     assert calls.proteins == []
+
+
+def test_read_fasta_reads_gzipped_files_with_an_upper_case_suffix(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "bin.FNA.GZ"
+    with gzip.open(path, "wt") as handle:
+        handle.write(">c1\nacgt\n")
+
+    assert gv_genes.read_fasta(path) == {"c1": "ACGT"}
+
+
+def test_read_fasta_refuses_two_records_with_one_name(tmp_path: Path) -> None:
+    path = tmp_path / "bin.fna"
+    path.write_text(">dup\nACGT\n>dup\nGG\n")
+
+    with pytest.raises(ValueError, match="duplicate FASTA identifier 'dup'"):
+        gv_genes.read_fasta(path)

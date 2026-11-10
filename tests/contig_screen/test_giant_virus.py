@@ -149,6 +149,42 @@ def test_a_bin_with_one_scored_contig_writes_no_table(
     assert "fewer than two contigs" in capsys.readouterr().out
 
 
+def test_an_unscored_run_removes_the_table_of_an_earlier_run(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    root = tmp_path / "bundle"
+    digest = write_bundle(root, bundle_files())
+    fasta = tmp_path / "bin.fna"
+    write_fasta(fasta, ["c1"])
+    out = tmp_path / "out.tsv"
+    out.write_text("old\n")
+
+    code = run(root, digest, fasta, out)
+
+    assert code == 0
+    assert not out.exists()
+
+
+def test_a_bin_with_fewer_than_two_long_contigs_is_not_searched(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    def fail(*_: object) -> GeneCalls:
+        pytest.fail("genes were called on a bin that cannot be scored")
+
+    monkeypatch.setattr(giant_virus, "call_genes", fail)
+    root = tmp_path / "bundle"
+    digest = write_bundle(root, bundle_files())
+    sequences = {"c1": "A" * 6000, "c2": "A" * 4999}
+    resources = layout.ScreenResources.open(root, manifest_sha256=digest)
+    bundle = giant_virus.load_bundle(resources)
+
+    table = giant_virus.score_bin(
+        sequences, resources, bundle, giant_virus.Settings(threads=1)
+    )
+
+    assert table.empty
+
+
 def test_a_wrong_manifest_digest_stops_the_run_with_exit_code_2(
     screen: tuple[Path, str, Path],
     tmp_path: Path,

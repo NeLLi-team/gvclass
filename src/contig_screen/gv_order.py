@@ -25,6 +25,8 @@ import numpy as np
 import pandas as pd
 import pyswrd
 
+from src.contig_screen.context_stage import loo_centroid_distance
+
 VIRAL_PREFIXES = ("OG", "GVOGm", "Mirus", "MRYA")
 SKIP = 3
 MIN_FRAGMENT_BP = 5000
@@ -404,43 +406,22 @@ def synteny_stats(
     }
 
 
-def bulk_distance(index: int, matrix: np.ndarray, length: np.ndarray) -> float:
-    """Return the distance of one row to the length-weighted bulk of the others."""
-    if len(length) < 2:
-        return float("nan")
-    weights = np.delete(length, index)
-    bulk = (np.delete(matrix, index, axis=0) * weights[:, None]).sum(
-        axis=0
-    ) / weights.sum()
-    return float(np.linalg.norm(matrix[index] - bulk))
+def choose_partner(partners: dict[int, int], contigs: list[Contig]) -> int:
+    """Return the index of the contig that shares most markers with a contig, or -1.
 
-
-def composition_stats(
-    index: int,
-    standard: np.ndarray,
-    gc: np.ndarray,
-    length: np.ndarray,
-    partner: int,
-) -> dict[str, float]:
-    """Return composition distances of one contig to the rest of the bin."""
-    if len(length) < 2:
-        return {"d_bulk": np.nan, "d_partner": np.nan, "gc_diff": np.nan}
-    weights = np.delete(length, index)
-    bulk = (np.delete(standard, index, axis=0) * weights[:, None]).sum(
-        axis=0
-    ) / weights.sum()
-    d_partner = (
-        float(np.linalg.norm(standard[index] - standard[partner]))
-        if partner >= 0
-        else np.nan
-    )
-    return {
-        "d_bulk": float(np.linalg.norm(standard[index] - bulk)),
-        "d_partner": d_partner,
-        "gc_diff": float(
-            abs(gc[index] - np.average(np.delete(gc, index), weights=weights))
+    Equal counts go to the longer contig, then to the smaller name, so the choice
+    does not depend on the order of the contigs in the bin.
+    """
+    if not partners:
+        return -1
+    return min(
+        partners,
+        key=lambda other: (
+            -partners[other],
+            -contigs[other].length,
+            contigs[other].name,
         ),
-    }
+    )
 
 
 def bin_features(
@@ -464,17 +445,19 @@ def bin_features(
     length = np.array([c.length for c in contigs], dtype=float)
     comp = np.array([c.comp for c in contigs])
     standard = (comp - priors.mu) / priors.sd
-    extra = {}
+    d_bulk = loo_centroid_distance(standard, length)
+    gc_diff = loo_centroid_distance(comp[:, -1:], length)
+    d_extra = {}
     for key, (mu, sd) in priors.extra.items():
         raw = np.array([getattr(c, key) for c in contigs])
-        extra[key] = (raw - mu) / sd
+        d_extra[key] = loo_centroid_distance((raw - mu) / sd, length)
     n_markers = sum(len(c.models) for c in contigs)
     rows = []
-    partner_counts: list[dict[int, int]] = []
+    partner_of: list[int] = []
     for index, contig in enumerate(contigs):
         dup, partners = duplication_stats(index, contig, by_model, priors, cache)
-        partner_counts.append(partners)
-        partner = max(partners, key=partners.get) if partners else -1
+        partner = choose_partner(partners, contigs)
+        partner_of.append(partner)
         n_g = len(contig.models)
         row = {
             "contig": contig.name,
@@ -495,9 +478,15 @@ def bin_features(
         }
         row.update(dup)
         row.update(synteny_stats(index, keys, key_owner, length))
-        row.update(composition_stats(index, standard, comp[:, -1], length, partner))
-        for key, matrix in extra.items():
-            row[f"d_{key}"] = bulk_distance(index, matrix, length)
+        row["d_bulk"] = d_bulk[index]
+        row["d_partner"] = (
+            float(np.linalg.norm(standard[index] - standard[partner]))
+            if partner >= 0
+            else np.nan
+        )
+        row["gc_diff"] = gc_diff[index]
+        for key, distance in d_extra.items():
+            row[f"d_{key}"] = distance[index]
         row["d_partner_ratio"] = (
             row["d_partner"] / row["d_bulk"]
             if partner >= 0 and row["d_bulk"]
@@ -505,8 +494,6 @@ def bin_features(
         )
         rows.append(row)
     frame = pd.DataFrame(rows)
-    partner_of = [max(p, key=p.get) if p else -1 for p in partner_counts]
-    d_bulk = frame["d_bulk"].to_numpy()
     frame["d_bulk_partner"] = [d_bulk[q] if q >= 0 else np.nan for q in partner_of]
     frame["d_diff"] = frame["d_bulk"] - frame["d_bulk_partner"]
     duplicated = (frame["dup_frac"].fillna(0) * frame["n_markers"]).sum()

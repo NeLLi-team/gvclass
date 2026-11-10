@@ -117,3 +117,26 @@ def test_build_tree_rejects_three_unequal_length_sequences(tmp_path: Path) -> No
 
     assert not skipped.exists()
     assert not (processor.tree_dir / "marker.treefile").exists()
+
+
+def test_build_tree_runs_iqtree_with_redo(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    processor = MarkerProcessor("OG1", tmp_path / "db", tmp_path / "query")
+    alignment = tmp_path / "OG1.mafft01"
+    alignment.write_text(">a\nMKT-\n>b\nMKTA\n>c\nMKSA\n", encoding="utf-8")
+    commands: list[list[str]] = []
+
+    def fake_iqtree(command: list[str], **_kwargs: object) -> object:
+        commands.append(command)
+        (processor.tree_dir / "OG1.treefile").write_text("(a,b,c);\n")
+        return SimpleNamespace(returncode=0, stderr="")
+
+    monkeypatch.setattr("subprocess.run", fake_iqtree)
+
+    tree = processor.build_tree(alignment, tree_method="iqtree", threads=1)
+
+    assert tree == processor.tree_dir / "OG1.treefile"
+    assert len(commands) == 1
+    assert commands[0][0] == "iqtree"
+    assert "-redo" in commands[0]
