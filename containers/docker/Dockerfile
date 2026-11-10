@@ -47,6 +47,7 @@ RUN chmod -R a+rX /opt/gvclass && \
 # Set environment variables
 ENV PATH="/usr/local/bin:/opt/gvclass/.pixi/envs/default/bin:${PATH}"
 ENV PYTHONPATH="/opt/gvclass"
+ENV PYTHONNOUSERSITE="1"
 ENV GVCLASS_RESOURCE_CACHE="/resource-cache"
 
 # Create mount points for input/output with proper permissions
@@ -65,6 +66,13 @@ RUN printf '%s\n' \
         '    exit 1' \
         'fi' \
         'cd /opt/gvclass' \
+        'has_output=0' \
+        'for arg in "$@"; do' \
+        '    case "$arg" in' \
+        '        -o|--output-dir|--output-dir=*) has_output=1 ;;' \
+        '    esac' \
+        'done' \
+        'if [ "$has_output" = 0 ]; then set -- "$@" -o /output; fi' \
         'exec ./gvclass "$@"' \
     > /entrypoint.sh && \
     chmod +x /entrypoint.sh
@@ -72,7 +80,7 @@ RUN printf '%s\n' \
 ENTRYPOINT ["/entrypoint.sh"]
 
 # Metadata
-LABEL maintainer="fschulz@lbl.gov"
+LABEL org.opencontainers.image.source="https://github.com/NeLLi-team/gvclass"
 LABEL description="GVClass - Giant Virus Classification Tool with pre-installed database"
 LABEL version="${GVCLASS_VERSION}"
 LABEL database.included="true"

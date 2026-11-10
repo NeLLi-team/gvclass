@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "gvclass"
 version = "2.1.1"
 description = "Giant virus classification tool using phylogenetic analysis"
-authors = [{ name = "Frederik Schulz", email = "fschulz@lbl.gov" }]
+authors = [{ name = "Frederik Schulz" }]
 requires-python = ">=3.11,<3.12"
 license = { file = "LICENCE" }
 readme = "README.md"
@@ -32,6 +32,8 @@ Homepage = "https://github.com/NeLLi-team/gvclass"
 Issues = "https://github.com/NeLLi-team/gvclass/issues"
 
 [project.scripts]
+# Native runs only. Container mode (--apptainer, --image) needs the `gvclass`
+# launcher script, which this entry point does not run.
 gvclass = "src.bin.gvclass_cli:main"
 
 [tool.setuptools.packages.find]

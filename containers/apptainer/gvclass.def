@@ -27,7 +27,8 @@ From: ghcr.io/prefix-dev/pixi@sha256:d2d0d941b89802e67a622e4adad68c8643f81154461
 
 %environment
     export PATH=/usr/local/bin:/opt/gvclass/.pixi/envs/default/bin:$PATH
-    export PYTHONPATH=/opt/gvclass:$PYTHONPATH
+    export PYTHONPATH=/opt/gvclass
+    export PYTHONNOUSERSITE=1
     export GVCLASS_RESOURCE_CACHE="${GVCLASS_RESOURCE_CACHE:-/resource-cache}"
 
 %post
@@ -90,6 +91,16 @@ From: ghcr.io/prefix-dev/pixi@sha256:d2d0d941b89802e67a622e4adad68c8643f81154461
     
     cd /opt/gvclass
     mkdir -p "${GVCLASS_RESOURCE_CACHE:-/resource-cache}" 2>/dev/null || true
+    # Without -o the default output would resolve under the read-only /opt/gvclass.
+    has_output=0
+    for arg in "$@"; do
+        case "$arg" in
+            -o|--output-dir|--output-dir=*) has_output=1 ;;
+        esac
+    done
+    if [ "$has_output" = 0 ]; then
+        set -- "$@" -o /output
+    fi
     exec ./gvclass "$@"
 
 %labels

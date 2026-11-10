@@ -25,7 +25,8 @@ def steps(workflow: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 
 def test_only_the_container_job_may_write_packages(workflow: dict[str, Any]) -> None:
-    assert "permissions" not in workflow
+    # The workflow default is read-only; only the container job adds a write grant.
+    assert workflow["permissions"] == {"contents": "read"}
     assert workflow["jobs"]["container-build"]["permissions"] == {
         "contents": "read",
         "packages": "write",

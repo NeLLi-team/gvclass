@@ -5,9 +5,9 @@ from __future__ import annotations
 import re
 import shlex
 import subprocess
-import tomllib
 from pathlib import Path
 
+import tomllib
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -53,36 +53,87 @@ def test_readme_uses_runtime_resource_model_path() -> None:
 
 def test_release_version_matches_wrappers_and_container_assets() -> None:
     version = _software_version()
-    pixi = tomllib.loads((REPO_ROOT / "pixi.toml").read_text())
-    expected_apptainer_ref = re.compile(rf"gvclass:{re.escape(version)}")
     stale_image_ref = re.compile(
         rf"(?:gvclass/)?gvclass:(?!{re.escape(version)}\b)\d+\.\d+\.\d+"
     )
 
-    assert pixi["workspace"]["version"] == version
-    assert f"gvclass:{version}" in pixi["tasks"]["build-docker"]
-    assert f"gvclass_{version}.sif" in pixi["tasks"]["build-apptainer"]
     for path in [
+        "pyproject.toml",
+        "pixi.toml",
         "gvclass",
+        "containers/build.sh",
         "containers/apptainer/gvclass.def",
         "containers/docker/Dockerfile",
         "containers/docker/docker-compose.yml",
-        "containers/build.sh",
-    ]:
-        text = (REPO_ROOT / path).read_text()
-        assert expected_apptainer_ref.search(text) or f"Version {version}" in text or f"GVCLASS_VERSION={version}" in text, path
-        assert not stale_image_ref.search(text), path
-
-    for path in [
-        "containers/build.sh",
-        "containers/docker/Dockerfile",
-        "containers/docker/docker-compose.yml",
-        "containers/docker/build_containers.sh",
-        "containers/apptainer/gvclass.def",
     ]:
         text = (REPO_ROOT / path).read_text()
         assert version in text, path
         assert not stale_image_ref.search(text), path
+
+    pixi = tomllib.loads((REPO_ROOT / "pixi.toml").read_text())
+    assert pixi["workspace"]["version"] == version
+    assert f"gvclass:{version}" in pixi["tasks"]["build-docker"]
+    assert f"gvclass_{version}.sif" in pixi["tasks"]["build-apptainer"]
+
+
+def test_tracked_files_hold_no_lbl_address_but_the_licensing_office() -> None:
+    local_part = re.compile(
+        r"(?<![\w.+-])([\w.+-]+)@(?:[\w-]+\.)*lbl\.gov", re.IGNORECASE
+    )
+    tracked = subprocess.check_output(
+        ["git", "ls-files", "-z"], cwd=REPO_ROOT, text=True
+    ).split("\0")
+
+    found = {}
+    for name in filter(None, tracked):
+        path = REPO_ROOT / name
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        for match in local_part.findall(text):
+            found.setdefault(name, set()).add(match.lower())
+
+    assert found == {"LICENCE": {"ipo"}}
+
+
+def test_package_metadata_names_authors_without_addresses() -> None:
+    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())
+    pixi = tomllib.loads((REPO_ROOT / "pixi.toml").read_text())
+
+    assert pyproject["project"]["authors"] == [{"name": "Frederik Schulz"}]
+    assert pixi["workspace"]["authors"] == ["Frederik Schulz"]
+    assert "click" not in pixi["dependencies"]
+    assert "click" not in pixi["feature"]["dev"]["dependencies"]
+
+
+def test_containers_ignore_host_python_packages() -> None:
+    definition = (REPO_ROOT / "containers" / "apptainer" / "gvclass.def").read_text()
+    dockerfile = (REPO_ROOT / "containers" / "docker" / "Dockerfile").read_text()
+
+    assert "export PYTHONPATH=/opt/gvclass\n" in definition
+    assert "export PYTHONNOUSERSITE=1\n" in definition
+    assert 'ENV PYTHONPATH="/opt/gvclass"\n' in dockerfile
+    assert 'ENV PYTHONNOUSERSITE="1"\n' in dockerfile
+    assert "maintainer" not in dockerfile
+    assert (
+        'LABEL org.opencontainers.image.source="https://github.com/NeLLi-team/gvclass"'
+    ) in dockerfile
+
+
+def test_container_entry_points_write_to_the_output_mount_by_default() -> None:
+    definition = (REPO_ROOT / "containers" / "apptainer" / "gvclass.def").read_text()
+    dockerfile = (REPO_ROOT / "containers" / "docker" / "Dockerfile").read_text()
+
+    for text in (definition, dockerfile):
+        assert "-o|--output-dir|--output-dir=*) has_output=1" in text
+        assert 'set -- "$@" -o /output' in text
+
+
+def test_legacy_container_build_script_is_removed() -> None:
+    assert not (REPO_ROOT / "containers" / "docker" / "build_containers.sh").exists()
 
 
 def test_container_mode_has_one_implementation_in_the_launcher() -> None:
@@ -103,7 +154,9 @@ def test_gitmodules_does_not_reference_missing_submodules() -> None:
     if not gitmodules.exists() or not gitmodules.read_text().strip():
         return
 
-    for path in re.findall(r"^\s*path\s*=\s*(\S+)", gitmodules.read_text(), re.M):
+    for path in re.findall(
+        r"^\s*path\s*=\s*(\S+)", gitmodules.read_text(), re.MULTILINE
+    ):
         stage = _git_ls_files(path)
         assert stage.startswith("160000 "), path
 
@@ -147,12 +200,33 @@ def test_ci_enforces_static_analysis_and_hygiene() -> None:
     )
 
 
+def test_ci_workflow_runs_checked_in_scripts_and_the_launcher() -> None:
+    text = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text()
+    workflow = yaml.safe_load(text)
+
+    assert workflow["permissions"] == {"contents": "read"}
+    for script in set(re.findall(r"scripts/ci/[\w.]+\.py", text)):
+        assert (REPO_ROOT / script).is_file(), script
+    for removed in [
+        "gvclass_apptainer",
+        "src.bin.gvclass_cli",
+        "stable_columns = [",
+        '["started_at"]',
+        '["completed_at"]',
+        "--cluster",
+        ".SUCCESS",
+    ]:
+        assert removed not in text, removed
+    heredocs = re.findall(r"<<'(\w+)'\n(.*?)\n\s*\1\n", text, re.DOTALL)
+    for _, body in heredocs:
+        assert body.count("\n") < 30, "long Python programs belong in scripts/ci"
+
+
 def test_no_pixi_run_gvclass_in_container_assets() -> None:
     """H5: the image ENTRYPOINT already runs `./gvclass`; a `pixi run gvclass`
     prefix in compose/scripts would be forwarded as bogus argv."""
     for rel in [
         "containers/docker/docker-compose.yml",
-        "containers/docker/build_containers.sh",
         "containers/docker/Dockerfile",
     ]:
         text = (REPO_ROOT / rel).read_text()

@@ -92,4 +92,4 @@ Reference data sources:
 
 ## License and contact
 
-Non-commercial use only (see `LICENCE`). Report issues at https://github.com/NeLLi-team/gvclass/issues or contact fschulz@lbl.gov.
+Non-commercial use only (see `LICENCE`). Report issues at https://github.com/NeLLi-team/gvclass/issues.
