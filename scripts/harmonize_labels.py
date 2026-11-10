@@ -853,13 +853,6 @@ def rewrite_header_token(
     return header_id, None, None
 
 
-def rewrite_ambiguous_header_token(
-    header_id: str, active_label_ids: set[str]
-) -> tuple[str, str | None, str | None]:
-    _ = active_label_ids
-    return header_id, None, None
-
-
 def excluded_header_source(
     header_id: str, excluded_label_ids: set[str]
 ) -> str | None:

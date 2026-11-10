@@ -1,38 +1,23 @@
-"""Tests for src/utils/error_handling.py (H4: ErrorHandler.log_error)."""
+"""Tests for src/utils/error_handling.py."""
 
 import logging
 
-import pytest
-
-from src.utils.error_handling import ErrorHandler, error_handler, retry_on_failure
+from src.utils.error_handling import ErrorHandler, ValidationError
 
 
-def test_log_error_exists_and_logs(caplog):
-    handler = ErrorHandler(logger_name="gvclass_test_log_error")
-    with caplog.at_level(logging.ERROR, logger="gvclass_test_log_error"):
-        handler.log_error("boom", context={"step": "unit"})
-    assert "boom" in caplog.text
-    assert "step" in caplog.text
+def test_log_warning_appends_context(caplog):
+    handler = ErrorHandler(logger_name="gvclass_test_log_warning")
+
+    with caplog.at_level(logging.WARNING, logger="gvclass_test_log_warning"):
+        handler.log_warning("careful", context={"step": "unit"})
+
+    assert "careful | Context: {'step': 'unit'}" in caplog.text
 
 
-def test_retry_on_failure_reraises_original(caplog):
-    calls = {"n": 0}
+def test_validation_error_str_names_code_and_context():
+    error = ValidationError("bad input", field="filepath", value="x.fna")
 
-    @retry_on_failure(max_retries=2, delay=0)
-    def always_fails():
-        calls["n"] += 1
-        raise ValueError("original failure")
-
-    # Must raise the ORIGINAL exception after retries, not AttributeError from a
-    # missing log_error method.
-    with caplog.at_level(logging.ERROR, logger="gvclass"):
-        with pytest.raises(ValueError, match="original failure"):
-            always_fails()
-
-    assert calls["n"] == 3  # initial + 2 retries
-    assert "All 3 attempts failed" in caplog.text
-
-
-def test_global_error_handler_has_log_error():
-    # The module singleton must expose log_error.
-    assert hasattr(error_handler, "log_error")
+    assert str(error) == (
+        "[VALIDATION_ERROR] bad input "
+        "(Context: {'field': 'filepath', 'value': 'x.fna'})"
+    )

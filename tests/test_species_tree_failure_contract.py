@@ -133,7 +133,7 @@ def test_requested_run_level_species_failure_is_not_suppressed(
 ) -> None:
     monkeypatch.setattr(parallel_runner, "process_single_query", make_fake_process())
     target = handoff if stage == "setup" else orchestration
-    name = "init_handoff" if stage == "setup" else "_run_combined"
+    name = "init_handoff" if stage == "setup" else "run_combined_species_tree"
     monkeypatch.setattr(target, name, Mock(side_effect=RuntimeError("species failure")))
 
     with pytest.raises(RuntimeError, match="species failure"):
@@ -177,7 +177,7 @@ def test_runner_exits_nonzero_for_requested_species_failure(
     monkeypatch.setattr(parallel_runner, "process_single_query", make_fake_process())
     monkeypatch.setattr(
         orchestration,
-        "_run_combined",
+        "run_combined_species_tree",
         Mock(side_effect=RuntimeError("species inference failed")),
     )
     result = CliRunner().invoke(

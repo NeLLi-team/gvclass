@@ -10,7 +10,7 @@ import pandas as pd
 import pytest
 
 from src.bin import gvclass_apptainer, gvclass_cli, gvclass_screen as screen
-from src.contig_screen import layout
+from src.contig_screen import extract_genes, layout
 from tests.contig_screen.conftest import write_bundle
 
 STAGE2_CUT = 0.5
@@ -243,7 +243,7 @@ def test_a_failing_screen_is_recorded_and_the_other_bins_still_run(
     assert "--cellular" in gv_calls[1]
 
 
-def test_a_folder_without_bins_is_an_error(tmp_path, patched, capsys):
+def test_a_folder_without_bins_is_an_error(tmp_path, patched, caplog):
     (tmp_path / "empty").mkdir()
 
     code = screen.main(
@@ -251,7 +251,7 @@ def test_a_folder_without_bins_is_an_error(tmp_path, patched, capsys):
     )
 
     assert code == 1
-    assert "no FASTA" in capsys.readouterr().err
+    assert "no FASTA" in caplog.text
     assert patched.calls == []
 
 
@@ -302,7 +302,7 @@ def test_the_screen_command_goes_to_the_container_launcher_with_a_container_flag
 
 
 def test_a_missing_screen_bundle_is_reported_before_any_work(
-    tmp_path, monkeypatch, capsys
+    tmp_path, monkeypatch, caplog
 ):
     recorder = Recorder()
     monkeypatch.setattr(screen, "run_cellular", recorder.cellular)
@@ -314,7 +314,7 @@ def test_a_missing_screen_bundle_is_reported_before_any_work(
     )
 
     assert code == 1
-    assert "gvclass screen --install" in capsys.readouterr().err
+    assert "gvclass screen --install" in caplog.text
     assert recorder.calls == []
 
 
@@ -341,7 +341,7 @@ def test_the_addon_gives_its_manifest_digest_and_its_cellular_cut(
 
 
 def test_a_bundle_that_fails_its_integrity_check_fails_every_bin_and_runs_no_screen(
-    tmp_path, patched, monkeypatch, capsys
+    tmp_path, patched, monkeypatch, caplog
 ):
     make_bins(tmp_path / "bins", ["a.fna", "b.fna"])
 
@@ -355,7 +355,7 @@ def test_a_bundle_that_fails_its_integrity_check_fails_every_bin_and_runs_no_scr
 
     table = read_summary(out)
     assert code == 1
-    assert "mismatch" in capsys.readouterr().err
+    assert "mismatch" in caplog.text
     assert patched.calls == []
     assert table["bin"].tolist() == ["a", "b"]
     assert table["cellular_status"].tolist() == ["failed", "failed"]
@@ -424,13 +424,13 @@ def test_install_creates_a_database_directory_that_does_not_exist_yet(
     assert (tmp_path / "new" / "db").is_dir()
 
 
-def test_install_without_a_configured_source_is_an_error(tmp_path, monkeypatch, capsys):
+def test_install_without_a_configured_source_is_an_error(tmp_path, monkeypatch, caplog):
     monkeypatch.setattr(screen.DatabaseManager, "CONTIG_SCREEN_SOURCE", None)
 
     code = screen.main(["--install", "-d", str(tmp_path)])
 
     assert code == 1
-    assert "no download source" in capsys.readouterr().err
+    assert "no download source" in caplog.text
 
 
 def test_an_exception_in_one_screen_fails_that_bin_and_the_batch_goes_on(
@@ -454,7 +454,7 @@ def test_an_exception_in_one_screen_fails_that_bin_and_the_batch_goes_on(
     assert "unexpected failure" in (out / "a.summary.txt").read_text(encoding="utf-8")
 
 
-def test_bins_that_share_a_name_are_refused_before_any_work(tmp_path, patched, capsys):
+def test_bins_that_share_a_name_are_refused_before_any_work(tmp_path, patched, caplog):
     make_bins(tmp_path / "bins", ["a.fa", "a.fna", "b.fna"])
 
     code = screen.main(
@@ -462,9 +462,8 @@ def test_bins_that_share_a_name_are_refused_before_any_work(tmp_path, patched, c
     )
 
     assert code == 1
-    error = capsys.readouterr().err
-    assert "same output name" in error
-    assert "a.fa" in error
+    assert "same output name" in caplog.text
+    assert "a.fa" in caplog.text
     assert patched.calls == []
 
 
@@ -502,6 +501,36 @@ def test_gzipped_fas_files_are_found_in_a_folder(tmp_path):
 
     assert [p.name for p in screen.list_bins(tmp_path / "bins")] == ["a.fas.gz"]
     assert screen.bin_name(Path("x/a.fas.gz")) == "a"
+
+
+def test_gzipped_files_with_an_upper_case_suffix_are_listed_and_readable(tmp_path):
+    folder = tmp_path / "bins"
+    folder.mkdir()
+    with gzip.open(folder / "a.FASTA.GZ", "wt", encoding="utf-8") as handle:
+        handle.write(">c1\nACGT\n")
+
+    listed = screen.list_bins(folder)
+
+    assert [path.name for path in listed] == ["a.FASTA.GZ"]
+    assert screen.bin_name(listed[0]) == "a"
+    with extract_genes.open_text(listed[0]) as handle:
+        assert handle.read() == ">c1\nACGT\n"
+
+
+def test_a_cellular_screen_that_exits_cleanly_without_a_table_is_not_scored(
+    tmp_path, patched, monkeypatch
+):
+    make_bins(tmp_path / "bins", ["a.fna"])
+    monkeypatch.setattr(screen, "run_cellular", lambda argv: 0)
+    out = tmp_path / "out"
+
+    code = screen.main([str(tmp_path / "bins"), "-o", str(out), "-d", str(tmp_path)])
+
+    row = read_summary(out).iloc[0]
+    assert code == 0
+    assert row["cellular_status"] == "not_scored"
+    assert row["giant_virus_status"] == "ok"
+    assert "--cellular" not in patched.calls[0][1]
 
 
 def test_the_summary_table_shows_missing_numbers_as_nan(tmp_path, patched):

@@ -1,24 +1,24 @@
-"""
-Extract marker-specific hits from HMM search results.
+"""Extract marker-specific hits from HMM search results.
 
 This module implements the functionality of the extract_qhits rule from the Snakemake workflow.
 """
 
-from pathlib import Path
+import logging
 from collections import defaultdict
-from typing import Any, Dict, Iterable, Set, List, Tuple
+from collections.abc import Iterable
+from pathlib import Path
+from typing import Any
+
 from Bio import SeqIO
 
-from src.utils import setup_logging
-from src.utils.resource_store import ResourceStore
 from src.config.marker_sets import GROUP_TO_MODELS, MODEL_TO_GROUP
+from src.utils.resource_store import ResourceStore
 
-logger = setup_logging(__name__)
+logger = logging.getLogger(__name__)
 
 
-def parse_hmm_output(hmm_file: Path) -> Dict[str, Set[str]]:
-    """
-    Parse HMM output file and extract hits for each marker.
+def parse_hmm_output(hmm_file: Path) -> dict[str, set[str]]:
+    """Parse HMM output file and extract hits for each marker.
 
     Args:
         hmm_file: Path to filtered HMM output file
@@ -28,31 +28,25 @@ def parse_hmm_output(hmm_file: Path) -> Dict[str, Set[str]]:
     """
     marker_hits = defaultdict(set)
 
-    try:
-        with open(hmm_file, "r") as f:
-            for line in f:
-                if line.startswith("#"):
-                    continue
+    with hmm_file.open(encoding="utf-8") as handle:
+        for line in handle:
+            if line.startswith("#"):
+                continue
 
-                fields = line.strip().split()
-                if len(fields) >= 4:
-                    query_id = fields[0]
-                    marker_name = fields[3]
-                    marker_hits[marker_name].add(query_id)
+            fields = line.strip().split()
+            if len(fields) >= 4:
+                query_id = fields[0]
+                marker_name = fields[3]
+                marker_hits[marker_name].add(query_id)
 
-        logger.info(f"Found hits for {len(marker_hits)} markers")
-        return dict(marker_hits)
-
-    except Exception as e:
-        logger.error(f"Error parsing HMM output: {e}")
-        raise
+    logger.info("Found hits for %d markers", len(marker_hits))
+    return dict(marker_hits)
 
 
 def extract_marker_sequences(
-    query_faa: Path, marker_hits: Dict[str, Set[str]], output_dir: Path
-) -> Dict[str, Path]:
-    """
-    Extract sequences for each marker and write to separate files.
+    query_faa: Path, marker_hits: dict[str, set[str]], output_dir: Path
+) -> dict[str, Path]:
+    """Extract sequences for each marker and write to separate files.
 
     Args:
         query_faa: Path to query protein sequences
@@ -74,8 +68,8 @@ def extract_marker_sequences(
     # pyrodigal). Index by both so either form resolves, preferring
     # ``record.id`` for the canonical match.
     logger.info(f"Loading sequences from {query_faa}")
-    sequences_by_id: Dict[str, Any] = {}
-    sequences_by_description: Dict[str, Any] = {}
+    sequences_by_id: dict[str, Any] = {}
+    sequences_by_description: dict[str, Any] = {}
     for record in SeqIO.parse(str(query_faa), "fasta"):
         sequences_by_id[record.id] = record
         sequences_by_description[record.description] = record
@@ -112,9 +106,8 @@ def extract_marker_hits(
     output_dir: Path,
     min_hits: int = 1,
     mode_fast: bool = False,
-) -> List[Tuple[str, Path]]:
-    """
-    Main function to extract marker-specific hits from HMM search results.
+) -> list[tuple[str, Path]]:
+    """Main function to extract marker-specific hits from HMM search results.
 
     Args:
         hmm_output: Path to filtered HMM output
@@ -159,7 +152,7 @@ def extract_marker_hits(
     # fragments classification. Ungrouped models are unchanged; the raw parse_hmm_output
     # and marker_counts (*_total metrics) paths are deliberately untouched.
     if MODEL_TO_GROUP:
-        grouped: Dict[str, Set[str]] = defaultdict(set)
+        grouped: dict[str, set[str]] = defaultdict(set)
         for marker, hits in filtered_markers.items():
             grouped[MODEL_TO_GROUP.get(marker, marker)] |= hits
         n_collapsed = len(filtered_markers) - len(grouped)
@@ -180,8 +173,7 @@ def extract_marker_hits(
 
 
 def get_marker_database_path(marker: str, database_path: Path) -> Path:
-    """
-    Get the database file path for a specific marker.
+    """Get the database file path for a specific marker.
 
     Args:
         marker: Marker name
@@ -193,63 +185,29 @@ def get_marker_database_path(marker: str, database_path: Path) -> Path:
     return ResourceStore(database_path).marker_faa_path(marker)
 
 
-def count_marker_hits(hmm_output: Path) -> Dict[str, int]:
-    """
-    Count the number of hits for each marker.
-
-    Args:
-        hmm_output: Path to filtered HMM output
-
-    Returns:
-        Dictionary mapping marker names to hit counts
-    """
-    marker_hits = parse_hmm_output(hmm_output)
-    return {marker: len(hits) for marker, hits in marker_hits.items()}
-
-
 def count_unique_proteins_for_markers(
-    marker_hits: Dict[str, Set[str]], markers: Iterable[str]
+    marker_hits: dict[str, set[str]], markers: Iterable[str]
 ) -> int:
     """Count unique proteins matched by any marker in a category."""
-    proteins: Set[str] = set()
+    proteins: set[str] = set()
     for marker in markers:
         proteins.update(marker_hits.get(marker, set()))
     return len(proteins)
 
 
 def count_unique_proteins_for_prefixes(
-    marker_hits: Dict[str, Set[str]], prefixes: Iterable[str]
+    marker_hits: dict[str, set[str]], prefixes: Iterable[str]
 ) -> int:
     """Count unique proteins matched by markers sharing one of the prefixes."""
     prefix_tuple = tuple(prefixes)
-    proteins: Set[str] = set()
+    proteins: set[str] = set()
     for marker, hits in marker_hits.items():
         if marker.startswith(prefix_tuple):
             proteins.update(hits)
     return len(proteins)
 
 
-def count_unique_proteins_by_category_models(
-    marker_hits: Dict[str, Set[str]], category_models: Dict[str, Iterable[str]]
-) -> Dict[str, int]:
-    """Count unique proteins for each category defined by explicit marker names."""
-    return {
-        category: count_unique_proteins_for_markers(marker_hits, models)
-        for category, models in category_models.items()
-    }
-
-
-def count_unique_proteins_by_category_prefixes(
-    marker_hits: Dict[str, Set[str]], category_prefixes: Dict[str, str]
-) -> Dict[str, int]:
-    """Count unique proteins for each category defined by a marker prefix."""
-    return {
-        category: count_unique_proteins_for_prefixes(marker_hits, [prefix])
-        for category, prefix in category_prefixes.items()
-    }
-
-
-def parse_hmm_scores(hmm_file: Path) -> Dict[str, Dict[str, float]]:
+def parse_hmm_scores(hmm_file: Path) -> dict[str, dict[str, float]]:
     """Parse a filtered HMM table into per-protein full-sequence bit scores.
 
     Returns ``{protein_id: {model_name: best_full_sequence_score}}``. Mirrors
@@ -258,35 +216,31 @@ def parse_hmm_scores(hmm_file: Path) -> Dict[str, Dict[str, float]]:
     group. When a protein has several domain rows for one model, the highest
     score is kept.
     """
-    scores: Dict[str, Dict[str, float]] = defaultdict(dict)
-    try:
-        with open(hmm_file, "r") as handle:
-            for line in handle:
-                if line.startswith("#"):
-                    continue
-                fields = line.strip().split()
-                if len(fields) < 8:
-                    continue
-                protein, model = fields[0], fields[3]
-                try:
-                    score = float(fields[7])
-                except ValueError:
-                    continue
-                prev = scores[protein].get(model)
-                if prev is None or score > prev:
-                    scores[protein][model] = score
-        return dict(scores)
-    except Exception as exc:
-        logger.error(f"Error parsing HMM scores: {exc}")
-        raise
+    scores: dict[str, dict[str, float]] = defaultdict(dict)
+    with hmm_file.open(encoding="utf-8") as handle:
+        for line in handle:
+            if line.startswith("#"):
+                continue
+            fields = line.strip().split()
+            if len(fields) < 8:
+                continue
+            protein, model = fields[0], fields[3]
+            try:
+                score = float(fields[7])
+            except ValueError:
+                continue
+            prev = scores[protein].get(model)
+            if prev is None or score > prev:
+                scores[protein][model] = score
+    return dict(scores)
 
 
 def consolidate_grouped_panel(
-    marker_scores: Dict[str, Dict[str, float]],
+    marker_scores: dict[str, dict[str, float]],
     panel_models: Iterable[str],
-    model_to_group: Dict[str, str] = MODEL_TO_GROUP,
-    group_to_models: Dict[str, List[str]] = GROUP_TO_MODELS,
-) -> Dict[str, int]:
+    model_to_group: dict[str, str] = MODEL_TO_GROUP,
+    group_to_models: dict[str, list[str]] = GROUP_TO_MODELS,
+) -> dict[str, int]:
     """Attribute proteins to panel models after per-group best-hit consolidation.
 
     A protein supports a *grouped* panel model only when that model is the
@@ -303,7 +257,7 @@ def consolidate_grouped_panel(
     Returns ``{model: protein_count}`` for panel models with >=1 consolidated hit.
     """
     panel = set(panel_models)
-    counts: Dict[str, int] = defaultdict(int)
+    counts: dict[str, int] = defaultdict(int)
     for model_scores in marker_scores.values():
         for model, score in model_scores.items():
             if model not in panel:

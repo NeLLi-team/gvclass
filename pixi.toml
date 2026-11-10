@@ -58,14 +58,10 @@ install-cli = "python -m src.bin.install_cli"
 # Manual database setup for repo-local runtime resources
 setup-db = "python -m src.bin.setup_database"
 
-# Performance monitoring utilities
-monitor-performance = "python scripts/monitor_performance.py"
-
 # Container building
 build-containers = "bash containers/build.sh"
 build-docker = "docker build -t gvclass:2.1.1 -f containers/docker/Dockerfile ."
 build-apptainer = "apptainer build --force gvclass_2.1.1.sif docker-daemon://gvclass:2.1.1"
-analyze-parallel = "python scripts/analyze_parallelization.py"
 
 test = "python -m pytest"
 format = "black src gvclass"

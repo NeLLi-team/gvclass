@@ -28,9 +28,12 @@ from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
 from ete3 import Tree, TreeNode
+from ete3.coretype.tree import TreeError
+from ete3.parser.newick import NewickError
 
 from src.core.species_tree.supermatrix import denamespace, is_query_leaf
 from src.core.tree_analysis import TreeAnalyzer
+from src.utils.error_handling import ProcessingError
 
 logger = logging.getLogger(__name__)
 
@@ -147,9 +150,12 @@ class SpeciesTreeClassifier:
         """
         try:
             tree = Tree(str(tree_file))
-        except Exception as exc:  # pragma: no cover - malformed newick guard
-            logger.error("Error loading species tree %s: %s", tree_file, exc)
-            return []
+        except NewickError as exc:
+            raise ProcessingError(
+                f"Malformed species tree {tree_file}: {exc}",
+                step="species_tree",
+                input_file=str(tree_file),
+            ) from exc
 
         query_leaves = [leaf for leaf in tree.get_leaves() if is_query_leaf(leaf.name)]
         ref_leaves = [
@@ -169,7 +175,7 @@ class SpeciesTreeClassifier:
         outgroup = min(ref_leaves, key=lambda leaf: leaf.name)
         try:
             tree.set_outgroup(outgroup)
-        except Exception as exc:
+        except TreeError as exc:
             # Fail closed: detecting clades on an arbitrary rooting would break the
             # root-invariance guarantee, so emit no placement rather than a wrong
             # one. VeryFastTree output is unrooted, so this is a pathological guard.
@@ -313,7 +319,7 @@ def _fmt(value: Optional[float]) -> str:
 def write_species_tree_taxonomy(rows: List[PlacementRow], out_path: Path) -> Path:
     """Write the ``species_tree_taxonomy.tsv`` table."""
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(out_path, "w", newline="") as handle:
+    with out_path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle, delimiter="\t")
         writer.writerow(SPECIES_TREE_TAXONOMY_COLUMNS)
         for row in rows:

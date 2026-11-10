@@ -10,7 +10,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from ete3 import Tree
+from ete3.coretype.tree import TreeError
 
 from src.core.species_tree.taxonomy_placement import (
     SpeciesTreeClassifier,
@@ -18,6 +20,7 @@ from src.core.species_tree.taxonomy_placement import (
     format_lineage,
 )
 from src.core.species_tree.tree_inference import infer_species_tree
+from src.utils.error_handling import ProcessingError
 
 
 def _labels(tmp_path: Path) -> Path:
@@ -174,11 +177,18 @@ def test_set_outgroup_failure_fails_closed(tmp_path: Path, monkeypatch) -> None:
     )
 
     def boom(self, *args, **kwargs):
-        raise RuntimeError("forced reroot failure")
+        raise TreeError("forced reroot failure")
 
     monkeypatch.setattr(Tree, "set_outgroup", boom)
     # Fail closed: no placement rather than one on an arbitrary rooting.
     assert _classifier(tmp_path).classify(tree) == []
+
+
+def test_malformed_tree_raises(tmp_path: Path) -> None:
+    tree = _write(tmp_path, "broken.treefile", "((QUERY__q1:0.1,NCLDV__R1:0.1")
+
+    with pytest.raises(ProcessingError, match=r"broken\.treefile"):
+        _classifier(tmp_path).classify(tree)
 
 
 def test_placement_is_rooting_invariant(tmp_path: Path) -> None:

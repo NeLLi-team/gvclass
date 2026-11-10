@@ -27,6 +27,7 @@ import pyswrd
 from Bio import SeqIO
 
 from src.contig_screen import layout
+from src.core.hmm_search import load_profiles
 
 logger = logging.getLogger(__name__)
 
@@ -253,15 +254,13 @@ def text(name: bytes | str) -> str:
     return name.decode() if isinstance(name, bytes) else str(name)
 
 
-@functools.cache
-def load_models(hmm_path: Path) -> list[pyhmmer.plan7.HMM]:
-    """Load the catalog once per process."""
-    with pyhmmer.plan7.HMMFile(str(hmm_path)) as handle:
-        return list(handle)
-
-
 def hmm_search(proteins: dict[str, str], hmm_path: Path, threads: int) -> HmmHits:
-    """Search the catalog; return protein hash to (model, score, evalue) hits."""
+    """Search the catalog; return protein hash to (model, score, evalue) hits.
+
+    Only reported hits count. HMMER tests the E-value threshold while it scans, so
+    a borderline hit is stored or not depending on how many proteins came before
+    it; ``hit.reported`` is set by the final test, after all proteins are seen.
+    """
     if not proteins:
         return {}
     alphabet = pyhmmer.easel.Alphabet.amino()
@@ -270,13 +269,15 @@ def hmm_search(proteins: dict[str, str], hmm_path: Path, threads: int) -> HmmHit
         for key, seq in proteins.items()
     ]
     block = pyhmmer.easel.DigitalSequenceBlock(alphabet, sequences)
-    models = load_models(hmm_path)
+    models = load_profiles(hmm_path)
     found: HmmHits = defaultdict(list)
     for top_hits in pyhmmer.hmmsearch(
         models, block, cpus=threads, E=E_VALUE, domE=E_VALUE
     ):
         model = text(top_hits.query.name)
         for hit in top_hits:
+            if not hit.reported:
+                continue
             found[text(hit.name)].append((model, float(hit.score), float(hit.evalue)))
     return dict(found)
 

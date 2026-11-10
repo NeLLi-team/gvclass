@@ -208,6 +208,38 @@ def test_hmm_search_returns_the_models_that_hit_each_protein(tmp_path: Path) -> 
     assert found["h1"][0][0] == "OG0001"
 
 
+def test_hmm_search_does_not_depend_on_protein_order(tmp_path: Path) -> None:
+    """HMMER tests the E-value threshold while it scans, so a borderline hit is
+    stored or not by its position; only reported hits may be returned."""
+    amino = "ACDEFGHIKLMNPQRSTVWY"
+    rng = random.Random(1)
+    base = "".join(rng.choice(amino) for _ in range(70))
+    alphabet = pyhmmer.easel.Alphabet.amino()
+    sequence = pyhmmer.easel.TextSequence(name=b"q", sequence=base).digitize(alphabet)
+    hmm, _, _ = pyhmmer.plan7.Builder(alphabet).build(
+        sequence, pyhmmer.plan7.Background(alphabet)
+    )
+    hmm.name = b"M1"
+    catalog = tmp_path / "catalog.hmm"
+    with catalog.open("wb") as handle:
+        hmm.write(handle)
+    # A diverged copy of the model sequence whose E-value sits just above the 1e-5
+    # cut once all 300 decoys are counted, and below it when it comes first.
+    variant_rng = random.Random(10)
+    borderline = "".join(
+        variant_rng.choice(amino) if variant_rng.random() < 0.6 else residue
+        for residue in base
+    )
+    decoys = {
+        f"d{i}": "".join(rng.choice(amino) for _ in range(70)) for i in range(300)
+    }
+
+    borderline_first = eg.hmm_search({"cand": borderline, **decoys}, catalog, 1)
+    borderline_last = eg.hmm_search({**decoys, "cand": borderline}, catalog, 1)
+
+    assert borderline_first == borderline_last
+
+
 def test_hmm_search_of_no_protein_is_empty(tmp_path: Path) -> None:
     assert eg.hmm_search({}, tmp_path / "missing.hmm", 1) == {}
 

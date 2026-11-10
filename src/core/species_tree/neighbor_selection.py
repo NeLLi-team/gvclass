@@ -25,6 +25,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Union
@@ -39,6 +40,10 @@ logger = logging.getLogger(__name__)
 
 NCLDV_PREFIX = "NCLDV__"
 PrefixFilter = Union[str, Sequence[str]]
+
+# Queries run in threads and share one subset directory; the lock stops two
+# queries from filtering the same large group faa at the same time.
+_SUBSET_LOCK = threading.Lock()
 
 
 def _prefix_tuple(keep_prefix: PrefixFilter) -> Tuple[str, ...]:
@@ -141,13 +146,14 @@ def build_ncldv_reference_subset(
     # prefix, so ``startswith(">" + prefix)`` is exactly the id-token test. Written
     # atomically (tmp -> os.replace) so one subset file can be shared across the
     # parallel per-query workers without a torn read.
-    import threading
-
     tokens = tuple(">" + p for p in _prefix_tuple(prefix))
     count = 0
     tmp = out_faa.with_name(f"{out_faa.name}.{os.getpid()}.{threading.get_ident()}.tmp")
     try:
-        with open(group_faa) as in_handle, open(tmp, "w") as out_handle:
+        with (
+            group_faa.open(encoding="utf-8") as in_handle,
+            tmp.open("w", encoding="utf-8") as out_handle,
+        ):
             keep = False
             for line in in_handle:
                 if line.startswith(">"):
@@ -212,7 +218,7 @@ def _rank_unique_subjects(
         return []
 
     best_score: Dict[str, float] = {}
-    with open(m8_path) as handle:
+    with m8_path.open(encoding="utf-8") as handle:
         for line in handle:
             parts = line.rstrip("\n").split("\t")
             if len(parts) < 12:
@@ -266,7 +272,7 @@ def build_species_tree_gene_tree(
 
     aligned = align_sequences_pyfamsa(records, threads)
     aln_path = out_tree.with_suffix(".aln.fasta")
-    with open(aln_path, "w") as aln_handle:
+    with aln_path.open("w", encoding="utf-8") as aln_handle:
         for seq_id, seq in aligned:
             # Replace stop codons (*) with gaps before tree inference, mirroring
             # the production gene-tree path: real NCLDV references carry * (e.g.
@@ -296,16 +302,17 @@ def build_query_group_trees(
     groups: Sequence[str],
     query_id: str,
     work_dir: Path,
+    subset_dir: Path,
     max_candidates: int = 300,
     threads: int = 4,
     keep_prefix: PrefixFilter = NCLDV_PREFIX,
-    subset_cache: Optional[Dict[Tuple[str, Tuple[str, ...]], Path]] = None,
 ) -> Dict[str, Path]:
     """Build the dedicated per-group gene trees for one query.
 
-    For each group with query hits: build (or reuse, via ``subset_cache``) the
-    prefix-filtered reference subset, gather candidate neighbor proteins by
-    similarity, and build a dedicated gene tree. Groups with no query hits, no
+    For each group with query hits: use the prefix-filtered reference subset in
+    ``subset_dir`` (built by the first query that needs it, then reused by every
+    later query of the run), gather candidate neighbor proteins by similarity,
+    and build a dedicated gene tree. Groups with no query hits, no
     reference faa, no eligible references, no candidates, or too few sequences
     are skipped.
 
@@ -317,6 +324,7 @@ def build_query_group_trees(
         ``{group -> tree_path}`` for the groups that produced a tree.
     """
     work_dir.mkdir(parents=True, exist_ok=True)
+    subset_dir.mkdir(parents=True, exist_ok=True)
     group_to_tree: Dict[str, Path] = {}
 
     for group in groups:
@@ -329,9 +337,7 @@ def build_query_group_trees(
             logger.warning("Reference faa missing for group %s: %s", group, group_ref)
             continue
 
-        ncldv_subset = _resolve_ncldv_subset(
-            group, group_ref, work_dir, keep_prefix, subset_cache
-        )
+        ncldv_subset = _reference_subset(group, group_ref, subset_dir, keep_prefix)
         if ncldv_subset is None:
             continue
 
@@ -358,29 +364,21 @@ def build_query_group_trees(
     return group_to_tree
 
 
-def _resolve_ncldv_subset(
-    group: str,
-    group_ref: Path,
-    work_dir: Path,
-    keep_prefix: PrefixFilter,
-    subset_cache: Optional[Dict[Tuple[str, Tuple[str, ...]], Path]],
+def _reference_subset(
+    group: str, group_ref: Path, subset_dir: Path, keep_prefix: PrefixFilter
 ) -> Optional[Path]:
-    """Return the prefix-filtered subset faa for ``group``, building it once and reusing
-    a cached path across queries (combined mode) when ``subset_cache`` is given."""
+    """Return the prefix-filtered subset faa for ``group``, building it once.
+
+    The subset file is the cache: it is shared by every query that uses
+    ``subset_dir``. A subset with no reference is an empty file, so later
+    queries skip the group without filtering the group faa again.
+    """
     prefixes = _prefix_tuple(keep_prefix)
-    cache_key = (group, prefixes)
-    if subset_cache is not None and cache_key in subset_cache:
-        return subset_cache[cache_key]
-
-    ncldv_subset = work_dir / f"{group}.{_prefix_slug(prefixes)}.faa"
-    if not ncldv_subset.exists():
-        n_refs = build_ncldv_reference_subset(
-            group_ref, ncldv_subset, prefix=keep_prefix
-        )
-        if n_refs == 0:
-            logger.warning("No %s references in %s", _prefix_label(prefixes), group_ref)
-            return None
-
-    if subset_cache is not None:
-        subset_cache[cache_key] = ncldv_subset
-    return ncldv_subset
+    subset = subset_dir / f"{group}.{_prefix_slug(prefixes)}.faa"
+    with _SUBSET_LOCK:
+        if not subset.exists():
+            build_ncldv_reference_subset(group_ref, subset, prefix=keep_prefix)
+    if subset.stat().st_size == 0:
+        logger.warning("No %s references in %s", _prefix_label(prefixes), group_ref)
+        return None
+    return subset

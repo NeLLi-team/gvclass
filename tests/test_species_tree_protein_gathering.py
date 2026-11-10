@@ -10,7 +10,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.core.tree_analysis import TreeAnalyzer
+import pytest
+
 from src.core.species_tree.neighbor_selection import NeighborHit
 from src.core.species_tree.protein_gathering import (
     ReferenceProteinIndex,
@@ -18,6 +19,8 @@ from src.core.species_tree.protein_gathering import (
     gather_reference_representatives,
     select_query_representative_from_tree,
 )
+from src.core.tree_analysis import TreeAnalyzer
+from src.utils.error_handling import ProcessingError
 
 
 def _labels(tmp_path: Path) -> Path:
@@ -58,13 +61,11 @@ def test_reference_index_genome_resolution_and_longest(tmp_path: Path) -> None:
     )
     index = ReferenceProteinIndex(faa, analyzer)
 
-    assert set(index.proteins_for("NCLDV__G1")) == {"NCLDV__G1|cA_1", "NCLDV__G1|cA_2"}
     # Longest by length -> cA_2 (20 > 10).
     assert index.longest_protein("NCLDV__G1") == "NCLDV__G1|cA_2"
     assert index.longest_protein("NCLDV__G3") == "NCLDV__G3|cA_1"
     assert index.longest_protein("NCLDV__ABSENT") is None
     assert index.sequence("NCLDV__G1|cA_1") == _seq(10)
-    assert "NCLDV__G1|cA_1" in index
     index.close()
 
 
@@ -148,6 +149,13 @@ def test_query_rep_none_without_query_or_ref(tmp_path: Path) -> None:
     assert select_query_representative_from_tree(no_ref, "PkV-RF01") is None
     no_q = _write_tree(tmp_path, "noq.treefile", "(NCLDV__G1_1:0.1,NCLDV__G2_1:0.2);")
     assert select_query_representative_from_tree(no_q, "PkV-RF01") is None
+
+
+def test_query_rep_malformed_tree_raises(tmp_path: Path) -> None:
+    broken = _write_tree(tmp_path, "broken.treefile", "((PkV-RF01|p_1:0.1,NCLDV__G1_1")
+
+    with pytest.raises(ProcessingError, match=r"broken\.treefile"):
+        select_query_representative_from_tree(broken, "PkV-RF01")
 
 
 def test_gather_query_representatives_min_markers(tmp_path: Path) -> None:
@@ -370,6 +378,6 @@ def test_reference_index_context_manager_and_idempotent_close(tmp_path: Path) ->
     faa = tmp_path / "grp.faa"
     faa.write_text(f">NCLDV__G1|c_1\n{_seq(10)}\n")
     with ReferenceProteinIndex(faa, analyzer) as index:
-        assert index.proteins_for("NCLDV__G1") == ["NCLDV__G1|c_1"]
+        assert index.sequence("NCLDV__G1|c_1") == _seq(10)
     # Exited -> closed; a second close() is a no-op (idempotent), no exception.
     index.close()

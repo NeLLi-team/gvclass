@@ -1,4 +1,5 @@
-import os
+"""Rename query records and compute basic input statistics."""
+
 from pathlib import Path
 
 import pandas as pd
@@ -67,12 +68,12 @@ def calculate_stats(records: list[SeqRecord], input_file: str) -> pd.DataFrame:
     """
     total_length = sum(len(record.seq) for record in records)
     gc_count = sum(
-        str(record.seq).upper().count("G") + str(record.seq).upper().count("C")
-        for record in records
+        sequence.count("G") + sequence.count("C")
+        for sequence in (str(record.seq).upper() for record in records)
     )
     gc_percentage = (gc_count / total_length * 100) if total_length > 0 else 0
     stats_dict = {
-        "query": os.path.splitext(os.path.basename(input_file))[0],
+        "query": Path(input_file).stem,
         "contigs": len(records),
         "LENbp": total_length,
         "GCperc": gc_percentage,

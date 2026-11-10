@@ -1,173 +1,39 @@
-"""
-Utility functions for GVClass workflow scripts.
-
-This module provides common utilities for secure subprocess execution,
-logging, and error handling.
-"""
+"""Shared helpers: logger setup, path validation and file hashing."""
 
 import hashlib
 import logging
-import shlex
-import subprocess
 from pathlib import Path
-from typing import List, Optional, Tuple, Union
 
-# 1 MiB; matches the streaming chunk size used by DatabaseManager._compute_sha256
-_SHA256_CHUNK_SIZE = 1 << 20
-
-# Import error handling framework
-from .error_handling import (
-    error_handler,
-    CommandError,
-    ValidationError,
-    FileError,
-    handle_errors,
-)
+from .error_handling import FileError, ValidationError
 
 
 def setup_logging(name: str, level: str = "INFO") -> logging.Logger:
-    """
-    Set up logging with consistent formatting.
-
-    Args:
-        name: Logger name
-        level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-
-    Returns:
-        Configured logger instance
-    """
-    return setup_logger(name, level)
-
-
-def setup_logger(name: str, level: str = "INFO") -> logging.Logger:
-    """
-    Set up a logger with consistent formatting.
-
-    Args:
-        name: Logger name
-        level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-
-    Returns:
-        Configured logger instance
-    """
+    """Return the logger ``name`` at ``level`` with one stream handler."""
     logger = logging.getLogger(name)
     logger.setLevel(getattr(logging, level.upper()))
 
     if not logger.handlers:
         handler = logging.StreamHandler()
-        formatter = logging.Formatter(
-            "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        handler.setFormatter(
+            logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
         )
-        handler.setFormatter(formatter)
         logger.addHandler(handler)
 
     return logger
 
 
-@handle_errors(error_types=(subprocess.CalledProcessError, subprocess.TimeoutExpired))
-def run_command_safe(
-    cmd: Union[str, List[str]],
-    cwd: Optional[Union[str, Path]] = None,
-    timeout: Optional[int] = None,
-) -> Tuple[str, str]:
-    """
-    Execute a command safely without shell injection vulnerability.
-
-    Args:
-        cmd: Command to execute (string will be split safely)
-        cwd: Working directory for command execution
-        timeout: Command timeout in seconds
-
-    Returns:
-        Tuple of (stdout, stderr)
+def validate_file_path(file_path: str | Path, *, must_exist: bool = True) -> Path:
+    """Return ``file_path`` resolved.
 
     Raises:
-        CommandError: If command fails
-        subprocess.TimeoutExpired: If command times out
-    """
-    # Convert string command to list safely
-    if isinstance(cmd, str):
-        cmd_list = shlex.split(cmd)
-    else:
-        cmd_list = cmd
-
-    # Validate command is not empty
-    if not cmd_list:
-        raise CommandError("Command cannot be empty")
-
-    command_str = " ".join(cmd_list)
-    error_handler.log_debug(f"Executing command: {command_str}")
-
-    try:
-        result = subprocess.run(
-            cmd_list,
-            cwd=cwd,
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=timeout,
-        )
-
-        if result.stderr:
-            error_handler.log_debug(f"Command stderr: {result.stderr}")
-        if result.stdout:
-            error_handler.log_debug(f"Command stdout: {result.stdout}")
-
-        return result.stdout, result.stderr
-
-    except subprocess.CalledProcessError as e:
-        raise CommandError(
-            f"Command failed: {str(e)}", command=command_str, return_code=e.returncode
-        ) from e
-    except subprocess.TimeoutExpired as e:
-        raise CommandError(
-            f"Command timed out after {timeout} seconds", command=command_str
-        ) from e
-
-
-def run_command_safe_legacy(cmd: Union[str, List[str]]) -> None:
-    """
-    Legacy wrapper for run_command_safe that prints output.
-
-    This function maintains compatibility with existing code that expects
-    output to be printed rather than returned.
-
-    Args:
-        cmd: Command to execute
-    """
-    try:
-        stdout, stderr = run_command_safe(cmd)
-        if stderr:
-            print(f"std_err: {stderr}")
-        if stdout:
-            print(f"std_out: {stdout}")
-    except CommandError as e:
-        print(f"Command failed: {e}")
-        raise
-
-
-@handle_errors(error_types=(ValueError, FileNotFoundError))
-def validate_file_path(file_path: Union[str, Path], must_exist: bool = True) -> Path:
-    """
-    Validate and normalize a file path.
-
-    Args:
-        file_path: Path to validate
-        must_exist: Whether the file must exist
-
-    Returns:
-        Normalized Path object
-
-    Raises:
-        ValidationError: If path is invalid
-        FileError: If file doesn't exist and must_exist is True
+        ValidationError: If the path is empty or contains ``..``.
+        FileError: If ``must_exist`` is true and the file is missing.
     """
     if not file_path:
         raise ValidationError("File path cannot be empty", field="file_path")
 
     path = Path(file_path).resolve()
 
-    # Check for path traversal attempts
     if ".." in Path(file_path).parts:
         raise ValidationError(
             f"Path traversal detected in: {file_path}",
@@ -185,26 +51,11 @@ def validate_file_path(file_path: Union[str, Path], must_exist: bool = True) -> 
     return path
 
 
-def sha256_file(path: Union[str, Path]) -> str:
-    """Return the SHA-256 hex digest of ``path`` streaming in 1 MiB chunks.
+def sha256_file(path: str | Path) -> str:
+    """Return the SHA-256 hex digest of ``path``, read in chunks.
 
-    Shared helper used by the resume-sentinel writer, the bundled-model
-    integrity gate, and the database-manager archive verification so all
-    integrity checks use an identical streaming implementation.
+    Shared by the resume log, the bundled-model integrity gate and the
+    contig-screen resource check so all integrity checks hash the same way.
     """
-    resolved = Path(path)
-    hasher = hashlib.sha256()
-    with open(resolved, "rb") as handle:
-        while True:
-            chunk = handle.read(_SHA256_CHUNK_SIZE)
-            if not chunk:
-                break
-            hasher.update(chunk)
-    return hasher.hexdigest()
-
-
-# Legacy compatibility
-class GVClassError(Exception):
-    """Base exception for GVClass errors."""
-
-    pass
+    with Path(path).open("rb") as handle:
+        return hashlib.file_digest(handle, "sha256").hexdigest()

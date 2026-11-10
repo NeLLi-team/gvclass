@@ -18,15 +18,18 @@ references *before* alignment, so sparse taxa never enter the supermatrix.
 from __future__ import annotations
 
 import logging
+import threading
 from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 from Bio import SeqIO
 from ete3 import Tree
+from ete3.parser.newick import NewickError
 
 from src.core.species_tree.neighbor_selection import NCLDV_PREFIX, NeighborHit
 from src.core.tree_analysis import TreeAnalyzer, _is_query_leaf
+from src.utils.error_handling import ProcessingError
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +54,9 @@ class ReferenceProteinIndex:
     def __init__(self, group_faa: Path, analyzer: TreeAnalyzer):
         self.group_faa = Path(group_faa)
         self._index = SeqIO.index(str(self.group_faa), "fasta")
+        # SeqIO.index seeks one shared file handle, so reads from the query
+        # threads of a run must not interleave.
+        self._lock = threading.Lock()
         try:
             self._genome_to_proteins: Dict[str, List[str]] = defaultdict(list)
             for protein_id in self._index.keys():
@@ -67,34 +73,21 @@ class ReferenceProteinIndex:
     def __exit__(self, *exc) -> None:
         self.close()
 
-    def __del__(self) -> None:
-        # GC backstop; callers should still close() explicitly (or use `with` /
-        # contextlib.ExitStack) so handles are released deterministically.
-        try:
-            self.close()
-        except Exception:
-            pass
-
-    def proteins_for(self, genome_id: str) -> List[str]:
-        return list(self._genome_to_proteins.get(genome_id, []))
-
     def sequence(self, protein_id: str) -> str:
-        return str(self._index[protein_id].seq)
+        with self._lock:
+            return str(self._index[protein_id].seq)
 
     def longest_protein(self, genome_id: str) -> Optional[str]:
         """The genome's longest protein in this group; tie -> lexicographic id."""
         proteins = self._genome_to_proteins.get(genome_id)
         if not proteins:
             return None
-        return min(proteins, key=lambda pid: (-len(self._index[pid].seq), pid))
-
-    def __contains__(self, protein_id: str) -> bool:
-        return protein_id in self._index
+        with self._lock:
+            return min(proteins, key=lambda pid: (-len(self._index[pid].seq), pid))
 
     def close(self) -> None:
-        index = getattr(self, "_index", None)
-        if index is not None:
-            index.close()
+        if self._index is not None:
+            self._index.close()
             self._index = None
 
 
@@ -125,9 +118,12 @@ def select_query_representative_from_tree(
         return None
     try:
         tree = Tree(str(tree_file))
-    except Exception as exc:  # pragma: no cover - malformed newick guard
-        logger.error("Error loading tree %s: %s", tree_file, exc)
-        return None
+    except NewickError as exc:
+        raise ProcessingError(
+            f"Malformed species-tree gene tree {tree_file}: {exc}",
+            step="species_tree",
+            input_file=str(tree_file),
+        ) from exc
 
     query_nodes = [
         leaf for leaf in tree.iter_leaves() if _is_query_leaf(leaf.name, query_id)
@@ -149,10 +145,7 @@ def select_query_representative_from_tree(
     for query_node in query_nodes:
         min_dist = float("inf")
         for ref_node in ref_nodes:
-            try:
-                dist = tree.get_distance(query_node, ref_node)
-            except Exception:
-                continue
+            dist = tree.get_distance(query_node, ref_node)
             if dist < min_dist:
                 min_dist = dist
         if min_dist == float("inf"):

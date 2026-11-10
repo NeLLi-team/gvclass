@@ -429,7 +429,7 @@ def run_gvclass(inputs_dir: Path, results_dir: Path, workers: int, force: bool) 
 def parse_float(value: Any) -> float:
     try:
         return float(value)
-    except Exception:
+    except (TypeError, ValueError):
         return 0.0
 
 

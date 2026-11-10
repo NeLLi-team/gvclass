@@ -30,6 +30,10 @@ logger = logging.getLogger(__name__)
 
 QUERY_PREFIX = "QUERY__"
 
+# Fewest taxa a group alignment needs to give a tree: the query and two
+# references. It does not depend on a panel's per-taxon marker floor.
+MIN_TAXA_PER_GROUP = 3
+
 
 def namespace_query(stem: str) -> str:
     """Namespace a query file stem as a supermatrix leaf."""
@@ -106,7 +110,7 @@ def _witchi_prune(aln_path: Path, threads: int, timeout: int = 1200) -> Optional
             text=True,
             timeout=timeout,
         )
-    except Exception as exc:  # subprocess/timeout guard
+    except (subprocess.TimeoutExpired, OSError) as exc:
         logger.warning("witchi prune errored for %s: %s", aln_path.name, exc)
         return None
     if proc.returncode != 0:
@@ -180,7 +184,7 @@ def _trim_group_alignment(
         if _valid_block(block, expected_leaves):
             return block
         logger.warning("pytrimal output for %s unusable; using unpruned", aln_path.name)
-    except Exception as exc:
+    except (OSError, ValueError, RuntimeError) as exc:
         logger.warning("pytrimal fallback failed for %s: %s", aln_path.name, exc)
 
     # Unpruned raw alignment trivially covers exactly the expected taxa.
@@ -194,7 +198,7 @@ def build_supermatrix(
     out_dir: Path,
     basename: str = "combined",
     threads: int = 4,
-    min_taxa_per_group: int = 3,
+    min_taxa_per_group: int = MIN_TAXA_PER_GROUP,
     trim_method: str = "witchi",
 ) -> Optional[SupermatrixResult]:
     """Align + trim each group block and concatenate into a gap-padded supermatrix.
@@ -242,7 +246,7 @@ def build_supermatrix(
         ]
         aligned = align_sequences_pyfamsa(records, threads)
         aln_path = work_dir / f"{group}.aln.fasta"
-        with open(aln_path, "w") as handle:
+        with aln_path.open("w", encoding="utf-8") as handle:
             for leaf, seq in aligned:
                 handle.write(f">{leaf}\n{seq.replace('*', '-')}\n")
 
@@ -286,7 +290,7 @@ def build_supermatrix(
     kept_leaves = [leaf for leaf in leaves if leaf in rows]
 
     supermatrix_faa = out_dir / f"{basename}.supermatrix.faa"
-    with open(supermatrix_faa, "w") as handle:
+    with supermatrix_faa.open("w", encoding="utf-8") as handle:
         for leaf in kept_leaves:
             handle.write(f">{leaf}\n{rows[leaf]}\n")
 
@@ -319,4 +323,4 @@ def _write_partitions(
         end = start + group_widths[group] - 1
         lines.append(f"AA, {group} = {start}-{end}")
         start = end + 1
-    path.write_text("\n".join(lines) + "\n")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")

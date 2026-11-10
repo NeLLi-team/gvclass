@@ -19,8 +19,8 @@ from __future__ import annotations
 import argparse
 import contextlib
 import io
+import logging
 import os
-import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from functools import partial
@@ -33,6 +33,8 @@ from src.contig_screen.layout import bundle_present
 from src.contig_screen.tables import read_table
 from src.utils.common import sha256_file
 from src.utils.database_manager import DatabaseManager
+
+logger = logging.getLogger(__name__)
 
 DATABASE_PATH_ENV = "GVCLASS_DB"
 OK = "ok"
@@ -145,7 +147,8 @@ def run_cellular_screen(
     """Run the cellular screen on one bin; return its status and printed text.
 
     A bin with no contig of 3 kb or more has nothing to score, so the screen does not
-    run: that is not a failure.
+    run: that is not a failure. The screen also exits cleanly without a table for a
+    bin with no called genes: that is ``not_scored`` too.
     """
     longest = max(lengths.values(), default=0)
     if longest < extract_genes.MIN_SOURCE_CONTIG:
@@ -154,7 +157,9 @@ def run_cellular_screen(
         )
         return NOT_SCORED, text
     code, text = run_screen(run_cellular, [str(path), "--out", str(table), *common])
-    return (OK if code == 0 and table.exists() else FAILED), text
+    if code != 0:
+        return FAILED, text
+    return (OK if table.exists() else NOT_SCORED), text
 
 
 def run_giant_virus_screen(
@@ -339,7 +344,7 @@ def install_bundle(database: Path) -> int:
     """Download and install the contig-screen resources; return the exit code."""
     source = DatabaseManager.CONTIG_SCREEN_SOURCE
     if source is None:
-        print("error: no download source is configured for this build", file=sys.stderr)
+        logger.error("no download source is configured for this build")
         return 1
     database.mkdir(parents=True, exist_ok=True)
     DatabaseManager.install_addon(database, "contig_screen", source)
@@ -386,6 +391,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Screen every bin; return 1 if no bin was found or a screen failed."""
     parser = build_parser()
     args = parser.parse_args(argv)
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
+    )
     repo_dir = Path(__file__).resolve().parents[2]
     database = resolve_database(args.database, repo_dir)
     if args.install:
@@ -393,22 +401,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.input is None:
         parser.error("an input bin or folder is needed (or --install)")
     if not bundle_present(database):
-        print(
-            f"error: no contig-screen resources in {database}; "
-            "run: gvclass screen --install",
-            file=sys.stderr,
+        logger.error(
+            "no contig-screen resources in %s; run: gvclass screen --install", database
         )
         return 1
     bins = list_bins(args.input)
     if not bins:
-        print(f"error: no FASTA file in {args.input}", file=sys.stderr)
+        logger.error("no FASTA file in %s", args.input)
         return 1
     clashes = name_clashes(bins)
     if clashes:
-        print(
-            "error: these files would write to the same output name: "
-            + "; ".join(", ".join(group) for group in clashes),
-            file=sys.stderr,
+        logger.error(
+            "these files would write to the same output name: %s",
+            "; ".join(", ".join(group) for group in clashes),
         )
         return 1
     out_dir = args.output_dir or default_output_dir(args.input)
@@ -417,7 +422,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         addon = load_addon(database)
     except (layout.IntegrityError, KeyError, ValueError) as err:
         # No screen runs with a rejected add-on; each bin says why it has no result.
-        print(f"error: {err}", file=sys.stderr)
+        logger.error("%s", err)
         rows = [failed_row(path, out_dir, f"error: {err}\n", "") for path in bins]
     else:
         rows = [screen_bin(p, out_dir, database, args.threads, addon) for p in bins]

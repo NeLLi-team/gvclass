@@ -22,7 +22,7 @@ Database bundles with putative endogenous viral element (pEVE) references can in
 
 ## Alignment and inference
 
-Each marker group is aligned and trimmed separately before concatenation. Missing markers are represented by gaps. The partition file records each marker's columns in the combined alignment.
+Each marker group is aligned and trimmed separately before concatenation. A group enters the alignment only when at least three taxa carry it, for every panel. Missing markers are represented by gaps. The partition file records each marker's columns in the combined alignment.
 
 `--species-tree-trim` selects the trimming method:
 

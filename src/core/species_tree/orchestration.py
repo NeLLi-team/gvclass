@@ -20,10 +20,9 @@ Requested species-tree failures propagate to the query or run failure handler.
 from __future__ import annotations
 
 import logging
+import threading
 from collections import defaultdict
-from contextlib import ExitStack
 from pathlib import Path
-from typing import Dict, List, Optional
 
 from Bio import SeqIO
 
@@ -50,7 +49,11 @@ from src.core.species_tree.protein_gathering import (
     gather_query_representatives,
     gather_reference_representatives,
 )
-from src.core.species_tree.supermatrix import build_supermatrix, namespace_query
+from src.core.species_tree.supermatrix import (
+    MIN_TAXA_PER_GROUP,
+    build_supermatrix,
+    namespace_query,
+)
 from src.core.species_tree.taxonomy_placement import (
     SpeciesTreeClassifier,
     write_species_tree_taxonomy,
@@ -61,8 +64,25 @@ from src.utils.resource_store import ResourceStore
 
 logger = logging.getLogger(__name__)
 
+# Reference indexes are built once per run and shared by all query threads. The key
+# holds the file's mtime and size so a rewritten faa gets a fresh index.
+_INDEX_LOCK = threading.Lock()
+_REFERENCE_INDEXES: dict[tuple[str, int, int], ReferenceProteinIndex] = {}
 
-def _fetch_sequence(faa: Path, protein_id: str) -> Optional[str]:
+
+def _shared_reference_index(faa: Path, analyzer: TreeAnalyzer) -> ReferenceProteinIndex:
+    """Return the run-wide index over ``faa``, building it on first use."""
+    stat = faa.stat()
+    key = (str(faa.resolve()), stat.st_mtime_ns, stat.st_size)
+    with _INDEX_LOCK:
+        index = _REFERENCE_INDEXES.get(key)
+        if index is None:
+            index = ReferenceProteinIndex(faa, analyzer)
+            _REFERENCE_INDEXES[key] = index
+        return index
+
+
+def _fetch_sequence(faa: Path, protein_id: str) -> str | None:
     if not faa.exists():
         return None
     for record in SeqIO.parse(str(faa), "fasta"):
@@ -71,16 +91,11 @@ def _fetch_sequence(faa: Path, protein_id: str) -> Optional[str]:
     return None
 
 
-# ---------------------------------------------------------------------------
-# Per-query hook
-# ---------------------------------------------------------------------------
-
-
 def run_per_query_species_tree(
     query_id: str,
     query_output_dir: Path,
     database_path: Path,
-    summary_data: Dict,
+    summary_data: dict,
     output_base: Path,
     threads: int,
     trim_method: str = "witchi",
@@ -113,7 +128,7 @@ def _run_per_query(
     query_id: str,
     query_output_dir: Path,
     database_path: Path,
-    summary_data: Dict,
+    summary_data: dict,
     output_base: Path,
     threads: int,
     trim_method: str = "witchi",
@@ -141,6 +156,7 @@ def _run_per_query(
         panel.groups,
         query_id,
         work,
+        scratch / "reference_subsets",
         threads=threads,
         keep_prefix=panel.reference_prefixes,
     )
@@ -170,7 +186,7 @@ def _run_per_query(
         )
         return
 
-    query_rep_seqs: Dict[str, str] = {}
+    query_rep_seqs: dict[str, str] = {}
     for group, protein_id in query_reps.items():
         seq = _fetch_sequence(query_hits_dir / f"{group}.faa", protein_id)
         if seq is not None:
@@ -215,33 +231,15 @@ def _run_per_query(
     )
 
 
-# ---------------------------------------------------------------------------
-# Combined step
-# ---------------------------------------------------------------------------
-
-
 def run_combined_species_tree(
     output_base: Path,
     database_path: Path,
-    results: List[Dict],
+    results: list[dict],
     threads: int,
     trim_method: str = "witchi",
     tree_method: str = "veryfasttree",
 ) -> None:
     """Combined species-tree step over this run's sidecars (one tree per panel)."""
-    _run_combined(
-        output_base, database_path, results, threads, trim_method, tree_method
-    )
-
-
-def _run_combined(
-    output_base: Path,
-    database_path: Path,
-    results: List[Dict],
-    threads: int,
-    trim_method: str = "witchi",
-    tree_method: str = "veryfasttree",
-) -> None:
     scratch = scratch_dir_for(output_base)
     # Only place queries whose standard pipeline COMPLETED — a query can write its
     # sidecar+.done and then fail in _post_process_query; such a query is reported
@@ -258,7 +256,7 @@ def _run_combined(
         )
         return
 
-    by_panel: Dict[str, Dict[str, Dict]] = defaultdict(dict)
+    by_panel: dict[str, dict[str, dict]] = defaultdict(dict)
     for query_id, sidecar in sidecars.items():
         panel_name = sidecar.get("panel")
         if panel_name not in PANELS:
@@ -303,14 +301,9 @@ def _run_combined(
         )
 
 
-# ---------------------------------------------------------------------------
-# Shared assembly: sidecars -> supermatrix -> tree -> placement -> merge
-# ---------------------------------------------------------------------------
-
-
 def _truncate_neighbors(
-    sidecars: Dict[str, Dict], k_neighbors: int
-) -> List[NeighborHit]:
+    sidecars: dict[str, dict], k_neighbors: int
+) -> list[NeighborHit]:
     """Flatten sidecar neighbors, keeping each query's top-k per group by distance.
 
     Sidecars store up to ``neighbors_to_store()`` neighbors so both the per-query
@@ -318,9 +311,9 @@ def _truncate_neighbors(
     requested ``k_neighbors`` per (query, group) deterministically (nearest first,
     genome-id tie-break) before the reference set is assembled.
     """
-    hits: List[NeighborHit] = []
+    hits: list[NeighborHit] = []
     for sidecar in sidecars.values():
-        by_group: Dict[str, List[Dict]] = defaultdict(list)
+        by_group: dict[str, list[dict]] = defaultdict(list)
         for hit in sidecar.get("neighbors", []):
             by_group[hit["group"]].append(hit)
         for group_hits in by_group.values():
@@ -337,15 +330,59 @@ def _truncate_neighbors(
     return hits
 
 
+def _supermatrix_taxa(
+    panel: SpeciesTreePanel,
+    sidecars: dict[str, dict],
+    neighbors: list[NeighborHit],
+    ref_faa_dir: Path,
+    analyzer: TreeAnalyzer,
+) -> dict[str, dict[str, str]]:
+    """Map each supermatrix leaf to its ``{group -> protein sequence}``.
+
+    Queries come from their sidecars; references are the neighbor genomes that
+    reach the panel's marker floor.
+    """
+    ref_indexes: dict[str, ReferenceProteinIndex] = {}
+    for group in panel.groups:
+        faa = ref_faa_dir / f"{group}.faa"
+        if faa.exists():
+            ref_indexes[group] = _shared_reference_index(faa, analyzer)
+
+    ref_reps, dropped = gather_reference_representatives(
+        neighbors, ref_indexes, panel.groups, min_markers=panel.min_markers
+    )
+    logger.info(
+        "Species-tree (%s): %d reference genomes (%d dropped < %d markers), %d queries",
+        panel.name,
+        len(ref_reps),
+        len(dropped),
+        panel.min_markers,
+        len(sidecars),
+    )
+
+    taxa: dict[str, dict[str, str]] = {}
+    for query_id, sidecar in sidecars.items():
+        reps = {g: s for g, s in sidecar.get("query_reps", {}).items() if s}
+        if len(reps) >= panel.min_markers:
+            taxa[namespace_query(query_id)] = reps
+    for genome_id, group_protein in ref_reps.items():
+        taxa[genome_id] = {
+            group: ref_indexes[group].sequence(protein_id)
+            for group, protein_id in group_protein.items()
+            if group in ref_indexes
+        }
+    return taxa
+
+
 def _build_and_place(
     panel: SpeciesTreePanel,
-    sidecars: Dict[str, Dict],
+    sidecars: dict[str, dict],
     database_path: Path,
     analyzer: TreeAnalyzer,
     work_dir: Path,
     out_dir: Path,
     threads: int,
-    summary_by_query: Dict[str, Dict],
+    summary_by_query: dict[str, dict],
     trim_method: str = "witchi",
     tree_method: str = "veryfasttree",
     k_neighbors: int = NEIGHBORS_PER_COMBINED_TREE,
@@ -355,49 +392,17 @@ def _build_and_place(
     ref_faa_dir = resources.materialized_faa_dir(panel.groups, strict=False)
     all_neighbors = _truncate_neighbors(sidecars, k_neighbors)
 
-    with ExitStack() as stack:
-        ref_indexes: Dict[str, ReferenceProteinIndex] = {}
-        for group in panel.groups:
-            faa = ref_faa_dir / f"{group}.faa"
-            if faa.exists():
-                ref_indexes[group] = stack.enter_context(
-                    ReferenceProteinIndex(faa, analyzer)
-                )
-
-        ref_reps, dropped = gather_reference_representatives(
-            all_neighbors, ref_indexes, panel.groups, min_markers=panel.min_markers
-        )
-        logger.info(
-            "Species-tree (%s): %d reference genomes (%d dropped < %d markers), %d queries",
-            panel.name,
-            len(ref_reps),
-            len(dropped),
-            panel.min_markers,
-            len(sidecars),
-        )
-
-        taxa: Dict[str, Dict[str, str]] = {}
-        for query_id, sidecar in sidecars.items():
-            reps = {g: s for g, s in sidecar.get("query_reps", {}).items() if s}
-            if len(reps) >= panel.min_markers:
-                taxa[namespace_query(query_id)] = reps
-        for genome_id, group_protein in ref_reps.items():
-            taxa[genome_id] = {
-                group: ref_indexes[group].sequence(protein_id)
-                for group, protein_id in group_protein.items()
-                if group in ref_indexes
-            }
-
-        result = build_supermatrix(
-            taxa,
-            panel.groups,
-            work_dir,
-            out_dir,
-            basename=basename,
-            threads=threads,
-            min_taxa_per_group=panel.min_markers,
-            trim_method=trim_method,
-        )
+    taxa = _supermatrix_taxa(panel, sidecars, all_neighbors, ref_faa_dir, analyzer)
+    result = build_supermatrix(
+        taxa,
+        panel.groups,
+        work_dir,
+        out_dir,
+        basename=basename,
+        threads=threads,
+        min_taxa_per_group=MIN_TAXA_PER_GROUP,
+        trim_method=trim_method,
+    )
 
     if result is None:
         logger.warning("Species-tree supermatrix empty for panel %s", panel.name)

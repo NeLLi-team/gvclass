@@ -188,18 +188,12 @@ def test_rewrite_header_token_ignores_alias_that_already_resolves_by_base_id() -
 
 
 def test_prefix_colliding_active_labels_are_not_mangled_without_alias() -> None:
-    active = {"VP__Sputnik_virophage", "VP__Sputnik_virophage_3"}
-
-    assert harmonize_labels.rewrite_ambiguous_header_token(
-        "VP__Sputnik_virophage|3_2", active
-    ) == (
+    assert harmonize_labels.rewrite_header_token("VP__Sputnik_virophage|3_2", {}) == (
         "VP__Sputnik_virophage|3_2",
         None,
         None,
     )
-    assert harmonize_labels.rewrite_ambiguous_header_token(
-        "VP__Sputnik_virophage_3", active
-    ) == (
+    assert harmonize_labels.rewrite_header_token("VP__Sputnik_virophage_3", {}) == (
         "VP__Sputnik_virophage_3",
         None,
         None,

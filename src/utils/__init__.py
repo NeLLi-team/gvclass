@@ -11,8 +11,6 @@ from .error_handling import (
 )
 from .input_validation import InputValidator
 from .common import (
-    run_command_safe,
-    run_command_safe_legacy,
     validate_file_path,
     setup_logging,
 )
@@ -28,8 +26,6 @@ __all__ = [
     # Input validation
     "InputValidator",
     # Common utilities
-    "run_command_safe",
-    "run_command_safe_legacy",
     "validate_file_path",
     "setup_logging",
     # Database management

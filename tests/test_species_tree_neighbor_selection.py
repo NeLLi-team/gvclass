@@ -12,13 +12,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.core.tree_analysis import TreeAnalyzer
+import src.core.species_tree.neighbor_selection as ns
 from src.core.species_tree.neighbor_selection import (
     build_ncldv_reference_subset,
     build_species_tree_gene_tree,
     gather_ncldv_neighbor_proteins,
     select_ncldv_neighbors_from_trees,
 )
+from src.core.tree_analysis import TreeAnalyzer
 
 
 def _labels_file(tmp_path: Path) -> Path:
@@ -317,7 +318,7 @@ def test_build_query_group_trees_and_select_orchestration(
     tmp_path, monkeypatch
 ) -> None:
     """End-to-end: subset -> dedicated search -> tree -> top-K across two groups,
-    with shared subset_cache reuse and skip handling for empty/missing groups.
+    with shared subset reuse across queries and skip handling for empty/missing groups.
     Exercises the live primitives the per-query hook composes."""
     import src.core.species_tree.neighbor_selection as ns
 
@@ -362,7 +363,7 @@ def test_build_query_group_trees_and_select_orchestration(
     monkeypatch.setattr(ns, "build_ncldv_reference_subset", _counting_subset)
 
     groups = ["grpA", "grpB", "grpC", "grpEmpty"]
-    cache: dict = {}
+    subsets = tmp_path / "subsets"
     work = tmp_path / "work"
 
     group_to_tree = ns.build_query_group_trees(
@@ -371,8 +372,8 @@ def test_build_query_group_trees_and_select_orchestration(
         groups,
         "QUERYGENOME",
         work,
+        subsets,
         threads=1,
-        subset_cache=cache,
     )
     hits = ns.select_ncldv_neighbors_from_trees(
         group_to_tree,
@@ -384,11 +385,14 @@ def test_build_query_group_trees_and_select_orchestration(
     # Aggregated across the two viable groups; grpC (no ref) and grpEmpty skipped.
     assert {h.group for h in hits} == {"grpA", "grpB"}
     assert {h.genome_id for h in hits} >= {"NCLDV__A1", "NCLDV__B1"}
-    # Subset built once per viable group; cache populated.
-    assert {key[0] for key in cache} == {"grpA", "grpB"}
+    # Subset built once per viable group.
+    assert {path.name.split(".")[0] for path in subsets.glob("*.faa")} == {
+        "grpA",
+        "grpB",
+    }
     assert calls["n"] == 2
 
-    # Second query reuses the cached subsets -> no extra subset builds.
+    # Second query reuses the shared subsets -> no extra subset builds.
     (query_hits / "grpA.faa").write_text(f">QUERYGENOME2_1\n{_FAM_A2}\n")
     group_to_tree2 = ns.build_query_group_trees(
         query_hits,
@@ -396,8 +400,8 @@ def test_build_query_group_trees_and_select_orchestration(
         groups,
         "QUERYGENOME2",
         work,
+        subsets,
         threads=1,
-        subset_cache=cache,
     )
     hits2 = ns.select_ncldv_neighbors_from_trees(
         group_to_tree2,
@@ -405,5 +409,31 @@ def test_build_query_group_trees_and_select_orchestration(
         "QUERYGENOME2",
         k=50,
     )
-    assert calls["n"] == 2  # unchanged: subsets reused from cache
+    assert calls["n"] == 2  # unchanged: subsets reused from disk
     assert any(h.group == "grpA" for h in hits2)
+
+
+def test_reference_subset_without_matching_references_is_skipped_once(
+    tmp_path, monkeypatch
+) -> None:
+    """A group with no reference of the wanted domain yields no subset, and the
+    group faa is not filtered again for the next query."""
+    group_ref = tmp_path / "grpX.faa"
+    group_ref.write_text(f">BAC__BA_1\n{_FAM_B}\n")
+    calls = {"n": 0}
+    real_subset = ns.build_ncldv_reference_subset
+
+    def _counting_subset(group_faa, out_faa, prefix=ns.NCLDV_PREFIX):
+        calls["n"] += 1
+        return real_subset(group_faa, out_faa, prefix=prefix)
+
+    monkeypatch.setattr(ns, "build_ncldv_reference_subset", _counting_subset)
+    subsets = tmp_path / "subsets"
+    subsets.mkdir()
+
+    first = ns._reference_subset("grpX", group_ref, subsets, ns.NCLDV_PREFIX)
+    second = ns._reference_subset("grpX", group_ref, subsets, ns.NCLDV_PREFIX)
+
+    assert first is None
+    assert second is None
+    assert calls["n"] == 1

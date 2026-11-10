@@ -12,6 +12,7 @@ placement columns.
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import src.core.species_tree.config as st_config
@@ -24,7 +25,6 @@ from src.core.species_tree.handoff import (
     scratch_dir_for,
     write_sidecar,
 )
-
 
 # ---------------------------------------------------------------------------
 # Handoff
@@ -236,6 +236,46 @@ def test_per_query_merges_summary_columns(tmp_path: Path, monkeypatch) -> None:
     assert "species_tree_nn_distance" in sd
     # Per-query files are basenamed by the query id (not "combined").
     assert (output_base / "species_tree" / "q1" / "q1.treefile").exists()
+
+
+def test_supermatrix_group_floor_is_independent_of_panel_marker_floor(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A group needs three taxa for a tree, whatever per-taxon marker floor the
+    panel sets (PPV uses a floor of 2)."""
+    panel = replace(st_config.NCLDV_PANEL, groups=_GROUPS, min_markers=2)
+    db = _setup_db(tmp_path)
+    captured = {}
+
+    def _capture(*args, **kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr(orch, "build_supermatrix", _capture)
+    monkeypatch.setattr(orch, "infer_species_tree", lambda *a, **k: None)
+
+    orch._build_and_place(
+        panel,
+        {"q1": _sidecar_payload("q1")},
+        db,
+        orch.TreeAnalyzer(db / "labels.tsv"),
+        tmp_path / "work",
+        tmp_path / "out",
+        threads=1,
+        summary_by_query={},
+    )
+
+    assert captured["min_taxa_per_group"] == 3
+
+
+def test_reference_indexes_are_shared_between_queries(tmp_path: Path) -> None:
+    db = _setup_db(tmp_path)
+    analyzer = orch.TreeAnalyzer(db / "labels.tsv")
+    faa = db / "database" / "faa" / "grpA.faa"
+
+    first = orch._shared_reference_index(faa, analyzer)
+    second = orch._shared_reference_index(faa, analyzer)
+
+    assert first is second
 
 
 def test_cli_argv_forwards_species_tree_flags() -> None:
