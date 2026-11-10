@@ -84,15 +84,15 @@ class TreeAnalyzer:
     def get_neighbors_from_tree(
         self, tree_file: Path, query_id: str
     ) -> Dict[str, Dict[str, float]]:
-        """
-        Extract nearest neighbors for query sequences in a tree.
+        """Extract nearest neighbors for query sequences in a tree.
 
         Args:
             tree_file: Path to newick tree file
             query_id: Query genome identifier
 
         Returns:
-            Dictionary mapping query proteins to their nearest neighbors and distances
+            Dictionary mapping query proteins to ``{neighbor: distance}`` for
+            every reference at the minimal distance (several when tied)
         """
         neighbors = {}
 
@@ -131,13 +131,11 @@ class TreeAnalyzer:
                 logger.debug(f"Sample leaf names: {sample_leaves}")
                 logger.debug(f"Looking for nodes starting with: {query_id}")
 
-            # For each query node, find its nearest non-query neighbor
+            # For each query node, find its nearest non-query neighbors
             for query_node in query_nodes:
-                nearest, distance = self._find_nearest_neighbor(
-                    tree, query_node, query_id
-                )
+                nearest = self._find_nearest_neighbor(tree, query_node, query_id)
                 if nearest:
-                    neighbors[query_node.name] = {nearest: distance}
+                    neighbors[query_node.name] = nearest
 
         except Exception as exc:
             raise RuntimeError(
@@ -148,8 +146,8 @@ class TreeAnalyzer:
 
     def _find_nearest_neighbor(
         self, tree: Tree, query_node: Tree, query_id: str
-    ) -> Tuple[Optional[str], float]:
-        """Find the nearest non-query neighbor for a query node.
+    ) -> dict[str, float]:
+        """Find the nearest non-query neighbors for a query node.
 
         Args:
             tree: The phylogenetic tree
@@ -157,18 +155,19 @@ class TreeAnalyzer:
             query_id: Query genome identifier
 
         Returns:
-            Tuple of (neighbor_name, distance) or (None, inf). Equal distances go
-            to the smaller leaf name, so the result does not depend on leaf order.
+            ``{neighbor_name: distance}`` for every reference leaf at the minimal
+            distance (exact float equality), sorted by name, so the result does
+            not depend on leaf order. Empty when the tree has no reference leaf.
         """
         distances = [
-            (tree.get_distance(query_node, leaf), leaf.name)
+            (leaf.name, tree.get_distance(query_node, leaf))
             for leaf in tree.iter_leaves()
             if not _is_query_leaf(leaf.name, query_id)
         ]
         if not distances:
-            return None, float("inf")
-        distance, name = min(distances)
-        return name, distance
+            return {}
+        nearest = min(distance for _name, distance in distances)
+        return dict(sorted(item for item in distances if item[1] == nearest))
 
     def get_top_k_neighbors(
         self,
@@ -179,8 +178,9 @@ class TreeAnalyzer:
     ) -> List[Tuple[str, str, float]]:
         """Return up to ``k`` nearest reference genomes to the query in a gene tree.
 
-        Generalises :meth:`_find_nearest_neighbor` (single global minimum) to the
-        top ``k`` nearest reference leaves whose name starts with ``keep_prefix``
+        Generalises :meth:`_find_nearest_neighbor` (the references at the minimal
+        distance) to the top ``k`` nearest reference leaves whose name starts with
+        ``keep_prefix``
         (e.g. ``"NCLDV__"`` or ``("NCLDV__", "EUK-pEVE__")``). The prefix filter
         is applied **before** any patristic
         distance is computed, so only candidate references incur a distance call.

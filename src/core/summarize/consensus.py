@@ -99,22 +99,24 @@ def _build_consensus_taxonomies(
 
     Ranks are decided top-down. Each rank considers only placements under the
     lineage selected at the ranks above. The first rank that is not accepted
-    leaves itself and all lower ranks blank. The result does not depend on the
-    order of the markers or of their lineages.
+    leaves itself and all lower ranks blank. A flag that more than one rank sets
+    names the shallowest of them. The result does not depend on the order of the
+    markers or of their lineages.
     """
     labels: list[str] = []
-    flags: list[str] = []
+    flag_ranks: dict[str, str] = {}
     selected_prefix: Lineage = ()
     for rank_index, level in enumerate(TAX_LEVELS):
         vote = _rank_vote(per_marker_lineage_counters, rank_index, selected_prefix)
         winner, rank_flags = _judge_rank(vote, level, mode_fast=mode_fast)
-        flags.extend(rank_flags)
+        for flag in rank_flags:
+            flag_ranks.setdefault(flag, level)
         if winner is None:
             break
         labels.append(_format_tax_label(level, winner))
         selected_prefix += (winner,)
     labels.extend(f"{level[0]}_" for level in TAX_LEVELS[len(labels) :])
-    return ";".join(labels), _aggregate_confidence_flags(flags)
+    return ";".join(labels), _aggregate_confidence_flags(flag_ranks)
 
 
 def _min_markers_for_level(level: str, *, mode_fast: bool) -> int:

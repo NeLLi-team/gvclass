@@ -1,5 +1,7 @@
 """capscan caps marker groups and their derivation from hits and tree placements."""
 
+import pytest
+
 from src.config.marker_sets import CAPS_MARKER_GROUP
 
 
@@ -167,3 +169,72 @@ def test_plv_count_tree_aware_ncldv_placement_not_counted():
 def test_plv_count_tree_aware_fallback_to_hmm_without_tree():
     mh = {"PLV_PC_054": {"q1", "q2"}}
     assert labels_taxonomy._plv_count_tree_aware(_LBL, mh, None) == 2
+
+
+# --- tied nearest neighbours: lineage in common, any insertion order ----------
+_TIED_LBL = {**_LBL, "PPV__pgvv_twin": list(_LBL["PPV__pgvv"])}
+
+
+def _tied(neighbors: list[tuple[str, float]], reverse: bool) -> dict[str, float]:
+    return dict(neighbors[::-1] if reverse else neighbors)
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_caps_from_tree_tie_between_caps_groups_names_no_group(reverse):
+    neighbors = _tied([("PPV__pgvv|p", 0.1), ("PPV__sp|p", 0.1)], reverse)
+    tnn = {"mcp_plv": {"q1": neighbors}}
+    assert labels_taxonomy._caps_group_from_tree(_TIED_LBL, tnn) == ""
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_caps_from_tree_tie_between_caps_and_generic_names_no_group(reverse):
+    neighbors = _tied([("PPV__pgvv|p", 0.1), ("PPV__generic|p", 0.1)], reverse)
+    tnn = {"mcp_plv": {"q1": neighbors}}
+    assert labels_taxonomy._caps_group_from_tree(_TIED_LBL, tnn) == ""
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_caps_from_tree_tie_inside_one_caps_group_keeps_the_group(reverse):
+    neighbors = _tied([("PPV__pgvv|p", 0.1), ("PPV__pgvv_twin|p", 0.1)], reverse)
+    tnn = {"mcp_plv": {"q1": neighbors}}
+    assert labels_taxonomy._caps_group_from_tree(_TIED_LBL, tnn) == "PgVV"
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_capsid_group_tie_between_caps_groups_falls_back_to_their_phylum(reverse):
+    # PgVV and SP share Preplasmiviricota, which is not a capsid phylum.
+    neighbors = _tied([("PPV__pgvv|p", 0.1), ("PPV__sp|p", 0.1)], reverse)
+    tnn = {"mcp_plv": {"q1": neighbors}}
+    assert labels_taxonomy._capsid_group_counter(_TIED_LBL, tnn) == ""
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_capsid_group_tie_between_caps_and_generic_ncldv_uses_the_phylum(reverse):
+    neighbors = _tied([("NCLDV__zeph|p", 0.1), ("NCLDV__realncldv|p", 0.1)], reverse)
+    tnn = {"mcp_ncldv": {"q1": neighbors}}
+    assert (
+        labels_taxonomy._capsid_group_counter(_TIED_LBL, tnn) == "Nucleocytoviricota:1"
+    )
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_capsid_group_tie_inside_one_caps_group_keeps_the_group(reverse):
+    neighbors = _tied([("PPV__pgvv|p", 0.1), ("PPV__pgvv_twin|p", 0.1)], reverse)
+    tnn = {"mcp_plv": {"q1": neighbors}}
+    assert labels_taxonomy._capsid_group_counter(_TIED_LBL, tnn) == "PgVV:1"
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_plv_count_tree_aware_tie_between_ppv_and_ncldv_is_not_counted(reverse):
+    neighbors = _tied([("PPV__pgvv|p", 0.1), ("NCLDV__realncldv|p", 0.1)], reverse)
+    tnn = {"PLV_PC_054": {"q1": neighbors}}
+    mh = {"PLV_PC_054": {"q1"}}
+    assert labels_taxonomy._plv_count_tree_aware(_TIED_LBL, mh, tnn) == 0
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_plv_count_tree_aware_tie_between_ppv_references_is_counted(reverse):
+    neighbors = _tied([("PPV__pgvv|p", 0.1), ("PPV__sp|p", 0.1)], reverse)
+    tnn = {"PLV_PC_054": {"q1": neighbors}}
+    mh = {"PLV_PC_054": {"q1"}}
+    assert labels_taxonomy._plv_count_tree_aware(_TIED_LBL, mh, tnn) == 1

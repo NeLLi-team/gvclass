@@ -8,9 +8,11 @@ The label index these functions need (``labels_dict``) is passed in as an
 explicit first argument, so nothing here reads instance state.
 """
 
-from collections import Counter, defaultdict
 import logging
 import re
+from collections import Counter, defaultdict
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
@@ -21,7 +23,7 @@ from src.config.marker_sets import (
 from src.core.marker_extraction import (
     count_unique_proteins_for_prefixes,
 )
-from src.core.summarize.consensus import TAX_LEVELS
+from src.core.summarize.consensus import TAX_LEVELS, Lineage
 from src.core.summarize.tax_format import _build_taxonomy_key
 
 logger = logging.getLogger(__name__)
@@ -114,81 +116,137 @@ def _extract_genome_id(labels_dict: Dict[str, List[str]], protein_id: str) -> st
     return stripped
 
 
+@dataclass(frozen=True, slots=True)
+class _Placement:
+    """One labelled reference neighbour of a query protein in one marker tree."""
+
+    distance: float
+    marker: str
+    neighbor: str
+    genome_id: str
+    lineage: Lineage
+
+
 def _collect_taxonomy_counts(
-    labels_dict: Dict[str, List[str]],
-    tree_nn_results: Dict[str, Dict[str, Dict[str, float]]],
-) -> Tuple[
-    Dict[str, Counter],
-    Dict[str, Dict[str, Counter]],
-    Dict[str, Counter[Tuple[str, ...]]],
-    List[float],
-]:
+    labels_dict: dict[str, list[str]],
+    tree_nn_results: dict[str, dict[str, dict[str, float]]],
+) -> tuple[dict[str, Counter], dict[str, Counter[Lineage]], list[float]]:
     """Aggregate taxonomy counts from NN tree hits.
 
+    One physical query protein can hit several overlapping marker models (e.g.
+    a genome-packaging ATPase matching the NCLDV ATPase markers AND the PPV A32
+    marker PLV_PC_054). Each protein counts ONCE, for its nearest placement, so
+    a shared core gene cannot cast multiple or cross-domain votes. The nearest
+    placement is the set of labelled neighbours at the minimal patristic
+    distance over all of the protein's markers. When several neighbours tie,
+    the protein votes with the lineage they share and abstains at the ranks
+    below it. The marker credited is the smallest marker name among them.
+
     Returns a tuple of:
-    * ``tax_counters`` — flat per-level Counter (legacy shape, used by
-      contamination scoring and the per-level detailed columns).
-    * ``per_marker_counters`` — ``Dict[level, Dict[marker, Counter]]``
-      that retains the per-marker breakdown. The per-marker majority
-      rule in :func:`consensus._build_consensus_taxonomies` uses this to avoid
-      the prior bug where a single marker with many paralog hits could
-      dominate the majority vote by sheer count.
-    * ``per_marker_lineage_counters`` — ``Dict[marker, Counter[lineage]]``
-      retaining the full 7-rank lineage for each hit. Consensus taxonomy
-      uses this to constrain lower ranks to the already selected parent
-      lineage.
-    * ``distances`` — flat list of patristic distances for the mean.
+    * ``tax_counters``: flat per-level Counter, used by contamination scoring
+      and the per-level detailed columns. It counts the shared ranks only.
+    * ``per_marker_lineage_counters``: ``{marker: Counter[lineage]}``, the
+      seven-rank lineage of each protein credited to the marker. Consensus
+      taxonomy uses it to constrain lower ranks to the selected parent lineage.
+    * ``distances``: flat list of the nearest patristic distances, for the mean.
     """
-    tax_counters = {level: Counter() for level in TAX_LEVELS}
-    per_marker_counters: Dict[str, Dict[str, Counter]] = {
-        level: defaultdict(Counter) for level in TAX_LEVELS
-    }
-    per_marker_lineage_counters: Dict[str, Counter[Tuple[str, ...]]] = defaultdict(
-        Counter
-    )
-    distances: List[float] = []
-
-    # One physical query protein can hit several overlapping marker models
-    # (e.g. a genome-packaging ATPase matching the NCLDV ATPase markers AND
-    # the PPV A32 marker PLV_PC_054). Count each protein ONCE, for its single
-    # nearest (minimum patristic distance) placement, so a shared core gene
-    # cannot cast multiple or cross-domain votes. Deterministic tie-break on
-    # (distance, marker, neighbor).
-    placements_by_protein: Dict[str, List[Tuple[float, str, str]]] = defaultdict(list)
-    for marker, query_neighbors in tree_nn_results.items():
-        for query_protein, neighbors in query_neighbors.items():
-            for neighbor, distance in neighbors.items():
-                placements_by_protein[query_protein].append(
-                    (distance, marker, neighbor)
-                )
-
-    for placements in placements_by_protein.values():
-        resolved = []
-        for distance, marker, neighbor in placements:
-            genome_id = _extract_genome_id(labels_dict, neighbor)
-            tax_info = labels_dict.get(genome_id)
-            if tax_info:
-                resolved.append((distance, marker, neighbor, genome_id, tax_info))
-        if not resolved:
-            continue
-        distance, marker, neighbor, genome_id, tax_info = min(
-            resolved, key=lambda r: (r[0], r[1], r[2])
-        )
-        _add_taxonomy_counts_for_neighbor(genome_id, tax_info, tax_counters)
-        _add_taxonomy_counts_for_marker(
-            genome_id, tax_info, per_marker_counters, marker
-        )
-        lineage = _build_taxonomy_lineage(genome_id, tax_info)
+    tax_counters: dict[str, Counter] = {level: Counter() for level in TAX_LEVELS}
+    per_marker_lineage_counters: dict[str, Counter[Lineage]] = defaultdict(Counter)
+    distances: list[float] = []
+    nearest_by_protein = _nearest_placements_by_protein(labels_dict, tree_nn_results)
+    for nearest in nearest_by_protein.values():
+        lineage = _common_lineage([placement.lineage for placement in nearest])
+        credited = nearest[0]
+        _add_lineage_counts(credited.genome_id, lineage, tax_counters)
         if any(lineage):
-            per_marker_lineage_counters[marker][lineage] += 1
-        distances.append(distance)
+            per_marker_lineage_counters[credited.marker][lineage] += 1
+        distances.append(credited.distance)
+    return tax_counters, per_marker_lineage_counters, distances
 
-    return tax_counters, per_marker_counters, per_marker_lineage_counters, distances
+
+def _nearest_placements_by_protein(
+    labels_dict: dict[str, list[str]],
+    tree_nn_results: Mapping[str, Mapping[str, Mapping[str, float]]],
+) -> dict[str, list[_Placement]]:
+    """Map each query protein to its labelled neighbours at the minimal distance.
+
+    The minimum runs over every marker tree that placed the protein. Neighbours
+    without a reference label are skipped. Each list is sorted, so no caller
+    depends on the insertion order of the tied neighbours.
+    """
+    placements: dict[str, list[_Placement]] = defaultdict(list)
+    for marker, query_neighbors in tree_nn_results.items():
+        for protein, neighbors in query_neighbors.items():
+            placements[protein].extend(
+                _labelled_placements(labels_dict, marker, neighbors)
+            )
+    nearest_by_protein: dict[str, list[_Placement]] = {}
+    for protein, found in placements.items():
+        nearest = _nearest(found)
+        if nearest:
+            nearest_by_protein[protein] = nearest
+    return nearest_by_protein
+
+
+def _labelled_placements(
+    labels_dict: dict[str, list[str]], marker: str, neighbors: Mapping[str, float]
+) -> list[_Placement]:
+    """Return the neighbours of one protein in one tree that have a label."""
+    placements: list[_Placement] = []
+    for neighbor, distance in neighbors.items():
+        genome_id = _extract_genome_id(labels_dict, neighbor)
+        tax_info = labels_dict.get(genome_id)
+        if tax_info:
+            lineage = _build_taxonomy_lineage(genome_id, tax_info)
+            placements.append(
+                _Placement(distance, marker, neighbor, genome_id, lineage)
+            )
+    return placements
+
+
+def _nearest(placements: Sequence[_Placement]) -> list[_Placement]:
+    """Return the placements at the minimal distance, sorted by marker and neighbour.
+
+    Distances compare for exact equality: tied neighbours sit at the same
+    patristic distance in the tree.
+    """
+    if not placements:
+        return []
+    minimal = min(placement.distance for placement in placements)
+    tied = [placement for placement in placements if placement.distance == minimal]
+    return sorted(tied, key=lambda placement: (placement.marker, placement.neighbor))
+
+
+def _nearest_lineage(
+    labels_dict: dict[str, list[str]], marker: str, neighbors: Mapping[str, float]
+) -> tuple[Lineage, float] | None:
+    """Return the shared lineage and distance of a protein's nearest neighbours.
+
+    The neighbours are those of one protein in one tree. None when none of them
+    has a reference label.
+    """
+    nearest = _nearest(_labelled_placements(labels_dict, marker, neighbors))
+    if not nearest:
+        return None
+    return _common_lineage([placement.lineage for placement in nearest]), (
+        nearest[0].distance
+    )
+
+
+def _common_lineage(lineages: Sequence[Lineage]) -> Lineage:
+    """Return the longest common prefix of the lineages, padded with empty ranks."""
+    shared: list[str] = []
+    for ranks in zip(*lineages, strict=True):
+        if len(set(ranks)) > 1:
+            break
+        shared.append(ranks[0])
+    padding = [""] * (len(TAX_LEVELS) - len(shared))
+    return (*shared, *padding)
 
 
 def _build_taxonomy_lineage(genome_id: str, tax_info: List[str]) -> Tuple[str, ...]:
     """Return a normalized 7-rank lineage tuple for one labeled genome."""
-    domain_prefix = genome_id.split("__", 1)[0] if "__" in genome_id else ""
+    domain_prefix = _domain_prefix(genome_id)
     lineage: List[str] = []
     for level in TAX_LEVELS:
         idx = TAX_LEVEL_MAPPING[level]
@@ -199,35 +257,20 @@ def _build_taxonomy_lineage(genome_id: str, tax_info: List[str]) -> Tuple[str, .
     return tuple(lineage)
 
 
-def _add_taxonomy_counts_for_neighbor(
-    genome_id: str, tax_info: List[str], tax_counters: Dict[str, Counter]
+def _add_lineage_counts(
+    genome_id: str, lineage: Lineage, tax_counters: dict[str, Counter]
 ) -> None:
-    domain_prefix = genome_id.split("__")[0] if "__" in genome_id else ""
-    for level, idx in TAX_LEVEL_MAPPING.items():
-        if idx >= len(tax_info):
-            continue
-        tax_value = tax_info[idx].strip()
-        if not tax_value:
-            continue
-        tax_key = _build_taxonomy_key(level, domain_prefix, tax_value)
-        tax_counters[level][tax_key] += 1
+    """Count each non-empty rank of ``lineage`` under its domain-prefixed key."""
+    domain_prefix = _domain_prefix(genome_id)
+    for level, tax_value in zip(TAX_LEVELS, lineage, strict=True):
+        if tax_value:
+            tax_key = _build_taxonomy_key(level, domain_prefix, tax_value)
+            tax_counters[level][tax_key] += 1
 
 
-def _add_taxonomy_counts_for_marker(
-    genome_id: str,
-    tax_info: List[str],
-    per_marker_counters: Dict[str, Dict[str, Counter]],
-    marker: str,
-) -> None:
-    domain_prefix = genome_id.split("__")[0] if "__" in genome_id else ""
-    for level, idx in TAX_LEVEL_MAPPING.items():
-        if idx >= len(tax_info):
-            continue
-        tax_value = tax_info[idx].strip()
-        if not tax_value:
-            continue
-        tax_key = _build_taxonomy_key(level, domain_prefix, tax_value)
-        per_marker_counters[level][marker][tax_key] += 1
+def _domain_prefix(genome_id: str) -> str:
+    """Return the ``DOMAIN`` of a ``DOMAIN__name`` genome ID, or ``""``."""
+    return genome_id.split("__", 1)[0] if "__" in genome_id else ""
 
 
 def _plv_count_tree_aware(
@@ -235,14 +278,14 @@ def _plv_count_tree_aware(
     marker_hits: Optional[Dict[str, Set[str]]],
     tree_nn_results: Optional[Dict[str, Dict[str, Dict[str, float]]]],
 ) -> int:
-    """Count A32/PLV-marker proteins ONLY when they genuinely place with PPV
-    references in the marker tree.
+    """Count A32/PLV-marker proteins that genuinely place with PPV references.
 
     ``PLV_PC_054`` (the sole PLV marker) is the A32 packaging ATPase shared
     by NCLDV and PPV, so a plain NCLDV A32 hits the HMM too and the raw HMM
     count over-flags every giant virus. With the marker tree available we
-    keep only proteins whose nearest reference is PPV; we fall back to the
-    raw HMM count only when no tree is available (counts-only resume).
+    keep only proteins whose nearest references are all PPV (a tie between
+    PPV and another domain does not count); we fall back to the raw HMM count
+    only when no tree is available (counts-only resume).
     """
     if not tree_nn_results:
         return count_unique_proteins_for_prefixes(marker_hits, [PLV_PREFIX])
@@ -252,12 +295,8 @@ def _plv_count_tree_aware(
             continue
         nn = tree_nn_results.get(marker, {})
         for protein in proteins:
-            neighbors = nn.get(protein)
-            if not neighbors:
-                continue
-            nearest, _dist = min(neighbors.items(), key=lambda kv: kv[1])
-            tax = labels_dict.get(_extract_genome_id(labels_dict, nearest))
-            if tax and tax[0] == "PPV":
+            nearest = _nearest_lineage(labels_dict, marker, nn.get(protein, {}))
+            if nearest is not None and nearest[0][0] == "PPV":
                 plv_proteins.add(protein)
     return len(plv_proteins)
 
@@ -266,29 +305,23 @@ def _protein_nearest_domain(
     labels_dict: Dict[str, List[str]],
     tree_nn_results: Optional[Dict[str, Dict[str, Dict[str, float]]]],
 ) -> Dict[str, str]:
-    """Map each query protein to the domain (NCLDV/PPV/MIRUS/BAC/EUK/...) of
-    its single nearest tree neighbour across all marker trees.
+    """Map each query protein to the domain of its nearest tree neighbours.
 
-    One physical protein is placed in several group trees; the minimum
-    patristic distance (deterministic tie-break on marker then neighbour)
-    decides its true lineage. Used to bucket cross-group panel hits — a VP or
-    Mirus marker on a protein that actually places with NCLDV is not counted
-    toward that panel.
+    The domain is NCLDV, PPV, MIRUS, BAC, EUK or similar. One physical protein
+    is placed in several group trees; the minimum patristic distance over all
+    of them decides its true lineage. Tied nearest neighbours of different
+    domains leave the protein out of the map, as for an unplaced protein. Used
+    to bucket cross-group panel hits — a VP or Mirus marker on a protein that
+    actually places with NCLDV is not counted toward that panel.
     """
-    placements: Dict[str, List[Tuple[float, str, str]]] = defaultdict(list)
-    for marker, query_neighbors in (tree_nn_results or {}).items():
-        for protein, neighbors in query_neighbors.items():
-            for neighbor, distance in neighbors.items():
-                placements[protein].append((distance, marker, neighbor))
+    nearest_by_protein = _nearest_placements_by_protein(
+        labels_dict, tree_nn_results or {}
+    )
     domains: Dict[str, str] = {}
-    for protein, placement_list in placements.items():
-        for _distance, _marker, neighbor in sorted(placement_list):
-            genome_id = _extract_genome_id(labels_dict, neighbor)
-            if genome_id in labels_dict:
-                domains[protein] = (
-                    genome_id.split("__", 1)[0] if "__" in genome_id else ""
-                )
-                break
+    for protein, nearest in nearest_by_protein.items():
+        prefixes = {_domain_prefix(placement.genome_id) for placement in nearest}
+        if len(prefixes) == 1:
+            domains[protein] = prefixes.pop()
     return domains
 
 
@@ -298,9 +331,10 @@ def _caps_group_from_tree(labels_dict: Dict[str, List[str]], tree_nn_results) ->
     A caps reference lineage carries its Bellas group at the family rank; the
     CAPS_GROUPS whitelist gates out everything else (caps group names occur only on
     caps references — under PPV or NCLDV domains — never on a non-caps genome).
-    Each query protein votes ONCE: its single nearest neighbour is read per MCP group
-    tree, and a cross-reactive MCP that places in BOTH mcp_plv and mcp_ncldv is
-    resolved to its CLOSEST caps-group placement so it cannot double-count (mirrors
+    Each query protein votes ONCE: its nearest neighbours are read per MCP group
+    tree (tied neighbours count with the lineage they share), and a cross-reactive
+    MCP that places in BOTH mcp_plv and mcp_ncldv is resolved to its CLOSEST
+    caps-group placement so it cannot double-count (mirrors
     contamination_scoring._per_protein_dominant_lineage). Dominant group across
     proteins; a tie, or no caps-group neighbour, resolves to "".
     """
@@ -308,13 +342,11 @@ def _caps_group_from_tree(labels_dict: Dict[str, List[str]], tree_nn_results) ->
     per_protein: Dict[str, Tuple[Optional[str], float]] = {}
     for marker in ("mcp_plv", "mcp_ncldv"):
         for protein, neighbors in tree_nn_results.get(marker, {}).items():
-            if not neighbors:
+            nearest = _nearest_lineage(labels_dict, marker, neighbors)
+            if nearest is None:
                 continue
-            nearest, dist = min(neighbors.items(), key=lambda kv: kv[1])
-            tax = labels_dict.get(_extract_genome_id(labels_dict, nearest))
-            if not tax or len(tax) <= fam_idx:
-                continue
-            family = tax[fam_idx].strip()
+            lineage, dist = nearest
+            family = lineage[fam_idx]
             if family not in CAPS_GROUPS:
                 continue
             prev = per_protein.get(protein)
@@ -333,13 +365,14 @@ def _capsid_group_counter(labels_dict: Dict[str, List[str]], tree_nn_results) ->
     """Unified capsid-type tally across all MCP panels.
 
     For each query protein placed in an MCP group tree (mcp_ncldv / mcp_mirus
-    / mcp_plv), read its single nearest neighbour and map it to a capsid-type
-    label: a Bellas&Sommaruga caps family when the neighbour's family rank is
-    in CAPS_GROUPS, otherwise the neighbour's phylum (Nucleocytoviricota /
-    Mirusviricota). One vote per physical protein — a protein cross-placed in
-    several MCP trees is resolved to its closest placement; an equal-distance
-    cross-type tie is dropped. Returns "label:count" pairs comma-joined,
-    sorted by count desc then label (e.g. "Nucleocytoviricota:4,Gossevirus:1").
+    / mcp_plv), read its nearest neighbours (tied neighbours count with the
+    lineage they share) and map them to a capsid-type label: a
+    Bellas&Sommaruga caps family when the family rank is in CAPS_GROUPS,
+    otherwise the phylum (Nucleocytoviricota / Mirusviricota). One vote per
+    physical protein — a protein cross-placed in several MCP trees is resolved
+    to its closest placement; an equal-distance cross-type tie is dropped.
+    Returns "label:count" pairs comma-joined, sorted by count desc then label
+    (e.g. "Nucleocytoviricota:4,Gossevirus:1").
     """
     fam_idx = TAX_LEVEL_MAPPING["family"]
     phy_idx = TAX_LEVEL_MAPPING["phylum"]
@@ -347,17 +380,15 @@ def _capsid_group_counter(labels_dict: Dict[str, List[str]], tree_nn_results) ->
     per_protein: Dict[str, Tuple[Optional[str], float]] = {}
     for marker in ("mcp_ncldv", "mcp_mirus", "mcp_plv"):
         for protein, neighbors in tree_nn_results.get(marker, {}).items():
-            if not neighbors:
+            nearest = _nearest_lineage(labels_dict, marker, neighbors)
+            if nearest is None:
                 continue
-            nearest, dist = min(neighbors.items(), key=lambda kv: kv[1])
-            tax = labels_dict.get(_extract_genome_id(labels_dict, nearest))
-            if not tax:
-                continue
+            lineage, dist = nearest
             label: Optional[str] = None
-            if len(tax) > fam_idx and tax[fam_idx].strip() in CAPS_GROUPS:
-                label = tax[fam_idx].strip()
-            elif len(tax) > phy_idx and tax[phy_idx].strip() in capsid_phyla:
-                label = tax[phy_idx].strip()
+            if lineage[fam_idx] in CAPS_GROUPS:
+                label = lineage[fam_idx]
+            elif lineage[phy_idx] in capsid_phyla:
+                label = lineage[phy_idx]
             if label is None:
                 continue
             prev = per_protein.get(protein)

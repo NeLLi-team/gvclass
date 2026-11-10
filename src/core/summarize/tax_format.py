@@ -6,7 +6,7 @@ strings.
 """
 
 from collections import Counter
-from collections.abc import Iterable
+from collections.abc import Mapping
 
 # Order of the flags in ``taxonomy_confidence``.
 _CONFIDENCE_FLAG_ORDER = (
@@ -17,6 +17,8 @@ _CONFIDENCE_FLAG_ORDER = (
     "plurality",
     "reduced_fastmode",
 )
+# Flags that name the shallowest rank they apply to (``tie:order``).
+_RANKED_CONFIDENCE_FLAGS = frozenset({"tie", "plurality"})
 
 _TAXONOMY_PREFIX_TO_LEVEL = {
     "d": "domain",
@@ -129,7 +131,17 @@ def _format_tax_label(level: str, tax_key: str) -> str:
     return f"{level[0]}_{tax_name}"
 
 
-def _aggregate_confidence_flags(flags: Iterable[str]) -> str:
-    """Join confidence flags in their fixed order, or return ``high`` for none."""
-    unique = sorted(set(flags), key=_CONFIDENCE_FLAG_ORDER.index)
-    return ",".join(unique) or "high"
+def _aggregate_confidence_flags(flag_ranks: Mapping[str, str]) -> str:
+    """Join confidence flags in their fixed order, or return ``high`` for none.
+
+    ``flag_ranks`` maps each flag to the shallowest rank it applies to. Only the
+    flags in ``_RANKED_CONFIDENCE_FLAGS`` print it, as ``tie:order``.
+    """
+    flags = sorted(flag_ranks, key=_CONFIDENCE_FLAG_ORDER.index)
+    return (
+        ",".join(
+            f"{flag}:{flag_ranks[flag]}" if flag in _RANKED_CONFIDENCE_FLAGS else flag
+            for flag in flags
+        )
+        or "high"
+    )

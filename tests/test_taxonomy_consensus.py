@@ -62,7 +62,7 @@ def test_equal_order_votes_leave_the_order_blank_and_flag_a_tie() -> None:
     majority, confidence = _consensus(markers)
 
     assert majority == ORDER_UNASSIGNED_CALL
-    assert confidence == "tie"
+    assert confidence == "tie:order"
 
 
 def test_equal_domain_votes_leave_every_rank_blank_and_flag_a_tie() -> None:
@@ -74,7 +74,7 @@ def test_equal_domain_votes_leave_every_rank_blank_and_flag_a_tie() -> None:
     majority, confidence = _consensus(markers)
 
     assert majority == UNASSIGNED_CALL
-    assert confidence == "tie"
+    assert confidence == "tie:domain"
 
 
 def test_three_way_phylum_tie_is_a_tie_not_low_support() -> None:
@@ -87,7 +87,7 @@ def test_three_way_phylum_tie_is_a_tie_not_low_support() -> None:
     majority, confidence = _consensus(markers, mode_fast=True)
 
     assert majority == "d_NCLDV;p_;c_;o_;f_;g_;s_"
-    assert confidence == "tie"
+    assert confidence == "tie:phylum"
 
 
 def test_tie_at_species_keeps_the_ranks_above() -> None:
@@ -99,7 +99,7 @@ def test_tie_at_species_keeps_the_ranks_above() -> None:
     majority, confidence = _consensus(markers)
 
     assert majority == f"{NCLDV_PREFIX};o_Imitervirales;f_Mimiviridae;g_g1;s_"
-    assert confidence == "tie"
+    assert confidence == "tie:species"
 
 
 def test_three_of_twelve_markers_are_called_but_flagged_plurality() -> None:
@@ -112,7 +112,7 @@ def test_three_of_twelve_markers_are_called_but_flagged_plurality() -> None:
     majority, confidence = _consensus(markers)
 
     assert majority == IMITERVIRALES_CALL
-    assert confidence == "plurality"
+    assert confidence == "plurality:order"
 
 
 def test_exactly_half_of_the_markers_is_a_plurality() -> None:
@@ -125,7 +125,7 @@ def test_exactly_half_of_the_markers_is_a_plurality() -> None:
     majority, confidence = _consensus(markers)
 
     assert majority == IMITERVIRALES_CALL
-    assert confidence == "plurality"
+    assert confidence == "plurality:order"
 
 
 def test_majority_of_markers_stays_high() -> None:
@@ -151,7 +151,7 @@ def test_marker_with_internal_tie_casts_no_vote_but_counts_in_the_total() -> Non
 
     # Algavirales would win with four alphabetical votes if tied markers voted.
     assert majority == IMITERVIRALES_CALL
-    assert confidence == "plurality"
+    assert confidence == "plurality:order"
 
 
 def test_marker_votes_for_the_taxon_with_most_placements() -> None:
@@ -206,7 +206,7 @@ def test_result_does_not_depend_on_marker_or_lineage_order(reverse: bool) -> Non
     majority, confidence = _consensus(markers)
 
     assert majority == ORDER_UNASSIGNED_CALL
-    assert confidence == "tie"
+    assert confidence == "tie:order"
 
 
 def test_below_the_order_floor_gives_low_support() -> None:
@@ -262,22 +262,63 @@ def test_plurality_and_reduced_fastmode_are_listed_in_fixed_order() -> None:
     majority, confidence = _consensus(markers, mode_fast=True)
 
     assert majority == IMITERVIRALES_CALL
-    assert confidence == "plurality,reduced_fastmode"
+    assert confidence == "plurality:order,reduced_fastmode"
 
 
 def test_confidence_flags_are_joined_in_fixed_order() -> None:
-    flags = [
-        "reduced_fastmode",
-        "plurality",
-        "mixed_cellular",
-        "tie",
-        "low_support",
-        "no_support",
-    ]
+    flag_ranks = {
+        "reduced_fastmode": "order",
+        "plurality": "genus",
+        "mixed_cellular": "domain",
+        "tie": "family",
+        "low_support": "phylum",
+        "no_support": "domain",
+    }
 
-    assert tax_format._aggregate_confidence_flags(flags) == (
-        "no_support,low_support,tie,mixed_cellular,plurality,reduced_fastmode"
+    assert tax_format._aggregate_confidence_flags(flag_ranks) == (
+        "no_support,low_support,tie:family,mixed_cellular,plurality:genus,"
+        "reduced_fastmode"
     )
+
+
+def test_plurality_names_the_shallowest_rank_that_has_one() -> None:
+    # Family: 4 of 10 markers vote F1. Genus under F1: 2 of 4 markers vote g1.
+    # Both ranks are a plurality; the flag names the family.
+    def lineage(family: str, genus: str) -> Lineage:
+        return _ncldv("Imitervirales", family, genus, "s1")
+
+    markers = {
+        "m1": Counter({lineage("F1", "g1"): 1}),
+        "m2": Counter({lineage("F1", "g1"): 1}),
+        "m3": Counter({lineage("F1", "g1"): 1, lineage("F1", "g2"): 1}),
+        "m4": Counter({lineage("F1", "g3"): 1, lineage("F1", "g4"): 1}),
+        **{
+            f"other{index}": Counter({lineage(f"F_other{index}", "g"): 1})
+            for index in range(6)
+        },
+    }
+
+    majority, confidence = _consensus(markers)
+
+    assert majority == f"{NCLDV_PREFIX};o_Imitervirales;f_F1;g_g1;s_s1"
+    assert confidence == "plurality:family"
+
+
+def test_plurality_at_the_genus_names_the_genus() -> None:
+    def lineage(genus: str, species: str) -> Lineage:
+        return _ncldv("Imitervirales", "Mimiviridae", genus, species)
+
+    markers = {
+        **_markers("g1_", 2, lineage("g1", "s1")),
+        "g2": Counter({lineage("g2", "s2"): 1}),
+        "g3": Counter({lineage("g3", "s3"): 1}),
+        "g4": Counter({lineage("g4", "s4"): 1}),
+    }
+
+    majority, confidence = _consensus(markers)
+
+    assert majority == f"{NCLDV_PREFIX};o_Imitervirales;f_Mimiviridae;g_g1;s_s1"
+    assert confidence == "plurality:genus"
 
 
 def test_confidence_without_flags_is_high() -> None:

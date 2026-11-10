@@ -74,26 +74,6 @@ def test_find_nearest_neighbors_and_query_reps_ignore_prefix_colliding_refs(
     assert rep[0] == "G1|q_1"
 
 
-@pytest.mark.parametrize(
-    "newick",
-    [
-        "(query_1:0.1,ref_b_1:0.2,ref_a_1:0.2);",
-        "(query_1:0.1,ref_a_1:0.2,ref_b_1:0.2);",
-    ],
-)
-def test_nearest_neighbor_tie_goes_to_smaller_name_in_any_leaf_order(
-    tmp_path: Path, newick: str
-) -> None:
-    labels = tmp_path / "labels.tsv"
-    labels.write_text("ref_a\tNCLDV|p|c|o|f|g|s\n", encoding="utf-8")
-    tree_file = tmp_path / "OG1.treefile"
-    tree_file.write_text(newick + "\n", encoding="utf-8")
-
-    neighbors = TreeAnalyzer(labels).get_neighbors_from_tree(tree_file, "query")
-
-    assert neighbors == {"query_1": {"ref_a_1": pytest.approx(0.3)}}
-
-
 def test_marker_trees_use_7_rank_indices(
     tmp_path: Path,
 ) -> None:

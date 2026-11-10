@@ -388,7 +388,6 @@ class FullSummarizer:
 
         (
             tax_counters,
-            _per_marker_counters,
             per_marker_lineage_counters,
             distances,
         ) = labels_taxonomy._collect_taxonomy_counts(self.labels_dict, tree_nn_results)

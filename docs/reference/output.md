@@ -63,9 +63,9 @@ old search results and sequence files cannot affect its scores.
 | Column | Description |
 | --- | --- |
 | `query` | Input filename for the query. |
-| `taxonomy_majority` | Accepted lineage from per-marker nearest-neighbor votes. Tied and unsupported ranks are blank, with all lower ranks. |
+| `taxonomy_majority` | Accepted lineage from per-marker nearest-neighbor votes. Tied and unsupported ranks are blank, with all lower ranks. A protein whose nearest references tie votes only at the ranks those references share. |
 | `species_tree_nn_taxonomy` | Nearest-reference lineage from the query's concatenated-marker tree; `nd` if unavailable. |
-| `taxonomy_confidence` | `high`, or comma-separated flags in this order: `no_support` for absent taxonomy evidence; `low_support` for insufficient marker support; `tie` when two taxa have the most marker votes at a rank; `mixed_cellular` when eukaryotic markers win the domain vote without 80% of the cellular-domain markers; `plurality` when an assigned rank is held by half or fewer of the markers; `reduced_fastmode` for an order accepted with two markers in fast mode. See [Taxonomy](../explanation/taxonomy.md#confidence-flags). |
+| `taxonomy_confidence` | `high`, or comma-separated flags in this order: `no_support` for absent taxonomy evidence; `low_support` for insufficient marker support; `tie:<rank>` when two taxa have the most marker votes at that rank; `mixed_cellular` when eukaryotic markers win the domain vote without 80% of the cellular-domain markers; `plurality:<rank>` when an assigned rank is held by half or fewer of the markers; `reduced_fastmode` for an order accepted with two markers in fast mode. `<rank>` is the shallowest rank the flag applies to, for example `plurality:genus`. See [Taxonomy](../explanation/taxonomy.md#confidence-flags). |
 | `capsid_group` | Combined capsid-type tally as `label:count` across the Nucleocytoviricota, Mirusviricota, and Bellas & Sommaruga capsid groups. |
 | `species` | Species-rank call with per-taxon counts. |
 | `genus` | Genus-rank call with per-taxon counts. |

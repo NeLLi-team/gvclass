@@ -115,4 +115,4 @@ def test_equal_eukaryotic_and_bacterial_votes_are_a_tie_not_mixed_cellular() -> 
     majority, confidence = _call(EUK=5, BAC=5)
 
     assert majority == "d_;p_;c_;o_;f_;g_;s_"
-    assert confidence == "tie"
+    assert confidence == "tie:domain"
