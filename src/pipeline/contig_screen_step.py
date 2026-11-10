@@ -38,7 +38,7 @@ import pandas as pd
 from src.contig_screen import layout
 from src.contig_screen.tables import read_table
 from src.pipeline.progress_events import emit_progress_event
-from src.pipeline.query_processing_engine import _is_nucleotide_input
+from src.pipeline.query_processing_engine import is_nucleotide_input
 from src.utils.common import sha256_file
 
 SCREEN_COMMAND = (sys.executable, "-m", "src.bin.gvclass_screen")
@@ -329,7 +329,7 @@ def _skip_status(query_file: Path, context: _Context) -> str | None:
     """Return why the bin is not screened, or None when it is."""
     if not context.options.enabled:
         return DISABLED
-    if context.options.contigs_mode or not _is_nucleotide_input(query_file):
+    if context.options.contigs_mode or not is_nucleotide_input(query_file):
         return NOT_APPLICABLE
     if context.manifest_error is not None:
         return FAILED

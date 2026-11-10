@@ -22,9 +22,10 @@ from src.bin import gvclass_apptainer, gvclass_cli
 from src.core.contamination_scoring import ContaminationScorer
 from src.core.reformat import reformat_sequences
 from src.pipeline import query_processing_engine
-from src.pipeline.parallel_runner import _resolve_worker_distribution
 from src.pipeline.query_processing_engine import _initialize_query
+from src.pipeline.run_config import plan_workers
 from src.utils.error_handling import ProcessingError
+from tests.pipeline_helpers import make_config
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 LOGGER = logging.getLogger(__name__)
@@ -125,8 +126,8 @@ def test_repo_detection_ignores_an_unrelated_src_directory(tmp_path: Path) -> No
 def test_query_initialization_rejects_a_working_directory_that_holds_the_input(
     tmp_path: Path,
 ) -> None:
-    query_dir = tmp_path / "sample"
-    query_dir.mkdir()
+    query_dir = tmp_path / ".gvclass_work" / "sample"
+    query_dir.mkdir(parents=True)
     query = query_dir / "sample.fna"
     query.write_text(">contig1\nACGT\n", encoding="utf-8")
 
@@ -136,26 +137,6 @@ def test_query_initialization_rejects_a_working_directory_that_holds_the_input(
     assert query.read_text(encoding="utf-8") == ">contig1\nACGT\n"
 
 
-def test_query_initialization_keeps_earlier_work_beside_the_new_directory(
-    tmp_path: Path,
-) -> None:
-    query = tmp_path / "input" / "sample.fna"
-    query.parent.mkdir()
-    query.write_text(">contig1\nACGT\n", encoding="utf-8")
-    earlier = tmp_path / "out" / "sample"
-    earlier.mkdir(parents=True)
-    (earlier / "old.txt").write_text("earlier attempt", encoding="utf-8")
-
-    name, work = _initialize_query(query, tmp_path / "out")
-
-    retained = list((tmp_path / "out").glob("sample.previous.*"))
-    assert (name, work) == ("sample", earlier)
-    assert list(work.iterdir()) == []
-    assert [(path / "old.txt").read_text(encoding="utf-8") for path in retained] == [
-        "earlier attempt"
-    ]
-
-
 @pytest.mark.parametrize(
     ("total_threads", "threads_per_worker", "expected"),
     [(2, 8, (1, 2)), (16, 4, (4, 4)), (1, 1, (1, 1))],
@@ -163,7 +144,7 @@ def test_query_initialization_keeps_earlier_work_beside_the_new_directory(
 def test_explicit_threads_per_worker_never_exceeds_the_total(
     total_threads: int, threads_per_worker: int, expected: tuple[int, int]
 ) -> None:
-    plan = _resolve_worker_distribution(8, total_threads, None, threads_per_worker)
+    plan = plan_workers(8, total_threads, None, threads_per_worker)
 
     assert plan == expected
 
@@ -207,7 +188,12 @@ def test_missing_combined_hmm_fails_the_marker_search(tmp_path):
 
     with pytest.raises(FileNotFoundError, match=r"combined\.hmm"):
         query_processing_engine._run_hmm_and_blast(
-            "q", tmp_path / "out", protein, tmp_path / "db", 1, True, LOGGER
+            "q",
+            tmp_path / "out",
+            protein,
+            make_config(tmp_path),
+            1,
+            LOGGER,
         )
 
     assert not (tmp_path / "out" / "hmmout" / "models.out").exists()
@@ -224,9 +210,8 @@ def test_marker_failure_propagates_from_thread_worker(tmp_path, monkeypatch):
         query_processing_engine._run_marker_tasks(
             query_name="q1",
             marker_files=[("marker", tmp_path / "query.faa")],
-            database_path=tmp_path,
             query_output_dir=tmp_path,
-            tree_method="veryfasttree",
+            config=make_config(tmp_path),
             max_parallel=1,
             threads_per_marker=1,
             logger=LOGGER,
@@ -242,7 +227,7 @@ def test_summary_failure_cannot_become_successful_fallback(tmp_path, monkeypatch
 
     with pytest.raises(ValueError, match="invalid required labels"):
         query_processing_engine._generate_summary_data(
-            "q1", tmp_path, tmp_path, {}, False, "novelty-aware", True, LOGGER
+            "q1", tmp_path, make_config(tmp_path, mode_fast=False), {}, LOGGER
         )
 
 
@@ -298,12 +283,7 @@ def test_canonical_gene_outputs_exist_before_quality_scoring(tmp_path, monkeypat
         query_file=tmp_path / "q1.fna",
         query_name="q1",
         query_output_dir=tmp_path,
-        database_path=tmp_path,
-        genetic_codes=[11],
-        tree_method="veryfasttree",
-        mode_fast=False,
-        completeness_mode="novelty-aware",
-        sensitive_mode=True,
+        config=make_config(tmp_path, mode_fast=False),
         threads=1,
         logger=LOGGER,
     )

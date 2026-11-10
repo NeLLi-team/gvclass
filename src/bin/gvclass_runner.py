@@ -3,12 +3,14 @@
 GVClass command-line interface.
 """
 
-import click
 import sys
 from pathlib import Path
-from src.utils import setup_logging
 
-from src.pipeline.parallel_runner import gvclass_flow  # noqa: E402
+import click
+
+from src.pipeline.parallel_runner import gvclass_flow
+from src.pipeline.run_config import RunConfig
+from src.utils import setup_logging
 
 
 def resolve_paths(querydir: str, output_dir: str | None) -> tuple[Path, Path]:
@@ -20,199 +22,29 @@ def resolve_paths(querydir: str, output_dir: str | None) -> tuple[Path, Path]:
     return query_path, Path.cwd() / f"{query_path.name}_results"
 
 
-def build_cluster_config(
-    cluster_queue: str | None, cluster_project: str | None, cluster_walltime: str | None
-) -> dict:
-    config = {}
-    if cluster_queue:
-        config["queue"] = cluster_queue
-    if cluster_project:
-        config["project"] = cluster_project
-    if cluster_walltime:
-        config["walltime"] = cluster_walltime
-    return config
-
-
-def print_run_configuration(
-    query_path: Path,
-    output_path: Path,
-    db_path: str | None,
-    threads: int,
-    max_workers: int | None,
-    threads_per_worker: int | None,
-    cluster_type: str,
-    tree_method: str,
-    iqtree_mode: str,
-    mode_fast: bool,
-    completeness_mode: str,
-    sensitive: bool,
-    min_sequence_length: int | None,
-) -> None:
+def print_run_configuration(config: RunConfig) -> None:
+    """Print the resolved settings of the run."""
     from src.__version__ import __version__ as _gvclass_version
 
     click.echo(f"GVClass Pipeline v{_gvclass_version}")
-    click.echo(f"Query directory: {query_path}")
-    click.echo(f"Output directory: {output_path}")
-    click.echo(f"Database: {db_path if db_path else 'Will download/use default'}")
-    click.echo(f"Total threads: {threads}")
-    if max_workers:
-        click.echo(f"Max workers: {max_workers}")
-    if threads_per_worker:
-        click.echo(f"Threads per worker: {threads_per_worker}")
+    click.echo(f"Query directory: {config.query_path}")
+    click.echo(f"Output directory: {config.output_dir}")
+    click.echo(f"Database: {config.database_path}")
+    click.echo(f"Total threads: {config.threads}")
+    if config.max_workers:
+        click.echo(f"Max workers: {config.max_workers}")
+    if config.threads_per_worker:
+        click.echo(f"Threads per worker: {config.threads_per_worker}")
     else:
         click.echo("Worker distribution: Auto-calculated")
-    click.echo(f"Cluster type: {cluster_type}")
-    click.echo(f"Tree method: {tree_method}")
-    click.echo(f"IQ-TREE mode: {iqtree_mode}")
-    click.echo(f"Fast mode: {mode_fast}")
-    click.echo(f"Completeness mode: {completeness_mode}")
-    click.echo(f"Sensitive mode: {sensitive}")
-    if min_sequence_length is not None:
-        click.echo(f"Minimum FNA length: {min_sequence_length} bp")
+    click.echo(f"Tree method: {config.tree_method}")
+    click.echo(f"IQ-TREE mode: {config.iqtree_mode}")
+    click.echo(f"Fast mode: {config.mode_fast}")
+    click.echo(f"Completeness mode: {config.completeness_mode}")
+    click.echo(f"Sensitive mode: {config.sensitive_mode}")
+    if config.min_sequence_length is not None:
+        click.echo(f"Minimum FNA length: {config.min_sequence_length} bp")
     click.echo("")
-
-
-def run_flow(
-    query_path: Path,
-    output_path: Path,
-    db_path: str | None,
-    threads: int,
-    max_workers: int | None,
-    threads_per_worker: int | None,
-    tree_method: str,
-    iqtree_mode: str,
-    mode_fast: bool,
-    completeness_mode: str,
-    sensitive: bool,
-    cluster_type: str,
-    cluster_config: dict,
-    resume: bool,
-    allow_short: bool = False,
-    min_sequence_length: int | None = None,
-    species_tree: bool = False,
-    species_tree_combined: bool = False,
-    species_tree_trim: str = "witchi",
-    *,
-    contig_screen: bool = True,
-    contigs_mode: bool = False,
-):
-    return gvclass_flow(
-        query_dir=str(query_path),
-        output_dir=str(output_path),
-        database_path=db_path,
-        total_threads=threads,
-        max_workers=max_workers,
-        threads_per_worker=threads_per_worker,
-        tree_method=tree_method,
-        iqtree_mode=iqtree_mode,
-        mode_fast=mode_fast,
-        completeness_mode=completeness_mode,
-        sensitive_mode=sensitive,
-        cluster_type=cluster_type,
-        cluster_config=cluster_config if cluster_config else None,
-        resume=resume,
-        allow_short=allow_short,
-        min_sequence_length=min_sequence_length,
-        species_tree=species_tree,
-        species_tree_combined=species_tree_combined,
-        species_tree_trim=species_tree_trim,
-        contig_screen=contig_screen,
-        contigs_mode=contigs_mode,
-    )
-
-
-def prepare_cli_context(
-    querydir: str,
-    output_dir: str | None,
-    database: str | None,
-    cluster_queue: str | None,
-    cluster_project: str | None,
-    cluster_walltime: str | None,
-    threads: int,
-    max_workers: int | None,
-    threads_per_worker: int | None,
-    cluster_type: str,
-    tree_method: str,
-    iqtree_mode: str,
-    mode_fast: bool,
-    completeness_mode: str,
-    sensitive: bool,
-    min_sequence_length: int | None,
-) -> tuple[Path, Path, str | None, dict]:
-    query_path, output_path = resolve_paths(querydir, output_dir)
-    db_path = database if database else None
-    cluster_config = build_cluster_config(
-        cluster_queue=cluster_queue,
-        cluster_project=cluster_project,
-        cluster_walltime=cluster_walltime,
-    )
-    print_run_configuration(
-        query_path=query_path,
-        output_path=output_path,
-        db_path=db_path,
-        threads=threads,
-        max_workers=max_workers,
-        threads_per_worker=threads_per_worker,
-        cluster_type=cluster_type,
-        tree_method=tree_method,
-        iqtree_mode=iqtree_mode,
-        mode_fast=mode_fast,
-        completeness_mode=completeness_mode,
-        sensitive=sensitive,
-        min_sequence_length=min_sequence_length,
-    )
-    return query_path, output_path, db_path, cluster_config
-
-
-def execute_cli_flow(
-    query_path: Path,
-    output_path: Path,
-    db_path: str | None,
-    threads: int,
-    max_workers: int | None,
-    threads_per_worker: int | None,
-    tree_method: str,
-    iqtree_mode: str,
-    mode_fast: bool,
-    completeness_mode: str,
-    sensitive: bool,
-    cluster_type: str,
-    cluster_config: dict,
-    resume: bool,
-    allow_short: bool = False,
-    min_sequence_length: int | None = None,
-    species_tree: bool = False,
-    species_tree_combined: bool = False,
-    species_tree_trim: str = "witchi",
-    *,
-    contig_screen: bool = True,
-    contigs_mode: bool = False,
-):
-    result = run_flow(
-        query_path=query_path,
-        output_path=output_path,
-        db_path=db_path,
-        threads=threads,
-        max_workers=max_workers,
-        threads_per_worker=threads_per_worker,
-        tree_method=tree_method,
-        iqtree_mode=iqtree_mode,
-        mode_fast=mode_fast,
-        completeness_mode=completeness_mode,
-        sensitive=sensitive,
-        cluster_type=cluster_type,
-        cluster_config=cluster_config,
-        resume=resume,
-        allow_short=allow_short,
-        min_sequence_length=min_sequence_length,
-        species_tree=species_tree,
-        species_tree_combined=species_tree_combined,
-        species_tree_trim=species_tree_trim,
-        contig_screen=contig_screen,
-        contigs_mode=contigs_mode,
-    )
-    click.echo("\nPipeline completed successfully!")
-    click.echo(f"Results written to: {result}")
 
 
 @click.command()
@@ -262,17 +94,10 @@ def execute_cli_flow(
     default=False,
     help="Sensitive HMM mode: use E-value 1e-5 instead of GA cutoffs",
 )
-@click.option(
-    "--cluster-type",
-    default="local",
-    type=click.Choice(["local", "slurm", "pbs", "sge"]),
-    help="Type of cluster to use",
-)
-@click.option("--cluster-queue", help="Queue/partition for cluster jobs")
-@click.option("--cluster-project", help="Project/account for cluster billing")
-@click.option(
-    "--cluster-walltime", default="04:00:00", help="Walltime for cluster jobs"
-)
+@click.option("--cluster-type", hidden=True, help="Has no effect.")
+@click.option("--cluster-queue", hidden=True, help="Has no effect.")
+@click.option("--cluster-project", hidden=True, help="Has no effect.")
+@click.option("--cluster-walltime", hidden=True, help="Has no effect.")
 @click.option("--verbose", "-v", is_flag=True, help="Verbose output")
 @click.option(
     "--resume",
@@ -345,10 +170,6 @@ def main(  # noqa: PLR0913  # Click supplies one keyword per declared option.
     mode_fast: bool,
     completeness_mode: str,
     sensitive: bool,
-    cluster_type: str,
-    cluster_queue: str | None,
-    cluster_project: str | None,
-    cluster_walltime: str | None,
     verbose: bool,
     resume: bool,
     allow_short: bool,
@@ -358,34 +179,18 @@ def main(  # noqa: PLR0913  # Click supplies one keyword per declared option.
     species_tree_trim: str,
     contig_screen: bool,
     contigs_mode: bool,
+    **_ignored_cluster_options: str | None,
 ) -> None:
     """Run the pipeline with resolved command-line settings."""
     log_level = "DEBUG" if verbose else "INFO"
     logger = setup_logging("gvclass_runner", level=log_level)
 
     try:
-        query_path, output_path, db_path, cluster_config = prepare_cli_context(
-            querydir=querydir,
-            output_dir=output_dir,
-            database=database,
-            cluster_queue=cluster_queue,
-            cluster_project=cluster_project,
-            cluster_walltime=cluster_walltime,
-            threads=threads,
-            max_workers=max_workers,
-            threads_per_worker=threads_per_worker,
-            cluster_type=cluster_type,
-            tree_method=tree_method,
-            iqtree_mode=iqtree_mode,
-            mode_fast=mode_fast,
-            completeness_mode=completeness_mode,
-            sensitive=sensitive,
-            min_sequence_length=min_length,
-        )
-        execute_cli_flow(
+        query_path, output_path = resolve_paths(querydir, output_dir)
+        config = RunConfig(
             query_path=query_path,
-            output_path=output_path,
-            db_path=db_path,
+            output_dir=output_path,
+            database_path=Path(database),
             threads=threads,
             max_workers=max_workers,
             threads_per_worker=threads_per_worker,
@@ -393,9 +198,7 @@ def main(  # noqa: PLR0913  # Click supplies one keyword per declared option.
             iqtree_mode=iqtree_mode,
             mode_fast=mode_fast,
             completeness_mode=completeness_mode,
-            sensitive=sensitive,
-            cluster_type=cluster_type,
-            cluster_config=cluster_config,
+            sensitive_mode=sensitive,
             resume=resume,
             allow_short=allow_short,
             min_sequence_length=min_length,
@@ -404,7 +207,12 @@ def main(  # noqa: PLR0913  # Click supplies one keyword per declared option.
             species_tree_trim=species_tree_trim,
             contig_screen=contig_screen,
             contigs_mode=contigs_mode,
+            contigs_min_length=0,  # The CLI splits contigs before the runner starts.
         )
+        print_run_configuration(config)
+        summary_file = gvclass_flow(config)
+        click.echo("\nPipeline completed successfully!")
+        click.echo(f"Results written to: {summary_file}")
     except FileNotFoundError as exc:
         click.echo(f"Error: {exc}", err=True)
         sys.exit(1)

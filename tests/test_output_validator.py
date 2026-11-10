@@ -1,98 +1,228 @@
+"""Output validation reads ``results.jsonl`` and the archives that it names."""
+
 from __future__ import annotations
 
+import hashlib
+import io
 import json
 import logging
 import tarfile
+from dataclasses import asdict
 from pathlib import Path
 
 import pytest
 
+from src.pipeline.run_status import RESULTS_FILENAME, SOFTWARE_VERSION, QueryRecord
 from src.utils.output_validator import validate_pipeline_outputs
+
+GOOD_TABLE = "query\ttaxonomy_majority\nq1\ttax\n"
+LOGGER_NAME = "src.utils.output_validator"
+
+
+def write_archive(output: Path, name: str, members: dict[str, str]) -> Path:
+    """Write ``<name>.tar.gz`` with the given members, named under ``<name>/``."""
+    archive = output / f"{name}.tar.gz"
+    with tarfile.open(archive, "w:gz") as handle:
+        for member, text in members.items():
+            data = text.encode()
+            info = tarfile.TarInfo(f"{name}/{member}")
+            info.size = len(data)
+            handle.addfile(info, io.BytesIO(data))
+    return archive
+
+
+def write_record(
+    output: Path, name: str, *, status: str = "complete", error: str | None = None
+) -> None:
+    """Append the record of a query; a complete one names the archive on disk."""
+    archive = output / f"{name}.tar.gz"
+    info = None
+    if status == "complete":
+        info = {
+            "filename": archive.name,
+            "bytes": archive.stat().st_size,
+            "sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
+        }
+    record = QueryRecord(
+        query=name,
+        status=status,
+        error=error,
+        input_sha256=None,
+        settings={},
+        database_version="v1",
+        software_version=SOFTWARE_VERSION,
+        finished_at="2026-01-01T00:00:00+00:00",
+        archive=info,
+        summary=None,
+    )
+    with (output / RESULTS_FILENAME).open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(asdict(record)) + "\n")
+
+
+def finished_run(output: Path) -> None:
+    """Leave a finished run of query ``q1`` with good summaries."""
+    members = {"q1.summary.tab": GOOD_TABLE, "q1.final_summary.tsv": GOOD_TABLE}
+    write_archive(output, "q1", members)
+    write_record(output, "q1")
+    (output / "gvclass_summary.tsv").write_text(GOOD_TABLE, encoding="utf-8")
 
 
 @pytest.mark.parametrize(
-    "shared_directory", [None, "contig_screen", "species_tree", ".species_tree_work"]
+    "shared_directory",
+    [None, "contig_screen", "species_tree", ".species_tree_work", ".gvclass_work"],
 )
-def test_output_validator_accepts_archived_query_summaries(
+def test_output_validator_accepts_a_finished_run(
     tmp_path: Path, caplog: pytest.LogCaptureFixture, shared_directory: str | None
 ) -> None:
-    """Shared output is not a query with missing summary/archive files."""
-    work = tmp_path / "q1"
-    work.mkdir()
-    (work / "q1.summary.tab").write_text("query\ttaxonomy_majority\nq1\ttax\n")
-    (work / "q1.final_summary.tsv").write_text("query\ttaxonomy_majority\nq1\ttax\n")
-    with tarfile.open(tmp_path / "q1.tar.gz", "w:gz") as tar_handle:
-        tar_handle.add(work, arcname="q1")
-    (tmp_path / "gvclass_summary.tsv").write_text("query\ttaxonomy_majority\nq1\ttax\n")
-    (tmp_path / "run_status.json").write_text(
-        json.dumps({"queries": {"q1": {}}}), encoding="utf-8"
-    )
+    """Shared output folders are not queries with missing files."""
+    finished_run(tmp_path)
     if shared_directory:
         (tmp_path / shared_directory / "q1").mkdir(parents=True)
 
-    with caplog.at_level(logging.DEBUG, logger="src.utils.output_validator"):
+    with caplog.at_level(logging.DEBUG, logger=LOGGER_NAME):
         validation = validate_pipeline_outputs(tmp_path, verbose=True)
 
-    assert validation["success"] is True
-    assert validation["issues"] == []
-    assert validation["warnings"] == []
+    assert validation == {"success": True, "issues": [], "warnings": []}
     assert "Validation successful" in caplog.messages
     assert all(symbol not in caplog.text for symbol in ("✅", "❌", "⚠", "✓", "\x1b"))
 
 
-@pytest.mark.parametrize(
-    "query", ["contig_screen", "species_tree", ".species_tree_work"]
-)
-@pytest.mark.parametrize("metadata", ["known-query", "absent", "malformed", "nonutf8"])
-def test_shared_folder_names_do_not_hide_query_warnings(
-    tmp_path: Path, query: str, metadata: str
-) -> None:
-    """Known queries and uncertain folders retain missing-file diagnostics."""
-    work = tmp_path / "q1"
-    work.mkdir()
-    for name in ("q1.summary.tab", "q1.final_summary.tsv"):
-        (work / name).write_text(
-            "query\ttaxonomy_majority\nq1\ttax\n", encoding="utf-8"
-        )
-    with tarfile.open(tmp_path / "q1.tar.gz", "w:gz") as archive:
-        archive.add(work, arcname="q1")
-    (tmp_path / query).mkdir()
-    if metadata == "known-query":
-        (tmp_path / "run_status.json").write_text(
-            json.dumps({"queries": {"q1": {}, query: {}}}), encoding="utf-8"
-        )
-    elif metadata == "malformed":
-        (tmp_path / "run_status.json").write_text("broken{", encoding="utf-8")
-    elif metadata == "nonutf8":
-        (tmp_path / "run_status.json").write_bytes(b"\xff")
+def test_a_missing_summary_member_is_an_issue(tmp_path: Path) -> None:
+    write_archive(tmp_path, "q1", {"q1.summary.tab": GOOD_TABLE})
+    write_record(tmp_path, "q1")
 
-    validation = validate_pipeline_outputs(tmp_path, verbose=True)
+    validation = validate_pipeline_outputs(tmp_path)
 
-    assert validation["warnings"] == [
-        f"Expected file not found for {query}: {query}.summary.tab",
-        f"Expected file not found for {query}: {query}.tar.gz",
+    assert validation["success"] is False
+    assert validation["issues"] == ["Archive member q1/q1.final_summary.tsv is missing"]
+
+
+@pytest.mark.parametrize("text", ["", "query\ttaxonomy_majority\n"])
+def test_an_empty_summary_member_is_an_issue(tmp_path: Path, text: str) -> None:
+    write_archive(
+        tmp_path, "q1", {"q1.summary.tab": text, "q1.final_summary.tsv": GOOD_TABLE}
+    )
+    write_record(tmp_path, "q1")
+
+    validation = validate_pipeline_outputs(tmp_path)
+
+    assert validation["success"] is False
+    assert validation["issues"] == [
+        "Archive member q1/q1.summary.tab is empty or has no data row"
     ]
 
 
-@pytest.mark.parametrize("valid_summary", [False, True])
-def test_output_validator_diagnostics_are_plain(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture, valid_summary: bool
-) -> None:
-    """Missing archives and invalid summaries retain plain, useful diagnostics."""
-    summary = "query\ttaxonomy_majority\nq1\ttax\n"
-    (tmp_path / "q1.summary.tab").write_text(
-        summary if valid_summary else "wrong\nq1\n", encoding="utf-8"
+def test_a_summary_member_without_the_key_columns_is_an_issue(tmp_path: Path) -> None:
+    write_archive(
+        tmp_path,
+        "q1",
+        {"q1.summary.tab": "wrong\nq1\n", "q1.final_summary.tsv": GOOD_TABLE},
     )
-    (tmp_path / "gvclass_summary.tsv").write_text(summary, encoding="utf-8")
+    write_record(tmp_path, "q1")
 
-    with caplog.at_level(logging.DEBUG, logger="src.utils.output_validator"):
-        validation = validate_pipeline_outputs(tmp_path, verbose=True)
+    validation = validate_pipeline_outputs(tmp_path)
 
-    assert validation["success"] is valid_summary
-    assert len(validation["warnings"]) == 1
-    assert "No compressed archives" in validation["warnings"][0]
+    assert validation["issues"] == [
+        (
+            "Archive member q1/q1.summary.tab lacks required columns: "
+            "query, taxonomy_majority"
+        )
+    ]
+
+
+def test_a_failed_last_record_is_an_issue(tmp_path: Path) -> None:
+    finished_run(tmp_path)
+    write_record(tmp_path, "q2", status="failed", error="HMM search failed")
+    write_record(tmp_path, "q3", status="invalid_input", error="too short")
+
+    validation = validate_pipeline_outputs(tmp_path)
+
+    assert validation["issues"] == [
+        "Query q2 is failed: HMM search failed",
+        "Query q3 is invalid_input: too short",
+    ]
+
+
+def test_only_the_last_record_of_a_query_counts(tmp_path: Path) -> None:
+    write_record(tmp_path, "q1", status="failed", error="first attempt failed")
+    finished_run(tmp_path)
+
+    assert validate_pipeline_outputs(tmp_path)["success"] is True
+
+
+def test_a_missing_or_resized_archive_is_an_issue(tmp_path: Path) -> None:
+    finished_run(tmp_path)
+    write_archive(tmp_path, "q2", {"q2.summary.tab": GOOD_TABLE})
+    write_record(tmp_path, "q2")
+    (tmp_path / "q1.tar.gz").unlink()
+    (tmp_path / "q2.tar.gz").write_bytes(b"short")
+
+    validation = validate_pipeline_outputs(tmp_path)
+
+    assert validation["issues"] == [
+        "Archive of query q1 is missing or has changed in size",
+        "Archive of query q2 is missing or has changed in size",
+    ]
+
+
+def test_an_output_without_a_results_log_is_an_issue(tmp_path: Path) -> None:
+    validation = validate_pipeline_outputs(tmp_path)
+
+    assert validation["success"] is False
+    assert validation["issues"] == ["No query records found in results.jsonl"]
+
+
+def test_a_missing_output_directory_is_an_issue(tmp_path: Path) -> None:
+    validation = validate_pipeline_outputs(tmp_path / "absent")
+
+    assert validation["success"] is False
+    assert "does not exist" in validation["issues"][0]
+
+
+@pytest.mark.parametrize(
+    ("table", "expected"),
+    [
+        ("", "Combined summary file is empty"),
+        (
+            "wrong\nq1\n",
+            "Combined summary missing required columns: query, taxonomy_majority",
+        ),
+    ],
+)
+def test_a_bad_combined_summary_is_an_issue(
+    tmp_path: Path, table: str, expected: str
+) -> None:
+    finished_run(tmp_path)
+    (tmp_path / "gvclass_summary.tsv").write_text(table, encoding="utf-8")
+
+    validation = validate_pipeline_outputs(tmp_path)
+
+    assert validation["issues"] == [expected]
+
+
+def test_a_combined_summary_without_rows_is_a_warning(tmp_path: Path) -> None:
+    finished_run(tmp_path)
+    (tmp_path / "gvclass_summary.tsv").write_text(
+        "query\ttaxonomy_majority\n", encoding="utf-8"
+    )
+
+    validation = validate_pipeline_outputs(tmp_path)
+
+    assert validation["success"] is True
+    assert validation["warnings"] == ["Combined summary has header but no data rows"]
+
+
+def test_diagnostics_are_plain(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    write_record(tmp_path, "q1", status="failed", error="boom")
+    (tmp_path / "gvclass_summary.tsv").write_text(
+        "query\ttaxonomy_majority\n", encoding="utf-8"
+    )
+
+    with caplog.at_level(logging.DEBUG, logger=LOGGER_NAME):
+        validate_pipeline_outputs(tmp_path, verbose=True)
+
+    assert "Validation found 1 issue(s)" in caplog.messages
     assert "1 warning(s) found" in caplog.messages
-    if not valid_summary:
-        assert validation["issues"]
-        assert any("Validation found" in message for message in caplog.messages)
     assert all(symbol not in caplog.text for symbol in ("✅", "❌", "⚠", "✓", "\x1b"))

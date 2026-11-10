@@ -1,23 +1,33 @@
-"""
-Output validation utilities for GVClass pipeline.
+"""Output validation for the GVClass pipeline.
 
-This module provides functions to validate the outputs of the GVClass pipeline,
-ensuring all expected files are present and properly formatted.
+A run is valid when ``results.jsonl`` holds a ``complete`` last record for every
+query and each record's archive exists with the recorded size and holds a
+non-empty summary and final summary of its query. A missing or empty member is an
+issue, not a warning.
 """
 
-from pathlib import Path
-from typing import Dict, List, Any
 import logging
 import tarfile
+from pathlib import Path
+from typing import Any
+
+from src.pipeline.run_status import (
+    COMPLETE,
+    RESULTS_FILENAME,
+    QueryRecord,
+    archive_is_intact,
+    read_results,
+)
 
 logger = logging.getLogger(__name__)
 
+REQUIRED_COLUMNS = ("query", "taxonomy_majority")
+
 
 def validate_pipeline_outputs(
-    output_dir: Path, verbose: bool = False
-) -> Dict[str, Any]:
-    """
-    Validate that pipeline outputs are complete and properly formatted.
+    output_dir: Path, *, verbose: bool = False
+) -> dict[str, Any]:
+    """Validate that pipeline outputs are complete and properly formatted.
 
     Args:
         output_dir: Path to the output directory containing pipeline results
@@ -29,229 +39,106 @@ def validate_pipeline_outputs(
         - 'issues': List of issue descriptions (empty if success=True)
         - 'warnings': List of non-critical warnings
     """
-    issues = []
-    warnings = []
+    issues: list[str] = []
+    warnings: list[str] = []
 
     if verbose:
-        logger.info(f"Validating outputs in: {output_dir}")
+        logger.info("Validating outputs in: %s", output_dir)
 
-    # Check if output directory exists
     if not output_dir.exists():
         issues.append(f"Output directory does not exist: {output_dir}")
         return {"success": False, "issues": issues, "warnings": warnings}
 
-    # Check for legacy loose summary files (*.summary.tab) or archived query outputs.
-    summary_files = list(output_dir.glob("*.summary.tab"))
-    archive_files = [
-        path
-        for path in output_dir.glob("*.tar.gz")
-        if not path.name.startswith("gvclass_summary.")
-    ]
-    if not summary_files and not archive_files:
-        issues.append(
-            "No per-query summary files or archives found in output directory"
-        )
-    elif summary_files:
-        if verbose:
-            logger.info(f"Found {len(summary_files)} summary file(s)")
+    records = read_results(output_dir)
+    if not records:
+        issues.append(f"No query records found in {RESULTS_FILENAME}")
+    for name, record in sorted(records.items()):
+        _validate_record(output_dir, name, record, issues)
 
-        # Validate each summary file
-        for summary_file in summary_files:
-            if not _validate_summary_file(summary_file, issues, warnings, verbose):
-                issues.append(f"Invalid summary file format: {summary_file.name}")
-
-    if archive_files:
-        for archive_file in archive_files:
-            _validate_query_archive(archive_file, issues, warnings, verbose)
-    elif summary_files:
-        warnings.append(
-            "No compressed archives (.tar.gz) found - intermediate files may not be archived"
-        )
-
-    # Check for the combined summary file (gvclass_summary.tsv)
     combined_summary = output_dir / "gvclass_summary.tsv"
     if combined_summary.exists():
-        if verbose:
-            logger.info("Found combined summary file: gvclass_summary.tsv")
-        if not _validate_combined_summary(combined_summary, issues, warnings, verbose):
-            issues.append("Invalid combined summary file format")
-    else:
-        # It's okay if combined summary doesn't exist yet - it might be created after validation
-        if verbose:
-            logger.info(
-                "Combined summary file not yet created (will be generated after validation)"
-            )
-
-    # Check for query subdirectories
-    from src.pipeline import run_status  # noqa: PLC0415  # Defer pipeline import.
-
-    try:
-        status = run_status.load_run_status(output_dir)
-    except UnicodeError:
-        status = None
-    known_queries = status.get("queries") if isinstance(status, dict) else None
-    query_dirs = [
-        d
-        for d in output_dir.iterdir()
-        if d.is_dir()
-        and (
-            d.name not in {"contig_screen", "species_tree", ".species_tree_work"}
-            or not isinstance(known_queries, dict)
-            or d.name in known_queries
-        )
-    ]
-    if query_dirs and verbose:
-        logger.info(f"Found {len(query_dirs)} query subdirectory(ies)")
-        for query_dir in query_dirs:
-            _validate_query_directory(query_dir, issues, warnings, verbose)
-
-    success = len(issues) == 0
+        _validate_combined_summary(combined_summary, issues, warnings)
 
     if verbose:
-        if success:
-            logger.info("Validation successful")
-        else:
-            logger.warning("Validation found %s issue(s)", len(issues))
-        if warnings:
-            logger.warning("%s warning(s) found", len(warnings))
-
-    return {"success": success, "issues": issues, "warnings": warnings}
+        _log_outcome(len(records), issues, warnings)
+    return {"success": not issues, "issues": issues, "warnings": warnings}
 
 
-def _validate_summary_file(
-    summary_file: Path, issues: List[str], warnings: List[str], verbose: bool
-) -> bool:
-    """
-    Validate individual summary.tab file format.
-
-    Returns True if file is valid, False otherwise.
-    """
-    try:
-        with open(summary_file, "r") as f:
-            lines = f.readlines()
-
-        if len(lines) < 2:
-            warnings.append(
-                f"{summary_file.name} has fewer than 2 lines (header + data)"
-            )
-            return False
-
-        # Check header line contains expected columns
-        header = lines[0].strip().split("\t")
-        required_columns = ["query", "taxonomy_majority"]
-
-        missing_columns = [col for col in required_columns if col not in header]
-        if missing_columns:
-            issues.append(
-                f"{summary_file.name} missing required columns: {', '.join(missing_columns)}"
-            )
-            return False
-
-        if verbose:
-            logger.debug("%s has valid format", summary_file.name)
-
-        return True
-
-    except Exception as e:
-        issues.append(f"Error reading {summary_file.name}: {str(e)}")
-        return False
+def _log_outcome(n_records: int, issues: list[str], warnings: list[str]) -> None:
+    logger.info("Checked %d query record(s)", n_records)
+    if issues:
+        logger.warning("Validation found %s issue(s)", len(issues))
+    else:
+        logger.info("Validation successful")
+    if warnings:
+        logger.warning("%s warning(s) found", len(warnings))
 
 
-def _validate_query_archive(
-    archive_file: Path, issues: List[str], warnings: List[str], verbose: bool
+def _validate_record(
+    output_dir: Path, name: str, record: QueryRecord, issues: list[str]
 ) -> None:
-    query_name = archive_file.name.removesuffix(".tar.gz")
-    try:
-        with tarfile.open(archive_file, "r:gz") as tar_handle:
-            names = set(tar_handle.getnames())
-    except (OSError, tarfile.TarError) as exc:
-        issues.append(f"Invalid query archive {archive_file.name}: {exc}")
+    """Add an issue for each way the last record of a query is not a good result."""
+    if record.status != COMPLETE:
+        issues.append(f"Query {name} is {record.status}: {record.error or 'no error'}")
         return
+    if not archive_is_intact(output_dir, record):
+        issues.append(f"Archive of query {name} is missing or has changed in size")
+        return
+    _validate_archive_summaries(output_dir / f"{name}.tar.gz", name, issues)
 
-    expected = {
+
+def _validate_archive_summaries(
+    archive_file: Path, query_name: str, issues: list[str]
+) -> None:
+    """Add an issue for each summary member of the archive that is missing or empty."""
+    members = (
         f"{query_name}/{query_name}.summary.tab",
         f"{query_name}/{query_name}.final_summary.tsv",
-    }
-    missing = sorted(expected - names)
+    )
+    try:
+        with tarfile.open(archive_file, "r:gz") as archive:
+            for member in members:
+                _validate_member(archive, member, issues)
+    except (OSError, tarfile.TarError) as exc:
+        issues.append(f"Invalid query archive {archive_file.name}: {exc}")
+
+
+def _validate_member(archive: tarfile.TarFile, member: str, issues: list[str]) -> None:
+    try:
+        extracted = archive.extractfile(member)
+    except KeyError:
+        issues.append(f"Archive member {member} is missing")
+        return
+    if extracted is None:
+        issues.append(f"Archive member {member} is not a file")
+        return
+    lines = extracted.read().decode("utf-8", errors="replace").splitlines()
+    if len(lines) < 2:
+        issues.append(f"Archive member {member} is empty or has no data row")
+        return
+    header = lines[0].split("\t")
+    missing = [column for column in REQUIRED_COLUMNS if column not in header]
     if missing:
-        warnings.append(
-            f"Query archive {archive_file.name} is missing expected member(s): "
-            + ", ".join(missing)
+        issues.append(
+            f"Archive member {member} lacks required columns: {', '.join(missing)}"
         )
-    elif verbose:
-        logger.debug("%s contains per-query summaries", archive_file.name)
 
 
 def _validate_combined_summary(
-    combined_summary: Path, issues: List[str], warnings: List[str], verbose: bool
-) -> bool:
-    """
-    Validate combined gvclass_summary.tsv file.
-
-    Returns True if file is valid, False otherwise.
-    """
-    try:
-        with open(combined_summary, "r") as f:
-            lines = f.readlines()
-
-        if len(lines) < 1:
-            issues.append("Combined summary file is empty")
-            return False
-
-        # Check header
-        header = lines[0].strip().split("\t")
-        required_columns = ["query", "taxonomy_majority"]
-
-        missing_columns = [col for col in required_columns if col not in header]
-        if missing_columns:
-            issues.append(
-                f"Combined summary missing required columns: {', '.join(missing_columns)}"
-            )
-            return False
-
-        # Warn if no data rows
-        if len(lines) == 1:
-            warnings.append("Combined summary has header but no data rows")
-
-        if verbose:
-            logger.debug("Combined summary has %s data row(s)", len(lines) - 1)
-
-        return True
-
-    except Exception as e:
-        issues.append(f"Error reading combined summary: {str(e)}")
-        return False
-
-
-def _validate_query_directory(
-    query_dir: Path, issues: List[str], warnings: List[str], verbose: bool
+    combined_summary: Path, issues: list[str], warnings: list[str]
 ) -> None:
-    """
-    Validate contents of individual query subdirectory.
-    """
-    query_name = query_dir.name
-
-    # Check for key output files
-    expected_files = [f"{query_name}.summary.tab", f"{query_name}.tar.gz"]
-
-    for expected_file in expected_files:
-        file_path = query_dir.parent / expected_file
-        if not file_path.exists():
-            # Check if file is in the subdirectory instead
-            alt_path = query_dir / expected_file
-            if not alt_path.exists():
-                warnings.append(
-                    f"Expected file not found for {query_name}: {expected_file}"
-                )
-
-    # Check for marker results (if not in fast mode)
-    marker_files = list(query_dir.glob("*.faa"))
-    tree_files = list(query_dir.glob("*.tree"))
-
-    if marker_files and not tree_files:
-        warnings.append(f"Query {query_name} has alignment files but no tree files")
-
-    if verbose and (marker_files or tree_files):
-        logger.debug(
-            f"  {query_name}: {len(marker_files)} alignments, {len(tree_files)} trees"
+    """Add issues for an empty combined summary or one without the key columns."""
+    lines = combined_summary.read_text(encoding="utf-8").splitlines()
+    if not lines:
+        issues.append("Combined summary file is empty")
+        return
+    missing = [
+        column for column in REQUIRED_COLUMNS if column not in lines[0].split("\t")
+    ]
+    if missing:
+        issues.append(
+            f"Combined summary missing required columns: {', '.join(missing)}"
         )
+        return
+    if len(lines) == 1:
+        warnings.append("Combined summary has header but no data rows")

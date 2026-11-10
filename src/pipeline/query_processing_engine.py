@@ -7,7 +7,6 @@ import logging
 import os
 import shutil
 import tarfile
-import tempfile
 import threading
 import time
 import traceback
@@ -30,7 +29,7 @@ from src.core.reformat import calculate_stats, reformat_sequences
 from src.core.summarize_full import FullSummarizer
 from src.core.tree_analysis import TreeAnalyzer
 from src.pipeline.progress_events import emit_progress_event
-from src.pipeline.run_status import RunStatusRecorder
+from src.pipeline.run_config import RunConfig
 from src.pipeline.summary_writer import (
     write_individual_final_summary_file,
     write_individual_summary_file,
@@ -39,7 +38,18 @@ from src.utils.error_handling import ProcessingError
 from src.utils.input_validation import InputValidator
 from src.utils.resource_store import ResourceStore
 
+#: Genetic codes evaluated for every nucleotide query. This is deliberately not
+#: configurable: GVClass always runs the full optimization and picks the
+#: best-scoring code per query. Code 0 is pyrodigal meta mode.
+GENETIC_CODES = [0, 1, 4, 6, 11, 15, 29, 106, 129]
+
+#: Folder in the output directory that holds the working files of the queries that
+#: run now: ``<output>/.gvclass_work/<query>/``. A query folder is archived and
+#: removed when its query ends.
+WORK_DIRNAME = ".gvclass_work"
+
 _THREAD_LOCAL = threading.local()
+
 
 def _pipeline_logger():
     return logging.getLogger("gvclass_runner")
@@ -56,48 +66,33 @@ class PreparedQueryInput:
 
 
 def process_single_query(
-    query_file: Path,
-    output_base: Path,
-    database_path: Path,
-    genetic_codes: List[int],
-    tree_method: str,
-    mode_fast: bool,
-    completeness_mode: str = "novelty-aware",
-    sensitive_mode: bool = True,
-    threads: int = 4,
-    species_tree: bool = False,
-    species_tree_trim: str = "witchi",
-    run_status: Optional[RunStatusRecorder] = None,
+    query_file: Path, config: RunConfig, threads: int
 ) -> Dict[str, Any]:
-    """Run the complete pipeline for one query."""
+    """Run the complete pipeline for one query and publish its archive.
+
+    The archive ``<output>/<query>.tar.gz`` exists when this returns. The caller
+    writes the completion record.
+    """
     logger = _pipeline_logger()
+    output_base = config.output_dir
     query_name, query_output_dir = _initialize_query(query_file, output_base)
-    if run_status is not None:
-        run_status.record_query_started(query_name)
     _emit_query_progress(query_name, 0, "started")
     logger.info(
-        f"Processing query: {query_name} with {threads} threads (sensitive_mode={sensitive_mode})"
+        "Processing query: %s with %d threads (sensitive_mode=%s)",
+        query_name,
+        threads,
+        config.sensitive_mode,
     )
 
     prepared_input, summary_data = _run_query_stages(
-        query_file=query_file,
-        query_name=query_name,
-        query_output_dir=query_output_dir,
-        database_path=database_path,
-        genetic_codes=genetic_codes,
-        tree_method=tree_method,
-        mode_fast=mode_fast,
-        completeness_mode=completeness_mode,
-        sensitive_mode=sensitive_mode,
-        threads=threads,
-        logger=logger,
+        query_file, query_name, query_output_dir, config, threads, logger
     )
 
     # Species-tree per-query hook (the default product): runs while the per-query
     # gene trees still exist (before _post_process_query archives + deletes the
     # dir) and merges this query's tree-placement columns into summary_data before
     # the per-query summary is written below. Failures must reach the query collector.
-    if species_tree:
+    if config.species_tree:
         _emit_query_progress(query_name, 93, "species_tree")
         from src.core.species_tree.orchestration import (  # noqa: PLC0415  # Load optional species-tree code only when requested.
             run_per_query_species_tree,
@@ -106,12 +101,12 @@ def process_single_query(
         run_per_query_species_tree(
             query_name,
             query_output_dir,
-            database_path,
+            config.database_path,
             summary_data,
             output_base,
             threads,
-            species_tree_trim,
-            tree_method,
+            config.species_tree_trim,
+            config.tree_method,
         )
     _emit_query_progress(query_name, 95, "writing_outputs")
 
@@ -119,16 +114,12 @@ def process_single_query(
         query_output_dir, query_name, summary_data, logger
     )
     logger.info(
-        f"Writing summary file to {query_output_dir / f'{query_name}.summary.tab'}"
+        "Writing summary file to %s", query_output_dir / f"{query_name}.summary.tab"
     )
-    write_individual_summary_file(query_output_dir, query_name, summary_data, logger)
-    write_individual_final_summary_file(
-        query_output_dir, query_name, summary_data, logger
-    )
+    write_individual_summary_file(query_output_dir, query_name, summary_data)
+    write_individual_final_summary_file(query_output_dir, query_name, summary_data)
     _emit_query_progress(query_name, 97, "post_processing")
     _post_process_query(query_name, query_output_dir, output_base, logger)
-    if run_status is not None:
-        run_status.record_query_complete(query_name)
     _emit_query_progress(query_name, 100, "complete")
     return _build_query_result(
         query_name, summary_data, prepared_input.best_code, output_base
@@ -139,17 +130,12 @@ def _run_query_stages(
     query_file: Path,
     query_name: str,
     query_output_dir: Path,
-    database_path: Path,
-    genetic_codes: List[int],
-    tree_method: str,
-    mode_fast: bool,
-    completeness_mode: str,
-    sensitive_mode: bool,
+    config: RunConfig,
     threads: int,
     logger,
 ) -> Tuple[PreparedQueryInput, Dict[str, Any]]:
     prepared_input = _prepare_query_input(
-        query_file, query_output_dir, database_path, genetic_codes, threads, logger
+        query_file, query_output_dir, config.database_path, threads, logger
     )
     _create_output_dirs(query_output_dir)
     _copy_final_sequence_outputs(
@@ -167,9 +153,8 @@ def _run_query_stages(
         query_name,
         query_output_dir,
         prepared_input.protein_file,
-        database_path,
+        config,
         threads,
-        sensitive_mode,
         logger,
     )
     _emit_query_progress(query_name, 35, "marker_search_complete")
@@ -178,26 +163,17 @@ def _run_query_stages(
         models_out_filtered,
         prepared_input.protein_file,
         query_output_dir,
-        database_path,
-        tree_method,
-        mode_fast,
+        config,
         threads,
         logger,
     )
     _emit_query_progress(query_name, 78, "marker_trees_complete")
     tree_nn_results = _analyze_marker_trees(
-        query_name, query_output_dir, database_path, marker_results, logger
+        query_name, query_output_dir, config.database_path, marker_results, logger
     )
     _emit_query_progress(query_name, 86, "tree_analysis_complete")
     summary_data = _generate_summary_data(
-        query_name,
-        query_output_dir,
-        database_path,
-        tree_nn_results,
-        mode_fast,
-        completeness_mode,
-        sensitive_mode,
-        logger,
+        query_name, query_output_dir, config, tree_nn_results, logger
     )
     _emit_query_progress(query_name, 92, "summary_complete")
     return prepared_input, summary_data
@@ -221,8 +197,13 @@ def _emit_query_progress(
 
 
 def _initialize_query(query_file: Path, output_base: Path) -> tuple[str, Path]:
+    """Return the query name and its empty private work directory.
+
+    The directory is ``<output>/.gvclass_work/<query>/``. A directory that an earlier
+    attempt left is deleted, so old search results cannot affect the new scores.
+    """
     query_name = query_file.stem
-    query_output_dir = output_base / query_name
+    query_output_dir = output_base / WORK_DIRNAME / query_name
     if query_file.resolve().is_relative_to(query_output_dir.resolve()):
         raise ProcessingError(
             f"The working directory {query_output_dir} for query {query_name} "
@@ -231,13 +212,9 @@ def _initialize_query(query_file: Path, output_base: Path) -> tuple[str, Path]:
             step="initialize_query",
             input_file=str(query_file),
         )
-    if query_output_dir.is_dir() and any(query_output_dir.iterdir()):
-        retained = Path(
-            tempfile.mkdtemp(prefix=f"{query_name}.previous.", dir=output_base)
-        )
-        query_output_dir.rename(retained)
-        _pipeline_logger().info("Previous query working files retained at %s", retained)
-    query_output_dir.mkdir(parents=True, exist_ok=True)
+    if query_output_dir.exists():
+        shutil.rmtree(query_output_dir)
+    query_output_dir.mkdir(parents=True)
     return query_name, query_output_dir
 
 
@@ -245,34 +222,29 @@ def _prepare_query_input(
     query_file: Path,
     query_output_dir: Path,
     database_path: Path,
-    genetic_codes: List[int],
     threads: int,
     logger,
 ) -> PreparedQueryInput:
-    if _is_nucleotide_input(query_file):
+    if is_nucleotide_input(query_file):
         return _prepare_nucleotide_query(
-            query_file, query_output_dir, database_path, genetic_codes, threads, logger
+            query_file, query_output_dir, database_path, threads, logger
         )
     return _prepare_protein_query(query_file, query_output_dir, logger)
 
 
-def _is_nucleotide_input(query_file: Path) -> bool:
+def is_nucleotide_input(query_file: Path) -> bool:
     """Decide nucleotide vs protein by alphabet, not just the suffix.
 
     ``.fna`` is always nucleotide and ``.faa`` always protein. For the
-    extension-agnostic ``.fasta``/``.fas``/``.fa`` (which the validator admits
-    as either), infer the alphabet from the contents using the same helper the
-    validator uses, so a DNA ``.fasta`` is gene-called instead of being fed
-    raw to the protein path.
+    extension-agnostic ``.fasta``/``.fas``/``.fa``, which the validator admits as
+    either, the alphabet comes from the first record, so a DNA ``.fasta`` is
+    gene-called instead of being fed raw to the protein path.
     """
     suffix = query_file.suffix.lower()
     if suffix == ".fna":
         return True
-    if suffix == ".faa":
-        return False
     if suffix in (".fasta", ".fas", ".fa"):
-        records = list(SeqIO.parse(str(query_file), "fasta"))
-        return InputValidator._infer_fasta_type_from_content(records) == "fna"
+        return InputValidator.infer_fasta_type(query_file) == "fna"
     return False
 
 
@@ -280,7 +252,6 @@ def _prepare_nucleotide_query(
     query_file: Path,
     query_output_dir: Path,
     database_path: Path,
-    genetic_codes: List[int],
     threads: int,
     logger,
 ) -> PreparedQueryInput:
@@ -295,7 +266,6 @@ def _prepare_nucleotide_query(
         reformatted_file,
         query_output_dir,
         database_path,
-        genetic_codes,
         threads,
         logger,
     )
@@ -350,7 +320,6 @@ def _optimize_genetic_code(
     reformatted_file: Path,
     query_output_dir: Path,
     database_path: Path,
-    genetic_codes: List[int],
     threads: int,
     logger,
 ) -> GeneCallingResult:
@@ -359,7 +328,7 @@ def _optimize_genetic_code(
         reformatted_file,
         query_output_dir,
         database_path / COMBINED_HMM,
-        genetic_codes,
+        GENETIC_CODES,
         threads=threads,
     )
 
@@ -450,9 +419,8 @@ def _run_hmm_and_blast(
     query_name: str,
     query_output_dir: Path,
     protein_file: Path,
-    database_path: Path,
+    config: RunConfig,
     threads: int,
-    sensitive_mode: bool,
     logger,
 ) -> Path:
     """Run the per-query marker HMM search and return ``models.out.filtered``.
@@ -462,10 +430,10 @@ def _run_hmm_and_blast(
     logger.info(f"Running HMM search: {query_name}")
     return run_marker_search(
         protein_file,
-        database_path / COMBINED_HMM,
+        config.database_path / COMBINED_HMM,
         query_output_dir / "hmmout",
         threads=threads,
-        sensitive=sensitive_mode,
+        sensitive=config.sensitive_mode,
     )
 
 
@@ -482,16 +450,14 @@ def _process_markers(
     models_out_filtered: Path,
     protein_file: Path,
     query_output_dir: Path,
-    database_path: Path,
-    tree_method: str,
-    mode_fast: bool,
+    config: RunConfig,
     threads: int,
     logger,
 ) -> Dict[str, Dict[str, Any]]:
     logger.info(f"Extracting and processing markers: {query_name}")
     _emit_query_progress(query_name, 40, "extracting_markers")
     marker_files = _extract_marker_files(
-        models_out_filtered, protein_file, query_output_dir, mode_fast
+        models_out_filtered, protein_file, query_output_dir, config.mode_fast
     )
     if not marker_files:
         _emit_query_progress(query_name, 75, "no_markers_found")
@@ -512,9 +478,8 @@ def _process_markers(
     return _run_marker_tasks(
         query_name,
         marker_files,
-        database_path,
         query_output_dir,
-        tree_method,
+        config,
         max_parallel,
         threads_per_marker,
         logger,
@@ -551,9 +516,8 @@ def _calculate_marker_threading(
 def _run_marker_tasks(
     query_name: str,
     marker_files: List[Tuple[str, Path]],
-    database_path: Path,
     query_output_dir: Path,
-    tree_method: str,
+    config: RunConfig,
     max_parallel: int,
     threads_per_marker: int,
     logger,
@@ -566,9 +530,8 @@ def _run_marker_tasks(
             executor.submit(
                 _process_single_marker,
                 marker_data,
-                database_path,
                 query_output_dir,
-                tree_method,
+                config,
                 threads_per_marker,
                 logger,
             )
@@ -593,9 +556,8 @@ def _run_marker_tasks(
 
 def _process_single_marker(
     marker_data: Tuple[str, Path],
-    database_path: Path,
     query_output_dir: Path,
-    tree_method: str,
+    config: RunConfig,
     threads_per_marker: int,
     logger,
 ) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
@@ -603,14 +565,14 @@ def _process_single_marker(
     logger.debug(f"Processing marker {marker}, file: {marker_faa}")
     if not marker_faa.exists():
         raise FileNotFoundError(f"Marker input does not exist: {marker_faa}")
-    if not _marker_database_exists(marker, database_path, logger):
+    if not _marker_database_exists(marker, config.database_path, logger):
         raise FileNotFoundError(f"Reference proteins are missing for marker {marker}")
 
-    processor = MarkerProcessor(marker, database_path, query_output_dir)
+    processor = MarkerProcessor(marker, config.database_path, query_output_dir)
     result = processor.process_marker(
         marker_faa,
         max_blast_hits=100,
-        tree_method=tree_method,
+        tree_method=config.tree_method,
         threads=threads_per_marker,
     )
     logger.debug(f"Marker {marker} processing result: {result is not None}")
@@ -708,11 +670,7 @@ def _log_tree_nn_output(tree_nn_file: Path, logger) -> None:
     logger.error(f"Tree_nn file was NOT created: {tree_nn_file}")
 
 
-def _get_thread_summarizer(
-    database_path: Path,
-    completeness_mode: str,
-    sensitive_mode: bool,
-) -> FullSummarizer:
+def _get_thread_summarizer(config: RunConfig) -> FullSummarizer:
     cache: dict[tuple[Any, str, str, bool], FullSummarizer] = getattr(
         _THREAD_LOCAL, "summarizers", None
     )
@@ -721,15 +679,15 @@ def _get_thread_summarizer(
         _THREAD_LOCAL.summarizers = cache
     key = (
         FullSummarizer,
-        str(database_path.resolve()),
-        completeness_mode,
-        sensitive_mode,
+        str(config.database_path.resolve()),
+        config.completeness_mode,
+        config.sensitive_mode,
     )
     if key not in cache:
         cache[key] = FullSummarizer(
-            database_path,
-            completeness_mode=completeness_mode,
-            sensitive_mode=sensitive_mode,
+            config.database_path,
+            completeness_mode=config.completeness_mode,
+            sensitive_mode=config.sensitive_mode,
         )
     return cache[key]
 
@@ -737,25 +695,17 @@ def _get_thread_summarizer(
 def _generate_summary_data(
     query_name: str,
     query_output_dir: Path,
-    database_path: Path,
+    config: RunConfig,
     tree_nn_results: Dict[str, Any],
-    mode_fast: bool,
-    completeness_mode: str,
-    sensitive_mode: bool,
     logger,
 ) -> Dict[str, Any]:
     logger.info(f"Generating full summary: {query_name}")
     try:
-        summarizer = _get_thread_summarizer(
-            database_path,
-            completeness_mode=completeness_mode,
-            sensitive_mode=sensitive_mode,
-        )
-        summary_data = summarizer.summarize_query_full(
+        summary_data = _get_thread_summarizer(config).summarize_query_full(
             query_id=query_name,
             query_output_dir=query_output_dir,
             tree_nn_results=tree_nn_results,
-            mode_fast=mode_fast,
+            mode_fast=config.mode_fast,
         )
         logger.info(f"Summary generated successfully for {query_name}")
         return summary_data
@@ -878,18 +828,18 @@ def _find_query_gff_file(query_output_dir: Path, query_name: str) -> Optional[Pa
 def _post_process_query(
     query_name: str, query_output_dir: Path, output_base: Path, logger
 ) -> None:
+    """Archive the work directory of a query and remove it.
+
+    A failure leaves the work directory for inspection and any archive of an
+    earlier run in place: the new archive replaces it only once it is complete.
+    """
     logger.info(f"Post-processing results for query {query_name}")
     logger.debug(f"Query output directory: {query_output_dir}")
     logger.debug(f"Output base directory: {output_base}")
-    # Clear every resumable marker for this query before we start rewriting
-    # its outputs. If the rerun crashes after this point but before the new
-    # tar is published, resume must NOT see a legacy (summary, tar) pair
-    # from the previous run and wrongly skip the query.
-    _clear_prior_outputs(query_name, output_base, logger)
     post_process_start = time.time()
     try:
         _log_tree_nn_file(query_name, query_output_dir, logger)
-        _remove_reformatted_file(query_name, query_output_dir, output_base, logger)
+        _remove_reformatted_file(query_name, query_output_dir, logger)
         _archive_query_output(query_name, query_output_dir, output_base, logger)
         shutil.rmtree(query_output_dir)
         logger.info("Removed original directory: %s", query_output_dir)
@@ -904,7 +854,6 @@ def _post_process_query(
             exc,
         )
         logger.error(f"Traceback: {traceback.format_exc()}")
-        _log_partial_outputs(query_name, query_output_dir, output_base, logger)
         raise RuntimeError(f"Post-processing failed for {query_name}: {exc}") from exc
 
 
@@ -970,66 +919,13 @@ def _archive_query_output(
     )
 
 
-def _success_sentinel_path(query_name: str, output_base: Path) -> Path:
-    return output_base / f"{query_name}.SUCCESS"
-
-
-def _clear_success_sentinel(query_name: str, output_base: Path, logger) -> None:
-    sentinel = _success_sentinel_path(query_name, output_base)
-    if sentinel.exists():
-        try:
-            sentinel.unlink()
-            logger.debug(f"Cleared stale SUCCESS sentinel: {sentinel}")
-        except OSError as exc:
-            logger.warning(f"Could not remove stale sentinel {sentinel}: {exc}")
-
-
-def _clear_prior_outputs(query_name: str, output_base: Path, logger) -> None:
-    """Remove every per-query artefact the resume filter can see.
-
-    Called at the start of post-processing for a rerun. Drops the sentinel,
-    old loose summary TSVs, the archive (and any leftover ``.tar.gz.part``),
-    and the contamination-candidates sidecar. If the rerun crashes mid-way the
-    query is left with only the ``query_output_dir`` working tree, which
-    resume correctly ignores.
-    """
-    _clear_success_sentinel(query_name, output_base, logger)
-    victims = [
-        output_base / f"{query_name}.summary.tab",
-        output_base / f"{query_name}.final_summary.tsv",
-        output_base / f"{query_name}.tar.gz",
-        output_base / f"{query_name}.tar.gz.part",
-        output_base / f"{query_name}.contamination_candidates.tsv",
-    ]
-    for victim in victims:
-        if victim.exists():
-            try:
-                victim.unlink()
-                logger.debug(f"Cleared stale artefact: {victim}")
-            except OSError as exc:
-                logger.warning(f"Could not remove stale {victim}: {exc}")
-
-
 def _remove_reformatted_file(
-    query_name: str, query_output_dir: Path, output_base: Path, logger
+    query_name: str, query_output_dir: Path, logger: logging.Logger
 ) -> None:
-    for base in (query_output_dir, output_base):
-        reformatted_file = base / f"{query_name}_reformatted.fna"
-        if reformatted_file.exists():
-            reformatted_file.unlink()
-            logger.info("Removed reformatted file: %s", reformatted_file)
-
-
-def _log_partial_outputs(
-    query_name: str, query_output_dir: Path, output_base: Path, logger
-) -> None:
-    logger.debug("Checking partial outputs:")
-    if (output_base / f"{query_name}.summary.tab").exists():
-        logger.debug("  - Summary file was copied")
-    if (output_base / f"{query_name}.tar.gz").exists():
-        logger.debug("  - Archive was created")
-    if query_output_dir.exists():
-        logger.debug("  - Original directory still exists")
+    reformatted_file = query_output_dir / f"{query_name}_reformatted.fna"
+    if reformatted_file.exists():
+        reformatted_file.unlink()
+        logger.info("Removed reformatted file: %s", reformatted_file)
 
 
 def _build_query_result(

@@ -3,7 +3,6 @@ from __future__ import annotations
 import csv
 import tarfile
 from pathlib import Path
-from unittest.mock import Mock
 
 import pytest
 
@@ -66,29 +65,6 @@ def test_species_tree_sentinel_when_no_tree(tmp_path: Path) -> None:
     assert row["species_tree_nn_genome"] == "nd"
     assert row["species_tree_nn_distance"] == "nd"
     assert row["species_tree_clade_id"] == "nd"
-
-
-def test_legacy_species_tree_sentinel_migrated_to_nd(tmp_path: Path) -> None:
-    """A --resume over per-query files from an older gvclass version may carry the
-    retired ``no-species-tree-calculated`` literal; it must migrate to ``nd``."""
-    from src.pipeline.summary_writer import write_final_summary_files
-
-    summary_file = write_final_summary_files(
-        [
-            {
-                "query": "q1",
-                "status": "complete",
-                "summary_data": {
-                    "query": "q1",
-                    "species_tree_nn_taxonomy": "no-species-tree-calculated",
-                },
-            }
-        ],
-        tmp_path,
-    )
-    with open(summary_file, newline="") as handle:
-        row = next(csv.DictReader(handle, delimiter="\t"))
-    assert row["species_tree_nn_taxonomy"] == "nd"
 
 
 def test_species_tree_taxonomy_value_passthrough(tmp_path: Path) -> None:
@@ -163,41 +139,8 @@ def test_extended_summary_archive_removes_loose_files(tmp_path: Path) -> None:
         }.issubset(set(tar_handle.getnames()))
 
 
-def test_read_individual_summary_results_from_query_archive(tmp_path: Path) -> None:
-    from src.pipeline.summary_writer import read_individual_summary_results
-
-    work = tmp_path / "q1"
-    work.mkdir()
-    (work / "q1.summary.tab").write_text("query\ttaxonomy_majority\nq1\tlegacy\n")
-    (work / "q1.final_summary.tsv").write_text("query\ttaxonomy_majority\nq1\tfinal\n")
-    with tarfile.open(tmp_path / "q1.tar.gz", "w:gz") as tar_handle:
-        tar_handle.add(work, arcname="q1")
-
-    results = read_individual_summary_results(tmp_path, ["q1"])
-
-    assert len(results) == 1
-    assert results[0]["query"] == "q1"
-    assert results[0]["summary_data"]["taxonomy_majority"] == "final"
-
-
-def test_quality_context_survives_individual_summary_round_trip(
-    tmp_path: Path,
-) -> None:
-    from src.pipeline.summary_writer import (
-        read_individual_summary_results,
-        write_individual_final_summary_file,
-    )
-
-    class _Logger:
-        def info(self, *_args) -> None:
-            pass
-
-        def error(self, *_args) -> None:
-            pass
-
-    write_individual_final_summary_file(
-        tmp_path,
-        "q1",
+def test_quality_context_survives_the_final_summary_record() -> None:
+    record = summary_writer.final_summary_record(
         {
             "query": "q1",
             "estimated_completeness": 42.5,
@@ -209,18 +152,17 @@ def test_quality_context_survives_individual_summary_round_trip(
             "contamination_query_support": "supported",
             "estimated_contamination_strategy": "trained_model_v1",
             "contamination_model_reliability": "unvalidated_legacy",
-        },
-        _Logger(),
+        }
     )
 
-    result = read_individual_summary_results(tmp_path, ["q1"])[0]["summary_data"]
-
-    assert result["completeness_query_support"] == "limited_support"
-    assert result["estimated_completeness_strategy"] == "novelty_aware_v1"
-    assert result["completeness_model_group"] == "MIRUS"
-    assert result["completeness_model_reliability"] == "unvalidated_legacy"
-    assert result["contamination_query_support"] == "supported"
-    assert result["contamination_model_reliability"] == "unvalidated_legacy"
+    assert list(record) == summary_writer.INDIVIDUAL_FINAL_SUMMARY_COLUMNS
+    assert record["estimated_completeness"] == "42.50"
+    assert record["completeness_query_support"] == "limited_support"
+    assert record["estimated_completeness_strategy"] == "novelty_aware_v1"
+    assert record["completeness_model_group"] == "MIRUS"
+    assert record["completeness_model_reliability"] == "unvalidated_legacy"
+    assert record["contamination_query_support"] == "supported"
+    assert record["contamination_model_reliability"] == "unvalidated_legacy"
 
 
 @pytest.mark.parametrize(
@@ -230,17 +172,64 @@ def test_quality_context_survives_individual_summary_round_trip(
 def test_required_summary_write_failure_raises(
     tmp_path: Path, writer_name: str
 ) -> None:
-    class _Logger:
-        def info(self, *_args) -> None:
-            pass
-
-        def error(self, *_args) -> None:
-            pass
-
     writer = getattr(summary_writer, writer_name)
 
     with pytest.raises(FileNotFoundError):
-        writer(tmp_path / "missing", "q1", {"query": "q1"}, _Logger())
+        writer(tmp_path / "missing", "q1", {"query": "q1"})
+
+
+def test_the_final_summary_file_holds_the_record(tmp_path: Path) -> None:
+    summary_data = {"query": "q1", "avgdist": 1.23456, "taxonomy_majority": "d_NCLDV"}
+
+    summary_file = summary_writer.write_individual_final_summary_file(
+        tmp_path, "q1", summary_data
+    )
+
+    with summary_file.open(newline="") as handle:
+        row = next(csv.DictReader(handle, delimiter="\t"))
+    assert row == summary_writer.final_summary_record(summary_data)
+    assert row["avgdist"] == "1.23"
+
+
+@pytest.mark.parametrize(
+    ("column", "value", "expected"),
+    [
+        ("avgdist", 1.23456, "1.23"),
+        ("estimated_completeness", 88.5, "88.50"),
+        ("order_completeness_v2_support_score", 0.12345, "0.12"),
+        ("contamination_model_prediction_upper_bound", 0.8765432, "0.876543"),
+        ("ncldv_mcp_total", 4.6, "5"),
+        ("estimated_completeness", float("nan"), "NaN"),
+        ("estimated_completeness", "88.50", "88.50"),
+        ("contigs", 3, "3"),
+    ],
+)
+def test_format_value_takes_the_decimals_from_one_table(
+    column: str, value: object, expected: str
+) -> None:
+    assert summary_writer.format_value(column, value) == expected
+
+
+def test_legacy_summary_reads_the_two_aliased_weighted_completeness_keys(
+    tmp_path: Path,
+) -> None:
+    summary_file = summary_writer.write_individual_summary_file(
+        tmp_path,
+        "q1",
+        {
+            "query": "q1",
+            "order_weighted_completeness": 55.556,
+            "order_weighted_completeness_raw": 66.666,
+            "estimated_completeness": 88.5,
+        },
+    )
+
+    header, values = summary_file.read_text().splitlines()
+    row = dict(zip(header.split("\t"), values.split("\t"), strict=True))
+    assert header.split("\t") == summary_writer.LEGACY_SUMMARY_HEADERS
+    assert row["weighted_order_completeness"] == "55.56"
+    assert row["weighted_order_completeness_raw"] == "66.67"
+    assert row["estimated_completeness"] == "88.50"
 
 
 SCREEN_COLUMNS = [
@@ -290,15 +279,10 @@ def test_screen_percentages_are_written_with_two_decimals_and_nan_when_missing(
     assert row["screen_flagged_pct"] == "NaN"
 
 
-def test_a_row_read_back_for_resume_gets_blank_screen_columns(tmp_path: Path) -> None:
-    summary_writer.write_individual_final_summary_file(
-        tmp_path,
-        "q1",
-        {"query": "q1", "taxonomy_majority": "d_NCLDV"},
-        Mock(),
+def test_a_saved_record_has_blank_screen_columns() -> None:
+    record = summary_writer.final_summary_record(
+        {"query": "q1", "taxonomy_majority": "d_NCLDV"}
     )
 
-    results = summary_writer.read_individual_summary_results(tmp_path, ["q1"])
-
-    assert results[0]["summary_data"]["taxonomy_majority"] == "d_NCLDV"
-    assert results[0]["summary_data"]["screen_status"] == ""
+    assert record["taxonomy_majority"] == "d_NCLDV"
+    assert record["screen_status"] == ""

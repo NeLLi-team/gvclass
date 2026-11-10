@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -11,12 +12,9 @@ import pytest
 from src.contig_screen import layout
 from src.pipeline import parallel_runner
 from src.pipeline.contig_screen_step import ScreenOptions
+from src.pipeline.run_config import RunConfig
 from tests.fake_screen import install_fake_screen
-from tests.test_resume_sentinel import (
-    _fake_query_processor,
-    _fake_resume_validate,
-    _seed_resume_complete_query,
-)
+from tests.pipeline_helpers import fake_flow, make_config, write_queries
 
 
 class StepSpy:
@@ -50,18 +48,9 @@ class StepSpy:
 
 
 @pytest.fixture
-def run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path]:
-    query_dir = tmp_path / "queries"
-    output = tmp_path / "out"
-    query_dir.mkdir()
-    output.mkdir()
-    monkeypatch.setattr(
-        parallel_runner,
-        "validate_and_setup_task",
-        _fake_resume_validate(query_dir, output),
-    )
-    monkeypatch.setattr(parallel_runner, "process_query_task", _fake_query_processor)
-    return query_dir, output
+def run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> RunConfig:
+    fake_flow(monkeypatch)
+    return make_config(tmp_path, threads=8, max_workers=None, threads_per_worker=None)
 
 
 def read_rows(summary_file: Path) -> list[dict[str, str]]:
@@ -69,83 +58,83 @@ def read_rows(summary_file: Path) -> list[dict[str, str]]:
         return list(csv.DictReader(handle, delimiter="\t"))
 
 
+def refuse_to_process(monkeypatch: pytest.MonkeyPatch) -> None:
+    def refuse(*args: object, **kwargs: object) -> None:
+        msg = "resume must not process a completed query"
+        raise AssertionError(msg)
+
+    monkeypatch.setattr(parallel_runner, "process_single_query", refuse)
+
+
+def flow(config: RunConfig, **options: Any) -> list[dict[str, str]]:
+    return read_rows(parallel_runner.gvclass_flow(replace(config, **options)))
+
+
+def install_addon(config: RunConfig) -> Path:
+    """Put an add-on manifest where the flow looks for it; return the screen folder."""
+    manifest = config.database_path / "contig_screen" / "manifest.json"
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_text("{}", encoding="utf-8")
+    return config.output_dir / "contig_screen"
+
+
 def test_every_query_is_screened_before_the_final_summary_is_written(
-    run: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+    run: RunConfig, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    query_dir, output = run
-    for name in ("q1", "q2"):
-        (query_dir / f"{name}.fna").write_text(">c\nACGT\n")
-    spy = StepSpy(output)
+    write_queries(run, ["q1", "q2"], ".fna")
+    spy = StepSpy(run.output_dir)
     monkeypatch.setattr(parallel_runner, "add_screen_columns", spy)
 
-    summary_file = parallel_runner.gvclass_flow(
-        str(query_dir), str(output), total_threads=8
-    )
+    rows = flow(run)
 
     assert sorted(spy.queries) == ["q1", "q2"]
     assert not spy.summary_existed
-    assert spy.database == output / "db"
-    rows = read_rows(summary_file)
+    assert spy.database == run.database_path
     assert [row["screen_status"] for row in rows] == ["ok", "ok"]
     assert [row["screen_flagged_pct"] for row in rows] == ["12.35", "12.35"]
 
 
 def test_queries_skipped_by_resume_are_screened_too(
-    run: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+    run: RunConfig, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    query_dir, output = run
-    for name in ("q1", "q2", "q3"):
-        (query_dir / f"{name}.fna").write_text(">c\nACGT\n")
-    _seed_resume_complete_query(output, "q1", "skipped_q1")
-    spy = StepSpy(output)
+    write_queries(run, ["q1"], ".fna")
+    flow(run)
+    write_queries(run, ["q2", "q3"], ".fna")
+    spy = StepSpy(run.output_dir)
     monkeypatch.setattr(parallel_runner, "add_screen_columns", spy)
 
-    summary_file = parallel_runner.gvclass_flow(
-        str(query_dir), str(output), total_threads=8, resume=True
-    )
+    rows = flow(run, resume=True)
 
     assert sorted(spy.queries) == ["q1", "q2", "q3"]
     assert sorted(spy.query_files) == ["q1", "q2", "q3"]
     assert spy.options is not None
     assert spy.options.resume is True
-    assert [row["screen_status"] for row in read_rows(summary_file)] == ["ok"] * 3
+    assert [row["screen_status"] for row in rows] == ["ok"] * 3
 
 
 def test_a_run_in_which_resume_skips_every_query_is_screened(
-    run: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+    run: RunConfig, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    query_dir, output = run
-    for name in ("q1", "q2"):
-        (query_dir / f"{name}.fna").write_text(">c\nACGT\n")
-        _seed_resume_complete_query(output, name, f"skipped_{name}")
-    spy = StepSpy(output)
+    write_queries(run, ["q1", "q2"], ".fna")
+    flow(run)
+    refuse_to_process(monkeypatch)
+    spy = StepSpy(run.output_dir)
     monkeypatch.setattr(parallel_runner, "add_screen_columns", spy)
 
-    summary_file = parallel_runner.gvclass_flow(
-        str(query_dir), str(output), total_threads=8, resume=True
-    )
+    rows = flow(run, resume=True)
 
     assert sorted(spy.queries) == ["q1", "q2"]
-    assert not spy.summary_existed
-    assert [row["screen_status"] for row in read_rows(summary_file)] == ["ok", "ok"]
+    assert [row["screen_status"] for row in rows] == ["ok", "ok"]
 
 
 def test_the_step_gets_the_screen_options_and_the_worker_plan_of_the_run(
-    run: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+    run: RunConfig, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    query_dir, output = run
-    for name in ("q1", "q2"):
-        (query_dir / f"{name}.fna").write_text(">c\nACGT\n")
-    spy = StepSpy(output)
+    write_queries(run, ["q1", "q2"], ".fna")
+    spy = StepSpy(run.output_dir)
     monkeypatch.setattr(parallel_runner, "add_screen_columns", spy)
 
-    parallel_runner.gvclass_flow(
-        str(query_dir),
-        str(output),
-        total_threads=8,
-        contig_screen=False,
-        contigs_mode=True,
-    )
+    flow(run, contig_screen=False, contigs_mode=True)
 
     options = spy.options
     assert options is not None
@@ -160,17 +149,13 @@ def test_the_step_gets_the_screen_options_and_the_worker_plan_of_the_run(
 
 
 def test_without_the_addon_the_summary_says_not_installed_or_not_applicable(
-    run: tuple[Path, Path],
+    run: RunConfig,
 ) -> None:
-    query_dir, output = run
-    (query_dir / "bin_a.fna").write_text(">c\nACGT\n")
-    (query_dir / "bin_b.faa").write_text(">p\nM\n")
+    write_queries(run, ["bin_a"], ".fna")
+    write_queries(run, ["bin_b"], ".faa")
 
-    summary_file = parallel_runner.gvclass_flow(
-        str(query_dir), str(output), total_threads=8
-    )
+    rows = {row["query"]: row for row in flow(run)}
 
-    rows = {row["query"]: row for row in read_rows(summary_file)}
     assert rows["bin_a"]["screen_status"] == "not_installed"
     assert rows["bin_b"]["screen_status"] == "not_applicable"
     assert rows["bin_a"]["screen_cellular_pct"] == "NaN"
@@ -179,12 +164,10 @@ def test_without_the_addon_the_summary_says_not_installed_or_not_applicable(
 
 
 def test_a_screen_that_breaks_never_fails_the_run(
-    run: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+    run: RunConfig, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    query_dir, output = run
-    (query_dir / "q1.fna").write_text(">c\nACGT\n")
-    (output / "db" / "contig_screen").mkdir(parents=True)
-    (output / "db" / "contig_screen" / "manifest.json").write_text("{}")
+    write_queries(run, ["q1"], ".fna")
+    install_addon(run)
 
     def broken_run(*args: object, **kwargs: object) -> None:
         msg = "cannot start"
@@ -192,105 +175,62 @@ def test_a_screen_that_breaks_never_fails_the_run(
 
     monkeypatch.setattr("src.pipeline.contig_screen_step.subprocess.Popen", broken_run)
 
-    summary_file = parallel_runner.gvclass_flow(
-        str(query_dir), str(output), total_threads=8
-    )
+    row = flow(run)[0]
 
-    row = read_rows(summary_file)[0]
     assert row["screen_status"] == "failed"
     assert row["taxonomy_majority"] == "processed_q1"
 
 
-def install_addon(output: Path) -> Path:
-    """Put an add-on manifest where the flow looks for it; return the screen folder."""
-    manifest = output / "db" / "contig_screen" / "manifest.json"
-    manifest.parent.mkdir(parents=True, exist_ok=True)
-    manifest.write_text("{}", encoding="utf-8")
-    return output / "contig_screen"
-
-
-def flow(query_dir: Path, output: Path, **options: Any) -> list[dict[str, str]]:
-    summary = parallel_runner.gvclass_flow(
-        str(query_dir), str(output), total_threads=8, **options
-    )
-    return read_rows(summary)
-
-
-def complete_queries(output: Path, names: list[str]) -> None:
-    """Leave the files that make resume skip the queries.
-
-    The fake query processor does not record completion in ``run_status.json``, so
-    the manifest of the earlier run goes; resume then reads the ``.SUCCESS`` files.
-    """
-    (output / "run_status.json").unlink(missing_ok=True)
-    for name in names:
-        _seed_resume_complete_query(output, name, f"skipped_{name}")
-
-
-def refuse_to_process(monkeypatch: pytest.MonkeyPatch) -> None:
-    def refuse(*args: object, **kwargs: object) -> None:
-        msg = "resume must not process a completed query"
-        raise AssertionError(msg)
-
-    monkeypatch.setattr(parallel_runner, "process_query_task", refuse)
-
-
 def test_resume_screens_skipped_queries_once_the_addon_is_installed(
-    run: tuple[Path, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    run: RunConfig, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    query_dir, output = run
     install_fake_screen(tmp_path, monkeypatch)
-    for name in ("ok_a", "ok_b"):
-        (query_dir / f"{name}.fna").write_text(">c\nACGT\n")
-    first = flow(query_dir, output)
-    screen_dir = install_addon(output)
-    complete_queries(output, ["ok_a", "ok_b"])
+    write_queries(run, ["ok_a", "ok_b"], ".fna")
+    first = flow(run)
+    screen_dir = install_addon(run)
     refuse_to_process(monkeypatch)
 
-    second = flow(query_dir, output, resume=True)
+    second = flow(run, resume=True)
 
     assert [row["screen_status"] for row in first] == ["not_installed"] * 2
     assert [row["screen_status"] for row in second] == ["ok", "ok"]
     assert [row["screen_flagged_pct"] for row in second] == ["25.00", "25.00"]
     assert [row["taxonomy_majority"] for row in second] == [
-        "skipped_ok_a",
-        "skipped_ok_b",
+        "processed_ok_a",
+        "processed_ok_b",
     ]
     assert sorted(path.name for path in screen_dir.iterdir()) == ["ok_a", "ok_b"]
 
 
 def test_resume_screens_a_skipped_query_and_a_processed_one_after_the_install(
-    run: tuple[Path, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    run: RunConfig, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    query_dir, output = run
     install_fake_screen(tmp_path, monkeypatch)
-    for name in ("ok_a", "ok_b"):
-        (query_dir / f"{name}.fna").write_text(">c\nACGT\n")
-    install_addon(output)
-    complete_queries(output, ["ok_a"])
+    write_queries(run, ["ok_a"], ".fna")
+    flow(run)
+    write_queries(run, ["ok_b"], ".fna")
+    install_addon(run)
 
-    rows = flow(query_dir, output, resume=True)
+    rows = flow(run, resume=True)
 
     assert [row["taxonomy_majority"] for row in rows] == [
-        "skipped_ok_a",
+        "processed_ok_a",
         "processed_ok_b",
     ]
     assert [row["screen_status"] for row in rows] == ["ok", "ok"]
 
 
 def test_resume_without_the_screen_keeps_saved_results_and_reports_disabled(
-    run: tuple[Path, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    run: RunConfig, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    query_dir, output = run
     install_fake_screen(tmp_path, monkeypatch)
-    (query_dir / "ok_a.fna").write_text(">c\nACGT\n")
-    screen_dir = install_addon(output)
-    flow(query_dir, output)
+    write_queries(run, ["ok_a"], ".fna")
+    screen_dir = install_addon(run)
+    flow(run)
     saved = {path.name: path.read_bytes() for path in (screen_dir / "ok_a").iterdir()}
-    complete_queries(output, ["ok_a"])
     refuse_to_process(monkeypatch)
 
-    off = flow(query_dir, output, resume=True, contig_screen=False)
+    off = flow(run, resume=True, contig_screen=False)
 
     assert [row["screen_status"] for row in off] == ["disabled"]
     assert off[0]["screen_cellular_pct"] == "NaN"
@@ -299,46 +239,42 @@ def test_resume_without_the_screen_keeps_saved_results_and_reports_disabled(
     } == saved
 
     (screen_dir / "ok_a" / "args.json").unlink()
-    complete_queries(output, ["ok_a"])
-    on = flow(query_dir, output, resume=True)
+    on = flow(run, resume=True)
 
     assert [row["screen_status"] for row in on] == ["ok"]
     assert not (screen_dir / "ok_a" / "args.json").exists()
 
 
 def test_resume_screens_again_after_the_addon_manifest_changed(
-    run: tuple[Path, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    run: RunConfig, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    query_dir, output = run
     install_fake_screen(tmp_path, monkeypatch)
-    (query_dir / "ok_a.fna").write_text(">c\nACGT\n")
-    screen_dir = install_addon(output)
-    flow(query_dir, output)
+    write_queries(run, ["ok_a"], ".fna")
+    screen_dir = install_addon(run)
+    flow(run)
     (screen_dir / "ok_a" / "args.json").unlink()
-    complete_queries(output, ["ok_a"])
     refuse_to_process(monkeypatch)
-    (output / "db" / "contig_screen" / "manifest.json").write_text('{"v": 2}')
+    (run.database_path / "contig_screen" / "manifest.json").write_text('{"v": 2}')
 
-    rows = flow(query_dir, output, resume=True)
+    rows = flow(run, resume=True)
 
     assert [row["screen_status"] for row in rows] == ["ok"]
     assert (screen_dir / "ok_a" / "args.json").exists()
 
 
 def test_an_unreadable_manifest_never_costs_the_summary(
-    run: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+    run: RunConfig, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    query_dir, output = run
-    (query_dir / "q1.fna").write_text(">c\nACGT\n")
-    (query_dir / "q2.faa").write_text(">p\nM\n")
+    write_queries(run, ["q1"], ".fna")
+    write_queries(run, ["q2"], ".faa")
 
     def refuse(database: Path) -> str:
         raise PermissionError(13, "Permission denied")
 
     monkeypatch.setattr(layout, "manifest_digest", refuse)
 
-    on = flow(query_dir, output)
-    off = flow(query_dir, output, contig_screen=False)
+    on = flow(run)
+    off = flow(run, contig_screen=False)
 
     assert [(r["query"], r["screen_status"]) for r in on] == [
         ("q1", "failed"),

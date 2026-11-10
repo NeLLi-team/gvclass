@@ -25,7 +25,7 @@ from src.pipeline.summary_writer import (
     FINAL_SUMMARY_COLUMNS,
     INDIVIDUAL_FINAL_SUMMARY_COLUMNS,
     archive_final_summary_extended_files,
-    read_individual_summary_results,
+    final_summary_record,
     write_final_summary_extended_files,
     write_final_summary_files,
     write_individual_final_summary_file,
@@ -131,12 +131,11 @@ def test_weighted_completeness_fallback_averages_duplicate_marker_rows(
 def test_summary_writer_preserves_extended_columns_across_resume(
     tmp_path: Path,
 ) -> None:
-    """<query>.final_summary.tsv must persist every summary and extended column.
+    """The final-schema row must keep every summary and extended column.
 
-    --resume rebuilds the extended table from these files.
+    <query>.final_summary.tsv and the ``summary`` of the ``results.jsonl`` record
+    hold this row; --resume rebuilds both combined tables from the record.
     """
-    import logging
-
     assert (
         INDIVIDUAL_FINAL_SUMMARY_COLUMNS[: len(FINAL_SUMMARY_COLUMNS)]
         == FINAL_SUMMARY_COLUMNS
@@ -148,11 +147,15 @@ def test_summary_writer_preserves_extended_columns_across_resume(
     summary_data["cellular_coherent_bp_fraction"] = 12.34
     summary_data["contig_attribution_mode"] = "contig_aware"
 
-    write_individual_final_summary_file(
-        tmp_path, "sample_q", summary_data, logging.getLogger(__name__)
-    )
+    write_individual_final_summary_file(tmp_path, "sample_q", summary_data)
+    record = final_summary_record(summary_data)
+    saved_lines = (tmp_path / "sample_q.final_summary.tsv").read_text().splitlines()
+    assert saved_lines[0].split("\t") == INDIVIDUAL_FINAL_SUMMARY_COLUMNS
+    assert saved_lines[1].split("\t") == list(record.values())
 
-    resumed_results = read_individual_summary_results(tmp_path, ["sample_q"])
+    resumed_results = [
+        {"query": "sample_q", "status": "complete", "summary_data": record}
+    ]
     write_final_summary_files(resumed_results, tmp_path)
     write_final_summary_extended_files(resumed_results, tmp_path)
     archive_final_summary_extended_files(tmp_path)

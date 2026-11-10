@@ -13,13 +13,26 @@ Results are written to `-o OUTPUT_DIR`, or `<query_dir>_results` by default. The
 | `gvclass_summary.extended.tar.gz` | Archive containing `gvclass_summary.extended.tsv` and `gvclass_summary.extended.csv`, the per-contig contamination diagnostics. |
 | `gvclass_failed_queries.tsv` | Written only when one or more queries fail; one row per failed query with its error, including input files rejected by validation (status `invalid_input`). Tab-separated. A failed required search, tree, or summary step fails the query; GVClass does not fall back silently. |
 | `gvclass_failed_queries.csv` | Same content as the failed-queries TSV, comma-separated. |
-| `run_status.json` | Resume manifest: software and database versions, database path, settings, query status, timestamps, and artifact names, sizes, and checksums. |
+| `results.jsonl` | The record of finished queries. It is append-only: one JSON line per query that finished, written and flushed to disk when the query ends. The last line of a query counts. |
+| `run_status.json` | Description of the run, written when the run starts (`running`) and when it ends (`complete` or `failed`): software and database versions, database path, all settings, and each query's status, finish time and error. |
 | `run.log` | Run and query start, completion, and failure messages. |
 
-With `--verbose`, output validation uses query names in `run_status.json` to
-distinguish query directories from shared `contig_screen/`, `species_tree/` and
-`.species_tree_work/` folders. Without readable query metadata, this verbose
-check inspects every directory.
+A line of `results.jsonl` holds `query`, `status` (`complete`, `failed` or
+`invalid_input`), `error`, `input_sha256`, `settings` (the settings that change
+results), `database_version`, `software_version`, `finished_at`, `archive` (file name,
+size and SHA-256) and `summary` (the final-schema row of the query, including the
+extended columns). Output validation reads this file. It reports a query whose last
+record is not `complete`, an archive that is missing or has another size than
+recorded, and an archive without a non-empty summary and final summary.
+
+`--resume` reads `results.jsonl` once and skips a query only when its last record is
+`complete`, and all of these equal the current run: the SHA-256 of the input file, the
+result settings (`tree_method`, `iqtree_mode`, `mode_fast`, `completeness_mode`,
+`sensitive_mode`, `species_tree`, `species_tree_trim`), the database version and the
+software version. The archive must exist with the recorded size. The log names the
+field that differed for every query that runs again. Thread counts, `--screen` and
+`--contigs` do not change results and do not stop a skip. The combined summary tables
+are built from the queries processed now and from the `summary` of the skipped ones.
 
 ### Per-query files
 
@@ -28,10 +41,18 @@ Each `<query>.tar.gz` archive contains the summary and diagnostic files below.
 | File | Contents |
 | --- | --- |
 | `<query>.tar.gz` | Bundled per-query artifacts. |
-| `<query>/<query>.final_summary.tsv` | Single-query row with the main columns plus extended quality fields. `--resume` rebuilds both run summaries from these rows. |
+| `<query>/<query>.final_summary.tsv` | Single-query row with the main columns plus extended quality fields. The same row is the `summary` of the query's `results.jsonl` record; `--resume` rebuilds both run summaries from that field. |
 | `<query>/<query>.summary.tab` | Per-query summary table, tab-delimited. |
 | `<query>/stats/<query>.contamination_candidates.tsv` | Suspicious contigs; written when contamination reaches the reporting threshold (at least 10), its type is interpretable, and candidates are found. |
 | `<query>/stats/<query>.contamination_review.tsv` | Contigs with mixed viral and coherent cellular evidence; written whenever this evidence exists, even for a low or unavailable estimate. |
+
+A running query keeps its working files in `.gvclass_work/<query>/`, never in a folder
+named like the query, so a query name cannot collide with `contig_screen/`,
+`species_tree/` or the folder of another query. A query that fails leaves its folder
+there; `.gvclass_work/` itself goes when no query left a folder. A new attempt deletes a leftover folder before it starts, so old search results
+and sequence files cannot affect its scores. A new `<query>.tar.gz` replaces the
+previous one only when it is complete; a failed attempt leaves the previous archive in
+place.
 
 Both contamination tables include the contig ID, `candidate_type`, `reason`, marker counts, `recommended_action`, `length_bp`, `length_basis`, and `ambiguous_eve_hit_count`. `length_basis` identifies a measured DNA length or a protein-based estimate. A review row is not a deletion instruction.
 
@@ -54,11 +75,6 @@ The four `species_tree_*` summary columns describe per-query trees. Combined-tre
 ## Summary columns
 
 `gvclass_summary.tsv` and `gvclass_summary.csv` share the columns below in this order. `NaN` means an unavailable numeric estimate, not zero.
-
-Resume requires saved quality-support fields. Summaries that lack those fields are reprocessed so that old quality estimates do not enter the current output unchanged.
-When a query runs again, any nonempty working directory is retained as a sibling
-directory, `<query>.previous.<unique>/`. The new attempt starts in an empty directory so
-old search results and sequence files cannot affect its scores.
 
 | Column | Description |
 | --- | --- |

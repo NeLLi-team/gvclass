@@ -2,6 +2,7 @@
 
 import json
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -18,6 +19,13 @@ from src.core.species_tree import (
     tree_inference,
 )
 from src.pipeline import parallel_runner, query_processing_engine
+from src.pipeline.run_config import RunConfig
+from tests.pipeline_helpers import (
+    fake_setup,
+    make_config,
+    make_fake_process,
+    write_queries,
+)
 
 
 @pytest.mark.parametrize("mode", ["fast", "ufboot"])
@@ -65,30 +73,18 @@ def test_empty_species_tree_is_an_error(
 
 
 @pytest.fixture
-def flow_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path]:
-    query = tmp_path / "query.faa"
-    query.write_text(">p\nM\n", encoding="utf-8")
-    output = tmp_path / "out"
-    output.mkdir()
-    monkeypatch.setattr(
-        parallel_runner,
-        "validate_and_setup_task",
-        Mock(
-            return_value={
-                "query_files": [query],
-                "rejected_inputs": [],
-                "output_path": output,
-                "database_path": tmp_path / "database",
-            }
-        ),
-    )
-    return query, output
+def flow_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> RunConfig:
+    config = make_config(tmp_path, threads=1)
+    write_queries(config, ["query"])
+    monkeypatch.setattr(parallel_runner, "validate_and_setup_task", fake_setup)
+    monkeypatch.setattr(parallel_runner, "check_marker_panels", lambda _database: None)
+    return config
 
 
 @pytest.fixture
 def prepared_flow(
-    flow_paths: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
-) -> tuple[Path, Path, Mock]:
+    flow_config: RunConfig, monkeypatch: pytest.MonkeyPatch
+) -> tuple[RunConfig, Mock]:
     monkeypatch.setattr(
         query_processing_engine,
         "_run_query_stages",
@@ -99,7 +95,7 @@ def prepared_flow(
     monkeypatch.setattr(orchestration, "select_panel", Mock(return_value=object()))
     archive = Mock(wraps=query_processing_engine._post_process_query)
     monkeypatch.setattr(query_processing_engine, "_post_process_query", archive)
-    return *flow_paths, archive
+    return flow_config, archive
 
 
 @pytest.mark.parametrize(
@@ -111,43 +107,41 @@ def prepared_flow(
     ],
 )
 def test_requested_per_query_failure_marks_query_and_run_failed(
-    prepared_flow: tuple[Path, Path, Mock],
+    prepared_flow: tuple[RunConfig, Mock],
     monkeypatch: pytest.MonkeyPatch,
     error: Exception,
 ) -> None:
-    query, output, archive = prepared_flow
+    config, archive = prepared_flow
     monkeypatch.setattr(orchestration, "_run_per_query", Mock(side_effect=error))
 
     with pytest.raises(RuntimeError, match="failed for 1 of 1 queries"):
-        parallel_runner.gvclass_flow(
-            str(query), str(output), total_threads=1, species_tree=True
-        )
+        parallel_runner.gvclass_flow(replace(config, species_tree=True))
 
-    status = json.loads((output / "run_status.json").read_text(encoding="utf-8"))
+    status = json.loads(
+        (config.output_dir / "run_status.json").read_text(encoding="utf-8")
+    )
     assert status["status"] == "failed"
     assert status["queries"]["query"]["status"] == "failed"
     assert str(error) in status["queries"]["query"]["error"]
     archive.assert_not_called()
+    assert (config.output_dir / ".gvclass_work" / "query").is_dir()
 
 
 @pytest.mark.parametrize("stage", ["setup", "combined"])
 def test_requested_run_level_species_failure_is_not_suppressed(
-    flow_paths: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, stage: str
+    flow_config: RunConfig, monkeypatch: pytest.MonkeyPatch, stage: str
 ) -> None:
-    query, output = flow_paths
-    monkeypatch.setattr(
-        parallel_runner, "_process_queries_in_parallel", Mock(return_value=([], 0))
-    )
+    monkeypatch.setattr(parallel_runner, "process_single_query", make_fake_process())
     target = handoff if stage == "setup" else orchestration
     name = "init_handoff" if stage == "setup" else "_run_combined"
     monkeypatch.setattr(target, name, Mock(side_effect=RuntimeError("species failure")))
 
     with pytest.raises(RuntimeError, match="species failure"):
-        parallel_runner.gvclass_flow(
-            str(query), str(output), total_threads=1, species_tree_combined=True
-        )
+        parallel_runner.gvclass_flow(replace(flow_config, species_tree_combined=True))
 
-    status = json.loads((output / "run_status.json").read_text(encoding="utf-8"))
+    status = json.loads(
+        (flow_config.output_dir / "run_status.json").read_text(encoding="utf-8")
+    )
     assert status["status"] == "failed"
 
 
@@ -177,12 +171,10 @@ def test_empty_neighbor_tree_is_an_error(
 
 
 def test_runner_exits_nonzero_for_requested_species_failure(
-    flow_paths: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+    flow_config: RunConfig, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    query, output = flow_paths
-    monkeypatch.setattr(
-        parallel_runner, "_process_queries_in_parallel", Mock(return_value=([], 0))
-    )
+    output = flow_config.output_dir
+    monkeypatch.setattr(parallel_runner, "process_single_query", make_fake_process())
     monkeypatch.setattr(
         orchestration,
         "_run_combined",
@@ -190,7 +182,16 @@ def test_runner_exits_nonzero_for_requested_species_failure(
     )
     result = CliRunner().invoke(
         gvclass_runner.main,
-        [str(query), "-o", str(output), "-t", "1", "--species-tree-combined"],
+        [
+            str(flow_config.query_path),
+            "-o",
+            str(output),
+            "-d",
+            str(flow_config.database_path),
+            "-t",
+            "1",
+            "--species-tree-combined",
+        ],
     )
     assert result.exit_code == 1
     assert "species inference failed" in result.output
@@ -239,20 +240,20 @@ def test_iqtree_preserves_dotted_query_prefix(
 
 
 def test_healthy_species_fixture_completes_with_real_archive(
-    prepared_flow: tuple[Path, Path, Mock], monkeypatch: pytest.MonkeyPatch
+    prepared_flow: tuple[RunConfig, Mock], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    query, output, archive = prepared_flow
+    config, archive = prepared_flow
+    output = config.output_dir
     monkeypatch.setattr(orchestration, "_run_per_query", Mock())
 
-    parallel_runner.gvclass_flow(
-        str(query), str(output), total_threads=1, species_tree=True
-    )
+    parallel_runner.gvclass_flow(replace(config, species_tree=True))
 
     status = json.loads((output / "run_status.json").read_text(encoding="utf-8"))
     assert status["status"] == "complete"
     assert status["queries"]["query"]["status"] == "complete"
     assert (output / "query.tar.gz").is_file()
     archive.assert_called_once()
+    assert not (output / ".gvclass_work").exists()
 
 
 def test_missing_iqtree_output_is_an_inference_error(

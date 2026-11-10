@@ -80,6 +80,10 @@ If a query fails, inspect `bin_results/gvclass_failed_queries.tsv` and
 pixi run gvclass query_genomes -o bin_results -t 8 --resume
 ```
 
-Use a new output directory when changing analysis settings. For quality
+`--resume` reads `bin_results/results.jsonl`, the record of finished queries. It
+skips a query only if its input file, the settings that change results, the database
+version and the GVClass version equal those of the saved result and its archive is
+still there; otherwise it runs the query again and the log says which field differed.
+Changing only the number of threads does not stop a skip. For quality
 interpretation, follow [Assess genome quality](assess-genome-quality.md); for
 all output paths, see the [output reference](../reference/output.md).

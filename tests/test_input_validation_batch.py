@@ -10,10 +10,11 @@ from unittest.mock import Mock
 import pytest
 
 from src.pipeline import parallel_runner
-from src.pipeline.parallel_runner import validate_and_setup_task
+from src.pipeline.parallel_runner import RunInputs, validate_and_setup_task
+from src.pipeline.run_config import RunConfig
 from src.utils.error_handling import ValidationError
 from src.utils.input_validation import RESERVED_QUERY_STEMS
-from tests.test_resume_sentinel import _fake_query_processor, _fake_resume_validate
+from tests.pipeline_helpers import fake_flow, fake_setup, make_config, write_queries
 
 LONG_DNA = "ACGT" * 6000
 
@@ -34,8 +35,9 @@ def database_setup(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Mock:
     return setup_database
 
 
-def _setup(query_dir: Path, tmp_path: Path, **kwargs: object) -> dict:
-    return validate_and_setup_task(str(query_dir), str(tmp_path / "out"), **kwargs)
+def _setup(tmp_path: Path, **overrides: object) -> RunInputs:
+    settings = {"allow_short": False, **overrides}
+    return validate_and_setup_task(make_config(tmp_path, **settings))
 
 
 def test_setup_keeps_valid_files_and_rejects_invalid_ones(
@@ -45,10 +47,10 @@ def test_setup_keeps_valid_files_and_rejects_invalid_ones(
     (query_dir / "short.fna").write_text(">c\nACGT\n")
     (query_dir / "dup.faa").write_text(">p\nMKV\n>p\nMKV\n")
 
-    config = _setup(query_dir, tmp_path)
+    inputs = _setup(tmp_path)
 
-    assert [path.name for path in config["query_files"]] == ["good.fna"]
-    rejected = dict(config["rejected_inputs"])
+    assert [path.name for path in inputs.query_files] == ["good.fna"]
+    rejected = {path.stem: error for path, error in inputs.rejected_inputs}
     assert sorted(rejected) == ["dup", "short"]
     assert "minimum" in rejected["short"]
     assert "'p'" in rejected["dup"]
@@ -57,10 +59,10 @@ def test_setup_keeps_valid_files_and_rejects_invalid_ones(
 def test_setup_finds_an_uppercase_extension(query_dir: Path, tmp_path: Path) -> None:
     (query_dir / "X.FNA").write_text(f">c\n{LONG_DNA}\n")
 
-    config = _setup(query_dir, tmp_path)
+    inputs = _setup(tmp_path)
 
-    assert [path.name for path in config["query_files"]] == ["X.FNA"]
-    assert config["rejected_inputs"] == []
+    assert [path.name for path in inputs.query_files] == ["X.FNA"]
+    assert inputs.rejected_inputs == ()
 
 
 def test_setup_allow_short_still_accepts_short_files(
@@ -68,10 +70,10 @@ def test_setup_allow_short_still_accepts_short_files(
 ) -> None:
     (query_dir / "short.fna").write_text(">c\nACGT\n")
 
-    config = _setup(query_dir, tmp_path, allow_short=True)
+    inputs = _setup(tmp_path, allow_short=True)
 
-    assert [path.name for path in config["query_files"]] == ["short.fna"]
-    assert config["rejected_inputs"] == []
+    assert [path.name for path in inputs.query_files] == ["short.fna"]
+    assert inputs.rejected_inputs == ()
 
 
 def test_setup_without_any_valid_file_is_an_error(
@@ -80,14 +82,14 @@ def test_setup_without_any_valid_file_is_an_error(
     (query_dir / "short.fna").write_text(">c\nACGT\n")
 
     with pytest.raises(ValidationError, match="short"):
-        _setup(query_dir, tmp_path)
+        _setup(tmp_path)
 
 
 def test_setup_without_query_files_is_an_error(query_dir: Path, tmp_path: Path) -> None:
     (query_dir / "notes.txt").write_text("x")
 
     with pytest.raises(ValidationError, match="No valid sequence files"):
-        _setup(query_dir, tmp_path)
+        _setup(tmp_path)
 
 
 @pytest.mark.parametrize("stem", sorted(RESERVED_QUERY_STEMS))
@@ -98,7 +100,7 @@ def test_setup_rejects_a_reserved_query_name_for_the_whole_run(
     (query_dir / f"{stem}.fna").write_text(f">c\n{LONG_DNA}\n")
 
     with pytest.raises(ValidationError, match=f"reserved.*{stem}"):
-        _setup(query_dir, tmp_path)
+        _setup(tmp_path)
 
     database_setup.assert_not_called()
 
@@ -112,30 +114,26 @@ def test_reserved_names_cover_the_pipeline_outputs() -> None:
 def test_flow_reports_a_rejected_input_as_a_failed_query(
     query_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    output = tmp_path / "out"
-    output.mkdir()
-    (query_dir / "good.faa").write_text(">p\nM\n")
-    fake_setup = _fake_resume_validate(query_dir, output)
+    config = make_config(tmp_path)
+    fake_flow(monkeypatch)
+    good, bad = write_queries(config, ["good", "bad"])
 
-    def setup_with_rejection(*args: object, **kwargs: object) -> dict:
-        config = fake_setup(*args, **kwargs)
-        config["rejected_inputs"] = [("bad", "Total sequence length is too short")]
-        return config
+    def setup_with_rejection(run_config: RunConfig) -> RunInputs:
+        inputs = fake_setup(run_config)
+        return RunInputs(
+            (good,),
+            ((bad, "Total sequence length is too short"),),
+            inputs.database_path,
+        )
 
     monkeypatch.setattr(
         parallel_runner, "validate_and_setup_task", setup_with_rejection
     )
-    monkeypatch.setattr(parallel_runner, "process_query_task", _fake_query_processor)
 
     with pytest.raises(RuntimeError, match="failed for 1 of 2 queries"):
-        parallel_runner.gvclass_flow(
-            str(query_dir),
-            str(output),
-            total_threads=1,
-            max_workers=1,
-            threads_per_worker=1,
-        )
+        parallel_runner.gvclass_flow(config)
 
+    output = config.output_dir
     with (output / "gvclass_failed_queries.tsv").open(newline="") as handle:
         failed = list(csv.DictReader(handle, delimiter="\t"))
     assert failed == [
@@ -151,5 +149,5 @@ def test_flow_reports_a_rejected_input_as_a_failed_query(
         ]
     status = json.loads((output / "run_status.json").read_text())
     assert status["status"] == "failed"
-    assert status["queries"]["bad"]["status"] == "failed"
+    assert status["queries"]["bad"]["status"] == "invalid_input"
     assert status["queries"]["bad"]["error"] == "Total sequence length is too short"

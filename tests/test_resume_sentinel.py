@@ -1,718 +1,621 @@
-"""Regression tests for resume metadata + atomic tar path.
+"""The completion record, the resume rule and the private work directory.
 
 Coverage:
-* run_status.json records query completion after summary + tar are durable.
-* Resume accepts the consolidated manifest.
-* Resume accepts v1.4.3 SUCCESS sentinels only with a current quality schema.
-* Resume falls back to a summary+tar pair only when the sentinel is missing,
-  the tar is well-formed, and the summary has the current quality schema.
-* A corrupted or truncated tar causes the legacy fallback to reject the
-  query so it re-runs.
-* ``_archive_query_output`` never leaves a truncated ``.tar.gz`` on failure.
+* ``results.jsonl`` gets one fsynced line per finished query and ``run_status.json``
+  is written twice per run.
+* ``--resume`` skips a query only when the input, the result settings, the database
+  and the software are the ones of its last ``complete`` record.
+* The previous archive survives a failed archive step; a leftover work directory is
+  deleted at query start; work directories cannot collide with output folders.
 """
 
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import logging
+import os
 import tarfile
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
 
+from src.pipeline import parallel_runner, query_processing_engine, run_status
+from src.pipeline.parallel_runner import RunInputs
+from src.pipeline.run_status import RESULTS_FILENAME, read_results
+from src.utils import ValidationError
+from src.utils.error_handling import ProcessingError
+from tests.pipeline_helpers import (
+    fake_flow,
+    fake_setup,
+    make_config,
+    read_jsonl_lines,
+    tar_member_text,
+    write_queries,
+)
+
 LOGGER = logging.getLogger("test_resume_sentinel")
-CURRENT_QUALITY_VALUES = {
-    "completeness_query_support": "supported",
-    "estimated_completeness_strategy": "novelty_aware_v1",
-    "completeness_model_group": "Algavirales",
-    "completeness_model_reliability": "unvalidated_legacy",
-    "contamination_query_support": "supported",
-    "estimated_contamination_strategy": "extra_trees_v1",
-    "contamination_model_reliability": "unvalidated_legacy",
+RECORD_FIELDS = {
+    "query",
+    "status",
+    "error",
+    "input_sha256",
+    "settings",
+    "database_version",
+    "software_version",
+    "finished_at",
+    "archive",
+    "summary",
+}
+EXTENDED_VALUES = {
+    "mixed_evidence_contig_count": 3,
+    "mixed_evidence_status": "review",
+    "contig_length_basis": "exact_dna",
+    "protein_estimated_contig_count": 2,
+    "contamination_model_applicability": "applicable",
+    "contamination_prediction_range_status": "above_training_range",
+    "contamination_model_prediction_upper_bound": 0.8765432,
 }
 
 
+def read_rows(summary_file: Path) -> list[dict[str, str]]:
+    with summary_file.open(newline="") as handle:
+        return list(csv.DictReader(handle, delimiter="\t"))
+
+
+def sha256_of(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
 # ---------------------------------------------------------------------------
-# Run status writer.
+# results.jsonl and run_status.json.
 # ---------------------------------------------------------------------------
 
 
-def _seed_post_process_artefacts(
-    output_base: Path, query_name: str
-) -> tuple[Path, Path]:
-    output_base.mkdir(parents=True, exist_ok=True)
-    summary_file = output_base / f"{query_name}.summary.tab"
-    tar_file = output_base / f"{query_name}.tar.gz"
-    _write_resume_summary(output_base, query_name, "d_NCLDV")
-    # Not a real tar, but exists for sentinel payload checksum.
-    tar_file.write_bytes(b"fake-tar-bytes")
-    return summary_file, tar_file
-
-
-def test_run_status_records_version_database_and_checksums(tmp_path: Path) -> None:
-    from src.pipeline.run_status import RunStatusRecorder
-
-    output_base = tmp_path / "out"
-    db_path = tmp_path / "db"
-    db_path.mkdir()
-    (db_path / "DB_VERSION").write_text("v9.9.9\n")
-    summary_file, tar_file = _seed_post_process_artefacts(output_base, "q1")
-
-    recorder = RunStatusRecorder(
-        output_base,
-        db_path,
-        ["q1"],
-        settings={"tree_method": "veryfasttree"},
-    )
-    recorder.start()
-    recorder.record_query_started("q1")
-    recorder.record_query_complete("q1")
-    recorder.finish("complete")
-
-    payload = json.loads((output_base / "run_status.json").read_text())
-    assert payload["schema_version"] == 1
-    assert payload["software_version"].startswith("v")
-    assert payload["database"]["version"] == "v9.9.9"
-    assert payload["status"] == "complete"
-    query = payload["queries"]["q1"]
-    assert query["status"] == "complete"
-    assert query["database_version"] == "v9.9.9"
-    assert query["artifacts"]["archive"]["filename"] == tar_file.name
-    assert query["artifacts"]["summary"]["filename"] == summary_file.name
-    # SHA-256 hex digest is 64 hex chars.
-    assert len(query["artifacts"]["archive"]["sha256"]) == 64
-    assert len(query["artifacts"]["summary"]["sha256"]) == 64
-    assert query["artifacts"]["archive"]["bytes"] == tar_file.stat().st_size
-    assert "QUERY_COMPLETE\tq1" in (output_base / "run.log").read_text()
-    assert not (output_base / "q1.SUCCESS").exists()
-
-
-def test_run_status_rejects_complete_record_when_artefact_missing(
-    tmp_path: Path,
+def test_results_log_has_one_line_per_finished_query(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from src.pipeline.run_status import RunStatusRecorder
+    fake_flow(monkeypatch)
+    config = make_config(tmp_path)
+    write_queries(config, ["q1", "q2", "q3"])
 
-    output_base = tmp_path / "out"
-    db_path = tmp_path / "db"
-    output_base.mkdir()
-    db_path.mkdir()
-    (output_base / "q1.summary.tab").write_text("query\n")
-    # No tar file on disk -> completion must not be recorded.
+    parallel_runner.gvclass_flow(config)
 
-    recorder = RunStatusRecorder(output_base, db_path, ["q1"], settings={})
-    recorder.start()
-    with pytest.raises(RuntimeError, match="missing artifacts"):
-        recorder.record_query_complete("q1")
-    payload = json.loads((output_base / "run_status.json").read_text())
-    assert payload["queries"]["q1"]["status"] == "pending"
+    lines = read_jsonl_lines(config.output_dir / RESULTS_FILENAME)
+    assert sorted(json.loads(line)["query"] for line in lines) == ["q1", "q2", "q3"]
 
 
-def test_clear_success_sentinel_removes_prior_marker(tmp_path: Path) -> None:
-    from src.pipeline.query_processing_engine import _clear_success_sentinel
+def test_results_record_holds_what_resume_compares(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_flow(monkeypatch, summaries={"q1": EXTENDED_VALUES})
+    (tmp_path / "db").mkdir()
+    (tmp_path / "db" / "DB_VERSION").write_text("v9.9.9\n")
+    config = make_config(tmp_path)
+    (query_file,) = write_queries(config, ["q1"])
 
-    output_base = tmp_path / "out"
-    output_base.mkdir()
-    sentinel = output_base / "q1.SUCCESS"
-    sentinel.write_text("{}")
-    _clear_success_sentinel("q1", output_base, LOGGER)
-    assert not sentinel.exists()
+    parallel_runner.gvclass_flow(config)
+
+    (line,) = read_jsonl_lines(config.output_dir / RESULTS_FILENAME)
+    record = json.loads(line)
+    archive = config.output_dir / "q1.tar.gz"
+    assert set(record) == RECORD_FIELDS
+    assert record["status"] == "complete"
+    assert record["error"] is None
+    assert record["input_sha256"] == sha256_of(query_file)
+    assert record["settings"] == config.result_settings()
+    assert record["database_version"] == "v9.9.9"
+    assert record["software_version"] == run_status.SOFTWARE_VERSION
+    assert record["finished_at"].endswith("+00:00")
+    assert record["archive"] == {
+        "filename": "q1.tar.gz",
+        "bytes": archive.stat().st_size,
+        "sha256": sha256_of(archive),
+    }
+    assert record["summary"]["taxonomy_majority"] == "processed_q1"
+    assert record["summary"]["estimated_completeness"] == "91.25"
+    assert record["summary"]["mixed_evidence_status"] == "review"
+    assert record["summary"]["contamination_model_prediction_upper_bound"] == "0.876543"
+
+
+def test_failed_query_gets_a_failed_record(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_flow(monkeypatch, failing={"q2": RuntimeError("simulated query failure")})
+    config = make_config(tmp_path)
+    write_queries(config, ["q1", "q2"])
+
+    with pytest.raises(RuntimeError, match="failed for 1 of 2 queries"):
+        parallel_runner.gvclass_flow(config)
+
+    records = read_results(config.output_dir)
+    assert records["q1"].status == "complete"
+    assert records["q2"].status == "failed"
+    assert records["q2"].error == "simulated query failure"
+    assert records["q2"].archive is None
+    assert records["q2"].summary is None
+
+
+def test_rejected_input_gets_an_invalid_input_record(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_flow(monkeypatch)
+    config = make_config(tmp_path)
+    good, bad = write_queries(config, ["good", "bad"])
+
+    def setup_with_rejection(config_: object) -> RunInputs:
+        inputs = fake_setup(config)
+        return RunInputs(
+            (good,), ((bad, "total length is below the minimum"),), inputs.database_path
+        )
+
+    monkeypatch.setattr(
+        parallel_runner, "validate_and_setup_task", setup_with_rejection
+    )
+
+    with pytest.raises(RuntimeError, match="failed for 1 of 2 queries"):
+        parallel_runner.gvclass_flow(config)
+
+    records = read_results(config.output_dir)
+    assert records["good"].status == "complete"
+    assert records["bad"].status == "invalid_input"
+    assert records["bad"].error == "total length is below the minimum"
+    status = json.loads((config.output_dir / "run_status.json").read_text())
+    assert status["queries"]["bad"]["status"] == "invalid_input"
+    assert status["status"] == "failed"
+
+
+def test_run_status_is_written_at_start_and_at_the_end_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_flow(monkeypatch)
+    config = make_config(tmp_path, threads=4, max_workers=2, threads_per_worker=2)
+    write_queries(config, ["q1", "q2", "q3", "q4"])
+    written: list[dict[str, object]] = []
+    real_replace = os.replace
+
+    def spy_replace(source: str | Path, target: str | Path) -> None:
+        if Path(target).name == "run_status.json":
+            written.append(json.loads(Path(source).read_text()))
+        real_replace(source, target)
+
+    monkeypatch.setattr(run_status.os, "replace", spy_replace)
+
+    parallel_runner.gvclass_flow(config)
+
+    assert [state["status"] for state in written] == ["running", "complete"]
+    final = written[-1]
+    assert final["software_version"] == run_status.SOFTWARE_VERSION
+    assert final["settings"]["tree_method"] == config.tree_method
+    assert {name: q["status"] for name, q in final["queries"].items()} == {
+        f"q{i}": "complete" for i in range(1, 5)
+    }
+    run_log = (config.output_dir / "run.log").read_text()
+    assert run_log.count("QUERY_START") == 4
+    assert run_log.count("QUERY_COMPLETE") == 4
+
+
+def test_a_crash_between_queries_leaves_a_readable_results_log(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_flow(monkeypatch, failing={"q3": KeyboardInterrupt()})
+    config = make_config(tmp_path)
+    write_queries(config, ["q1", "q2", "q3"])
+
+    with pytest.raises(KeyboardInterrupt):
+        parallel_runner.gvclass_flow(config)
+
+    lines = read_jsonl_lines(config.output_dir / RESULTS_FILENAME)
+    assert [json.loads(line)["query"] for line in lines] == ["q1", "q2"]
+    assert set(read_results(config.output_dir)) == {"q1", "q2"}
+    status = json.loads((config.output_dir / "run_status.json").read_text())
+    assert status["status"] == "failed"
+
+
+def test_a_run_after_a_killed_run_keeps_the_new_records_readable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_flow(monkeypatch)
+    config = make_config(tmp_path)
+    write_queries(config, ["q1"])
+    config.output_dir.mkdir()
+    (config.output_dir / RESULTS_FILENAME).write_text('{"query": "old", "sta')
+
+    parallel_runner.gvclass_flow(config)
+
+    assert set(read_results(config.output_dir)) == {"q1"}
+
+
+def test_read_results_keeps_the_last_record_of_a_query(tmp_path: Path) -> None:
+    first = {**dict.fromkeys(RECORD_FIELDS), "query": "q1", "status": "failed"}
+    second = {**first, "status": "complete", "error": None}
+    (tmp_path / RESULTS_FILENAME).write_text(
+        json.dumps(first) + "\n" + json.dumps(second) + "\n", encoding="utf-8"
+    )
+
+    assert read_results(tmp_path)["q1"].status == "complete"
+
+
+def test_read_results_skips_a_torn_last_line(tmp_path: Path) -> None:
+    first = {**dict.fromkeys(RECORD_FIELDS), "query": "q1", "status": "complete"}
+    (tmp_path / RESULTS_FILENAME).write_text(
+        json.dumps(first) + "\n" + '{"query": "q2", "sta', encoding="utf-8"
+    )
+
+    assert set(read_results(tmp_path)) == {"q1"}
+
+
+def test_read_results_without_a_file_is_empty(tmp_path: Path) -> None:
+    assert read_results(tmp_path) == {}
 
 
 # ---------------------------------------------------------------------------
-# Atomic tar writer.
+# Resume.
 # ---------------------------------------------------------------------------
 
 
-def test_archive_query_output_is_atomic_on_failure(tmp_path: Path, monkeypatch) -> None:
-    """Simulate an exception mid-tar and assert no ``.tar.gz`` is published."""
-    from src.pipeline.query_processing_engine import _archive_query_output
+def run_twice(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    names: list[str],
+    *,
+    change: object = None,
+    **second_overrides: object,
+) -> list[str]:
+    """Run, apply ``change``, resume; return the queries the second run processed."""
+    calls: list[str] = []
+    fake_flow(monkeypatch, calls)
+    config = make_config(tmp_path)
+    write_queries(config, names)
+    parallel_runner.gvclass_flow(config)
+    calls.clear()
+    if callable(change):
+        change(config)
+    parallel_runner.gvclass_flow(replace(config, resume=True, **second_overrides))
+    return calls
+
+
+def test_resume_skips_an_unchanged_query(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert run_twice(tmp_path, monkeypatch, ["q1", "q2"]) == []
+
+
+def test_resume_reprocesses_after_the_input_bytes_change(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def edit_input(config: object) -> None:
+        (tmp_path / "queries" / "q1.faa").write_text(">p\nMK\n")
+
+    assert run_twice(tmp_path, monkeypatch, ["q1", "q2"], change=edit_input) == ["q1"]
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"tree_method": "iqtree"},
+        {"iqtree_mode": "ufboot"},
+        {"mode_fast": False},
+        {"completeness_mode": "legacy"},
+        {"sensitive_mode": False},
+        {"species_tree": True},
+        {"species_tree_trim": "none"},
+    ],
+)
+def test_resume_reprocesses_after_a_result_setting_changes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, override: dict[str, object]
+) -> None:
+    assert run_twice(tmp_path, monkeypatch, ["q1", "q2"], **override) == ["q1", "q2"]
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"threads": 8, "max_workers": 2, "threads_per_worker": 4},
+        {"contig_screen": False},
+        {"contigs_mode": True},
+    ],
+)
+def test_resume_skips_after_a_setting_that_leaves_results_unchanged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, override: dict[str, object]
+) -> None:
+    assert run_twice(tmp_path, monkeypatch, ["q1", "q2"], **override) == []
+
+
+def test_resume_reprocesses_after_the_database_version_changes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "db").mkdir()
+    (tmp_path / "db" / "DB_VERSION").write_text("v1.0.0\n")
+
+    def update_database(config: object) -> None:
+        (tmp_path / "db" / "DB_VERSION").write_text("v2.0.0\n")
+
+    assert run_twice(tmp_path, monkeypatch, ["q1", "q2"], change=update_database) == [
+        "q1",
+        "q2",
+    ]
+
+
+def test_resume_reprocesses_after_the_software_version_changes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def upgrade(config: object) -> None:
+        monkeypatch.setattr(run_status, "SOFTWARE_VERSION", "v99.0.0")
+
+    assert run_twice(tmp_path, monkeypatch, ["q1", "q2"], change=upgrade) == [
+        "q1",
+        "q2",
+    ]
+
+
+def test_resume_reprocesses_a_query_whose_archive_is_gone_or_changed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def damage(config: object) -> None:
+        (tmp_path / "out" / "q1.tar.gz").unlink()
+        (tmp_path / "out" / "q2.tar.gz").write_bytes(b"short")
+
+    assert run_twice(tmp_path, monkeypatch, ["q1", "q2", "q3"], change=damage) == [
+        "q1",
+        "q2",
+    ]
+
+
+def test_resume_reprocesses_a_query_whose_last_record_is_failed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[str] = []
+    fake_flow(monkeypatch, calls, failing={"q2": RuntimeError("boom")})
+    config = make_config(tmp_path)
+    write_queries(config, ["q1", "q2"])
+    with pytest.raises(RuntimeError, match="failed for 1 of 2 queries"):
+        parallel_runner.gvclass_flow(config)
+    calls.clear()
+    fake_flow(monkeypatch, calls)
+
+    parallel_runner.gvclass_flow(replace(config, resume=True))
+
+    assert calls == ["q2"]
+    assert read_results(config.output_dir)["q2"].status == "complete"
+
+
+def test_resume_logs_the_field_that_differs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    def edit_input(config: object) -> None:
+        (tmp_path / "queries" / "q1.faa").write_text(">p\nMK\n")
+
+    with caplog.at_level(logging.INFO, logger="gvclass_runner"):
+        run_twice(
+            tmp_path,
+            monkeypatch,
+            ["q1"],
+            change=edit_input,
+            tree_method="iqtree",
+        )
+
+    assert any(
+        "q1" in message and "input_sha256" in message and "tree_method" in message
+        for message in caplog.messages
+    )
+
+
+def test_resume_summary_keeps_the_saved_rows_with_their_extended_columns(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[str] = []
+    fake_flow(
+        monkeypatch,
+        calls,
+        summaries={"q1": {**EXTENDED_VALUES, "taxonomy_confidence": "strict_q1"}},
+    )
+    config = make_config(tmp_path)
+    write_queries(config, ["q1", "q2"])
+    parallel_runner.gvclass_flow(config)
+    (config.query_path / "q3.faa").write_text(">p\nM\n")
+    calls.clear()
+
+    summary_file = parallel_runner.gvclass_flow(replace(config, resume=True))
+
+    assert calls == ["q3"]
+    rows = read_rows(summary_file)
+    assert [row["query"] for row in rows] == ["q1", "q2", "q3"]
+    assert rows[0]["taxonomy_majority"] == "processed_q1"
+    assert rows[0]["taxonomy_confidence"] == "strict_q1"
+    assert rows[0]["completeness_query_support"] == "supported"
+    assert rows[0]["estimated_completeness"] == "91.25"
+    assert rows[2]["taxonomy_majority"] == "processed_q3"
+    extended = tar_member_text(
+        config.output_dir / "gvclass_summary.extended.tar.gz",
+        "gvclass_summary.extended.tsv",
+    )
+    q1_extended = next(
+        row
+        for row in csv.DictReader(extended.splitlines(), delimiter="\t")
+        if row["query"] == "q1"
+    )
+    assert q1_extended["mixed_evidence_contig_count"] == "3"
+    assert q1_extended["contig_length_basis"] == "exact_dna"
+    assert q1_extended["contamination_model_prediction_upper_bound"] == "0.876543"
+
+
+def test_resume_with_every_query_skipped_rebuilds_the_summary_and_records_skips(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[str] = []
+    fake_flow(monkeypatch, calls)
+    config = make_config(tmp_path)
+    write_queries(config, ["q1", "q2"], suffix=".fna")
+    parallel_runner.gvclass_flow(config)
+    first_lines = read_jsonl_lines(config.output_dir / RESULTS_FILENAME)
+    calls.clear()
+
+    summary_file = parallel_runner.gvclass_flow(replace(config, resume=True))
+
+    assert calls == []
+    assert [row["taxonomy_majority"] for row in read_rows(summary_file)] == [
+        "processed_q1",
+        "processed_q2",
+    ]
+    assert read_jsonl_lines(config.output_dir / RESULTS_FILENAME) == first_lines
+    status = json.loads((config.output_dir / "run_status.json").read_text())
+    assert status["status"] == "complete"
+    assert status["totals"] == {
+        "queries": 2,
+        "complete": 2,
+        "failed": 0,
+        "resume_skipped": 2,
+    }
+    assert all(query["resume_skipped"] for query in status["queries"].values())
+    run_log = (config.output_dir / "run.log").read_text()
+    assert "QUERY_RESUME_SKIPPED\tq1" in run_log
+    assert "QUERY_RESUME_SKIPPED\tq2" in run_log
+
+
+# ---------------------------------------------------------------------------
+# The archive and the private work directory.
+# ---------------------------------------------------------------------------
+
+
+def make_work_directory(root: Path) -> Path:
+    work = root / "work" / "q1"
+    work.mkdir(parents=True)
+    (work / "hello.txt").write_text("hello")
+    return work
+
+
+def test_archive_query_output_is_atomic_on_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An exception mid-tar publishes no ``.tar.gz`` and leaves no ``.part``."""
 
     output_base = tmp_path / "out"
     output_base.mkdir()
-    query_output_dir = tmp_path / "work" / "q1"
-    query_output_dir.mkdir(parents=True)
-    (query_output_dir / "hello.txt").write_text("hello")
+    work = make_work_directory(tmp_path)
 
-    original_open = tarfile.open
-
-    def exploding_tarfile_open(*args, **kwargs):
+    def exploding_tarfile_open(*args: object, **kwargs: object) -> None:
         raise RuntimeError("simulated tar failure")
 
     monkeypatch.setattr(tarfile, "open", exploding_tarfile_open)
     with pytest.raises(RuntimeError, match="simulated tar failure"):
-        _archive_query_output("q1", query_output_dir, output_base, LOGGER)
-    monkeypatch.setattr(tarfile, "open", original_open)
+        query_processing_engine._archive_query_output("q1", work, output_base, LOGGER)
 
     assert not (output_base / "q1.tar.gz").exists()
     assert not (output_base / "q1.tar.gz.part").exists()
 
 
-def test_archive_query_output_publishes_valid_archive(tmp_path: Path) -> None:
-    from src.pipeline.query_processing_engine import _archive_query_output
+def test_archive_query_output_publishes_a_valid_archive(tmp_path: Path) -> None:
 
     output_base = tmp_path / "out"
     output_base.mkdir()
-    query_output_dir = tmp_path / "work" / "q1"
-    query_output_dir.mkdir(parents=True)
-    (query_output_dir / "hello.txt").write_text("hello")
+    work = make_work_directory(tmp_path)
 
-    _archive_query_output("q1", query_output_dir, output_base, LOGGER)
+    query_processing_engine._archive_query_output("q1", work, output_base, LOGGER)
 
-    final_tar = output_base / "q1.tar.gz"
-    assert final_tar.exists()
+    assert tarfile.is_tarfile(output_base / "q1.tar.gz")
+    assert tar_member_text(output_base / "q1.tar.gz", "q1/hello.txt") == "hello"
     assert not (output_base / "q1.tar.gz.part").exists()
-    assert tarfile.is_tarfile(final_tar)
 
 
-# ---------------------------------------------------------------------------
-# Resume filter semantics.
-# ---------------------------------------------------------------------------
+def test_the_previous_archive_survives_a_failed_re_archive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+
+    output_base = tmp_path / "out"
+    output_base.mkdir()
+    previous = output_base / "q1.tar.gz"
+    previous.write_bytes(b"previous archive bytes")
+    work = make_work_directory(tmp_path)
+
+    def exploding_tarfile_open(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("simulated tar failure")
+
+    monkeypatch.setattr(tarfile, "open", exploding_tarfile_open)
+    with pytest.raises(RuntimeError, match="Post-processing failed for q1"):
+        query_processing_engine._post_process_query("q1", work, output_base, LOGGER)
+
+    assert previous.read_bytes() == b"previous archive bytes"
+    assert work.is_dir()
 
 
-def _make_tar(path: Path, content: bytes = b"ok") -> None:
-    with tarfile.open(path, "w:gz") as tar:
-        payload = path.parent / "payload.txt"
-        payload.write_bytes(content)
-        tar.add(payload, arcname="payload.txt")
-        payload.unlink()
-
-
-def test_query_is_resume_complete_accepts_run_status(tmp_path: Path) -> None:
-    from src.pipeline.parallel_runner import _query_is_resume_complete
-    from src.pipeline.run_status import RunStatusRecorder
-
-    output_path = tmp_path / "out"
-    db_path = tmp_path / "db"
-    db_path.mkdir()
-    summary_file, tar_file = _seed_post_process_artefacts(output_path, "q1")
-    _ = summary_file, tar_file
-
-    recorder = RunStatusRecorder(output_path, db_path, ["q1"], settings={})
-    recorder.start()
-    recorder.record_query_complete("q1")
-
-    logger = Mock()
-    assert _query_is_resume_complete(output_path, "q1", logger) is True
-    logger.warning.assert_not_called()
-
-
-def test_query_is_resume_complete_reprocesses_old_manifest_summary_schema(
+def test_post_processing_replaces_the_previous_archive_and_removes_the_work_directory(
     tmp_path: Path,
 ) -> None:
-    from src.pipeline.parallel_runner import _query_is_resume_complete
-    from src.pipeline.run_status import RunStatusRecorder
 
-    output_path = tmp_path / "out"
-    db_path = tmp_path / "db"
-    output_path.mkdir()
-    db_path.mkdir()
-    old_headers = ["query", "taxonomy_majority"] + [
-        f"old_column_{index}" for index in range(42)
-    ]
-    (output_path / "q1.summary.tab").write_text(
-        "\t".join(old_headers) + "\n" + "\t".join(["q1", "d_NCLDV"] + [""] * 42) + "\n"
-    )
-    (output_path / "q1.tar.gz").write_bytes(b"old-archive")
-    recorder = RunStatusRecorder(output_path, db_path, ["q1"], settings={})
-    recorder.start()
-    recorder.record_query_complete("q1")
+    output_base = tmp_path / "out"
+    output_base.mkdir()
+    (output_base / "q1.tar.gz").write_bytes(b"previous archive bytes")
+    work = make_work_directory(tmp_path)
 
-    logger = Mock()
-    assert _query_is_resume_complete(output_path, "q1", logger) is False
-    logger.warning.assert_called()
+    query_processing_engine._post_process_query("q1", work, output_base, LOGGER)
+
+    assert tar_member_text(output_base / "q1.tar.gz", "q1/hello.txt") == "hello"
+    assert not work.exists()
 
 
-def test_query_is_resume_complete_accepts_archived_summary_manifest(
+def test_initialize_query_gives_a_private_work_directory(tmp_path: Path) -> None:
+
+    query = tmp_path / "sample.faa"
+    query.write_text(">p\nM\n")
+
+    name, work = query_processing_engine._initialize_query(query, tmp_path / "out")
+
+    assert name == "sample"
+    assert work == tmp_path / "out" / ".gvclass_work" / "sample"
+    assert work.is_dir()
+
+
+def test_initialize_query_deletes_a_leftover_work_directory(tmp_path: Path) -> None:
+
+    query = tmp_path / "sample.faa"
+    query.write_text(">p\nM\n")
+    leftover = tmp_path / "out" / ".gvclass_work" / "sample"
+    (leftover / "hmmout").mkdir(parents=True)
+    (leftover / "hmmout" / "models.out.filtered").write_text("stale")
+
+    _, work = query_processing_engine._initialize_query(query, tmp_path / "out")
+
+    assert list(work.iterdir()) == []
+    assert not list((tmp_path / "out").glob("sample.previous.*"))
+
+
+def test_work_directories_do_not_collide_with_output_folders_or_other_queries(
     tmp_path: Path,
 ) -> None:
-    from src.pipeline.parallel_runner import _query_is_resume_complete
-    from src.pipeline.query_processing_engine import _archive_query_output
-    from src.pipeline.run_status import RunStatusRecorder
 
-    output_path = tmp_path / "out"
-    work_path = tmp_path / "work" / "q1"
-    db_path = tmp_path / "db"
-    output_path.mkdir()
-    work_path.mkdir(parents=True)
-    db_path.mkdir()
-    _write_resume_summary(work_path, "q1", "tax")
-    _write_resume_final_summary(work_path, "q1", "tax", "high")
+    output = tmp_path / "out"
+    screen = output / "contig_screen" / "bin"
+    screen.mkdir(parents=True)
+    (screen / "keep.txt").write_text("screen result")
+    names = ["contig_screen", "sample", "sample.previous.abc123"]
+    works = []
+    for name in names:
+        query = tmp_path / f"{name}.faa"
+        query.write_text(">p\nM\n")
+        works.append(query_processing_engine._initialize_query(query, output)[1])
 
-    _archive_query_output("q1", work_path, output_path, LOGGER)
-    recorder = RunStatusRecorder(output_path, db_path, ["q1"], settings={})
-    recorder.start()
-    recorder.record_query_complete("q1")
-
-    payload = json.loads((output_path / "run_status.json").read_text())
-    artifacts = payload["queries"]["q1"]["artifacts"]
-    assert artifacts["summary"]["member"] == "q1/q1.summary.tab"
-    assert artifacts["final_summary"]["member"] == "q1/q1.final_summary.tsv"
-    assert not (output_path / "q1.summary.tab").exists()
-    assert _query_is_resume_complete(output_path, "q1", Mock()) is True
+    assert len(set(works)) == 3
+    assert all(work.parent == output / ".gvclass_work" for work in works)
+    assert (screen / "keep.txt").read_text() == "screen result"
 
 
-def test_query_is_resume_complete_rejects_stale_run_status(tmp_path: Path) -> None:
-    from src.pipeline.parallel_runner import _query_is_resume_complete
-    from src.pipeline.run_status import RunStatusRecorder
-
-    output_path = tmp_path / "out"
-    db_path = tmp_path / "db"
-    db_path.mkdir()
-    _seed_post_process_artefacts(output_path, "q1")
-
-    recorder = RunStatusRecorder(output_path, db_path, ["q1"], settings={})
-    recorder.start()
-    recorder.record_query_complete("q1")
-    (output_path / "q1.tar.gz").unlink()
-
-    assert _query_is_resume_complete(output_path, "q1", Mock()) is False
-
-
-def test_query_is_resume_complete_rejects_failed_manifest_even_with_legacy_pair(
+def test_initialize_query_refuses_a_work_directory_that_holds_the_input(
     tmp_path: Path,
 ) -> None:
-    from src.pipeline.parallel_runner import _query_is_resume_complete
-    from src.pipeline.run_status import RunStatusRecorder
 
-    output_path = tmp_path / "out"
-    db_path = tmp_path / "db"
-    db_path.mkdir()
-    output_path.mkdir()
-    (output_path / "q1.summary.tab").write_text("query\nq1\n")
-    _make_tar(output_path / "q1.tar.gz")
+    work = tmp_path / "out" / ".gvclass_work" / "sample"
+    work.mkdir(parents=True)
+    query = work / "sample.faa"
+    query.write_text(">p\nM\n")
 
-    recorder = RunStatusRecorder(output_path, db_path, ["q1"], settings={})
-    recorder.start()
-    recorder.record_query_failed("q1", "simulated failure")
+    with pytest.raises(ProcessingError, match="holds the input file"):
+        query_processing_engine._initialize_query(query, tmp_path / "out")
 
-    assert _query_is_resume_complete(output_path, "q1", Mock()) is False
-
-
-def test_query_is_resume_complete_rejects_stale_manifest_even_with_valid_tar(
-    tmp_path: Path,
-) -> None:
-    from src.pipeline.parallel_runner import _query_is_resume_complete
-    from src.pipeline.run_status import RunStatusRecorder
-
-    output_path = tmp_path / "out"
-    db_path = tmp_path / "db"
-    db_path.mkdir()
-    _seed_post_process_artefacts(output_path, "q1")
-
-    recorder = RunStatusRecorder(output_path, db_path, ["q1"], settings={})
-    recorder.start()
-    recorder.record_query_complete("q1")
-
-    original_size = (output_path / "q1.tar.gz").stat().st_size
-    _make_tar(output_path / "q1.tar.gz", content=b"different payload" * 100)
-    assert (output_path / "q1.tar.gz").stat().st_size != original_size
-
-    assert _query_is_resume_complete(output_path, "q1", Mock()) is False
-
-
-def test_query_is_resume_complete_rejects_same_size_checksum_mismatch(
-    tmp_path: Path,
-) -> None:
-    from src.pipeline.parallel_runner import _query_is_resume_complete
-    from src.pipeline.run_status import RunStatusRecorder
-
-    output_path = tmp_path / "out"
-    db_path = tmp_path / "db"
-    db_path.mkdir()
-    _seed_post_process_artefacts(output_path, "q1")
-
-    recorder = RunStatusRecorder(output_path, db_path, ["q1"], settings={})
-    recorder.start()
-    recorder.record_query_complete("q1")
-
-    summary_file = output_path / "q1.summary.tab"
-    original = summary_file.read_bytes()
-    summary_file.write_bytes(b"x" * len(original))
-    assert summary_file.stat().st_size == len(original)
-
-    assert _query_is_resume_complete(output_path, "q1", Mock()) is False
-
-
-def test_query_is_resume_complete_accepts_sentinel(tmp_path: Path) -> None:
-    from src.pipeline.parallel_runner import _query_is_resume_complete
-
-    output_path = tmp_path / "out"
-    output_path.mkdir()
-    (output_path / "q1.SUCCESS").write_text("{}")
-    _write_resume_summary(output_path, "q1", "d_NCLDV")
-
-    logger = Mock()
-    assert _query_is_resume_complete(output_path, "q1", logger) is True
-    logger.warning.assert_not_called()
-
-
-def test_query_is_resume_complete_legacy_fallback_reprocesses_old_schema(
-    tmp_path: Path,
-) -> None:
-    from src.pipeline.parallel_runner import _query_is_resume_complete
-
-    output_path = tmp_path / "out"
-    output_path.mkdir()
-    (output_path / "q1.summary.tab").write_text("query\n")
-    _make_tar(output_path / "q1.tar.gz")
-
-    logger = Mock()
-    assert _query_is_resume_complete(output_path, "q1", logger) is False
-    logger.warning.assert_called()
-
-
-def test_query_is_resume_complete_rejects_corrupt_tar(tmp_path: Path) -> None:
-    from src.pipeline.parallel_runner import _query_is_resume_complete
-
-    output_path = tmp_path / "out"
-    output_path.mkdir()
-    (output_path / "q1.summary.tab").write_text("query\n")
-    # Not a tar file at all.
-    (output_path / "q1.tar.gz").write_bytes(b"not a real tar.gz")
-
-    logger = Mock()
-    assert _query_is_resume_complete(output_path, "q1", logger) is False
-    logger.warning.assert_called()
-
-
-def test_query_is_resume_complete_rejects_missing_pair(tmp_path: Path) -> None:
-    from src.pipeline.parallel_runner import _query_is_resume_complete
-
-    output_path = tmp_path / "out"
-    output_path.mkdir()
-    # Summary only, no tar.
-    (output_path / "q1.summary.tab").write_text("query\n")
-
-    logger = Mock()
-    assert _query_is_resume_complete(output_path, "q1", logger) is False
-
-
-def test_count_resume_skips_counts_manifest_sentinel_and_legacy(tmp_path: Path) -> None:
-    from src.bin.gvclass_cli import count_resume_skips
-    from src.pipeline.run_status import RunStatusRecorder
-
-    output_path = tmp_path / "out"
-    db_path = tmp_path / "db"
-    output_path.mkdir()
-    db_path.mkdir()
-
-    _seed_post_process_artefacts(output_path, "qm")
-    recorder = RunStatusRecorder(output_path, db_path, ["qm"], settings={})
-    recorder.start()
-    recorder.record_query_complete("qm")
-
-    # Query A has a legacy v1.4.3 sentinel.
-    (output_path / "qa.SUCCESS").write_text("{}")
-    (output_path / "qa.summary.tab").write_text("")
-    (output_path / "qa.tar.gz").write_bytes(b"")
-
-    # Query B has the legacy pair only.
-    (output_path / "qb.summary.tab").write_text("")
-    (output_path / "qb.tar.gz").write_bytes(b"")
-
-    # Query C has a partial output (summary only) and should NOT count.
-    (output_path / "qc.summary.tab").write_text("")
-
-    assert count_resume_skips(output_path) == 3
-
-
-def _write_resume_summary(output_path: Path, query_name: str, taxonomy: str) -> None:
-    with open(output_path / f"{query_name}.summary.tab", "w", newline="") as handle:
-        writer = csv.writer(handle, delimiter="\t")
-        row = {
-            "query": query_name,
-            "taxonomy_majority": taxonomy,
-            "estimated_completeness": "88.50",
-            **CURRENT_QUALITY_VALUES,
-        }
-        writer.writerow(row)
-        writer.writerow(row.values())
-
-
-def _write_resume_final_summary(
-    output_path: Path,
-    query_name: str,
-    taxonomy: str,
-    taxonomy_confidence: str,
-    extended_values: dict[str, object] | None = None,
-) -> None:
-    from src.pipeline.summary_writer import write_individual_final_summary_file
-
-    write_individual_final_summary_file(
-        output_path,
-        query_name,
-        {
-            "query": query_name,
-            "taxonomy_majority": taxonomy,
-            "taxonomy_confidence": taxonomy_confidence,
-            **CURRENT_QUALITY_VALUES,
-            **(extended_values or {}),
-        },
-        LOGGER,
-    )
-
-
-def _seed_resume_complete_query(
-    output_path: Path,
-    query_name: str,
-    taxonomy: str,
-    taxonomy_confidence: str | None = None,
-    extended_values: dict[str, object] | None = None,
-) -> None:
-    _write_resume_summary(output_path, query_name, taxonomy)
-    if taxonomy_confidence is not None:
-        _write_resume_final_summary(
-            output_path,
-            query_name,
-            taxonomy,
-            taxonomy_confidence,
-            extended_values,
-        )
-    (output_path / f"{query_name}.SUCCESS").write_text("{}")
-
-
-def _fake_resume_validate(query_dir: Path, output_path: Path):
-    def validate_and_setup_task(*args, **kwargs):
-        query_files = sorted(
-            [
-                *query_dir.glob("*.faa"),
-                *query_dir.glob("*.fna"),
-            ]
-        )
-        return {
-            "query_path": query_dir,
-            "output_path": output_path,
-            "database_path": output_path / "db",
-            "query_files": query_files,
-            "rejected_inputs": [],
-        }
-
-    return validate_and_setup_task
-
-
-def _fake_query_processor(query_file: Path, output_base: Path, *args, **kwargs):
-    query_name = query_file.stem
-    return {
-        "query": query_name,
-        "status": "complete",
-        "summary_data": {
-            "query": query_name,
-            "taxonomy_majority": f"processed_{query_name}",
-            "estimated_completeness": 91.25,
-        },
-        "genetic_code": "N/A",
-        "output_dir": str(output_base),
-    }
-
-
-def test_gvclass_flow_resume_summary_includes_skipped_queries(
-    tmp_path: Path, monkeypatch
-) -> None:
-    from src.pipeline import parallel_runner
-
-    query_dir = tmp_path / "queries"
-    output_path = tmp_path / "out"
-    query_dir.mkdir()
-    output_path.mkdir()
-    for query_name in ("q1", "q2", "q3", "q4"):
-        (query_dir / f"{query_name}.faa").write_text(">p\nM\n")
-    _seed_resume_complete_query(
-        output_path,
-        "q1",
-        "skipped_q1",
-        "strict_q1",
-        {
-            "mixed_evidence_contig_count": 3,
-            "mixed_evidence_status": "review",
-            "contig_length_basis": "exact_dna",
-            "protein_estimated_contig_count": 2,
-            "contamination_model_applicability": "applicable",
-            "contamination_prediction_range_status": "above_training_range",
-            "contamination_model_prediction_upper_bound": 0.8765432,
-        },
-    )
-    _seed_resume_complete_query(output_path, "q2", "skipped_q2")
-
-    monkeypatch.setattr(
-        parallel_runner,
-        "validate_and_setup_task",
-        _fake_resume_validate(query_dir, output_path),
-    )
-    monkeypatch.setattr(parallel_runner, "process_query_task", _fake_query_processor)
-
-    summary_file = parallel_runner.gvclass_flow(
-        str(query_dir),
-        str(output_path),
-        total_threads=2,
-        max_workers=1,
-        threads_per_worker=1,
-        resume=True,
-    )
-
-    with open(summary_file, newline="") as handle:
-        rows = list(csv.DictReader(handle, delimiter="\t"))
-
-    assert [row["query"] for row in rows] == ["q1", "q2", "q3", "q4"]
-    assert rows[0]["taxonomy_majority"] == "skipped_q1"
-    assert rows[0]["taxonomy_confidence"] == "strict_q1"
-    assert rows[0]["completeness_query_support"] == "supported"
-    assert rows[0]["contamination_query_support"] == "supported"
-    assert rows[1]["taxonomy_majority"] == "skipped_q2"
-    assert rows[1]["taxonomy_confidence"] == ""
-    assert rows[2]["taxonomy_majority"] == "processed_q3"
-    assert rows[3]["taxonomy_majority"] == "processed_q4"
-
-    with tarfile.open(
-        output_path / "gvclass_summary.extended.tar.gz", "r:gz"
-    ) as tar_handle:
-        member = tar_handle.extractfile("gvclass_summary.extended.tsv")
-        assert member is not None
-        extended_rows = list(
-            csv.DictReader(
-                member.read().decode().splitlines(), delimiter="\t"
-            )
-        )
-    q1_extended = next(row for row in extended_rows if row["query"] == "q1")
-    assert q1_extended["mixed_evidence_contig_count"] == "3"
-    assert q1_extended["mixed_evidence_status"] == "review"
-    assert q1_extended["contig_length_basis"] == "exact_dna"
-    assert q1_extended["protein_estimated_contig_count"] == "2"
-    assert q1_extended["contamination_model_applicability"] == "applicable"
-    assert (
-        q1_extended["contamination_prediction_range_status"]
-        == "above_training_range"
-    )
-    assert q1_extended["contamination_model_prediction_upper_bound"] == "0.876543"
-
-
-def test_gvclass_flow_resume_all_skipped_rebuilds_summary(
-    tmp_path: Path, monkeypatch
-) -> None:
-    from src.pipeline import parallel_runner
-
-    query_dir = tmp_path / "queries"
-    output_path = tmp_path / "out"
-    query_dir.mkdir()
-    output_path.mkdir()
-    for query_name in ("q1", "q2"):
-        (query_dir / f"{query_name}.faa").write_text(">p\nM\n")
-        _seed_resume_complete_query(output_path, query_name, f"skipped_{query_name}")
-
-    monkeypatch.setattr(
-        parallel_runner,
-        "validate_and_setup_task",
-        _fake_resume_validate(query_dir, output_path),
-    )
-
-    def fail_if_called(*args, **kwargs):
-        raise AssertionError("resume should not process all-skipped queries")
-
-    monkeypatch.setattr(parallel_runner, "process_query_task", fail_if_called)
-
-    summary_file = parallel_runner.gvclass_flow(
-        str(query_dir),
-        str(output_path),
-        total_threads=2,
-        max_workers=1,
-        threads_per_worker=1,
-        resume=True,
-    )
-
-    with open(summary_file, newline="") as handle:
-        rows = list(csv.DictReader(handle, delimiter="\t"))
-
-    assert [row["query"] for row in rows] == ["q1", "q2"]
-    assert [row["taxonomy_majority"] for row in rows] == ["skipped_q1", "skipped_q2"]
-
-
-def test_gvclass_flow_resume_summary_includes_skipped_fna_queries(
-    tmp_path: Path, monkeypatch
-) -> None:
-    from src.pipeline import parallel_runner
-
-    query_dir = tmp_path / "queries"
-    output_path = tmp_path / "out"
-    query_dir.mkdir()
-    output_path.mkdir()
-    for query_name in ("fna_q1", "fna_q2"):
-        (query_dir / f"{query_name}.fna").write_text(">contig\nATGAAATAG\n")
-    _seed_resume_complete_query(
-        output_path, "fna_q1", "skipped_fna_q1", "strict_fna_q1"
-    )
-
-    monkeypatch.setattr(
-        parallel_runner,
-        "validate_and_setup_task",
-        _fake_resume_validate(query_dir, output_path),
-    )
-    monkeypatch.setattr(parallel_runner, "process_query_task", _fake_query_processor)
-
-    summary_file = parallel_runner.gvclass_flow(
-        str(query_dir),
-        str(output_path),
-        total_threads=2,
-        max_workers=1,
-        threads_per_worker=1,
-        resume=True,
-    )
-
-    with open(summary_file, newline="") as handle:
-        rows = list(csv.DictReader(handle, delimiter="\t"))
-
-    assert [row["query"] for row in rows] == ["fna_q1", "fna_q2"]
-    assert rows[0]["taxonomy_majority"] == "skipped_fna_q1"
-    assert rows[0]["taxonomy_confidence"] == "strict_fna_q1"
-    assert rows[1]["taxonomy_majority"] == "processed_fna_q2"
-
-
-def test_gvclass_flow_resume_summary_includes_skipped_split_contigs(
-    tmp_path: Path, monkeypatch
-) -> None:
-    from src.pipeline import parallel_runner
-    from src.utils.contig_splitter import split_contigs
-
-    output_path = tmp_path / "out"
-    output_path.mkdir()
-    source_fna = tmp_path / "source.fna"
-    source_fna.write_text(">contig/one\nATGAAATAG\n" ">contig:two\nATGAAATAG\n")
-    split_dir, split_count = split_contigs(
-        source_fna,
-        output_dir=tmp_path / "split",
-        min_length=0,
-        prefix=source_fna.stem,
-    )
-    assert split_count == 2
-    query_names = sorted(path.stem for path in split_dir.glob("*.fna"))
-    assert query_names == ["source__contig_one", "source__contig_two"]
-    _seed_resume_complete_query(
-        output_path, query_names[0], "skipped_contig_one", "strict_contig_one"
-    )
-
-    monkeypatch.setattr(
-        parallel_runner,
-        "validate_and_setup_task",
-        _fake_resume_validate(split_dir, output_path),
-    )
-    monkeypatch.setattr(parallel_runner, "process_query_task", _fake_query_processor)
-
-    summary_file = parallel_runner.gvclass_flow(
-        str(split_dir),
-        str(output_path),
-        total_threads=2,
-        max_workers=1,
-        threads_per_worker=1,
-        resume=True,
-    )
-
-    with open(summary_file, newline="") as handle:
-        rows = list(csv.DictReader(handle, delimiter="\t"))
-
-    assert [row["query"] for row in rows] == query_names
-    assert rows[0]["taxonomy_majority"] == "skipped_contig_one"
-    assert rows[0]["taxonomy_confidence"] == "strict_contig_one"
-    assert rows[1]["taxonomy_majority"] == "processed_source__contig_two"
+    assert query.exists()
 
 
 # ---------------------------------------------------------------------------
@@ -808,232 +711,25 @@ def test_atomic_swap_directory_replaces_previous_and_cleans_backup(
     assert not staging_path.exists()
 
 
-def test_clear_prior_outputs_removes_legacy_artefacts(tmp_path: Path) -> None:
-    """Regression for Codex-audit finding: clearing only SUCCESS is not enough.
-
-    A rerun that crashes after the sentinel is cleared but before the new
-    tar is published would otherwise leave the previous run's
-    ``.summary.tab`` + ``.tar.gz`` pair on disk. ``_query_is_resume_complete``
-    would then still return True via the legacy fallback and the rerun
-    would be silently skipped next time. ``_clear_prior_outputs`` must
-    wipe every resumable marker up front so the post-crash state is
-    obviously incomplete.
-    """
-    from src.pipeline.parallel_runner import _query_is_resume_complete
-    from src.pipeline.query_processing_engine import _clear_prior_outputs
-
-    output_base = tmp_path / "out"
-    output_base.mkdir()
-    (output_base / "q1.SUCCESS").write_text("{}")
-    (output_base / "q1.summary.tab").write_text("query\nq1\n")
-    _make_tar(output_base / "q1.tar.gz", content=b"stale-payload")
-    # Also drop a dangling .part from a previous crash to make sure it is
-    # wiped along with the final artefacts.
-    (output_base / "q1.tar.gz.part").write_bytes(b"half-written")
-    (output_base / "q1.contamination_candidates.tsv").write_text("stale\n")
-
-    _clear_prior_outputs("q1", output_base, LOGGER)
-
-    assert not (output_base / "q1.SUCCESS").exists()
-    assert not (output_base / "q1.summary.tab").exists()
-    assert not (output_base / "q1.tar.gz").exists()
-    assert not (output_base / "q1.tar.gz.part").exists()
-    assert not (output_base / "q1.contamination_candidates.tsv").exists()
-
-    # After cleanup, resume must NOT treat the query as complete via
-    # either the sentinel or the legacy fallback.
-    assert _query_is_resume_complete(output_base, "q1", Mock()) is False
-
-
-def test_combine_resume_skipped_emits_placeholder_for_missing_summary(
-    tmp_path: Path,
-) -> None:
-    """M3: a skipped query whose loose summary is missing/empty must surface as
-    a failed row, not silently vanish from the combined results."""
-    from src.pipeline.parallel_runner import _combine_with_resume_skipped_results
-
-    output_path = tmp_path / "out"
-    output_path.mkdir()
-    _write_resume_summary(output_path, "q_ok", "tax_ok")
-    # Empty file -> read_individual_summary_results yields no row for it.
-    (output_path / "q_empty.summary.tab").write_text("")
-
-    config = {
-        "resume_skipped_query_names": ["q_ok", "q_missing", "q_empty"],
-        "output_path": output_path,
-    }
-    combined = _combine_with_resume_skipped_results(config, [], Mock())
-    by_query = {row["query"]: row for row in combined}
-
-    assert set(by_query) == {"q_ok", "q_missing", "q_empty"}
-    assert by_query["q_ok"]["status"] == "complete"
-    assert by_query["q_missing"]["status"] == "missing_summary"
-    assert "summary_data" not in by_query["q_missing"]
-    assert by_query["q_empty"]["status"] == "missing_summary"
-
-
-def test_combine_resume_skipped_all_readable_unchanged(tmp_path: Path) -> None:
-    from src.pipeline.parallel_runner import _combine_with_resume_skipped_results
-
-    output_path = tmp_path / "out"
-    output_path.mkdir()
-    _write_resume_summary(output_path, "q_ok", "tax_ok")
-
-    config = {
-        "resume_skipped_query_names": ["q_ok"],
-        "output_path": output_path,
-    }
-    combined = _combine_with_resume_skipped_results(config, [], Mock())
-    assert [row["query"] for row in combined] == ["q_ok"]
-    assert combined[0]["status"] == "complete"
-
-
-def test_resume_all_skipped_does_not_crash_on_zero_workers(
-    tmp_path: Path, monkeypatch
-) -> None:
-    """Regression: if every query is resume-complete, the flow must not
-    instantiate ThreadPoolExecutor(max_workers=0)."""
-    from src.pipeline.parallel_runner import gvclass_flow
-
-    query_dir = tmp_path / "queries"
-    output_dir = tmp_path / "out"
-    query_dir.mkdir()
-    output_dir.mkdir()
-    (query_dir / "q1.fna").write_text(">c1\nACGT\n")
-    (query_dir / "q2.fna").write_text(">c2\nACGT\n")
-
-    for name in ("q1", "q2"):
-        (output_dir / f"{name}.SUCCESS").write_text("{}")
-        _write_resume_summary(output_dir, name, f"skipped_{name}")
-        _make_tar(output_dir / f"{name}.tar.gz")
-
-    # Run with resume=True; the flow should detect zero remaining queries
-    # and short-circuit without spawning any workers. It still writes a
-    # final summary from whatever is on disk (empty in this synthetic case).
-    # The synthetic FNAs are far below the Phase 3.2 20 kb floor, so pass
-    # allow_short=True to let validate_query_directory accept them.
-    db_path = tmp_path / "db"
-    db_path.mkdir()
-    monkeypatch.setattr(
-        "src.pipeline.parallel_runner.DatabaseManager.setup_database",
-        lambda _database_path: db_path,
-    )
-    summary_file = gvclass_flow(
-        query_dir=str(query_dir),
-        output_dir=str(output_dir),
-        database_path=None,
-        total_threads=4,
-        resume=True,
-        allow_short=True,
-    )
-    assert Path(summary_file).exists()
-    run_status = json.loads((output_dir / "run_status.json").read_text())
-    assert run_status["status"] == "complete"
-    assert run_status["totals"]["queries"] == 2
-    assert run_status["totals"]["complete"] == 2
-    assert run_status["totals"]["resume_skipped"] == 2
-    run_log = (output_dir / "run.log").read_text()
-    assert "QUERY_RESUME_SKIPPED\tq1" in run_log
-    assert "QUERY_RESUME_SKIPPED\tq2" in run_log
-
-
-def test_gvclass_flow_raises_after_writing_partial_failure_outputs(
-    tmp_path: Path, monkeypatch
-) -> None:
-    from src.pipeline import parallel_runner
-
-    query_dir = tmp_path / "queries"
-    output_path = tmp_path / "out"
-    query_dir.mkdir()
-    output_path.mkdir()
-    (query_dir / "broken.faa").write_text(">p\nM\n")
-
-    monkeypatch.setattr(
-        parallel_runner,
-        "validate_and_setup_task",
-        _fake_resume_validate(query_dir, output_path),
-    )
-
-    def fail_query(*args, **kwargs):
-        raise RuntimeError("simulated query failure")
-
-    monkeypatch.setattr(parallel_runner, "process_query_task", fail_query)
-
-    with pytest.raises(RuntimeError, match="failed for 1 of 1 queries"):
-        parallel_runner.gvclass_flow(
-            str(query_dir),
-            str(output_path),
-            total_threads=1,
-            max_workers=1,
-            threads_per_worker=1,
-        )
-
-    assert (output_path / "gvclass_summary.tsv").exists()
-    run_status = json.loads((output_path / "run_status.json").read_text())
-    assert run_status["status"] == "failed"
-
-
-def test_gvclass_flow_reprocesses_sentinel_without_current_summary(
-    tmp_path: Path, monkeypatch
-) -> None:
-    from src.pipeline import parallel_runner
-
-    query_dir = tmp_path / "queries"
-    output_path = tmp_path / "out"
-    query_dir.mkdir()
-    output_path.mkdir()
-    for query_name in ("missing", "processed"):
-        (query_dir / f"{query_name}.faa").write_text(">p\nM\n")
-    (output_path / "missing.SUCCESS").write_text("{}")
-
-    monkeypatch.setattr(
-        parallel_runner,
-        "validate_and_setup_task",
-        _fake_resume_validate(query_dir, output_path),
-    )
-    monkeypatch.setattr(parallel_runner, "process_query_task", _fake_query_processor)
-
-    summary_file = parallel_runner.gvclass_flow(
-        str(query_dir),
-        str(output_path),
-        total_threads=1,
-        max_workers=1,
-        threads_per_worker=1,
-        resume=True,
-    )
-
-    with open(summary_file, newline="") as handle:
-        rows = list(csv.DictReader(handle, delimiter="\t"))
-
-    assert [row["query"] for row in rows] == ["missing", "processed"]
-    assert [row["taxonomy_majority"] for row in rows] == [
-        "processed_missing",
-        "processed_processed",
-    ]
-    run_status = json.loads((output_path / "run_status.json").read_text())
-    assert run_status["status"] == "complete"
-    assert run_status["totals"]["resume_skipped"] == 0
+# ---------------------------------------------------------------------------
+# Input check.
+# ---------------------------------------------------------------------------
 
 
 def test_validate_and_setup_rejects_duplicate_stems_before_side_effects(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from src.pipeline import parallel_runner
-    from src.utils import ValidationError
-
-    query_dir = tmp_path / "queries"
-    output_path = tmp_path / "out"
-    query_dir.mkdir()
-    (query_dir / "same.fna").write_text(">c\nACGT\n")
-    (query_dir / "same.faa").write_text(">p\nM\n")
-
+    config = make_config(tmp_path)
+    config.query_path.mkdir()
+    (config.query_path / "same.fna").write_text(">c\nACGT\n")
+    (config.query_path / "same.faa").write_text(">p\nM\n")
     setup_database = Mock()
-    monkeypatch.setattr(parallel_runner.DatabaseManager, "setup_database", setup_database)
+    monkeypatch.setattr(
+        parallel_runner.DatabaseManager, "setup_database", setup_database
+    )
 
     with pytest.raises(ValidationError, match=r"same: same\.faa, same\.fna"):
-        parallel_runner.validate_and_setup_task(
-            str(query_dir), str(output_path), database_path=str(tmp_path / "db")
-        )
+        parallel_runner.validate_and_setup_task(config)
 
     setup_database.assert_not_called()
-    assert not output_path.exists()
+    assert not config.output_dir.exists()

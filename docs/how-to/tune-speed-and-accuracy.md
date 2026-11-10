@@ -53,7 +53,8 @@ thresholds of `1e-5`. With `pipeline.sensitive_mode: false` in the configuration
 GVClass uses HMM gathering (GA) cutoffs where available. The `--sensitive` flag
 overrides that setting for one run.
 
-Use separate output directories when comparing settings. `--resume` skips
-completed queries, so it does not recompute them with new options. See the
+Use separate output directories when comparing settings. `--resume` recomputes a
+query when a setting that changes results differs from the one of its saved result,
+and skips it when only thread counts differ. See the
 [CLI reference](../reference/cli.md) for all flags and the
 [configuration reference](../reference/configuration.md) for persistent settings.

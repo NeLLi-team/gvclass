@@ -44,7 +44,7 @@ def routing_recorder(monkeypatch):
 def _route(tmp_path: Path, name: str, content: str, calls: dict):
     qf = tmp_path / name
     qf.write_text(content)
-    prepared = qpe._prepare_query_input(qf, tmp_path, tmp_path, [0, 11], 1, None)
+    prepared = qpe._prepare_query_input(qf, tmp_path, tmp_path, 1, None)
     return calls["kind"], prepared
 
 

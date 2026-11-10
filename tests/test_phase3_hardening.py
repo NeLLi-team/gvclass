@@ -14,6 +14,8 @@ from unittest.mock import patch
 
 import pytest
 
+from src.pipeline.query_processing_engine import is_nucleotide_input
+
 # ---------------------------------------------------------------------------
 # 3.1 Contig splitter
 # ---------------------------------------------------------------------------
@@ -194,12 +196,11 @@ def test_protein_fasta_of_iupac_letters_is_not_called_dna(tmp_path: Path) -> Non
 
 def test_ambiguity_rich_contig_is_still_called_dna(tmp_path: Path) -> None:
     """The other side of the same discriminator: GVClass accepts IUPAC
-    ambiguity codes in nucleotide input, and ``_is_nucleotide_input`` routes
+    ambiguity codes in nucleotide input, and ``is_nucleotide_input`` routes
     gene calling off this helper, so a misread here sends a real contig to the
     protein branch."""
     from Bio import SeqIO
 
-    from src.pipeline.query_processing_engine import _is_nucleotide_input
     from src.utils.input_validation import InputValidator
 
     contig = tmp_path / "ambiguous.fasta"
@@ -207,7 +208,7 @@ def test_ambiguity_rich_contig_is_still_called_dna(tmp_path: Path) -> None:
 
     records = list(SeqIO.parse(str(contig), "fasta"))
     assert InputValidator._infer_fasta_type_from_content(records) == "fna"
-    assert _is_nucleotide_input(contig) is True
+    assert is_nucleotide_input(contig) is True
 
 
 def test_low_complexity_protein_repeats_are_not_called_dna(tmp_path: Path) -> None:
@@ -215,7 +216,6 @@ def test_low_complexity_protein_repeats_are_not_called_dna(tmp_path: Path) -> No
     that are also nucleotide codes, ``S`` among them, so neither an alphabet
     test nor a base-composition test alone separates them from DNA. Base
     diversity does: real nucleotide sequence uses all four bases."""
-    from src.pipeline.query_processing_engine import _is_nucleotide_input
     from src.utils.input_validation import InputValidator
 
     class _Record:
@@ -229,12 +229,12 @@ def test_low_complexity_protein_repeats_are_not_called_dna(tmp_path: Path) -> No
 
     fibroin = tmp_path / "fibroin.fasta"
     fibroin.write_text(">p1\nGAGAGSGAGAGSGAGAGS\n")
-    assert _is_nucleotide_input(fibroin) is False
+    assert is_nucleotide_input(fibroin) is False
 
     # An assembly-gap N-run must not tip a contig onto the protein path either.
     gapped = tmp_path / "gapped.fasta"
     gapped.write_text(">c1\nATGAAA" + "N" * 40 + "CCGGTTACGT\n")
-    assert _is_nucleotide_input(gapped) is True
+    assert is_nucleotide_input(gapped) is True
 
 
 def test_file_size_cap_admits_assemblies_over_the_old_50mb_limit() -> None:

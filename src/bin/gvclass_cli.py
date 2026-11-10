@@ -804,33 +804,22 @@ def install_database(
 def count_resume_skips(
     output_dir: Path, active_query_dir: Optional[Path] = None
 ) -> int:
-    """Count queries that resume will skip.
+    """Count queries whose last ``results.jsonl`` record is complete.
 
-    The consolidated ``run_status.json`` manifest is the primary marker. Old
-    ``.SUCCESS`` files and the legacy summary+tar intersection are still counted
-    so the CLI preview matches the runner's backward-compatible resume behavior.
+    The count needs the archive in place. The runner also compares the input, the
+    settings and the versions, so it can skip fewer queries than this preview shows.
     """
-    from src.pipeline.run_status import load_run_status, query_is_complete_in_run_status
+    from src.pipeline.run_status import (  # noqa: PLC0415  # Import pipeline code only when a run needs it.
+        COMPLETE,
+        archive_is_intact,
+        read_results,
+    )
 
-    run_status = load_run_status(output_dir) or {}
-    manifest_names = {
+    completed_names = {
         name
-        for name, entry in run_status.get("queries", {}).items()
-        if entry.get("status") == "complete"
-        and query_is_complete_in_run_status(output_dir, name)
+        for name, record in read_results(output_dir).items()
+        if record.status == COMPLETE and archive_is_intact(output_dir, record)
     }
-    sentinel_names = {
-        path.name.removesuffix(".SUCCESS") for path in output_dir.glob("*.SUCCESS")
-    }
-    summary_names = {
-        path.name.removesuffix(".summary.tab")
-        for path in output_dir.glob("*.summary.tab")
-    }
-    tar_names = {
-        path.name.removesuffix(".tar.gz") for path in output_dir.glob("*.tar.gz")
-    }
-    legacy_names = (summary_names & tar_names) - sentinel_names - manifest_names
-    completed_names = manifest_names | sentinel_names | legacy_names
     if active_query_dir is not None and active_query_dir.exists():
         active_stems = {
             path.stem
@@ -844,34 +833,15 @@ def count_resume_skips(
 def calculate_worker_plan(args, n_queries: int, threads: int) -> WorkerPlan:
     """Resolve the worker/thread split for one CLI invocation.
 
-    Explicit ``-j`` / ``--threads-per-worker`` win. Otherwise the split comes
-    from :func:`~src.pipeline.parallel_runner.calculate_optimal_workers`, which
-    is the one implementation of this heuristic; this function only adapts the
-    CLI's overrides onto it. The CLI previously carried a second, divergent copy
-    that pinned four threads per worker whenever more than four queries were
-    present, so five queries on a 64-thread node used 20 threads and left 44
-    idle.
+    The split comes from :func:`~src.pipeline.run_config.plan_workers`, the one
+    plan that the runner and the contig-screen step also use.
     """
-    from src.pipeline.parallel_runner import calculate_optimal_workers
+    from src.pipeline.run_config import (  # noqa: PLC0415  # Import pipeline code only when a run needs it.
+        plan_workers,
+    )
 
-    # One worker never gets more threads than the whole run was allowed.
-    per_worker = min(args.threads_per_worker, threads) if args.threads_per_worker else 0
-
-    if args.max_workers and per_worker:
-        return WorkerPlan(workers=args.max_workers, threads_per_worker=per_worker)
-
-    if args.max_workers:
-        workers = args.max_workers
-        return WorkerPlan(
-            workers=workers, threads_per_worker=max(1, threads // workers)
-        )
-
-    if per_worker:
-        workers = min(n_queries, max(1, threads // per_worker))
-        return WorkerPlan(workers=workers, threads_per_worker=per_worker)
-
-    workers, threads_per_worker = calculate_optimal_workers(
-        n_queries=n_queries, total_threads=threads
+    workers, threads_per_worker = plan_workers(
+        n_queries, threads, args.max_workers, args.threads_per_worker
     )
     return WorkerPlan(workers=workers, threads_per_worker=threads_per_worker)
 

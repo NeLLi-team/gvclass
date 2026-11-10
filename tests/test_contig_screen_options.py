@@ -132,7 +132,14 @@ def run_runner(
 ) -> dict[str, Any]:
     seen: dict[str, Any] = {}
     monkeypatch.setattr(
-        gvclass_runner, "gvclass_flow", lambda **kwargs: seen.update(kwargs) or "s.tsv"
+        gvclass_runner,
+        "gvclass_flow",
+        lambda config: (
+            seen.update(
+                contig_screen=config.contig_screen, contigs_mode=config.contigs_mode
+            )
+            or "s.tsv"
+        ),
     )
     queries = tmp_path / "queries"
     queries.mkdir(exist_ok=True)
