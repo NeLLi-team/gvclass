@@ -138,8 +138,8 @@ select the configuration file and the database directory, as for `gvclass`.
 
 | Option | Description |
 | --- | --- |
-| `--update` | Replace a complete database with the pinned source, whatever its installed version. Without this option, setup never replaces a complete database. The contig-screen add-on is kept. |
-| `--with-screen` | Also install the contig-screen add-on, as `gvclass screen --install` does. Setup asks no questions, so it also runs in CI. |
+| `--update` | Replace a complete database with the pinned source, whatever its installed version. Without this option, setup asks before it replaces a complete database that is older than the pinned source (the default answer is No), and keeps it when no terminal is available. The contig-screen add-on is kept. |
+| `--with-screen` | Also install the contig-screen add-on, as `gvclass screen --install` does. |
 
 ## Apptainer container mode
 

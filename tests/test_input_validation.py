@@ -5,11 +5,14 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 
-from src.core.reformat import reformat_sequences
+from src.core.reformat import calculate_stats, reformat_sequences
+from src.pipeline.query_processing_engine import is_nucleotide_input
 from src.utils import input_validation
+from src.utils.common import validate_file_path
 from src.utils.error_handling import ValidationError
 from src.utils.input_validation import (
     InputValidator,
@@ -148,3 +151,172 @@ def test_is_safe_query_stem_rejects_names_that_leave_the_work_directory(
     stem: str,
 ) -> None:
     assert is_safe_query_stem(stem) is False
+
+
+def test_short_fna_rejected_by_default(tmp_path: Path) -> None:
+    """Phase 3.2a: ``validate_sequence_file`` must raise on sub-20 kb
+    aggregate nucleotide input unless ``allow_short=True``."""
+
+    short_fna = tmp_path / "short.fna"
+    short_fna.write_text(">c1\n" + "ACGT" * 100 + "\n")  # 400 bp << 20 kb
+
+    with pytest.raises(ValidationError, match="below the minimum"):
+        InputValidator.validate_sequence_file(short_fna)
+
+
+def test_short_fna_accepted_when_allow_short_enabled(tmp_path: Path) -> None:
+    short_fna = tmp_path / "short.fna"
+    short_fna.write_text(">c1\n" + "ACGT" * 100 + "\n")
+    result = InputValidator.validate_sequence_file(short_fna, allow_short=True)
+    assert result == short_fna.resolve()
+
+
+def test_short_fna_accepted_with_custom_min_sequence_length(tmp_path: Path) -> None:
+    short_fna = tmp_path / "short.fna"
+    short_fna.write_text(">c1\n" + "ACGT" * 100 + "\n")  # 400 bp
+
+    result = InputValidator.validate_sequence_file(
+        short_fna,
+        min_sequence_length=400,
+    )
+
+    assert result == short_fna.resolve()
+
+
+def test_short_fna_accepted_with_zero_min_sequence_length(tmp_path: Path) -> None:
+    short_fna = tmp_path / "short.fna"
+    short_fna.write_text(">c1\nACGT\n")
+
+    result = InputValidator.validate_sequence_file(
+        short_fna,
+        min_sequence_length=0,
+    )
+
+    assert result == short_fna.resolve()
+
+
+def test_short_fna_rejected_against_custom_min_sequence_length(tmp_path: Path) -> None:
+    short_fna = tmp_path / "short.fna"
+    short_fna.write_text(">c1\n" + "ACGT" * 100 + "\n")  # 400 bp
+
+    with pytest.raises(ValidationError, match="minimum \\(500 bp\\)"):
+        InputValidator.validate_sequence_file(short_fna, min_sequence_length=500)
+
+
+def test_fasta_extension_content_is_validated(tmp_path: Path) -> None:
+    """Phase 3.2c: .fasta files must go through DNA/protein alphabet checks."""
+
+    bad_fasta = tmp_path / "bad.fasta"
+    # Invalid characters that previously slipped through because .fasta
+    # did not route to either alphabet check. The content inference now
+    # classifies this as protein (mixed alphabet) and the protein-chars
+    # check rejects the digits — either message is acceptable, we just
+    # need the rejection to happen at all.
+    bad_fasta.write_text(">c1\nATGC123\n")
+
+    with pytest.raises(ValidationError, match="invalid (?:DNA|protein) characters"):
+        InputValidator.validate_sequence_file(bad_fasta, allow_short=True)
+
+
+def test_pure_dna_fasta_routes_to_dna_alphabet(tmp_path: Path) -> None:
+    """A clean DNA-only .fasta must resolve to the ``fna`` branch (no
+    spurious protein-alphabet rejection)."""
+
+    good_fasta = tmp_path / "good.fasta"
+    good_fasta.write_text(">c1\n" + "ACGT" * 10 + "\n")
+    # No exception -> routed correctly.
+    result = InputValidator.validate_sequence_file(good_fasta, allow_short=True)
+    assert result == good_fasta.resolve()
+
+
+def test_protein_fasta_of_iupac_letters_is_not_called_dna(tmp_path: Path) -> None:
+    """Every letter of ``MKWVNDHRYSGACD`` is also an IUPAC ambiguity code, so a
+    set-membership test against ``VALID_DNA_CHARS`` calls this peptide DNA."""
+
+    peptides = tmp_path / "peptides.fasta"
+    peptides.write_text(">p1\nMKWVNDHRYSGACD\n>p2\nMKWVNDHRYSGACD\n")
+
+    records = list(SeqIO.parse(str(peptides), "fasta"))
+    assert InputValidator._infer_fasta_type_from_content(records) == "faa"
+
+    # Protein path: no DNA-alphabet rejection and no 20 kb nucleotide floor.
+    assert InputValidator.validate_sequence_file(peptides) == peptides.resolve()
+
+
+def test_ambiguity_rich_contig_is_still_called_dna(tmp_path: Path) -> None:
+    """The other side of the same discriminator: GVClass accepts IUPAC
+    ambiguity codes in nucleotide input, and ``is_nucleotide_input`` routes
+    gene calling off this helper, so a misread here sends a real contig to the
+    protein branch."""
+
+    contig = tmp_path / "ambiguous.fasta"
+    contig.write_text(">c1\nATGNNNRYKMSWATGCCGT\n")
+
+    records = list(SeqIO.parse(str(contig), "fasta"))
+    assert InputValidator._infer_fasta_type_from_content(records) == "fna"
+    assert is_nucleotide_input(contig) is True
+
+
+def test_low_complexity_protein_repeats_are_not_called_dna(tmp_path: Path) -> None:
+    """Gly/Ala-rich repeats (collagen, elastin, silk fibroin) use only letters
+    that are also nucleotide codes, ``S`` among them, so neither an alphabet
+    test nor a base-composition test alone separates them from DNA. Base
+    diversity does: real nucleotide sequence uses all four bases."""
+
+    class _Record:
+        def __init__(self, seq: str) -> None:
+            self.seq = seq
+
+    for motif in ("GAGAGSGAGAGSGAGAGS", "GAPGAPGAPGAPGAPGAP", "GGYGGGGRGGYGGGGRGG"):
+        assert (
+            InputValidator._infer_fasta_type_from_content([_Record(motif)]) == "faa"
+        ), motif
+
+    fibroin = tmp_path / "fibroin.fasta"
+    fibroin.write_text(">p1\nGAGAGSGAGAGSGAGAGS\n")
+    assert is_nucleotide_input(fibroin) is False
+
+    # An assembly-gap N-run must not tip a contig onto the protein path either.
+    gapped = tmp_path / "gapped.fasta"
+    gapped.write_text(">c1\nATGAAA" + "N" * 40 + "CCGGTTACGT\n")
+    assert is_nucleotide_input(gapped) is True
+
+
+def test_file_size_cap_admits_assemblies_over_the_old_50mb_limit() -> None:
+    """The cap was 50 MB under a constant named for sequence length in bp, but
+    compared against the file size in bytes, so ``--contigs`` on a metagenome
+    assembly failed with "File too large". Writing a >50 MB FASTA would slow the
+    suite, so assert the cap itself: this fails if it regresses to 50 MB."""
+
+    assert InputValidator.MAX_FILE_SIZE_BYTES > 50_000_000
+
+
+def test_query_enumeration_accepts_fasta_extensions(tmp_path: Path) -> None:
+    """Codex audit: a directory containing only ``.fasta`` / ``.fas``
+    inputs must be enumerated as queries, not silently produce zero.
+    """
+
+    query_dir = tmp_path / "queries"
+    query_dir.mkdir()
+    (query_dir / "a.fasta").write_text(">c\nACGT\n")
+    (query_dir / "b.fas").write_text(">c\nACGT\n")
+    assert [path.name for path in discover_query_files(query_dir)] == [
+        "a.fasta",
+        "b.fas",
+    ]
+
+
+def test_validate_path_safety_allows_double_dots_in_filename(tmp_path: Path) -> None:
+    """A '..' inside the file name is safe when no path component is '..'."""
+    f = tmp_path / "genome..v1.fna"
+    f.write_text(">c1\nATGC\n")
+    resolved = validate_file_path(f)
+    assert resolved == f.resolve()
+
+
+def test_reformat_calculate_stats_counts_lowercase_gc() -> None:
+    """calculate_stats should count both uppercase and lowercase G/C bases."""
+
+    records = [SeqRecord(Seq("atgc"), id="c1")]
+    stats_df = calculate_stats(records, "lower.fna")
+    assert float(stats_df.loc[0, "GCperc"]) == 50.0

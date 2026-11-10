@@ -398,3 +398,36 @@ def test_quality_group_follows_the_accepted_taxonomy_not_paralog_counts() -> Non
 
     assert accepted_lineage["order"] == "Asfuvirales"
     assert order_completeness._select_quality_group(accepted_lineage) == "Asfuvirales"
+
+
+def test_tax_level_counts_normalize_domain_unclassified_placeholders() -> None:
+    formatted = tax_format.format_tax_level_counts(
+        Counter({"NCLDV__NCLDV_unclassified": 6, "NCLDV__Megaviricetes": 4}),
+        level="class",
+    )
+
+    assert "NCLDV__unclassified:6(60.00%)" in formatted
+    assert "NCLDV__NCLDV_unclassified" not in formatted
+
+
+def test_tax_level_counts_use_domain_prefix_for_grouped_minor_taxa() -> None:
+    formatted = tax_format.format_tax_level_counts(
+        Counter({"NCLDV__S392": 18, "PLV__EP00001": 1, "NCLDV__singleton": 1}),
+        level="species",
+    )
+
+    assert "PLV__other:1(5.00%)" in formatted
+    assert "NCLDV__other:1(5.00%)" in formatted
+    assert "PLV_other" not in formatted
+    assert "NCLDV_other" not in formatted
+
+
+def test_domain_counts_are_not_grouped_as_other() -> None:
+    formatted = tax_format.format_tax_level_counts(
+        Counter({"NCLDV": 19, "PLV": 1}),
+        level="domain",
+    )
+
+    assert "NCLDV:19(95.00%)" in formatted
+    assert "PLV:1(5.00%)" in formatted
+    assert "PLV_other" not in formatted

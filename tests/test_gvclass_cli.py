@@ -3,6 +3,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
@@ -13,7 +14,6 @@ from src.bin.gvclass_cli import (
     BUILTIN_CONFIG_DEFAULTS,
     RESOURCE_CACHE_ENV,
     THREAD_ENV_VARS,
-    CliOutput,
     ConfigError,
     ContigInput,
     build_parser,
@@ -23,6 +23,7 @@ from src.bin.gvclass_cli import (
     inspect_local_database_state,
     load_config,
     prompt_yes_no,
+    resolve_completeness_mode,
     resolve_contigs_min_length,
     resolve_input_min_length,
     resolve_mode_fast,
@@ -493,3 +494,22 @@ def test_importing_the_cli_loads_no_scientific_library():
     )
 
     assert result.stdout.strip() == "[]"
+
+
+def test_resolve_completeness_mode_honors_explicit_legacy() -> None:
+    args = SimpleNamespace(completeness_mode=None)
+    config = {"pipeline": {"completeness_mode": "legacy"}}
+    assert resolve_completeness_mode(args, config) == "legacy"
+
+
+def test_resolve_completeness_mode_cli_flag_wins_over_config() -> None:
+    args = SimpleNamespace(completeness_mode="legacy")
+    config = {"pipeline": {"completeness_mode": "novelty-aware"}}
+    assert resolve_completeness_mode(args, config) == "legacy"
+
+
+def test_unrecognized_native_arguments_still_fail() -> None:
+    with pytest.raises(SystemExit) as raised:
+        gvclass_cli.main(["queries", "--no-such-option"])
+
+    assert raised.value.code == 2

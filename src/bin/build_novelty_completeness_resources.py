@@ -177,7 +177,7 @@ def parse_reference_marker_profiles(
 def marker_stats_for_group(
     genome_profiles: Dict[str, Dict[str, int]], markers: List[str]
 ) -> pd.DataFrame:
-    rows: List[Dict[str, float]] = []
+    rows: List[Dict[str, str | float]] = []
     genome_count = len(genome_profiles)
     if genome_count == 0:
         return pd.DataFrame()
@@ -349,9 +349,9 @@ def simulate_samples(
     order_profiles: Dict[str, Dict[str, Dict[str, int]]],
     order_markers: Dict[str, List[str]],
     seed: int = RANDOM_SEED,
-) -> List[Dict[str, object]]:
+) -> List[Dict[str, Any]]:
     rng = random.Random(seed)
-    samples: List[Dict[str, object]] = []
+    samples: List[Dict[str, Any]] = []
     for order_name, genome_profiles in order_profiles.items():
         markers = order_markers[order_name]
         for genome_id, profile in genome_profiles.items():

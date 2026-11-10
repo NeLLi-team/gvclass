@@ -11,6 +11,46 @@ covers releases prior to v1.2.2.
 The runtime database/resource bundle is versioned separately from the software; the
 compatible bundle is noted per release.
 
+## [Unreleased]
+
+Not verified: the container images are unbuilt, and the CI workflow has not run.
+
+### Fixed
+
+- Marker panels use the names in the database: the phage panel holds the 20 `GENOMAD.<number>.VV` models, the BUSCO panel the 69 shipped models, and capsid names missing from the database are gone. A marker group takes a category only when all its models share it.
+- Sequence IDs keep their whole text, with `|` and `:` replaced by `__`. A file with a repeated ID, or two IDs that become the same name, is rejected with a message that names the IDs. Upper-case extensions are found, and reserved query names are refused.
+- One invalid input file no longer stops a batch. It is recorded as a failed query with status `invalid_input`, and the other files run.
+- A tie between taxa leaves the rank and all lower ranks blank and sets `tie:<rank>`. A call held by half or fewer of the voting markers sets `plurality:<rank>`. A protein whose nearest references tie votes with their common lineage, so the call no longer depends on leaf order or reference names.
+- A nonzero genetic code replaces code 0 only with marker evidence. Input under 20 kb in total is called with code 0 only.
+- Reference proteins for a marker tree are chosen for each query protein by rank, so a second virus in a mixed bin gets close references. The `.m8` file has standard length and gap columns.
+- The HMM search keeps only reported hits and domains, in sensitive mode as well.
+- A complete database is never replaced without consent. Setup holds a lock, stages the download in a private directory, checks every file before the swap, keeps an installed contig-screen add-on, and times out and retries a failed download.
+- The contig screen no longer depends on contig order, does not crash on bins without genes, and reports a cellular screen that writes no table as `not_scored`.
+- Scoring: a coherent cellular contig is a `cellular` candidate. A non-finite baseline gives an unavailable estimate, not 100%. Legacy completeness stays when the novelty tier has no evidence. All `order_completeness_v2` columns are filled without novelty resources. A contig without a tree-placed protein gets the fallback cellular rules.
+- A species-tree group needs three taxa, and a malformed Newick tree is an error.
+- An explicit `-c` path that does not exist is an error, and thread options must be at least 1.
+- The exit status is 0 only when the runner succeeded and output validation found no issue. Ctrl-C and SIGTERM stop the runner and remove the temporary contig files.
+- `--resume` runs a query again when its input file, a setting that changes results, the database version or the software version changed.
+- The container launcher forwards options unchanged and sets no thread default.
+
+### Changed
+
+- `taxonomy_confidence` has the values `high`, `no_support`, `low_support`, `tie:<rank>`, `mixed_cellular`, `plurality:<rank>` and `reduced_fastmode`.
+- `results.jsonl` is the record of finished queries. A run also writes `run_config.json`, `gvclass.log` and `run_status.json` (schema 2, written at start and end). Working files live in `.gvclass_work/<query>/`, and an earlier archive is replaced only when the new one is complete.
+- The default output directory is `<cwd>/<name>_results`, in native and container runs.
+- `gvclass` starts itself again in the Python of the repository, so the host Python needs no GVClass packages. Container mode lives in the launcher only, and `http://` image addresses are rejected.
+- `setup-db --update` replaces a complete database. Without it, a terminal prompt (default No) or a warning decides.
+- Tied nearest neighbours vote with their common lineage in the contamination score too. Mixed marker groups take the category of the best-scoring model of the protein.
+- The containers set `PYTHONPATH` and `PYTHONNOUSERSITE` so host packages cannot shadow the image, and their entry points add `-o /output` when no output option is given.
+- Development: ruff replaces black and flake8, and tests are grouped by the code they cover.
+
+### Removed
+
+- The unused `--cluster-*` options and the `GVCLASS_DB_FILENAME` setting.
+- The `.SUCCESS` files and the per-event rewrite of `run_status.json`.
+- `src/bin/gvclass_apptainer.py`, the `click` dependency, and unused scripts and pixi tasks (`run_benchmarks.sh`, parallelization and performance monitors).
+- The `models.score` file, which nothing read.
+
 ## [2.1.1] - 2026-10-30
 
 Compatible resource bundle: v2.1.0 (Zenodo DOI 10.5281/zenodo.23381313). The contig-screen

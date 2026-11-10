@@ -5,7 +5,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.bin.gvclass_cli import resolve_sensitive_mode
+from src.bin.gvclass_cli import (
+    BUILTIN_CONFIG_DEFAULTS,
+    build_parser,
+    resolve_sensitive_mode,
+)
 from tests.cli_helpers import run_cli
 
 
@@ -39,3 +43,13 @@ def test_the_run_config_turns_sensitive_mode_off_with_no_sensitive(
     run = run_cli(tmp_path, monkeypatch, "--no-sensitive")
 
     assert run.config.sensitive_mode is False
+
+
+def test_cli_no_sensitive_flag() -> None:
+    """--no-sensitive should resolve sensitive_mode to False."""
+    parser = build_parser()
+    default_args = parser.parse_args(["example", "-o", "out"])
+    assert resolve_sensitive_mode(default_args, BUILTIN_CONFIG_DEFAULTS) is True
+
+    no_sens_args = parser.parse_args(["example", "-o", "out", "--no-sensitive"])
+    assert resolve_sensitive_mode(no_sens_args, BUILTIN_CONFIG_DEFAULTS) is False

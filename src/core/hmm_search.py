@@ -119,7 +119,7 @@ def read_proteins(faa_path: Path | str) -> DigitalSequenceBlock:
     with pyhmmer.easel.SequenceFile(
         str(faa_path), digital=True, alphabet=_AMINO
     ) as handle:
-        return handle.read_block()
+        return handle.read_block()  # type: ignore[return-value]  # stubs say SequenceBlock
 
 
 def digitize_proteins(proteins: Iterable[tuple[str, str]]) -> DigitalSequenceBlock:

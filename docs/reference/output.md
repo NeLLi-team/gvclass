@@ -132,7 +132,7 @@ The four `species_tree_*` summary columns describe per-query trees. Combined-tre
 | `GCperc` | GC content as a percentage. |
 | `genecount` | Number of predicted genes. |
 | `CODINGperc` | Coding density as a percentage. |
-| `ttable` | Genetic code used for gene calling; `no_fna` for protein inputs. |
+| `ttable` | Genetic code used for gene calling; `codemeta` for metagenomic mode (code 0); `no_fna` for protein inputs. |
 | `species_tree_nn_genome` | Nearest-reference genome identifier from the query's species tree; `nd` if unavailable. |
 | `species_tree_nn_distance` | Tree distance to that reference, rounded to two decimal places; `nd` if unavailable. |
 | `species_tree_clade_id` | Query-only clade identifier; `nd` when no such clade is present. Combined-tree clades are reported in their separate taxonomy table. |

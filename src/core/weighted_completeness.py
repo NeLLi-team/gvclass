@@ -46,7 +46,7 @@ class WeightedCompletenessCalculator:
         self.marker_stats_path = marker_stats_path
         self.weight_strategy = weight_strategy
         self.enable_adaptive_scaling = enable_adaptive_scaling
-        self._outlier_detector = None
+        self._outlier_detector: IsolationForest | None = None
         self._weights_cache: dict[tuple[str, tuple[str, ...]], dict[str, float]] = {}
 
         # Initialize ML components if adaptive scaling is enabled

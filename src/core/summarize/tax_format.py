@@ -47,7 +47,7 @@ def format_tax_level_counts(tax_counter: Counter, level: str | None = None) -> s
     if not tax_counter:
         return ""
 
-    normalized_counter = Counter()
+    normalized_counter: Counter[str] = Counter()
     for tax, count in tax_counter.items():
         normalized_counter[_format_tax_count_key(tax, level)] += count
 
@@ -57,7 +57,7 @@ def format_tax_level_counts(tax_counter: Counter, level: str | None = None) -> s
 
     grouped_counter = Counter(normalized_counter)
     low_threshold = 5.0
-    low_counts_by_group = Counter()
+    low_counts_by_group: Counter[str] = Counter()
 
     for tax, count in normalized_counter.items():
         percentage = (count / total) * 100

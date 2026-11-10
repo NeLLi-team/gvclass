@@ -4,9 +4,21 @@ import csv
 import tarfile
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 from src.pipeline import summary_writer
+from src.pipeline.summary_writer import (
+    EXTENDED_SUMMARY_COLUMNS,
+    FINAL_SUMMARY_COLUMNS,
+    INDIVIDUAL_FINAL_SUMMARY_COLUMNS,
+    LEGACY_SUMMARY_HEADERS,
+    archive_final_summary_extended_files,
+    final_summary_record,
+    write_final_summary_extended_files,
+    write_final_summary_files,
+    write_individual_final_summary_file,
+)
 
 
 def test_failed_queries_are_reported_separately_from_final_summary(
@@ -286,3 +298,67 @@ def test_a_saved_record_has_blank_screen_columns() -> None:
 
     assert record["taxonomy_majority"] == "d_NCLDV"
     assert record["screen_status"] == ""
+
+
+def test_taxonomy_confidence_column_present_in_summary_schemas() -> None:
+    assert "taxonomy_confidence" in FINAL_SUMMARY_COLUMNS
+    assert "taxonomy_confidence" in LEGACY_SUMMARY_HEADERS
+
+
+def test_completeness_reliability_column_in_summary_schema() -> None:
+    """The completeness QC column is surfaced as completeness_model_reliability;
+    the raw advisory/r2-holdout diagnostics were dropped from the final summary."""
+
+    assert "completeness_model_reliability" in FINAL_SUMMARY_COLUMNS
+    for column in (
+        "estimated_completeness_quality",
+        "estimated_completeness_advisory",
+        "estimated_completeness_r2_holdout",
+    ):
+        assert column not in FINAL_SUMMARY_COLUMNS
+
+
+def test_summary_writer_preserves_extended_columns_across_resume(
+    tmp_path: Path,
+) -> None:
+    """The final-schema row must keep every summary and extended column.
+
+    <query>.final_summary.tsv and the ``summary`` of the ``results.jsonl`` record
+    hold this row; --resume rebuilds both combined tables from the record.
+    """
+    assert (
+        INDIVIDUAL_FINAL_SUMMARY_COLUMNS[: len(FINAL_SUMMARY_COLUMNS)]
+        == FINAL_SUMMARY_COLUMNS
+    )
+    assert set(EXTENDED_SUMMARY_COLUMNS) <= set(INDIVIDUAL_FINAL_SUMMARY_COLUMNS)
+
+    summary_data = {col: "0" for col in INDIVIDUAL_FINAL_SUMMARY_COLUMNS}
+    summary_data["query"] = "sample_q"
+    summary_data["cellular_coherent_bp_fraction"] = 12.34
+    summary_data["contig_attribution_mode"] = "contig_aware"
+
+    write_individual_final_summary_file(tmp_path, "sample_q", summary_data)
+    record = final_summary_record(summary_data)
+    saved_lines = (tmp_path / "sample_q.final_summary.tsv").read_text().splitlines()
+    assert saved_lines[0].split("\t") == INDIVIDUAL_FINAL_SUMMARY_COLUMNS
+    assert saved_lines[1].split("\t") == list(record.values())
+
+    resumed_results = [
+        {"query": "sample_q", "status": "complete", "summary_data": record}
+    ]
+    write_final_summary_files(resumed_results, tmp_path)
+    write_final_summary_extended_files(resumed_results, tmp_path)
+    archive_final_summary_extended_files(tmp_path)
+
+    main_df = pd.read_csv(tmp_path / "gvclass_summary.tsv", sep="\t")
+    assert list(main_df.columns) == FINAL_SUMMARY_COLUMNS
+
+    tar_path = tmp_path / "gvclass_summary.extended.tar.gz"
+    assert tar_path.exists()
+    with tarfile.open(tar_path, "r:gz") as tar:
+        member = tar.extractfile("gvclass_summary.extended.tsv")
+        assert member is not None
+        ext_df = pd.read_csv(member, sep="\t")
+    assert list(ext_df.columns) == EXTENDED_SUMMARY_COLUMNS
+    assert float(ext_df.loc[0, "cellular_coherent_bp_fraction"]) == 12.34
+    assert ext_df.loc[0, "contig_attribution_mode"] == "contig_aware"

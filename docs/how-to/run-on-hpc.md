@@ -65,7 +65,7 @@ chmod +x gvclass
 apptainer pull gvclass_2.1.1.sif oras://ghcr.io/nelli-team/gvclass:2.1.1
 ```
 
-Pass the downloaded image to `gvclass` with `--image` (or pass `--apptainer` to pull and cache the default image automatically). The image address is on GHCR; Sylabs retired its library on 2026-10-22, so older `library://` addresses no longer work.
+Pass the downloaded image to `gvclass` with `--image` (or pass `--apptainer` to pull and cache the default image automatically). The image address is on GHCR. Sylabs retired its library on 2026-10-22, so a `library://` address works only with another library endpoint that Apptainer knows.
 
 ### 2. Run within a compute allocation
 

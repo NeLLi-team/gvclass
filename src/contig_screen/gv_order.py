@@ -295,7 +295,7 @@ class IdentityCache:
 
     def fill(self, items: list[tuple[str, str]]) -> None:
         """Compute identities for all pairs among (hash, protein) items."""
-        todo = {}
+        todo: dict[tuple[str, str], None] = {}
         for (ha, _), (hb, _) in itertools.combinations(items, 2):
             key = (min(ha, hb), max(ha, hb))
             if ha != hb and key not in self.table:
@@ -440,8 +440,8 @@ def bin_features(
     keys = [pair_keys(c.models) for c in contigs]
     key_owner: dict[tuple[str, str], set[int]] = {}
     for index, owned in enumerate(keys):
-        for key in owned:
-            key_owner.setdefault(key, set()).add(index)
+        for pair in owned:
+            key_owner.setdefault(pair, set()).add(index)
     length = np.array([c.length for c in contigs], dtype=float)
     comp = np.array([c.comp for c in contigs])
     standard = (comp - priors.mu) / priors.sd
@@ -478,18 +478,20 @@ def bin_features(
         }
         row.update(dup)
         row.update(synteny_stats(index, keys, key_owner, length))
-        row["d_bulk"] = d_bulk[index]
-        row["d_partner"] = (
+        d_bulk_index = d_bulk[index]
+        d_partner = (
             float(np.linalg.norm(standard[index] - standard[partner]))
             if partner >= 0
             else np.nan
         )
+        row["d_bulk"] = d_bulk_index
+        row["d_partner"] = d_partner
         row["gc_diff"] = gc_diff[index]
         for key, distance in d_extra.items():
             row[f"d_{key}"] = distance[index]
         row["d_partner_ratio"] = (
-            row["d_partner"] / row["d_bulk"]
-            if partner >= 0 and row["d_bulk"]
+            d_partner / d_bulk_index
+            if partner >= 0 and d_bulk_index
             else np.nan
         )
         rows.append(row)

@@ -118,3 +118,15 @@ def test_plan_workers_rejects_values_below_one(
 ) -> None:
     with pytest.raises(ValueError, match="at least 1"):
         plan_workers(n_jobs, threads, max_workers, per_worker)
+
+
+@pytest.mark.parametrize(
+    ("total_threads", "threads_per_worker", "expected"),
+    [(2, 8, (1, 2)), (16, 4, (4, 4)), (1, 1, (1, 1))],
+)
+def test_explicit_threads_per_worker_never_exceeds_the_total(
+    total_threads: int, threads_per_worker: int, expected: tuple[int, int]
+) -> None:
+    plan = plan_workers(8, total_threads, None, threads_per_worker)
+
+    assert plan == expected

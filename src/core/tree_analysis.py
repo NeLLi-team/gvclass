@@ -75,7 +75,7 @@ class TreeAnalyzer:
             Dictionary mapping query proteins to ``{neighbor: distance}`` for
             every reference at the minimal distance (several when tied)
         """
-        neighbors = {}
+        neighbors: dict[str, dict[str, float]] = {}
 
         # Check if tree file exists and is not a dummy/skipped tree
         if not tree_file.exists():
@@ -311,8 +311,8 @@ class TreeAnalyzer:
                 f.write("marker\tquery_protein\tnearest_neighbor\tdistance\ttaxonomy\n")
 
                 for marker, query_neighbors in all_neighbors.items():
-                    for query_protein, neighbors in query_neighbors.items():
-                        for neighbor, distance in neighbors.items():
+                    for query_protein, distances in query_neighbors.items():
+                        for neighbor, distance in distances.items():
                             lineage = self.labels.lineages.get(
                                 self.labels.resolve_genome_id(neighbor)
                             )

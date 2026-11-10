@@ -11,6 +11,8 @@ import math
 import pytest
 
 from src.core.novelty_completeness import (
+    OOD_STRICT_FLAGS,
+    R2_ADVISORY_FLOOR,
     GroupDefinition,
     NoveltyAwareCompletenessScorer,
     Strategy2Config,
@@ -261,3 +263,38 @@ def test_legacy_mode_keeps_its_estimate_when_the_novelty_tier_has_no_evidence():
     assert math.isnan(result["order_completeness_v2"])
     assert math.isnan(result["order_completeness_v2_strategy2_raw"])
     assert math.isnan(result["order_completeness_v2_strategy2_normalized"])
+
+
+def test_ood_strict_flags_includes_r2_below_gate() -> None:
+    assert "r2_below_gate" in OOD_STRICT_FLAGS
+
+
+def test_augment_ood_flag_merges_without_duplicates() -> None:
+    merge = NoveltyAwareCompletenessScorer._augment_ood_flag
+    assert merge("none", "r2_below_gate") == "r2_below_gate"
+    assert merge("unassigned", "r2_below_gate") == "unassigned,r2_below_gate"
+    # Idempotent — no duplicates even when merging twice.
+    assert (
+        merge("unassigned,r2_below_gate", "r2_below_gate") == "unassigned,r2_below_gate"
+    )
+
+
+def test_r2_advisory_floor_is_one_half() -> None:
+    assert R2_ADVISORY_FLOOR == 0.5
+
+
+@pytest.mark.parametrize("test_r2", ["nan", "NaN", float("nan")])
+def test_nan_test_r2_is_treated_as_missing_metadata(test_r2) -> None:
+    scorer = _tiered_scorer(test_r2=test_r2)
+
+    result = scorer.calculate(
+        {"OG1": 1, "OG2": 1},
+        "Algavirales",
+        "",
+        50.0,
+        50.0,
+        selected_mode="novelty-aware",
+    )
+
+    assert result["estimated_completeness_strategy"] == "novelty_aware_v1"
+    assert "r2_below_gate" not in result["order_completeness_v2_ood_flag"]

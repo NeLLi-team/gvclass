@@ -1,6 +1,6 @@
 # Marker annotations
 
-The 1671 HMM models in database v2.1.0 are listed below with their member proteins' majority functional annotation.
+The table lists the 1671 markers of `markers/annotations.tsv` in database v2.1.0, each with the majority functional annotation of its member proteins. A marker is an HMM model name or an orthogroup ID (`OG<number>`). Of the 1671 markers, 528 are models of the search library `hmm/combined.hmm`, which holds 821 models.
 
 The [TSV download](marker-annotations.tsv) includes support counts (`majority_count`, `total_proteins`). See [marker panels and genetic codes](markers.md) for the summary metrics.
 

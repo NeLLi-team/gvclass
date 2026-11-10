@@ -104,6 +104,7 @@ def test_witchi_prune_cli_contract(tmp_path: Path) -> None:
     assert sorted(headers) == ["seqA", "seqB", "seqC", "seqD", "seqE", "seqF"]
 
 
+@pytest.mark.skipif(_WITCHI_CLI is None, reason="witchi console script not on PATH")
 def test_witchi_must_use_console_script_not_module() -> None:
     """`python -m witchi` is NOT supported (no __main__) — Section 4 must use the
     console script resolved via ``shutil.which('witchi')``."""

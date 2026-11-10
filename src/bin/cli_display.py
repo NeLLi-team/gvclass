@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import sys
 import re
+import sys
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:

@@ -51,12 +51,13 @@ Print the query names, assigned lineages, and classification confidence:
 cut -f1,2,4 example_results/gvclass_summary.tsv
 ```
 
-The table should contain these three queries:
+The output is a header row and one tab-separated row per query:
 
 ```text
-AC3300027503___Ga0255182_1000024
-GVMAG-S-1096109-37
-PkV-RF01
+query	taxonomy_majority	taxonomy_confidence
+AC3300027503___Ga0255182_1000024	d_NCLDV;p_Nucleocytoviricota;c_Megaviricetes;o_Imitervirales;f_IM_01;g_g2284;s_S392	high
+GVMAG-S-1096109-37	d_NCLDV;p_Nucleocytoviricota;c_Megaviricetes;o_Pimascovirales;f_PM_01;g_g94;s_S679	high
+PkV-RF01	d_NCLDV;p_Nucleocytoviricota;c_Megaviricetes;o_Imitervirales;f_IM_19;g_NCLDV_unclassified;s_PkV-RF01	high
 ```
 
 Check the number of result rows:

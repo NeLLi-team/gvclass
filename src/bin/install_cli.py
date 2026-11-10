@@ -3,8 +3,8 @@
 Install GVClass CLI entrypoints into ~/bin.
 """
 
-from pathlib import Path
 import shutil
+from pathlib import Path
 
 
 def main() -> int:

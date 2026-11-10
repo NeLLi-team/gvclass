@@ -15,7 +15,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from src.contig_screen import layout, ref_hits as rh
+from src.contig_screen import layout
+from src.contig_screen import ref_hits as rh
 from src.contig_screen.cellular import diamond_binary, diamond_search
 
 CATALOG_TARGETS = 100

@@ -6,6 +6,7 @@ import sys
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 import yaml
@@ -123,11 +124,21 @@ def test_setup_db_reports_a_failed_addon_install(
     assert setup_database.main() == 1
 
 
-def test_setup_db_never_asks_a_question() -> None:
-    source = (REPO_ROOT / "src" / "bin" / "setup_database.py").read_text()
+@pytest.mark.parametrize(("flags", "update"), [([], False), (["--update"], True)])
+def test_setup_db_passes_the_update_consent_to_the_installer(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    flags: list[str],
+    update: bool,
+) -> None:
+    check = Mock(return_value=True)
+    monkeypatch.setattr(setup_database, "check_and_setup_database", check)
+    monkeypatch.setattr(
+        sys, "argv", ["setup_database", "-d", str(tmp_path / "db"), *flags]
+    )
 
-    assert "input(" not in source
-    assert "prompt_yes_no" not in source
+    assert setup_database.main() == 0
+    assert check.call_args.kwargs["update"] is update
 
 
 def test_the_startup_lines_say_what_the_screen_does(tmp_path: Path) -> None:

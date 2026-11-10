@@ -7,7 +7,7 @@ This module handles the complete processing pipeline for a single marker.
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import pytrimal
 from Bio import SeqIO
@@ -372,7 +372,7 @@ class MarkerProcessor:
         max_blast_hits: int = 100,
         tree_method: str = "veryfasttree",
         threads: int = 4,
-    ) -> Dict[str, Path]:
+    ) -> Dict[str, Any]:
         """
         Process a single marker through the complete pipeline.
 

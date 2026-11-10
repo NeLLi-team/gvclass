@@ -9,11 +9,12 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import Union, Optional
+from typing import Optional, Union
+
 from Bio import SeqIO
 from Bio.SeqRecord import SeqRecord
 
-from .error_handling import ValidationError, FileError
+from .error_handling import FileError, ValidationError
 
 logger = logging.getLogger(__name__)
 

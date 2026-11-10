@@ -2,7 +2,8 @@
 """Generate the Marker annotations reference page from the resources database.
 
 Reads ``resources/markers/annotations.tsv`` (the majority functional annotation
-per HMM marker model) and writes two committed files under ``docs/reference/``:
+per marker) and ``resources/hmm/combined.hmm`` (to count the markers that are
+models of the search library) and writes two committed files under ``docs/reference/``:
 
   - ``marker-annotations.tsv`` -- verbatim snapshot (all columns) for download
   - ``marker-annotations.md``  -- rendered two-column lookup table for the site
@@ -24,6 +25,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 SRC_TSV = REPO / "resources" / "markers" / "annotations.tsv"
 DB_VERSION_FILE = REPO / "resources" / "DB_VERSION"
+HMM_FILE = REPO / "resources" / "hmm" / "combined.hmm"
 OUT_TSV = REPO / "docs" / "reference" / "marker-annotations.tsv"
 OUT_MD = REPO / "docs" / "reference" / "marker-annotations.md"
 
@@ -31,6 +33,12 @@ OUT_MD = REPO / "docs" / "reference" / "marker-annotations.md"
 def _esc(text: str) -> str:
     """Make a value safe to drop into a Markdown table cell."""
     return text.replace("|", r"\|").strip()
+
+
+def _hmm_model_names(path: Path) -> set[str]:
+    """Return the model names of an HMMER profile library."""
+    with path.open(encoding="utf-8") as handle:
+        return {line.split()[1] for line in handle if line.startswith("NAME ")}
 
 
 def main() -> None:
@@ -49,23 +57,25 @@ def main() -> None:
     # Verbatim snapshot (all columns) for download.
     shutil.copyfile(SRC_TSV, OUT_TSV)
 
+    hmm_names = _hmm_model_names(HMM_FILE)
+    n_models = sum(row["marker_id"] in hmm_names for row in rows)
+
     lines = [
         "# Marker annotations",
         "",
         (
-            f"Majority functional annotation for each of the {len(rows)} HMM marker "
-            "models in GVClass, derived from the consensus annotation of the member "
-            f"proteins in each model. This is a snapshot of database bundle "
-            f"**{db_version}**."
+            f"The table lists the {len(rows)} markers of `markers/annotations.tsv` in "
+            f"database {db_version}, each with the majority functional annotation of "
+            "its member proteins. A marker is an HMM model name or an orthogroup ID "
+            f"(`OG<number>`). Of the {len(rows)} markers, {n_models} are models of "
+            f"the search library `hmm/combined.hmm`, which holds {len(hmm_names)} "
+            "models."
         ),
         "",
         (
-            "Download the full table, including per-annotation support counts "
-            "(`majority_count`, `total_proteins`), here: "
-            "[marker-annotations.tsv](marker-annotations.tsv). Regenerate it with "
-            "`python scripts/gen_marker_annotations_doc.py` after a database update. "
-            "For the marker panels that feed the summary table and the genetic codes, "
-            "see [Marker panels and genetic codes](markers.md)."
+            "The [TSV download](marker-annotations.tsv) includes support counts "
+            "(`majority_count`, `total_proteins`). See "
+            "[marker panels and genetic codes](markers.md) for the summary metrics."
         ),
         "",
         "| Marker model | Majority annotation |",

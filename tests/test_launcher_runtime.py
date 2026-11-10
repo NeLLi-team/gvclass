@@ -302,3 +302,82 @@ def test_the_launcher_handles_every_cli_option_that_takes_a_value(
 
     assert cli_value_options <= handled
     assert handled - cli_value_options == {"--image"}
+
+
+def test_image_cache_names_differ_for_urls_with_the_same_basename(
+    launcher: ModuleType,
+) -> None:
+    name = launcher.cache_filename_for_image
+
+    first = name("https://host-a.example/v1/gvclass.sif")
+    second = name("https://host-b.example/v2/gvclass.sif")
+
+    assert first != second
+    assert first.endswith("_gvclass.sif")
+    assert first == name("https://host-a.example/v1/gvclass.sif")
+
+
+def test_image_cache_name_keeps_the_readable_tag(launcher: ModuleType) -> None:
+    name = launcher.cache_filename_for_image
+
+    oras = name("oras://ghcr.io/nelli-team/gvclass:2.1.1")
+    library = name("library://group/collection/gvclass:2.1.0")
+
+    assert oras.endswith("_ghcr.io_nelli-team_gvclass_2.1.1.sif")
+    assert library.endswith("_group_collection_gvclass_2.1.0.sif")
+
+
+def test_image_cache_names_differ_for_one_path_under_different_schemes(
+    launcher: ModuleType,
+) -> None:
+    name = launcher.cache_filename_for_image
+    addresses = [
+        "oras://ghcr.io/nelli-team/gvclass:2.1.1",
+        "docker://ghcr.io/nelli-team/gvclass:2.1.1",
+        "library://ghcr.io/nelli-team/gvclass:2.1.1",
+        "oras://ghcr.io/nelli-team/gvclass_2.1.1",
+        "oras://ghcr.io/nelli-team/gvclass:latest",
+    ]
+
+    names = [name(address) for address in addresses]
+
+    assert len(set(names)) == len(addresses)
+    assert names[0] == name(addresses[0])
+
+
+def test_default_output_name_for_the_current_directory(
+    launcher: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    query = tmp_path / "genomes"
+    query.mkdir()
+    monkeypatch.chdir(query)
+
+    output = launcher.default_output_dir(Path())
+
+    assert output == Path.cwd() / "genomes_results"
+
+
+def test_repo_detection_ignores_an_unrelated_src_directory(
+    launcher: ModuleType, tmp_path: Path
+) -> None:
+    (tmp_path / "src").mkdir()
+
+    assert launcher.is_gvclass_repo(tmp_path) is False
+    assert launcher.is_gvclass_repo(REPO_ROOT) is True
+
+
+def test_container_mode_without_a_query_is_an_error(
+    launcher: ModuleType, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit) as raised:
+        launcher.container_main(["-o", "results", "--image", "gvclass.sif"])
+
+    assert raised.value.code == 2
+    assert "query path is required" in capsys.readouterr().err
+
+
+def test_container_mode_without_arguments_prints_help(
+    launcher: ModuleType, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert launcher.container_main([]) == 0
+    assert "usage:" in capsys.readouterr().out

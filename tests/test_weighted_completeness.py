@@ -5,20 +5,21 @@ Tests the ML-enhanced weighted completeness calculator with various scenarios
 including edge cases, fallback behaviors, and performance characteristics.
 """
 
-import pytest
-import numpy as np
-import pandas as pd
-from pathlib import Path
-import tempfile
 import logging
+import tempfile
+from pathlib import Path
 from unittest.mock import patch
 
+import numpy as np
+import pandas as pd
+import pytest
+
+from src.core.summarize import order_completeness
+from src.core.summarize_full import FullSummarizer
 from src.core.weighted_completeness import (
     WeightedCompletenessCalculator,
     create_weighted_calculator,
 )
-from src.core.summarize import order_completeness
-from src.core.summarize_full import FullSummarizer
 
 
 @pytest.fixture
@@ -468,3 +469,26 @@ if __name__ == "__main__":
 
     # Run tests
     pytest.main([__file__, "-v"])
+
+
+def test_weighted_completeness_fallback_averages_duplicate_marker_rows(
+    tmp_path: Path,
+) -> None:
+    """Fallback rows of one marker in several orders weigh like their mean."""
+    header = "order_name\tmarker_name\tpercent_genomes_with_marker\n"
+    duplicated = tmp_path / "duplicated.tsv"
+    duplicated.write_text(
+        header + "OrderA\tOG1\t80.0\nOrderB\tOG1\t90.0\nOrderA\tOG2\t70.0\n"
+    )
+    averaged = tmp_path / "averaged.tsv"
+    averaged.write_text(header + "OrderA\tOG1\t85.0\nOrderA\tOG2\t70.0\n")
+    markers = ("OG1", "OG2")
+
+    from_duplicates = WeightedCompletenessCalculator(
+        duplicated, enable_adaptive_scaling=False
+    ).get_marker_weights("UnknownOrder", markers)
+    from_means = WeightedCompletenessCalculator(
+        averaged, enable_adaptive_scaling=False
+    ).get_marker_weights("UnknownOrder", markers)
+
+    assert from_duplicates == pytest.approx(from_means)

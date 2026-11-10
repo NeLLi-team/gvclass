@@ -61,15 +61,14 @@ build-docker = "docker build -t gvclass:2.1.1 -f containers/docker/Dockerfile ."
 build-apptainer = "apptainer build --force gvclass_2.1.1.sif docker-daemon://gvclass:2.1.1"
 
 test = "python -m pytest"
-format = "black src gvclass"
-lint = "flake8 src"
+format = "ruff format src gvclass"
+lint = "ruff check src gvclass"
 type-check = "mypy src"
 
 [feature.dev.dependencies]
 # Development tools
 pytest = "*"
-black = "*"
-flake8 = "*"
+ruff = "*"
 mypy = "*"
 pre-commit = "*"
 

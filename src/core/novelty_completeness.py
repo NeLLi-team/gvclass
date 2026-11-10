@@ -12,9 +12,10 @@ import io
 import json
 import logging
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Protocol, Tuple
 
 import pandas as pd
 from joblib import load
@@ -52,6 +53,12 @@ OOD_STRICT_FLAGS = {
 #: The bundled validation used weak splits, so these values do not establish
 #: model reliability. Runtime output labels the old model ``unvalidated_legacy``.
 R2_ADVISORY_FLOOR = 0.5
+
+
+class _Regressor(Protocol):
+    """A fitted regressor that predicts from a one-row feature table."""
+
+    def predict(self, X: pd.DataFrame) -> Sequence[float]: ...
 
 
 @dataclass(frozen=True)
@@ -103,7 +110,7 @@ class NoveltyAwareCompletenessScorer:
         self.tiers: Dict[Tuple[str, str, str], TierSet] = {}
         self.baselines: Dict[Tuple[str, str, str], Dict[str, float]] = {}
         self.model_metadata: Dict[str, Dict[str, object]] = {}
-        self.models: Dict[str, object] = {}
+        self.models: Dict[str, _Regressor] = {}
         self._load_resources()
 
     def _load_resources(self) -> None:

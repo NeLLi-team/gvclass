@@ -60,25 +60,25 @@ markers = [
 python_version = "3.11"
 ignore_missing_imports = true
 no_strict_optional = true
-# The codes below are deliberately deferred, not clean; the largest backlogs are
-# arg-type (33) and assignment (18). 2026-07-24: valid-type was re-enabled and
-# its 16 errors fixed.
+# The codes below are deferred, not clean. Errors per code on 2026-11-09:
+# arg-type 15, attr-defined 3, var-annotated 3, call-overload 2, import-untyped 1,
+# return-value 1.
 disable_error_code = [
   "arg-type",
-  "assignment",
   "attr-defined",
   "call-overload",
-  "dict-item",
   "import-untyped",
-  "index",
-  "method-assign",
-  "misc",
-  "operator",
   "return-value",
-  "union-attr",
   "var-annotated",
 ]
 
-[tool.black]
+[tool.ruff]
 line-length = 88
-target-version = ["py311"]
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+# The banner is one long ANSI-coloured f-string per row.
+"src/bin/cli_display.py" = ["E501"]

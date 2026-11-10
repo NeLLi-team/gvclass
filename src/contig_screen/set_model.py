@@ -22,7 +22,8 @@ import numpy as np
 import torch
 from torch import nn
 
-from src.contig_screen import hit_tokens as ht, layout
+from src.contig_screen import hit_tokens as ht
+from src.contig_screen import layout
 
 STRUCT_COLUMNS = list(range(2, len(ht.SCALARS)))
 EMBEDDING_START = len(ht.GENE_FEATURES)
