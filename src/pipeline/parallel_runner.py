@@ -31,12 +31,14 @@ from src.pipeline.summary_writer import (
     write_final_summary_extended_files,
     write_final_summary_files,
 )
+from src.utils.common import sha256_file
 from src.utils.database_manager import DatabaseManager
 from src.utils.error_handling import FileError, ProcessingError, ValidationError
 from src.utils.input_validation import (
     RESERVED_QUERY_STEMS,
     InputValidator,
     discover_query_files,
+    is_safe_query_stem,
 )
 
 logger = logging.getLogger("gvclass_runner")
@@ -61,7 +63,8 @@ def validate_and_setup_task(config: RunConfig) -> RunInputs:
     Each query file is validated on its own. Valid files become ``query_files``;
     each invalid file becomes a ``(path, error text)`` pair in ``rejected_inputs``
     so one bad file does not stop the batch. Colliding or reserved query names
-    and a directory without any valid file are errors for the whole run.
+    and a directory without any valid file are errors for the whole run, and so is a
+    query name that is empty, starts with a dot or holds a path separator.
     """
     logger.info(
         "Validating inputs - Query: %s, Output: %s",
@@ -76,6 +79,7 @@ def validate_and_setup_task(config: RunConfig) -> RunInputs:
             field="query_directory",
             value=str(config.query_path),
         )
+    _reject_unsafe_stems(discovered_files)
     _reject_colliding_stems(discovered_files)
     _reject_reserved_stems(discovered_files)
 
@@ -122,6 +126,20 @@ def _validation_error(
     except (ValidationError, FileError) as exc:
         return exc.message
     return None
+
+
+def _reject_unsafe_stems(query_files: list[Path]) -> None:
+    unsafe = sorted(
+        query_file.name
+        for query_file in query_files
+        if not is_safe_query_stem(query_file.stem)
+    )
+    if unsafe:
+        raise ValidationError(
+            "These query filenames cannot name a work directory: a name before the "
+            "extension must not be empty, start with a dot or hold a slash. "
+            f"Rename them: {', '.join(unsafe)}"
+        )
 
 
 def _reject_colliding_stems(query_files: list[Path]) -> None:
@@ -313,8 +331,10 @@ def _process_one(
     name = query_file.stem
     recorder.record_query_started(name)
     try:
+        input_sha256 = sha256_file(query_file)
         result = process_single_query(query_file, config, threads)
-        recorder.record_complete(query_file, result)
+        _require_unchanged_input(query_file, input_sha256)
+        recorder.record_complete(query_file, result, input_sha256)
     except Exception as exc:  # noqa: BLE001  # one query's failure is recorded; the others go on
         logger.error("Query %s failed: %s", name, exc)
         logger.error("Traceback: %s", traceback.format_exc())
@@ -330,6 +350,17 @@ def _process_one(
         return {"query": name, "status": FAILED, "error": str(exc)}
     logger.info("Completed: %s - %s", name, result["status"])
     return result
+
+
+def _require_unchanged_input(query_file: Path, input_sha256: str) -> None:
+    """Raise if ``query_file`` no longer has the SHA-256 it had when the query began."""
+    if sha256_file(query_file) != input_sha256:
+        raise ProcessingError(
+            f"The input file {query_file.name} changed while GVClass processed it, "
+            "so the results do not match the file. Run the query again.",
+            step="input_fingerprint",
+            input_file=str(query_file),
+        )
 
 
 def _summarize_run(

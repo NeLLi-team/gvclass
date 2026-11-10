@@ -1,11 +1,15 @@
 """Output validation for the GVClass pipeline.
 
 A run is valid when ``results.jsonl`` holds a ``complete`` last record for every
-query and each record's archive exists with the recorded size and holds a
-non-empty summary and final summary of its query. A missing or empty member is an
-issue, not a warning.
+query of the run (the queries in ``run_status.json``) and each record's archive
+exists with the recorded size and holds a summary and final summary with a data row
+for its query. A missing or empty member is an issue, not a warning. A record of a
+query that the run does not have, such as an input removed since an earlier run, is
+not read.
 """
 
+import csv
+import io
 import logging
 import tarfile
 from pathlib import Path
@@ -14,9 +18,11 @@ from typing import Any
 from src.pipeline.run_status import (
     COMPLETE,
     RESULTS_FILENAME,
+    RUN_STATUS_FILENAME,
     QueryRecord,
     archive_is_intact,
     read_results,
+    read_run_query_names,
 )
 
 logger = logging.getLogger(__name__)
@@ -49,10 +55,16 @@ def validate_pipeline_outputs(
         issues.append(f"Output directory does not exist: {output_dir}")
         return {"success": False, "issues": issues, "warnings": warnings}
 
+    query_names = read_run_query_names(output_dir)
+    if query_names is None:
+        issues.append(f"{RUN_STATUS_FILENAME} is missing or unreadable")
+        query_names = []
     records = read_results(output_dir)
-    if not records:
-        issues.append(f"No query records found in {RESULTS_FILENAME}")
-    for name, record in sorted(records.items()):
+    for name in query_names:
+        record = records.get(name)
+        if record is None:
+            issues.append(f"Query {name} has no record in {RESULTS_FILENAME}")
+            continue
         _validate_record(output_dir, name, record, issues)
 
     combined_summary = output_dir / "gvclass_summary.tsv"
@@ -60,12 +72,12 @@ def validate_pipeline_outputs(
         _validate_combined_summary(combined_summary, issues, warnings)
 
     if verbose:
-        _log_outcome(len(records), issues, warnings)
+        _log_outcome(len(query_names), issues, warnings)
     return {"success": not issues, "issues": issues, "warnings": warnings}
 
 
-def _log_outcome(n_records: int, issues: list[str], warnings: list[str]) -> None:
-    logger.info("Checked %d query record(s)", n_records)
+def _log_outcome(n_queries: int, issues: list[str], warnings: list[str]) -> None:
+    logger.info("Checked %d query record(s)", n_queries)
     if issues:
         logger.warning("Validation found %s issue(s)", len(issues))
     else:
@@ -90,7 +102,7 @@ def _validate_record(
 def _validate_archive_summaries(
     archive_file: Path, query_name: str, issues: list[str]
 ) -> None:
-    """Add an issue for each summary member of the archive that is missing or empty."""
+    """Add an issue for each summary member that is missing or lacks a query row."""
     members = (
         f"{query_name}/{query_name}.summary.tab",
         f"{query_name}/{query_name}.final_summary.tsv",
@@ -98,12 +110,14 @@ def _validate_archive_summaries(
     try:
         with tarfile.open(archive_file, "r:gz") as archive:
             for member in members:
-                _validate_member(archive, member, issues)
+                _validate_member(archive, member, query_name, issues)
     except (OSError, tarfile.TarError) as exc:
         issues.append(f"Invalid query archive {archive_file.name}: {exc}")
 
 
-def _validate_member(archive: tarfile.TarFile, member: str, issues: list[str]) -> None:
+def _validate_member(
+    archive: tarfile.TarFile, member: str, query_name: str, issues: list[str]
+) -> None:
     try:
         extracted = archive.extractfile(member)
     except KeyError:
@@ -112,16 +126,24 @@ def _validate_member(archive: tarfile.TarFile, member: str, issues: list[str]) -
     if extracted is None:
         issues.append(f"Archive member {member} is not a file")
         return
-    lines = extracted.read().decode("utf-8", errors="replace").splitlines()
-    if len(lines) < 2:
+    text = extracted.read().decode("utf-8", errors="replace")
+    table = list(csv.reader(io.StringIO(text), delimiter="\t", quoting=csv.QUOTE_NONE))
+    header = table[0] if table else []
+    rows = [row for row in table[1:] if any(cell.strip() for cell in row)]
+    if not rows:
         issues.append(f"Archive member {member} is empty or has no data row")
         return
-    header = lines[0].split("\t")
     missing = [column for column in REQUIRED_COLUMNS if column not in header]
     if missing:
         issues.append(
             f"Archive member {member} lacks required columns: {', '.join(missing)}"
         )
+        return
+    query_column = header.index("query")
+    if not any(
+        len(row) > query_column and row[query_column] == query_name for row in rows
+    ):
+        issues.append(f"Archive member {member} has no row for query {query_name}")
 
 
 def _validate_combined_summary(

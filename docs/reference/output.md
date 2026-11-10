@@ -20,15 +20,21 @@ Results are written to `-o OUTPUT_DIR`, or `<name>_results` in the current direc
 | `gvclass.log` | Log of the runner process. `--verbose` adds debug messages. |
 
 A line of `results.jsonl` holds `query`, `status` (`complete`, `failed` or
-`invalid_input`), `error`, `input_sha256`, `settings` (the settings that change
+`invalid_input`), `error`, `input_name` (the input file name with its suffix),
+`input_sha256`, `settings` (the settings that change
 results), `database_version`, `software_version`, `finished_at`, `archive` (file name,
 size and SHA-256) and `summary` (the final-schema row of the query, including the
-extended columns). Output validation reads this file. It reports a query whose last
-record is not `complete`, an archive that is missing or has another size than
-recorded, and an archive without a non-empty summary and final summary.
+extended columns). GVClass computes `input_sha256` before it processes the query. If the
+input file has another SHA-256 when the query ends, the query is recorded as `failed`.
+Output validation reads this file for the queries of the current run (the queries in
+`run_status.json`); a record of an input that this run no longer has does not count.
+It reports a query whose last record is not `complete`, an archive that is missing or
+has another size than recorded, and an archive whose summary or final summary lacks
+a data row for the query.
 
 `--resume` reads `results.jsonl` once and skips a query only when its last record is
-`complete`, and all of these equal the current run: the SHA-256 of the input file, the
+`complete`, and all of these equal the current run: the name and the SHA-256 of the
+input file (a rename from `.faa` to `.fna` runs the query again), the
 result settings (`tree_method`, `iqtree_mode`, `mode_fast`, `completeness_mode`,
 `sensitive_mode`, `species_tree`, `species_tree_trim`), the database version and the
 software version. The archive must exist with the recorded size. The log names the

@@ -12,7 +12,8 @@ Give each file a distinct name, using letters, numbers, `_`, or `-` before the
 extension. The names `gvclass_summary`, `gvclass_summary.extended`,
 `gvclass_failed_queries`, `run_status`, `run`, `results`, `species_tree` and
 `_combined` are reserved for GVClass outputs; GVClass stops and asks you to
-rename a file that uses one.
+rename a file that uses one. A name that starts with a dot, such as `.hidden.faa`
+or `...faa`, is also an error.
 
 Sequence IDs inside a file must be unique. GVClass renames each record to
 `<file name>|<original ID>`, with every `|` and `:` in the original ID replaced

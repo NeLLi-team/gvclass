@@ -69,7 +69,7 @@ RUN printf '%s\n' \
         'has_output=0' \
         'for arg in "$@"; do' \
         '    case "$arg" in' \
-        '        -o|--output-dir|--output-dir=*) has_output=1 ;;' \
+        '        -o|-o?*|--output-dir|--output-dir=*) has_output=1 ;;' \
         '    esac' \
         'done' \
         'if [ "$has_output" = 0 ]; then set -- "$@" -o /output; fi' \

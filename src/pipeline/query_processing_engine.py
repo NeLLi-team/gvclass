@@ -199,10 +199,22 @@ def _initialize_query(query_file: Path, output_base: Path) -> tuple[str, Path]:
     """Return the query name and its empty private work directory.
 
     The directory is ``<output>/.gvclass_work/<query>/``. A directory that an earlier
-    attempt left is deleted, so old search results cannot affect the new scores.
+    attempt left is deleted, so old search results cannot affect the new scores. A
+    name that resolves to anything but a folder strictly inside ``.gvclass_work``
+    is refused before anything is deleted.
     """
     query_name = query_file.stem
-    query_output_dir = output_base / WORK_DIRNAME / query_name
+    work_root = output_base / WORK_DIRNAME
+    query_output_dir = work_root / query_name
+    resolved_root = work_root.resolve()
+    resolved_dir = query_output_dir.resolve()
+    if resolved_dir == resolved_root or not resolved_dir.is_relative_to(resolved_root):
+        raise ProcessingError(
+            f"The working directory {query_output_dir} for query {query_name} is not "
+            f"inside {work_root}. Rename the input file {query_file.name}.",
+            step="initialize_query",
+            input_file=str(query_file),
+        )
     if query_file.resolve().is_relative_to(query_output_dir.resolve()):
         raise ProcessingError(
             f"The working directory {query_output_dir} for query {query_name} "

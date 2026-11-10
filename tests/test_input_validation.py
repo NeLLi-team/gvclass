@@ -11,7 +11,11 @@ from Bio.SeqRecord import SeqRecord
 from src.core.reformat import reformat_sequences
 from src.utils import input_validation
 from src.utils.error_handling import ValidationError
-from src.utils.input_validation import InputValidator, discover_query_files
+from src.utils.input_validation import (
+    InputValidator,
+    discover_query_files,
+    is_safe_query_stem,
+)
 
 LONG_DNA = "ACGT" * 6000
 
@@ -132,3 +136,15 @@ def test_infer_fasta_type_stops_at_the_first_informative_record(
 
     assert InputValidator.infer_fasta_type(path) == "faa"
     assert pulled == ["a"]
+
+
+@pytest.mark.parametrize("stem", ["sample", "a.b", "bin-1_x", "sample.previous.abc123"])
+def test_is_safe_query_stem_accepts_ordinary_names(stem: str) -> None:
+    assert is_safe_query_stem(stem) is True
+
+
+@pytest.mark.parametrize("stem", ["", ".", "..", ".hidden", "...", "a/b", "../x"])
+def test_is_safe_query_stem_rejects_names_that_leave_the_work_directory(
+    stem: str,
+) -> None:
+    assert is_safe_query_stem(stem) is False

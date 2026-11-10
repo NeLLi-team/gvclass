@@ -40,7 +40,9 @@ environment variables and checksum rules.
 
 The optional contig-screen add-on installs next to the database. Install it with the
 database, or afterwards. A database update keeps an installed `contig_screen/`
-directory. The add-on installer takes the same lock as database setup.
+directory. The add-on installer takes its own lock, `<database>/.contig_screen.lock`,
+inside the database directory, so it works when only the database directory is
+writable. A database install or update takes that lock before it moves an installed add-on.
 
 ```bash
 pixi run setup-db --with-screen

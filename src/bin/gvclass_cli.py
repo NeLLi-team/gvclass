@@ -19,7 +19,7 @@ import threading
 import time
 from collections import deque
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass, replace
 from pathlib import Path
 from types import FrameType
@@ -48,8 +48,10 @@ THREAD_ENV_VARS = (
 #: A failed run prints this many of the last lines of the runner output.
 RUNNER_TAIL_LINES = 200
 MONITOR_THREAD_NAME = "gvclass-memory-monitor"
-#: Seconds that the runner gets to stop after SIGTERM before it is killed.
+#: Seconds that the runner and its descendants get to stop after SIGTERM before they
+#: are killed.
 STOP_GRACE_S = 10.0
+STOP_POLL_S = 0.05
 MAX_ISSUES_SHOWN = 5
 
 
@@ -977,18 +979,32 @@ def _contig_workdir(contigs: ContigInput) -> Iterator[Path | None]:
         yield Path(name)
 
 
-def _stop_process_group(process: subprocess.Popen) -> None:
-    """Terminate the process group of ``process`` and wait; kill it late."""
+def _process_group_is_alive(process: subprocess.Popen) -> bool:
+    """Tell whether the process group that ``process`` leads has a member left."""
+    process.poll()  # reaps an exited leader, which would otherwise count as a member
     try:
-        os.killpg(process.pid, signal.SIGTERM)
+        os.killpg(process.pid, 0)
     except ProcessLookupError:
-        process.wait()
-        return
-    try:
-        process.wait(timeout=STOP_GRACE_S)
-    except subprocess.TimeoutExpired:
-        os.killpg(process.pid, signal.SIGKILL)
-        process.wait()
+        return False
+    return True
+
+
+def _stop_process_group(process: subprocess.Popen) -> None:
+    """End the whole process group of ``process``: SIGTERM, a grace period, SIGKILL.
+
+    The grace period waits for every member of the group, not only the leader: a
+    descendant that ignores SIGTERM outlives a leader that exits, and it is killed
+    when the period ends.
+    """
+    with suppress(ProcessLookupError):
+        os.killpg(process.pid, signal.SIGTERM)
+    deadline = time.monotonic() + STOP_GRACE_S
+    while _process_group_is_alive(process) and time.monotonic() < deadline:
+        time.sleep(STOP_POLL_S)
+    if _process_group_is_alive(process):
+        with suppress(ProcessLookupError):  # the last member may exit just now
+            os.killpg(process.pid, signal.SIGKILL)
+    process.wait()
 
 
 def _collect_output(
@@ -1013,10 +1029,11 @@ def run_runner(
 ) -> RunnerOutcome:
     """Run the runner process and return how it ended.
 
-    The runner has its own process group. Ctrl-C or SIGTERM ends that group and
-    returns an interrupted outcome. In the default mode the output goes through a
-    pipe, and the outcome keeps its last non-progress lines; the full log is in
-    ``gvclass.log``. Memory is sampled on a timer by a daemon thread.
+    The runner has its own process group. Ctrl-C or SIGTERM ends that group, also
+    when the runner itself has already exited, and returns an interrupted outcome.
+    In the default mode the output goes through a pipe, and the outcome keeps its
+    last non-progress lines; the full log is in ``gvclass.log``. Memory is sampled
+    on a timer by a daemon thread.
     """
     child_env = dict(env) if verbose else {**env, "GVCLASS_PROGRESS_EVENTS": "1"}
     process = subprocess.Popen(
@@ -1045,7 +1062,7 @@ def run_runner(
     except KeyboardInterrupt:
         interrupted = True
     finally:
-        if process.poll() is None:
+        if interrupted or process.poll() is None:
             _stop_process_group(process)
         monitor.stop()
         sampler.join(timeout=2.0)

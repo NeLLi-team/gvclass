@@ -261,7 +261,7 @@ def test_an_addon_is_installed_beside_the_database(monkeypatch, tmp_path):
     assert target == db / "contig_screen"
     assert (target / "thresholds.json").read_bytes() == b"{}"
     assert (target / "m" / "x.bin").read_bytes() == b"xx"
-    assert not list(db.glob(".contig_screen*"))
+    assert not list(db.glob(".contig_screen.install.*"))
 
 
 def test_a_new_addon_replaces_the_old_one_whole(monkeypatch, tmp_path):
@@ -293,7 +293,7 @@ def test_a_failed_addon_download_keeps_the_installed_one(monkeypatch, tmp_path):
         DatabaseManager.install_addon(db, "contig_screen", source)
 
     assert (db / "contig_screen" / "old.txt").read_text() == "old"
-    assert not list(db.glob(".contig_screen*"))
+    assert not list(db.glob(".contig_screen.install.*"))
 
 
 def test_an_addon_name_with_a_path_is_refused(tmp_path):

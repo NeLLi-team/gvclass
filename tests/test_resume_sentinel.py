@@ -41,6 +41,7 @@ RECORD_FIELDS = {
     "query",
     "status",
     "error",
+    "input_name",
     "input_sha256",
     "settings",
     "database_version",
@@ -104,6 +105,7 @@ def test_results_record_holds_what_resume_compares(
     assert set(record) == RECORD_FIELDS
     assert record["status"] == "complete"
     assert record["error"] is None
+    assert record["input_name"] == "q1.faa"
     assert record["input_sha256"] == sha256_of(query_file)
     assert record["settings"] == config.result_settings()
     assert record["database_version"] == "v9.9.9"
@@ -136,6 +138,37 @@ def test_failed_query_gets_a_failed_record(
     assert records["q2"].error == "simulated query failure"
     assert records["q2"].archive is None
     assert records["q2"].summary is None
+
+
+def test_a_query_whose_input_changes_while_it_runs_is_recorded_as_failed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_flow(monkeypatch)
+    config = make_config(tmp_path)
+    write_queries(config, ["q1", "q2"])
+    process = parallel_runner.process_single_query
+
+    def process_then_replace_the_input(
+        query_file: Path, run_config: object, threads: int
+    ) -> dict[str, object]:
+        result = process(query_file, run_config, threads)
+        if query_file.stem == "q1":
+            query_file.write_text(">p\nMK\n", encoding="utf-8")
+        return result
+
+    monkeypatch.setattr(
+        parallel_runner, "process_single_query", process_then_replace_the_input
+    )
+
+    with pytest.raises(RuntimeError, match="failed for 1 of 2 queries"):
+        parallel_runner.gvclass_flow(config)
+
+    records = read_results(config.output_dir)
+    assert records["q2"].status == "complete"
+    assert records["q1"].status == "failed"
+    assert "q1.faa" in records["q1"].error
+    assert "changed while" in records["q1"].error
+    assert records["q1"].archive is None
 
 
 def test_rejected_input_gets_an_invalid_input_record(
@@ -290,6 +323,21 @@ def test_resume_reprocesses_after_the_input_bytes_change(
         (tmp_path / "queries" / "q1.faa").write_text(">p\nMK\n")
 
     assert run_twice(tmp_path, monkeypatch, ["q1", "q2"], change=edit_input) == ["q1"]
+
+
+def test_resume_reprocesses_after_the_suffix_changes_and_the_bytes_stay(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    def rename_input(config: object) -> None:
+        (tmp_path / "queries" / "q1.faa").rename(tmp_path / "queries" / "q1.fna")
+
+    with caplog.at_level(logging.INFO, logger="gvclass_runner"):
+        calls = run_twice(tmp_path, monkeypatch, ["q1", "q2"], change=rename_input)
+
+    assert calls == ["q1"]
+    assert any(
+        "q1" in message and "input_name" in message for message in caplog.messages
+    )
 
 
 @pytest.mark.parametrize(
@@ -600,6 +648,25 @@ def test_work_directories_do_not_collide_with_output_folders_or_other_queries(
     assert len(set(works)) == 3
     assert all(work.parent == output / ".gvclass_work" for work in works)
     assert (screen / "keep.txt").read_text() == "screen result"
+
+
+@pytest.mark.parametrize("filename", ["...faa", "..faa"])
+def test_initialize_query_refuses_a_name_that_does_not_stay_in_the_work_directory(
+    tmp_path: Path, filename: str
+) -> None:
+    output = tmp_path / "out"
+    other = output / ".gvclass_work" / "other"
+    other.mkdir(parents=True)
+    (other / "keep.txt").write_text("work of another query")
+    (output / "q1.tar.gz").write_bytes(b"earlier archive")
+    query = tmp_path / filename
+    query.write_text(">p\nM\n")
+
+    with pytest.raises(ProcessingError, match="inside"):
+        query_processing_engine._initialize_query(query, output)
+
+    assert (output / "q1.tar.gz").read_bytes() == b"earlier archive"
+    assert (other / "keep.txt").read_text() == "work of another query"
 
 
 def test_initialize_query_refuses_a_work_directory_that_holds_the_input(

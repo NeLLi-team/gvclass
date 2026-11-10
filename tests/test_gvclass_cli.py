@@ -448,6 +448,7 @@ def _record(query: str, status: str, archive: dict | None) -> str:
             "query": query,
             "status": status,
             "error": None,
+            "input_name": f"{query}.faa",
             "input_sha256": "0" * 64,
             "settings": {},
             "database_version": "v2.1.0",

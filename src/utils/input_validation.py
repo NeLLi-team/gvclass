@@ -32,6 +32,15 @@ RESERVED_QUERY_STEMS = frozenset(
 )
 
 
+def is_safe_query_stem(stem: str) -> bool:
+    """Tell whether ``stem`` can name a query's work directory and output files.
+
+    A stem that is empty, starts with a dot (so ``.`` and ``..`` too) or holds a path
+    separator would make ``<output>/.gvclass_work/<stem>`` leave its folder.
+    """
+    return bool(stem) and not stem.startswith(".") and "/" not in stem
+
+
 class InputValidator:
     """Comprehensive input validation for GVClass pipeline."""
 

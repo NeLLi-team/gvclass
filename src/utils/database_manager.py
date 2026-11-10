@@ -15,7 +15,7 @@ import tempfile
 import time
 import uuid
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from pathlib import Path, PurePosixPath
 from typing import Optional
 from urllib.error import HTTPError, URLError
@@ -466,6 +466,25 @@ class DatabaseManager:
         """Hold an exclusive lock on ``<parent>/.<name>.lock``; yield if it waited."""
         db_path.parent.mkdir(parents=True, exist_ok=True)
         lock_path = db_path.parent / f".{db_path.name}.lock"
+        with cls._exclusive_lock(lock_path, db_path) as waited:
+            yield waited
+
+    @classmethod
+    @contextmanager
+    def _addon_lock(cls, db_path: Path, name: str) -> Iterator[bool]:
+        """Hold an exclusive lock on ``<db>/.<name>.lock``; yield if it waited.
+
+        The lock file sits inside the database directory: the container route of
+        ``gvclass screen --install`` binds only that directory, and the parent is
+        read-only there. A base install takes this lock before it moves the add-on.
+        """
+        with cls._exclusive_lock(db_path / f".{name}.lock", db_path / name) as waited:
+            yield waited
+
+    @staticmethod
+    @contextmanager
+    def _exclusive_lock(lock_path: Path, what: Path) -> Iterator[bool]:
+        """Hold ``flock`` on ``lock_path``, which guards ``what``; yield if waited."""
         with lock_path.open("a", encoding="utf-8") as lock_file:
             waited = False
             try:
@@ -474,7 +493,7 @@ class DatabaseManager:
                 waited = True
                 logger.info(
                     "Waiting for another process that installs %s (lock %s)",
-                    db_path,
+                    what,
                     lock_path,
                 )
                 fcntl.flock(lock_file, fcntl.LOCK_EX)
@@ -712,16 +731,39 @@ class DatabaseManager:
 
     @classmethod
     def _replace_database(cls, new_tree: Path, db_path: Path) -> None:
-        """Swap ``new_tree`` in for ``db_path``, keeping the installed add-ons."""
-        kept = cls._carry_over_addons(db_path, new_tree)
-        try:
-            cls._atomic_swap_directory(new_tree, db_path)
-        except BaseException:
-            # The rollback restored the old tree; give it its add-ons back.
-            for name in kept:
-                if db_path.is_dir():
-                    (new_tree / name).replace(db_path / name)
-            raise
+        """Swap ``new_tree`` in for ``db_path``, keeping the installed add-ons.
+
+        The add-on locks are held while an add-on moves, so an add-on install that
+        is running finishes first. A failed or interrupted swap gives the add-ons
+        back to the old tree.
+        """
+        with ExitStack() as locks:
+            if db_path.is_dir():
+                for name in cls.ADDON_NAMES:
+                    locks.enter_context(cls._addon_lock(db_path, name))
+            kept = cls._carry_over_addons(db_path, new_tree)
+            backup_path = cls._backup_path(db_path)
+            try:
+                cls._atomic_swap_directory(new_tree, db_path, backup_path=backup_path)
+            except BaseException:
+                cls._return_addons(kept, new_tree, db_path, backup_path)
+                raise
+
+    @staticmethod
+    def _return_addons(
+        names: list[str], new_tree: Path, db_path: Path, backup_path: Path
+    ) -> None:
+        """Move the add-ons that ``new_tree`` carries back into the old tree.
+
+        After a failed swap the old tree is at ``db_path``, or at ``backup_path``
+        when it could not be moved back. A swap that finished leaves nothing in
+        ``new_tree`` to return.
+        """
+        old_tree = db_path if db_path.is_dir() else backup_path
+        for name in names:
+            carried = new_tree / name
+            if carried.is_dir():
+                carried.replace(old_tree / name)
 
     @classmethod
     def _carry_over_addons(cls, db_path: Path, new_tree: Path) -> list[str]:
@@ -741,15 +783,16 @@ class DatabaseManager:
         The archive holds one top-level directory. It is downloaded (in parts if the
         source lists them), checked against its SHA-256, extracted to a private
         staging directory and swapped into place; a failure keeps the installed
-        add-on. The install holds the same lock as the database install. A process
-        that had to wait for the lock uses an add-on that the other one installed.
+        add-on. The install holds the lock ``<db_path>/.<name>.lock``, which a base
+        install takes too before it moves the add-on. A process that had to wait for
+        the lock uses an add-on that the other one installed.
         """
         if re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]*", name) is None:
             raise ValueError(f"Invalid add-on name: {name!r}")
         normalized = cls._normalize_source(source)
         db_path = Path(db_path)
         target = db_path / name
-        with cls._install_lock(db_path) as waited:
+        with cls._addon_lock(db_path, name) as waited:
             if waited and target.is_dir():
                 logger.info("Another process installed %s; using it", name)
                 return target
@@ -767,17 +810,30 @@ class DatabaseManager:
                 shutil.rmtree(staging_dir, ignore_errors=True)
         return target
 
+    @staticmethod
+    def _backup_path(db_path: Path) -> Path:
+        """Return a unique name next to ``db_path`` for its old tree during a swap."""
+        return db_path.parent / f".{db_path.name}.old.{uuid.uuid4().hex[:12]}"
+
     @classmethod
-    def _atomic_swap_directory(cls, staging_path: Path, db_path: Path) -> None:
+    def _atomic_swap_directory(
+        cls,
+        staging_path: Path,
+        db_path: Path,
+        *,
+        backup_path: Path | None = None,
+    ) -> None:
         """Swap ``staging_path`` into ``db_path`` with rollback on failure.
 
-        If ``db_path`` already exists it is renamed aside under a unique name, the
-        staging tree is moved into place, and the old tree is removed. On any
-        failure the previous database is restored. A parent-directory fsync on
+        If ``db_path`` already exists it is renamed aside to ``backup_path`` (a
+        unique name by default), the staging tree is moved into place, and the old
+        tree is removed. On any failure, an interrupt included, the previous
+        database is restored. A parent-directory fsync on
         POSIX anchors the rename in the filesystem journal so a crash
         immediately after the swap still resolves to a durable state.
         """
-        backup_path = db_path.parent / f".{db_path.name}.old.{uuid.uuid4().hex[:12]}"
+        if backup_path is None:
+            backup_path = cls._backup_path(db_path)
 
         had_previous = db_path.exists()
         remove_backup = False
@@ -785,7 +841,7 @@ class DatabaseManager:
             if had_previous:
                 os.replace(db_path, backup_path)
             os.replace(staging_path, db_path)
-        except Exception:
+        except BaseException:
             # Restore the previous database if we already moved it aside.
             if had_previous and backup_path.exists() and not db_path.exists():
                 try:
@@ -800,22 +856,26 @@ class DatabaseManager:
                     remove_backup = True
             raise
         else:
-            # Best-effort fsync of the parent directory so the rename is
-            # durable on POSIX (no-op on platforms where O_RDONLY on dirs
-            # is not supported).
-            try:
-                dir_fd = os.open(str(db_path.parent), os.O_RDONLY)
-            except OSError:
-                dir_fd = None
-            if dir_fd is not None:
-                try:
-                    os.fsync(dir_fd)
-                finally:
-                    os.close(dir_fd)
+            cls._fsync_directory(db_path.parent)
             remove_backup = True
         finally:
             if remove_backup and backup_path.exists():
                 shutil.rmtree(backup_path, ignore_errors=True)
+
+    @staticmethod
+    def _fsync_directory(path: Path) -> None:
+        """Best-effort fsync of a directory so a rename in it is durable on POSIX.
+
+        Does nothing where a directory cannot be opened read-only.
+        """
+        try:
+            dir_fd = os.open(str(path), os.O_RDONLY)
+        except OSError:
+            return
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
 
     @classmethod
     def _extract_zenodo_record_id(cls, url: str) -> Optional[str]:

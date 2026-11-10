@@ -43,6 +43,8 @@ INVALID_INPUT = "invalid_input"
 class QueryRecord:
     """One line of ``results.jsonl``: how one query finished.
 
+    ``input_name`` is the input file name with its suffix, which sets how the file is
+    read; ``input_sha256`` is the SHA-256 of the file when the query began.
     ``settings`` are the result-changing settings of the run. ``archive`` (file name,
     size, SHA-256) and ``summary`` (the final-schema row) exist only for a
     ``complete`` query.
@@ -51,6 +53,7 @@ class QueryRecord:
     query: str
     status: str
     error: str | None
+    input_name: str | None
     input_sha256: str | None
     settings: dict[str, Any]
     database_version: str
@@ -87,6 +90,18 @@ def read_results(output_dir: Path) -> dict[str, QueryRecord]:
     return records
 
 
+def read_run_query_names(output_dir: Path) -> list[str] | None:
+    """Return the sorted queries of the run in ``run_status.json``.
+
+    Returns ``None`` if the file is missing or cannot be read.
+    """
+    path = output_dir / RUN_STATUS_FILENAME
+    try:
+        return sorted(json.loads(path.read_text(encoding="utf-8"))["queries"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
 def archive_is_intact(output_dir: Path, record: QueryRecord) -> bool:
     """Return True if the archive of ``record`` exists with the recorded size."""
     if record.archive is None:
@@ -114,10 +129,11 @@ def resumable_queries(
 ) -> dict[str, QueryRecord]:
     """Return the records of the queries that ``--resume`` may skip.
 
-    A query is skipped only if its last record is ``complete``; the SHA-256 of its
-    input, the result settings, the database version and the software version equal
-    the current ones; and its archive exists with the recorded size. The others are
-    reprocessed, and the log names every field that differed.
+    A query is skipped only if its last record is ``complete``; the name and the
+    SHA-256 of its input file, the result settings, the database version and the
+    software version equal the current ones; and its archive exists with the
+    recorded size. The others are reprocessed, and the log names every field that
+    differed.
     """
     records = read_results(config.output_dir)
     settings = config.result_settings()
@@ -148,6 +164,10 @@ def _differences(
     if record.status != COMPLETE:
         return [f"last record is {record.status}"]
     differences = []
+    if record.input_name != query_file.name:
+        differences.append(
+            f"input_name changed from {record.input_name} to {query_file.name}"
+        )
     if record.input_sha256 != sha256_file(query_file):
         differences.append("input_sha256 changed")
     differences.extend(
@@ -224,14 +244,20 @@ class RunRecorder:
             self._queries[query_name]["status"] = "running"
             self._log(f"{now}\tQUERY_START\t{query_name}\n")
 
-    def record_complete(self, query_file: Path, result: Mapping[str, Any]) -> None:
-        """Append the ``complete`` record of a query whose archive is published."""
+    def record_complete(
+        self, query_file: Path, result: Mapping[str, Any], input_sha256: str
+    ) -> None:
+        """Append the ``complete`` record of a query whose archive is published.
+
+        ``input_sha256`` is the SHA-256 of the input taken before the query began.
+        """
         name = query_file.stem
         archive = self._output_dir / f"{name}.tar.gz"
         record = self._record(
             name,
             COMPLETE,
-            input_sha256=sha256_file(query_file),
+            input_name=query_file.name,
+            input_sha256=input_sha256,
             archive={
                 "filename": archive.name,
                 "bytes": archive.stat().st_size,
@@ -262,6 +288,7 @@ class RunRecorder:
         status: str,
         *,
         error: str | None = None,
+        input_name: str | None = None,
         input_sha256: str | None = None,
         archive: dict[str, Any] | None = None,
         summary: dict[str, str] | None = None,
@@ -270,6 +297,7 @@ class RunRecorder:
             query=query_name,
             status=status,
             error=error,
+            input_name=input_name,
             input_sha256=input_sha256,
             settings=self.config.result_settings(),
             database_version=self.database_version,

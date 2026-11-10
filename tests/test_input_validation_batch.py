@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+import re
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -103,6 +104,20 @@ def test_setup_rejects_a_reserved_query_name_for_the_whole_run(
         _setup(tmp_path)
 
     database_setup.assert_not_called()
+
+
+@pytest.mark.parametrize("filename", ["...faa", "..faa", ".hidden.faa", "..fna"])
+def test_setup_rejects_an_unsafe_query_name_for_the_whole_run(
+    query_dir: Path, tmp_path: Path, database_setup: Mock, filename: str
+) -> None:
+    (query_dir / "good.fna").write_text(f">c\n{LONG_DNA}\n")
+    (query_dir / filename).write_text(f">c\n{LONG_DNA}\n")
+
+    with pytest.raises(ValidationError, match=re.escape(filename)):
+        _setup(tmp_path)
+
+    database_setup.assert_not_called()
+    assert not (tmp_path / "out").exists()
 
 
 def test_reserved_names_cover_the_pipeline_outputs() -> None:

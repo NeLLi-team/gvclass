@@ -6,12 +6,15 @@ see what the command decides, not what the pipeline computes.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import signal
+import subprocess
 import sys
 import tempfile
 import threading
+import time
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -283,6 +286,96 @@ def test_run_runner_stops_the_process_group_and_the_monitor_on_interrupt(
     assert [thread.daemon for thread in seen["monitor"]] == [True]
     assert MONITOR_THREAD_NAME not in {t.name for t in threading.enumerate()}
     assert signal.getsignal(signal.SIGTERM) == handler_before
+
+
+# A child that ignores SIGTERM and says so once it does.
+STUBBORN_CHILD = (
+    "import signal, time\n"
+    "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+    "print('READY', flush=True)\n"
+    "time.sleep(60)\n"
+)
+# The leader starts the child, waits for READY, reports the pids and carries on.
+LEADER_WITH_STUBBORN_CHILD = f"""
+import os, subprocess, sys, time
+child = subprocess.Popen(
+    [sys.executable, "-c", {STUBBORN_CHILD!r}], stdout=subprocess.PIPE, text=True
+)
+child.stdout.readline()
+print(f"PIDS {{os.getpid()}} {{child.pid}}", flush=True)
+EXIT_NOW = os.environ.get("LEADER_EXITS") == "1"
+if not EXIT_NOW:
+    time.sleep(60)
+"""
+
+
+def _wait_until_gone(pid: int, timeout_s: float = 5.0) -> bool:
+    """Wait for process ``pid`` to end; return whether it did."""
+    deadline = time.monotonic() + timeout_s
+    while _is_running(pid) and time.monotonic() < deadline:
+        time.sleep(0.02)
+    return not _is_running(pid)
+
+
+def _kill_quietly(pid: int) -> None:
+    with contextlib.suppress(ProcessLookupError):
+        os.kill(pid, signal.SIGKILL)
+
+
+def test_stop_process_group_kills_a_member_that_ignores_sigterm_after_the_leader_exits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(gvclass_cli, "STOP_GRACE_S", 0.5)
+    leader = subprocess.Popen(
+        [sys.executable, "-c", LEADER_WITH_STUBBORN_CHILD],
+        stdout=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    child_pid = int(leader.stdout.readline().split()[2])
+    try:
+        gvclass_cli._stop_process_group(leader)
+
+        assert _wait_until_gone(child_pid)
+        assert leader.returncode is not None
+    finally:
+        _kill_quietly(child_pid)
+        _kill_quietly(leader.pid)
+        leader.wait()
+        leader.stdout.close()
+
+
+def test_run_runner_stops_a_stubborn_descendant_when_the_leader_has_already_exited(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(gvclass_cli, "STOP_GRACE_S", 0.5)
+    seen: dict = {}
+
+    def interrupt_after_the_leader_exits(_monitor: ResourceMonitor, line: str) -> bool:
+        if not line.startswith("PIDS"):
+            return False
+        leader_pid, child_pid = (int(pid) for pid in line.split()[1:])
+        seen["child"] = child_pid
+        assert _wait_until_gone(leader_pid)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(
+        ResourceMonitor, "handle_progress_line", interrupt_after_the_leader_exits
+    )
+    try:
+        outcome = run_runner(
+            [sys.executable, "-c", LEADER_WITH_STUBBORN_CHILD],
+            env={**os.environ, "LEADER_EXITS": "1"},
+            cwd=tmp_path,
+            output_dir=tmp_path,
+            queries_to_process=1,
+            verbose=False,
+        )
+
+        assert outcome.interrupted is True
+        assert _wait_until_gone(seen["child"])
+    finally:
+        _kill_quietly(seen["child"])
 
 
 def test_run_runner_keeps_the_last_200_lines_that_are_not_progress(

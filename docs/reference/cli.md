@@ -68,7 +68,7 @@ NCLDV, PPV, and MIRUS queries use separate panels. A combined tree contains only
 | `--min-length` | integer; `20000` bp | Minimum total nucleotide length per input in bin/MAG mode. `0` disables the length threshold. |
 | `--contigs-min-length` | integer; `10000` bp | Minimum contig length in `--contigs` mode. |
 | `--allow-short` | flag | Bypass the nucleotide length threshold; retain other FASTA validation. |
-| `--resume` | flag | Skip a query only if `results.jsonl` holds a complete record whose input hash, result settings, database version and GVClass version equal the current ones and whose archive is still in place. Other queries run again, and the log names the field that differed. See [classify bins](../how-to/classify-bins.md). |
+| `--resume` | flag | Skip a query only if `results.jsonl` holds a complete record whose input file name and hash, result settings, database version and GVClass version equal the current ones and whose archive is still in place. Other queries run again, and the log names the field that differed. See [classify bins](../how-to/classify-bins.md). |
 | `--plain-output` | flag | Disable emojis and ANSI colors. Also set by `GVCLASS_PLAIN_OUTPUT=1`. Low-level search, tree, output-validation and post-processing diagnostics use plain text in all modes. |
 
 ## Other options

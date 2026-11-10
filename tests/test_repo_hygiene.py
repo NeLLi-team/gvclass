@@ -5,8 +5,10 @@ from __future__ import annotations
 import re
 import shlex
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
+import pytest
 import tomllib
 import yaml
 
@@ -123,13 +125,75 @@ def test_containers_ignore_host_python_packages() -> None:
     ) in dockerfile
 
 
-def test_container_entry_points_write_to_the_output_mount_by_default() -> None:
-    definition = (REPO_ROOT / "containers" / "apptainer" / "gvclass.def").read_text()
-    dockerfile = (REPO_ROOT / "containers" / "docker" / "Dockerfile").read_text()
+def _apptainer_output_snippet() -> str:
+    """Return the shell block of the runscript that adds ``-o /output``."""
+    text = (REPO_ROOT / "containers" / "apptainer" / "gvclass.def").read_text()
+    match = re.search(r"^ *has_output=0\n.*?\n *fi\n", text, re.DOTALL | re.MULTILINE)
+    assert match, "the runscript has no has_output block"
+    return match.group(0)
 
-    for text in (definition, dockerfile):
-        assert "-o|--output-dir|--output-dir=*) has_output=1" in text
-        assert 'set -- "$@" -o /output' in text
+
+def _docker_output_snippet() -> str:
+    """Return the shell block of the Docker entry point that adds ``-o /output``."""
+    lines = (
+        (REPO_ROOT / "containers" / "docker" / "Dockerfile").read_text().splitlines()
+    )
+    start = next(i for i, line in enumerate(lines) if "'has_output=0'" in line)
+    end = next(
+        i for i, line in enumerate(lines[start:], start) if '$has_output" = 0' in line
+    )
+    return "\n".join(
+        line.strip().removesuffix("\\").strip().strip("'")
+        for line in lines[start : end + 1]
+    )
+
+
+def _arguments_after(shell: str, snippet: str, args: list[str]) -> list[str]:
+    """Run ``snippet`` with ``args`` as its positional parameters; return them after."""
+    script = snippet + '\nprintf "%s\\n" "$@"'
+    done = subprocess.run(
+        [shell, "-c", script, "entry-point", *args],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return done.stdout.splitlines()
+
+
+OUTPUT_OPTION_FORMS = [
+    ["-o", "/results"],
+    ["-o/results"],
+    ["--output-dir", "/results"],
+    ["--output-dir=/results"],
+]
+
+
+ENTRY_POINTS = pytest.mark.parametrize(
+    ("shell", "snippet"),
+    [
+        pytest.param("sh", _apptainer_output_snippet, id="apptainer"),
+        pytest.param("bash", _docker_output_snippet, id="docker"),
+    ],
+)
+
+
+@ENTRY_POINTS
+def test_container_entry_point_sends_results_to_the_output_mount_by_default(
+    shell: str, snippet: Callable[[], str]
+) -> None:
+    args = ["/data/input", "-t", "8"]
+
+    assert _arguments_after(shell, snippet(), args) == [*args, "-o", "/output"]
+
+
+@ENTRY_POINTS
+@pytest.mark.parametrize("option", OUTPUT_OPTION_FORMS)
+def test_container_entry_point_keeps_every_form_of_the_output_option(
+    shell: str, snippet: Callable[[], str], option: list[str]
+) -> None:
+    args = ["/data/input", *option]
+
+    assert _arguments_after(shell, snippet(), args) == args
 
 
 def test_legacy_container_build_script_is_removed() -> None:

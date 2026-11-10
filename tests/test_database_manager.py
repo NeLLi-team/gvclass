@@ -1,5 +1,6 @@
 import hashlib
 import io
+import os
 import tarfile
 import threading
 import time
@@ -489,7 +490,7 @@ def test_a_failed_swap_returns_the_add_on_to_the_installed_database(
     (db / "contig_screen").mkdir()
     (db / "contig_screen" / "manifest.json").write_text("{}")
 
-    def fail(cls, staged, target):
+    def fail(cls, staged, target, **_kwargs):
         raise OSError("simulated swap failure")
 
     monkeypatch.setattr(DatabaseManager, "_atomic_swap_directory", classmethod(fail))
@@ -563,7 +564,9 @@ def test_a_complete_database_is_used_without_taking_the_lock(tmp_path):
     assert not (tmp_path / ".resources.lock").exists()
 
 
-def test_an_add_on_install_takes_the_same_lock(tmp_path, monkeypatch, caplog):
+def test_an_add_on_install_waits_for_the_add_on_lock_inside_the_database(
+    tmp_path, monkeypatch, caplog
+):
     caplog.set_level("INFO", logger=database_manager_module.logger.name)
     db = tmp_path / "resources"
     db.mkdir()
@@ -571,7 +574,7 @@ def test_an_add_on_install_takes_the_same_lock(tmp_path, monkeypatch, caplog):
     release = threading.Event()
 
     def hold() -> None:
-        with DatabaseManager._install_lock(db):
+        with DatabaseManager._addon_lock(db, "contig_screen"):
             holder_has_lock.set()
             release.wait(10)
 
@@ -598,3 +601,136 @@ def test_an_add_on_install_takes_the_same_lock(tmp_path, monkeypatch, caplog):
     installer.join(10)
 
     assert still_waiting == []
+    assert (db / ".contig_screen.lock").is_file()
+    assert not (tmp_path / ".resources.lock").exists()
+
+
+def test_an_add_on_install_needs_no_write_access_to_the_database_parent(
+    tmp_path, monkeypatch
+):
+    """``gvclass screen --install`` in the image binds only the database directory."""
+    data = make_database_archive(tmp_path / "fixture.tar.gz")
+    serve_archive(monkeypatch, data)
+    parent = tmp_path / "mount"
+    db = parent / "screen-resources"
+    db.mkdir(parents=True)
+    parent.chmod(0o555)
+    try:
+        DatabaseManager.install_addon(db, "contig_screen", archive_source(data))
+    finally:
+        parent.chmod(0o755)
+
+    assert (db / "contig_screen" / "DB_VERSION").is_file()
+    assert [path.name for path in parent.iterdir()] == ["screen-resources"]
+
+
+def test_a_base_update_waits_for_the_add_on_lock_before_it_moves_the_add_on(
+    tmp_path, monkeypatch, caplog
+):
+    caplog.set_level("INFO", logger=database_manager_module.logger.name)
+    data = make_database_archive(tmp_path / "fixture.tar.gz")
+    serve_archive(monkeypatch, data)
+    db = tmp_path / "resources"
+    _create_complete_database(db)
+    (db / "contig_screen").mkdir()
+    (db / "contig_screen" / "manifest.json").write_text("{}")
+    holder_has_lock = threading.Event()
+    release = threading.Event()
+
+    def hold() -> None:
+        with DatabaseManager._addon_lock(db, "contig_screen"):
+            holder_has_lock.set()
+            release.wait(10)
+
+    holder = threading.Thread(target=hold)
+    holder.start()
+    assert holder_has_lock.wait(10)
+    errors: list[BaseException] = []
+
+    def update() -> None:
+        try:
+            DatabaseManager.setup_database(
+                str(db), preferred_source=archive_source(data), force=True
+            )
+        except BaseException as exc:  # noqa: BLE001  # the test reads it below
+            errors.append(exc)
+
+    updater = threading.Thread(target=update)
+    updater.start()
+    _wait_for(lambda: "Waiting for another" in caplog.text, "the base update")
+
+    add_on_in_place = (db / "contig_screen" / "manifest.json").is_file()
+    version_while_waiting = DatabaseManager.get_database_version(db)
+    release.set()
+    holder.join(10)
+    updater.join(10)
+
+    assert errors == []
+    assert add_on_in_place
+    assert version_while_waiting == "v2.0.0"
+    assert (db / "contig_screen" / "manifest.json").read_text() == "{}"
+    assert DatabaseManager.get_database_version(db) == "v9.9.9"
+
+
+def _interrupt_the_staged_rename(monkeypatch, db: Path, *, break_restore: bool):
+    """Raise ``KeyboardInterrupt`` when the new tree is renamed to ``db``.
+
+    With ``break_restore`` the rename of the backup back to ``db`` fails too.
+    """
+    real_replace = os.replace
+
+    def replace(source, target):
+        if Path(target).resolve() == db.resolve():
+            if Path(source).name == "tree":
+                raise KeyboardInterrupt
+            if break_restore and ".old." in Path(source).name:
+                raise OSError("simulated restore failure")
+        real_replace(source, target)
+
+    monkeypatch.setattr(os, "replace", replace)
+
+
+def _database_with_add_on(tmp_path: Path) -> Path:
+    db = tmp_path / "resources"
+    _create_complete_database(db)
+    (db / "contig_screen").mkdir()
+    (db / "contig_screen" / "manifest.json").write_text("{}")
+    return db
+
+
+def test_an_interrupt_between_the_two_renames_restores_database_and_add_on(
+    tmp_path, monkeypatch
+):
+    data = make_database_archive(tmp_path / "fixture.tar.gz")
+    serve_archive(monkeypatch, data)
+    db = _database_with_add_on(tmp_path)
+    _interrupt_the_staged_rename(monkeypatch, db, break_restore=False)
+
+    with pytest.raises(KeyboardInterrupt):
+        DatabaseManager.setup_database(
+            str(db), preferred_source=archive_source(data), force=True
+        )
+
+    assert (db / "contig_screen" / "manifest.json").read_text() == "{}"
+    assert DatabaseManager.get_database_version(db) == "v2.0.0"
+    assert not list(tmp_path.glob(".resources.old.*"))
+    assert not list(tmp_path.glob(".resources.install.*"))
+
+
+def test_an_interrupt_with_a_failed_restore_keeps_the_add_on_in_the_backup(
+    tmp_path, monkeypatch
+):
+    data = make_database_archive(tmp_path / "fixture.tar.gz")
+    serve_archive(monkeypatch, data)
+    db = _database_with_add_on(tmp_path)
+    _interrupt_the_staged_rename(monkeypatch, db, break_restore=True)
+
+    with pytest.raises(KeyboardInterrupt):
+        DatabaseManager.setup_database(
+            str(db), preferred_source=archive_source(data), force=True
+        )
+
+    (backup,) = tmp_path.glob(".resources.old.*")
+    assert (backup / "contig_screen" / "manifest.json").read_text() == "{}"
+    assert (backup / "DB_VERSION").read_text() == "v2.0.0\n"
+    assert not list(tmp_path.glob(".resources.install.*"))
