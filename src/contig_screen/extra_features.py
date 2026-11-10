@@ -11,6 +11,7 @@ with the file stem and drew in file order.
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import logging
 import random
@@ -49,6 +50,17 @@ class Embedder:
             str(model_dir), local_files_only=True
         ).eval()
         self.cache: dict[str, np.ndarray] = {}
+
+    def with_pooling(self, pooling: str) -> Embedder:
+        """Return an embedder with the same weights, an empty cache and ``pooling``.
+
+        The padding of a batch changes the last digits of an embedding, so a pass
+        that must batch its proteins alone needs a cache of its own.
+        """
+        other = copy.copy(self)
+        other.pooling = pooling
+        other.cache = {}
+        return other
 
     def embed(self, proteins: dict[str, str], batch: int = 16) -> dict[str, np.ndarray]:
         """Return hash to embedding for the proteins, using the cache."""
@@ -161,8 +173,8 @@ def window_embeddings(
 
     A window without an eligible protein has no embedding (missing values). The
     windows are visited in the order given and share one random generator seeded
-    with ``seed`` (see ``draw_plan``); a window whose ``draw_key`` was seen before
-    reuses that draw.
+    with ``seed`` (see ``draw_plan``). A window whose ``draw_key`` was seen before
+    takes its draw from the generator and discards it, then reuses the first draw.
     """
     by_contig: dict[str, list[dict[str, object]]] = {}
     for gene in genes:
@@ -175,13 +187,13 @@ def window_embeddings(
     wanted = []
     for contig in contigs:
         key = contig.get("draw_key")
-        found = drawn.get(key) if key is not None else None
-        if found is None:
-            found = contig_proteins(
-                by_contig.get(str(contig["contig_id"]), []), esm_genes, rng
-            )
-            if key is not None:
-                drawn[key] = found
+        # A repeated window still takes its draw, so that the draws of the other
+        # windows do not depend on how often a window occurs.
+        found = contig_proteins(
+            by_contig.get(str(contig["contig_id"]), []), esm_genes, rng
+        )
+        if key is not None:
+            found = drawn.setdefault(key, found)
         wanted.append(found)
     every = {h: p for found in wanted for h, p in found.items()}
     vectors = embedder.embed(every)

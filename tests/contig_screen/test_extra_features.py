@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import random
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -10,7 +11,7 @@ import pytest
 
 from src.contig_screen import extra_features as ef
 from src.contig_screen.extract_genes import SEED
-from tests.contig_screen.screen_fixtures import embedding_features
+from tests.contig_screen.screen_fixtures import SEQUENCES, embedding_features
 
 
 def protein(seed: int, length: int = 80) -> str:
@@ -121,8 +122,14 @@ def toy_bin(names: list[str], seqs: list[str], genome: str) -> tuple[dict, list]
 class HashEmbedder:
     """Embeds a protein as a number that depends on its content; records requests."""
 
-    def __init__(self) -> None:
+    def __init__(self, pooling: str = "mean") -> None:
         self.asked: list[list[str]] = []
+        self.pooling = pooling
+        self.siblings: list[HashEmbedder] = []
+
+    def with_pooling(self, pooling: str) -> HashEmbedder:
+        self.siblings.append(HashEmbedder(pooling))
+        return self.siblings[-1]
 
     def embed(self, proteins: dict[str, str]) -> dict[str, np.ndarray]:
         self.asked.append(list(proteins))
@@ -245,3 +252,13 @@ def test_windows_without_a_draw_key_each_make_their_own_draw() -> None:
     ef.window_embeddings("bin", windows, genes, embedder, 8)
 
     assert len(embedder.asked[0]) > 8
+
+
+def test_a_duplicated_contig_leaves_the_draws_of_the_other_windows_unchanged() -> None:
+    """``data/draws.npz`` holds the means of dbaa765 for the windows of c1 and c2."""
+    reference = np.load(Path(__file__).parent / "data" / "draws.npz")
+    duplicated = {**SEQUENCES, "c4": SEQUENCES["c3"]}
+
+    table = embedding_features(duplicated).loc[reference["ids"]]
+
+    assert np.array_equal(table.to_numpy(), reference["means"])

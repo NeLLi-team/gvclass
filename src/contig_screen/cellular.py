@@ -212,10 +212,9 @@ def window_features(
 ) -> pd.DataFrame:
     """Return the feature table of the windows, with the set model logit joined.
 
-    The table is empty when no gene is called on the windows.
-
-    Raises:
-        ValueError: The boosting model reads embeddings that are not mean pooled.
+    The table is empty when no gene is called on the windows. The ESM weights load
+    once; the protein sample (pooling of the bundle, ``legacy`` when it names none)
+    and the set model (mean pooling) each keep an embedding cache.
     """
     genome = {
         "genome_id": fasta.stem,
@@ -245,16 +244,17 @@ def window_features(
     )
     embedder = make_embedder(resources, settings)
     if any(c.startswith("e_") for c in boosting["columns"]):
-        pooling = boosting.get("embedding_pooling")
-        if pooling != "mean":
-            msg = f"the boosting model needs mean pooled embeddings, not {pooling!r}"
-            raise ValueError(msg)
+        # The sample and the set model embed in caches of their own, as the batches
+        # of one pass must not depend on the proteins of the other.
+        sampler = embedder.with_pooling(
+            str(boosting.get("embedding_pooling", "legacy"))
+        )
         seed, drawn = draw_plan(
             contigs,
             read_fasta(genome["fasta_path"]),
             sample_seed=settings.sample_seed,
         )
-        embedded = window_embeddings(seed, drawn, genes, embedder, ESM_GENES)
+        embedded = window_embeddings(seed, drawn, genes, sampler, ESM_GENES)
         keep = ["contig_id", *[c for c in embedded.columns if c.startswith("e_")]]
         features = features.merge(embedded[keep], on="contig_id", how="left")
     return add_set_logits(features, best, queries, index, embedder, resources, settings)
@@ -401,8 +401,8 @@ def add_set_logits(
     """Join ``set_logit``: the logit of the set model of the hit tokens and embeddings.
 
     The tokens come from the best hits of ``add_reference_hits``, the embeddings are
-    those of every protein of the windows (``embedder``, the one that embedded the
-    sampled proteins), and the models are the fitted set models of the bundle.
+    those of every protein of the windows (``embedder``, a mean pooling one that has
+    not embedded the sample), and the models are the fitted set models of the bundle.
     """
     from src.contig_screen import set_model  # noqa: PLC0415  # imports torch
 

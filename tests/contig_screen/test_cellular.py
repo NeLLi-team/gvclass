@@ -10,6 +10,7 @@ import stat
 import sys
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import joblib
 import numpy as np
@@ -396,8 +397,8 @@ def window_scores(
     stem: str,
     sample_seed: str | None = None,
     *,
-    pooling: str = "mean",
-    embedders: list[object] | None = None,
+    pooling: str | None = "mean",
+    embedders: list[Any] | None = None,
 ) -> pd.Series:
     """Return ``p_gbm`` per window content, with gene calls and sampling real.
 
@@ -438,7 +439,7 @@ def window_scores(
     monkeypatch.setattr(
         cellular, "add_reference_hits", lambda features, *_: (features, None)
     )
-    made: list[object] = [] if embedders is None else embedders
+    made: list[Any] = [] if embedders is None else embedders
 
     def make_embedder(*_: object) -> HashEmbedder:
         made.append(HashEmbedder())
@@ -452,11 +453,9 @@ def window_scores(
 
     monkeypatch.setattr(cellular, "make_embedder", make_embedder)
     monkeypatch.setattr(cellular, "add_set_logits", add_set_logits)
-    boosting = {
-        "model": SigmoidOfFirst(),
-        "columns": ["e_0"],
-        "embedding_pooling": pooling,
-    }
+    boosting: dict[str, Any] = {"model": SigmoidOfFirst(), "columns": ["e_0"]}
+    if pooling is not None:
+        boosting["embedding_pooling"] = pooling
     settings = cellular.Settings(threads=1, sample_seed=sample_seed)
     features = cellular.window_features(fasta, resources, settings, boosting, work)
     scored = cellular.stage1_scores(features, boosting)
@@ -528,29 +527,47 @@ def test_contig_lengths_refuses_two_records_with_one_name(tmp_path: Path) -> Non
         cellular.contig_lengths(fasta)
 
 
-def test_window_features_build_one_embedder_and_pass_it_to_the_set_model(
+def test_window_features_load_the_model_once_and_embed_the_sample_in_a_cache_of_its_own(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from tests.contig_screen.test_extract_genes import coding_dna  # noqa: PLC0415
 
-    embedders: list[object] = []
+    embedders: list[Any] = []
 
     window_scores(
         tmp_path, monkeypatch, {"c1": coding_dna(35, 1)}, "one", embedders=embedders
     )
 
-    assert len(embedders) == 1
+    (loaded,) = embedders
+    (sampler,) = loaded.siblings
+    assert sampler.asked
+    assert loaded.asked == []
 
 
-def test_window_features_refuse_a_boosting_model_that_is_not_mean_pooled(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    ("pooling", "expected"), [("legacy", "legacy"), ("mean", "mean"), (None, "legacy")]
+)
+def test_window_features_embed_the_sample_with_the_pooling_of_the_bundle(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    pooling: str | None,
+    expected: str,
 ) -> None:
     from tests.contig_screen.test_extract_genes import coding_dna  # noqa: PLC0415
 
-    with pytest.raises(ValueError, match="mean pooled"):
-        window_scores(
-            tmp_path, monkeypatch, {"c1": coding_dna(35, 1)}, "one", pooling="legacy"
-        )
+    embedders: list[Any] = []
+
+    window_scores(
+        tmp_path,
+        monkeypatch,
+        {"c1": coding_dna(35, 1)},
+        "one",
+        pooling=pooling,
+        embedders=embedders,
+    )
+
+    assert embedders[0].pooling == "mean"
+    assert embedders[0].siblings[0].pooling == expected
 
 
 def test_window_features_of_a_bin_without_genes_are_empty(
