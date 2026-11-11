@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pyhmmer
 import pytest
+from Bio.Data.CodonTable import standard_dna_table
 
 from src.core import genetic_code_optimizer
 from src.core.genetic_code_optimizer import (
@@ -251,3 +252,41 @@ def test_stats_file_states_the_selection_rule(tmp_path: Path, tiny_hmm: Path) ->
     assert "10%" in statsout
     assert "coding_density" in statsout
     assert "meta only" in statsout
+
+
+_CODON_BY_AMINO_ACID = {
+    amino_acid: codon for codon, amino_acid in standard_dna_table.forward_table.items()
+}
+_MODEL_GENE = (
+    "ATG" + "".join(_CODON_BY_AMINO_ACID[aa] for aa in MODEL_PROTEIN[1:]) + "TAA"
+)
+
+
+def _contig_with_model_genes(seed: int) -> str:
+    flank = _random_dna(3000, seed)
+    return flank + _MODEL_GENE + _random_dna(3000, seed + 100) + _MODEL_GENE + flank
+
+
+def _output_files(result: GeneCallingResult) -> dict[str, bytes]:
+    paths = (result.faa, result.fna, result.gff, result.faa.with_suffix(".statsout"))
+    return {path.suffix: path.read_bytes() for path in paths}
+
+
+def test_the_thread_count_changes_neither_the_selection_nor_any_output_file(
+    tmp_path: Path, tiny_hmm: Path
+) -> None:
+    contigs = {f"q|c{seed}": _contig_with_model_genes(seed) for seed in range(1, 5)}
+    query = _write_fna(tmp_path / "q.fna", contigs)
+
+    single = optimize_genetic_code(
+        query, tmp_path / "one", tiny_hmm, ALL_CODES, threads=1
+    )
+    several = optimize_genetic_code(
+        query, tmp_path / "several", tiny_hmm, ALL_CODES, threads=4
+    )
+
+    assert set(single.evaluations) == set(ALL_CODES)
+    assert single.evaluations[0].complete_hits > 0
+    assert several.best_code == single.best_code
+    assert several.evaluations == single.evaluations
+    assert _output_files(several) == _output_files(single)
