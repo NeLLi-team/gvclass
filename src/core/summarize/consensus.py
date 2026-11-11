@@ -4,9 +4,10 @@ Turns the per-marker neighbor lineages into the ``taxonomy_majority`` string and
 its ``taxonomy_confidence`` flags.
 
 At each rank, every marker votes for its unique top taxon among its placements
-under the lineage already selected. The unique top taxon across markers wins. A
-tie, too few supporting markers, or a eukaryotic call without enough cellular
-support stop the lineage: that rank and all lower ranks stay blank.
+under the lineage already selected. The unique top taxon across markers wins.
+At domain, exactly one viral domain tied with cellular domains wins while the
+tie flag stays. Other ties, too few supporting markers, or a eukaryotic call
+without enough cellular support stop the lineage at that rank.
 """
 
 from collections import Counter
@@ -80,7 +81,8 @@ class _RankVote:
 
     ``total`` counts the markers with a placement at the rank, including markers
     that cast no vote because their own top two taxa tie. ``winner`` is None
-    when no marker voted or when the top two taxa tie (``tied``).
+    when no marker voted or when tied leaders cannot be resolved. A viral
+    domain can win a tie with cellular domains while ``tied`` stays True.
     """
 
     winner: str | None
@@ -128,20 +130,20 @@ def _judge_rank(
     vote: _RankVote, level: str, *, mode_fast: bool
 ) -> tuple[str | None, list[str]]:
     """Return the accepted taxon (None when the rank stops) and the rank's flags."""
-    if vote.tied:
+    if vote.tied and vote.winner is None:
         return None, ["tie"]
     if vote.total == 0:
         # No placement at this rank under the selected parent: the references
         # carry no label here. At the domain rank this means no evidence at all.
         return None, ["no_support"] if level == "domain" else []
 
+    flags = ["tie"] if vote.tied else []
     threshold = _min_markers_for_level(level, mode_fast=mode_fast)
     if vote.winner is None or vote.supporting < threshold:
-        return None, ["low_support"]
+        return None, ["low_support", *flags]
     if level == "domain" and not _cellular_domain_supported(vote.votes, vote.winner):
         return None, ["mixed_cellular"]
 
-    flags: list[str] = []
     if 2 * vote.supporting <= vote.total:
         flags.append("plurality")
     # The call passed the threshold above. Support below the extended-mode
@@ -171,6 +173,8 @@ def _rank_vote(
         if marker_top is not None:
             votes[marker_top] += 1
     winner, tied = _unique_top(votes)
+    if tied and rank_index == 0:
+        winner = _viral_domain_tie_winner(votes)
     supporting = votes[winner] if winner is not None else 0
     return _RankVote(winner, supporting, total, tied, votes)
 
@@ -206,6 +210,23 @@ def _unique_top(counter: Counter[str]) -> tuple[str | None, bool]:
     if len(top_two) == 2 and top_two[0][1] == top_two[1][1]:
         return None, True
     return top_two[0][0], False
+
+
+def _viral_domain_tie_winner(votes: Counter[str]) -> str | None:
+    """Return the sole viral domain tied for the lead with cellular domains."""
+    from src.core.contamination_scoring import (  # noqa: PLC0415  # labels imports consensus rank types.
+        CELLULAR_PREFIXES,
+        GIANT_VIRUS_PREFIXES,
+        PHAGE_PREFIXES,
+    )
+
+    top_count = max(votes.values())
+    tied_domains = {domain for domain, count in votes.items() if count == top_count}
+    viral_domains = tied_domains & (GIANT_VIRUS_PREFIXES | PHAGE_PREFIXES)
+    cellular_domains = CELLULAR_PREFIXES | _CELLULAR_DOMAIN_FAMILY.keys()
+    if len(viral_domains) == 1 and tied_domains - viral_domains <= cellular_domains:
+        return viral_domains.pop()
+    return None
 
 
 def _cellular_domain_supported(marker_votes: Counter[str], winner: str) -> bool:

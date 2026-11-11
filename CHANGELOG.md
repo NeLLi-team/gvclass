@@ -33,6 +33,7 @@ Not verified: the container images are unbuilt, and the CI workflow has not run.
 - `--resume` runs a query again when its input file, a setting that changes results, the database version or the software version changed.
 - The container launcher forwards options unchanged and sets no thread default.
 - A DIAMOND search in the contig screen that runs longer than 30 minutes is killed and started again, up to 3 runs in all. DIAMOND 2.1.23 deadlocks in about 2% of these searches, which held the bin until the 4-hour screen limit and set it to `failed`. A search that exits with an error is not repeated; after the last run the screen fails with a message that names the time limit.
+- A domain tie between exactly one viral domain and one or more cellular domains selects the viral domain and retains `tie:domain`. Lower ranks use the normal rules within that domain. Other ties leave the tied rank and all lower ranks blank.
 
 ### Changed
 

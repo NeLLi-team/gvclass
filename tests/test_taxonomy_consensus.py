@@ -65,7 +65,101 @@ def test_equal_order_votes_leave_the_order_blank_and_flag_a_tie() -> None:
     assert confidence == "tie:order"
 
 
-def test_equal_domain_votes_leave_every_rank_blank_and_flag_a_tie() -> None:
+def test_viral_cellular_domain_tie_keeps_viral_lineage_and_flags_tie() -> None:
+    markers = {
+        **_markers("ncldv", 3, _ncldv("Asfuvirales", "Asfarviridae", "g4", "s4")),
+        **_markers("euk", 3, ("EUK", "EukPhylum", "EukClass", "EukOrder")),
+    }
+
+    majority, confidence = _consensus(markers)
+
+    assert majority == (
+        "d_NCLDV;p_Nucleocytoviricota;c_Megaviricetes;"
+        "o_Asfuvirales;f_Asfarviridae;g_g4;s_s4"
+    )
+    assert confidence == "tie:domain,plurality:domain"
+
+
+@pytest.mark.parametrize("viral_domain", ["MIRUS", "PHAGE", "VP", "PLV", "PPV", "MRYA"])
+def test_other_viral_domains_win_cellular_domain_ties(viral_domain: str) -> None:
+    markers = {
+        **_markers("viral", 3, (viral_domain,)),
+        **_markers("bac", 3, BACTERIA),
+    }
+
+    majority, confidence = _consensus(markers)
+
+    assert majority == f"d_{viral_domain};p_;c_;o_;f_;g_;s_"
+    assert confidence == "tie:domain,plurality:domain"
+
+
+@pytest.mark.parametrize("cellular_domain", ["ARC", "EUK-pEVE", "MITO", "PLASTID"])
+def test_viral_domain_wins_other_cellular_domain_ties(cellular_domain: str) -> None:
+    markers = {
+        **_markers("ncldv", 3, IMITERVIRALES),
+        **_markers("cellular", 3, (cellular_domain,)),
+    }
+
+    majority, confidence = _consensus(markers)
+
+    assert majority == IMITERVIRALES_CALL
+    assert confidence == "tie:domain,plurality:domain"
+
+
+def test_one_viral_domain_wins_a_three_way_tie_with_two_cellular_domains() -> None:
+    markers = {
+        **_markers("ncldv", 3, IMITERVIRALES),
+        **_markers("bac", 3, BACTERIA),
+        **_markers("euk", 3, ("EUK",)),
+    }
+
+    majority, confidence = _consensus(markers)
+
+    assert majority == IMITERVIRALES_CALL
+    assert confidence == "tie:domain,plurality:domain"
+
+
+@pytest.mark.parametrize("cellular_markers", [0, 3])
+def test_two_viral_domains_tied_leave_every_rank_blank(cellular_markers: int) -> None:
+    markers = {
+        **_markers("ncldv", 3, IMITERVIRALES),
+        **_markers("mirus", 3, ("MIRUS",)),
+        **_markers("bac", cellular_markers, BACTERIA),
+    }
+
+    majority, confidence = _consensus(markers)
+
+    assert majority == UNASSIGNED_CALL
+    assert confidence == "tie:domain"
+
+
+def test_two_cellular_domains_tied_leave_every_rank_blank() -> None:
+    markers = {
+        **_markers("bac", 3, BACTERIA),
+        **_markers("euk", 3, ("EUK",)),
+        **_markers("ncldv", 2, IMITERVIRALES),
+    }
+
+    majority, confidence = _consensus(markers)
+
+    assert majority == UNASSIGNED_CALL
+    assert confidence == "tie:domain"
+
+
+def test_viral_domain_tie_does_not_resolve_a_lower_order_tie() -> None:
+    markers = {
+        **_markers("imi", 3, IMITERVIRALES),
+        **_markers("alg", 3, ALGAVIRALES),
+        **_markers("bac", 6, BACTERIA),
+    }
+
+    majority, confidence = _consensus(markers)
+
+    assert majority == ORDER_UNASSIGNED_CALL
+    assert confidence == "tie:domain,plurality:domain"
+
+
+def test_viral_domain_tie_still_requires_normal_order_support() -> None:
     markers = {
         **_markers("ncldv", 2, IMITERVIRALES),
         **_markers("bac", 2, BACTERIA),
@@ -73,8 +167,32 @@ def test_equal_domain_votes_leave_every_rank_blank_and_flag_a_tie() -> None:
 
     majority, confidence = _consensus(markers)
 
+    assert majority == ORDER_UNASSIGNED_CALL
+    assert confidence == "low_support,tie:domain,plurality:domain"
+
+
+def test_viral_domain_tie_still_requires_normal_domain_support() -> None:
+    markers = {
+        **_markers("ncldv", 1, IMITERVIRALES),
+        **_markers("bac", 1, BACTERIA),
+    }
+
+    majority, confidence = _consensus(markers)
+
     assert majority == UNASSIGNED_CALL
-    assert confidence == "tie:domain"
+    assert confidence == "low_support,tie:domain"
+
+
+def test_viral_cellular_domain_vote_without_a_tie_is_unchanged() -> None:
+    markers = {
+        **_markers("ncldv", 3, IMITERVIRALES),
+        **_markers("bac", 2, BACTERIA),
+    }
+
+    majority, confidence = _consensus(markers)
+
+    assert majority == IMITERVIRALES_CALL
+    assert confidence == "high"
 
 
 def test_three_way_phylum_tie_is_a_tie_not_low_support() -> None:
