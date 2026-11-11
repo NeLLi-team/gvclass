@@ -50,6 +50,10 @@ ESM_GENES = 8
 MOSTLY_CELLULAR_PCT = 80.0
 SKIPPED_CLASSES = ["NCLDV"]
 DIAMOND_COLUMNS = ["qseqid", "sseqid", "pident", "length", "qlen", "slen", "evalue"]
+# DIAMOND 2.1.23 deadlocks in about 2% of the searches; a run that outlasts the limit
+# is killed and started again, up to this many runs in all.
+DIAMOND_TIMEOUT_S = 1800
+DIAMOND_RUNS = 3
 OUTPUT_COLUMNS = [
     "contig_id",
     "source_contig",
@@ -324,8 +328,52 @@ def diamond_binary(requested: Path | None) -> str:
 def diamond_search(
     binary: str, db: Path, queries: Path, out: Path, targets: int, threads: int
 ) -> None:
-    """Run DIAMOND with the settings of the training searches."""
-    command = [
+    """Run DIAMOND with the settings of the training searches.
+
+    A run that outlasts ``DIAMOND_TIMEOUT_S`` is killed with its threads, its partial
+    output is removed and the search starts again, up to ``DIAMOND_RUNS`` runs in all.
+    A run that exits with an error is not repeated.
+
+    Raises:
+        RuntimeError: DIAMOND exited with an error, or every run hit the time limit.
+    """
+    command = _diamond_command(binary, db, queries, out, targets, threads)
+    for run in range(1, DIAMOND_RUNS + 1):
+        try:
+            # No new session: the screen's own timeout kills the process group.
+            done = subprocess.run(
+                command,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=DIAMOND_TIMEOUT_S,
+            )
+        except subprocess.TimeoutExpired:
+            out.unlink(missing_ok=True)
+            logger.warning(
+                "diamond run %d of %d for %s stopped after %d s",
+                run,
+                DIAMOND_RUNS,
+                db,
+                DIAMOND_TIMEOUT_S,
+            )
+            continue
+        if done.returncode != 0:
+            msg = f"diamond failed ({done.returncode}) for {db}: {done.stderr.strip()}"
+            raise RuntimeError(msg)
+        return
+    msg = (
+        f"diamond did not finish within {DIAMOND_TIMEOUT_S} s for {db} "
+        f"in any of {DIAMOND_RUNS} runs"
+    )
+    raise RuntimeError(msg)
+
+
+def _diamond_command(
+    binary: str, db: Path, queries: Path, out: Path, targets: int, threads: int
+) -> list[str]:
+    """Return the DIAMOND command line of the training searches."""
+    return [
         binary,
         "blastp",
         "--db",
@@ -348,10 +396,6 @@ def diamond_search(
         "--tmpdir",
         str(out.parent),
     ]
-    done = subprocess.run(command, check=False, capture_output=True, text=True)
-    if done.returncode != 0:
-        msg = f"diamond failed ({done.returncode}) for {db}: {done.stderr.strip()}"
-        raise RuntimeError(msg)
 
 
 def add_reference_hits(

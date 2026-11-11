@@ -6,6 +6,7 @@ import contextlib
 import gzip
 import importlib.util
 import io
+import os
 import stat
 import sys
 from collections.abc import Iterator
@@ -234,6 +235,139 @@ def test_a_failing_diamond_run_raises_with_its_message(tmp_path: Path) -> None:
         cellular.diamond_search(
             str(binary), tmp_path / "db", tmp_path / "q.faa", tmp_path / "o.tsv", 5, 1
         )
+
+
+def write_recording_diamond(tmp_path: Path, body: str) -> Path:
+    """Write a fake DIAMOND that records its run, then runs ``body``.
+
+    Before ``body`` the script writes its arguments to ``args.txt`` and appends its
+    PID to ``pids.txt`` (one line per run), and sets ``$out`` to the ``--out`` path
+    and ``$pids`` to the PID file. A hang uses ``exec sleep`` so that the PID in
+    the file is the PID of the process that must be killed.
+    """
+    prologue = (
+        f'printf "%s\\n" "$@" > "{tmp_path}/args.txt"\n'
+        "while [ $# -gt 0 ]; do case $1 in --out) out=$2;; esac; shift; done\n"
+        f'pids="{tmp_path}/pids.txt"\n'
+        'echo $$ >> "$pids"\n'
+    )
+    return write_fake_diamond(tmp_path / "diamond", prologue + body)
+
+
+def search_with(binary: Path, tmp_path: Path) -> Path:
+    """Run ``diamond_search`` with ``binary`` and return its output path."""
+    out = tmp_path / "o.tsv"
+    cellular.diamond_search(str(binary), tmp_path / "db", tmp_path / "q.faa", out, 5, 1)
+    return out
+
+
+def recorded_pids(tmp_path: Path) -> list[int]:
+    """Return the PID of every run of the recording fake, in order."""
+    lines = (tmp_path / "pids.txt").read_text().split()
+    return [int(line) for line in lines]
+
+
+def is_running(pid: int) -> bool:
+    """Tell whether a process with this PID exists."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+@pytest.fixture
+def short_diamond_limits(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Shorten the DIAMOND limit; 2 s leaves room for a process start under load."""
+    monkeypatch.setattr(cellular, "DIAMOND_TIMEOUT_S", 2)
+    monkeypatch.setattr(cellular, "DIAMOND_RUNS", 2)
+
+
+@pytest.mark.usefixtures("short_diamond_limits")
+def test_diamond_search_runs_once_with_the_training_arguments(tmp_path: Path) -> None:
+    binary = write_recording_diamond(tmp_path, 'echo hits > "$out"')
+
+    out = search_with(binary, tmp_path)
+
+    assert out.read_text() == "hits\n"
+    assert len(recorded_pids(tmp_path)) == 1
+    assert (tmp_path / "args.txt").read_text().split("\n") == [
+        "blastp",
+        "--db",
+        f"{tmp_path}/db",
+        "--query",
+        f"{tmp_path}/q.faa",
+        "--out",
+        f"{tmp_path}/o.tsv",
+        "--outfmt",
+        "6",
+        "qseqid",
+        "sseqid",
+        "pident",
+        "length",
+        "qlen",
+        "slen",
+        "evalue",
+        "bitscore",
+        "--max-target-seqs",
+        "5",
+        "--evalue",
+        "1e-5",
+        "--mid-sensitive",
+        "--threads",
+        "1",
+        "--tmpdir",
+        str(tmp_path),
+        "",
+    ]
+
+
+@pytest.mark.usefixtures("short_diamond_limits")
+def test_diamond_search_starts_again_after_a_run_that_hangs(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    binary = write_recording_diamond(
+        tmp_path,
+        'if [ "$(wc -l < "$pids")" -eq 1 ]; then\n'
+        '  echo partial > "$out"; exec sleep 30\n'
+        "fi\n"
+        'echo hits >> "$out"',
+    )
+
+    out = search_with(binary, tmp_path)
+
+    first_pid, second_pid = recorded_pids(tmp_path)
+    assert first_pid != second_pid
+    assert not is_running(first_pid)
+    assert out.read_text() == "hits\n"
+    assert "run 1 of 2" in caplog.text
+
+
+@pytest.mark.usefixtures("short_diamond_limits")
+def test_diamond_search_gives_up_after_the_last_run_that_hangs(
+    tmp_path: Path,
+) -> None:
+    binary = write_recording_diamond(tmp_path, 'echo partial > "$out"; exec sleep 30')
+
+    with pytest.raises(RuntimeError, match=r"within 2 s .* 2 runs"):
+        search_with(binary, tmp_path)
+
+    pids = recorded_pids(tmp_path)
+    assert len(pids) == 2
+    assert not any(is_running(pid) for pid in pids)
+    assert not (tmp_path / "o.tsv").exists()
+
+
+@pytest.mark.usefixtures("short_diamond_limits")
+def test_diamond_search_does_not_start_again_after_a_failed_run(
+    tmp_path: Path,
+) -> None:
+    binary = write_recording_diamond(tmp_path, "echo 'bad database' >&2; exit 3")
+
+    with pytest.raises(RuntimeError, match="bad database"):
+        search_with(binary, tmp_path)
+
+    assert len(recorded_pids(tmp_path)) == 1
 
 
 def test_reference_hits_join_the_best_hit_features_and_return_the_best_table(

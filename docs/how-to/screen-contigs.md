@@ -101,6 +101,12 @@ A screen that runs for more than 4 hours is stopped together with the processes 
 started, and the bin reads `failed`. The output of each screen is in
 `contig_screen/<bin>/screen.log`.
 
+DIAMOND 2.1.23 sometimes stops without error and never ends. A DIAMOND search that
+runs for more than 30 minutes is killed and started again, up to 3 runs in all, and
+`screen.log` records a warning with the run number. A search that exits with an error
+is not repeated. If all 3 runs hit the limit, the screen fails and its message names
+the 30-minute limit.
+
 Without the add-on, `screen_status` is `not_installed`, the three percentages are
 `NaN`, and the classification columns are the same as before.
 
