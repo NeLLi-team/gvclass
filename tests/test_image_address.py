@@ -30,9 +30,9 @@ case "$1" in
     ;;
 esac
 """
-GHCR = "oras://ghcr.io/nelli-team/gvclass:2.1.1"
-DOCKER = "docker://ghcr.io/nelli-team/gvclass:2.1.1"
-CUSTOM_LIBRARY = "library://sylabs.example.org/team/collection/gvclass:2.1.1"
+GHCR = "oras://ghcr.io/nelli-team/gvclass:2.2.0"
+DOCKER = "docker://ghcr.io/nelli-team/gvclass:2.2.0"
+CUSTOM_LIBRARY = "library://sylabs.example.org/team/collection/gvclass:2.2.0"
 
 
 class Launcher:

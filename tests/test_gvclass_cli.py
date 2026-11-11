@@ -453,7 +453,7 @@ def _record(query: str, status: str, archive: dict | None) -> str:
             "input_sha256": "0" * 64,
             "settings": {},
             "database_version": "v2.1.0",
-            "software_version": "v2.1.1",
+            "software_version": "v2.2.0",
             "finished_at": "2026-11-09T00:00:00+00:00",
             "archive": archive,
             "summary": None,

@@ -39,7 +39,7 @@ result settings (`tree_method`, `iqtree_mode`, `mode_fast`, `completeness_mode`,
 `sensitive_mode`, `species_tree`, `species_tree_trim`), the database version and the
 software version. The archive must exist with the recorded size. The log names the
 field that differed for every query that runs again. Thread counts, `--screen` and
-`--contigs` do not change results and do not stop a skip. The combined summary tables
+`--contigs` do not change the per-query results and do not stop a skip. The combined summary tables
 are built from the queries processed now and from the `summary` of the skipped ones.
 The screen also covers the skipped queries and sets the five contamination columns of the
 combined tables from its result, so a run with the screen and a run without it differ in

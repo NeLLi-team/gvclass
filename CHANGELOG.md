@@ -13,7 +13,10 @@ compatible bundle is noted per release.
 
 ## [Unreleased]
 
-Not verified: the container images are unbuilt, and the CI workflow has not run.
+## [2.2.0] - 2026-11-11
+
+Compatible resource bundle: v2.1.0 (Zenodo DOI 10.5281/zenodo.23381313). The contig-screen
+add-on is unchanged (Zenodo DOI 10.5281/zenodo.23464780).
 
 ### Fixed
 

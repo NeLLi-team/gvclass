@@ -53,7 +53,7 @@ GVClass runs on the machine where it starts and does not submit jobs. Configure 
 
 ## Use the Apptainer image
 
-The image includes GVClass, its dependencies and database. The 2.1.1 image carries the v2.1.0 resources. The `gvclass` entrypoint requires Apptainer and Python 3.10 or later on the host when used in container mode. If your cluster uses environment modules, load Apptainer before running `gvclass`.
+The image includes GVClass, its dependencies and database. The 2.2.0 image carries the v2.1.0 resources. The `gvclass` entrypoint requires Apptainer and Python 3.10 or later on the host when used in container mode. If your cluster uses environment modules, load Apptainer before running `gvclass`.
 
 ### 1. Download the launcher and image
 
@@ -62,7 +62,7 @@ If you do not have a repository checkout on the cluster, download the standalone
 ```bash
 wget https://raw.githubusercontent.com/NeLLi-team/gvclass/main/gvclass
 chmod +x gvclass
-apptainer pull gvclass_2.1.1.sif oras://ghcr.io/nelli-team/gvclass:2.1.1
+apptainer pull gvclass_2.2.0.sif oras://ghcr.io/nelli-team/gvclass:2.2.0
 ```
 
 Pass the downloaded image to `gvclass` with `--image` (or pass `--apptainer` to pull and cache the default image automatically). The image address is on GHCR. Sylabs retired its library on 2026-10-22, so a `library://` address works only with another library endpoint that Apptainer knows.
@@ -72,14 +72,14 @@ Pass the downloaded image to `gvclass` with `--image` (or pass `--apptainer` to 
 Put one `.fna` or `.faa` file per genome in `query_genomes/`, then run:
 
 ```bash
-./gvclass query_genomes -o apptainer_results -t 8 --image "$PWD/gvclass_2.1.1.sif"
+./gvclass query_genomes -o apptainer_results -t 8 --image "$PWD/gvclass_2.2.0.sif"
 ```
 
 For a Slurm job, replace the `pixi run gvclass` line in the batch script with:
 
 ```bash
 ./gvclass query_genomes -o apptainer_results -t "$SLURM_CPUS_PER_TASK" \
-  --image "$PWD/gvclass_2.1.1.sif"
+  --image "$PWD/gvclass_2.2.0.sif"
 ```
 
 Select the output directory with `-o` / `--output-dir`. Without it, the results go to `<name>_results` in the current directory, as in a native run.
@@ -91,9 +91,9 @@ resource cache once, then run as usual. The bound cache directory holds the add-
 for every later run:
 
 ```bash
-./gvclass screen --install --image "$PWD/gvclass_2.1.1.sif" \
+./gvclass screen --install --image "$PWD/gvclass_2.2.0.sif" \
   --resource-cache-dir /scratch/gvclass-cache
-./gvclass query_genomes -o apptainer_results -t 8 --image "$PWD/gvclass_2.1.1.sif" \
+./gvclass query_genomes -o apptainer_results -t 8 --image "$PWD/gvclass_2.2.0.sif" \
   --resource-cache-dir /scratch/gvclass-cache
 ```
 

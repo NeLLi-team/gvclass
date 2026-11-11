@@ -1,7 +1,7 @@
 # Use the official Pixi base image (includes Pixi pre-installed)
 FROM ghcr.io/prefix-dev/pixi@sha256:d2d0d941b89802e67a622e4adad68c8643f81154461028faebb60aca502db78f
 
-ARG GVCLASS_VERSION=2.1.1
+ARG GVCLASS_VERSION=2.2.0
 
 # Install build dependencies needed for pyrodigal compilation
 USER root

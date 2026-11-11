@@ -42,10 +42,10 @@ def test_only_the_container_job_may_write_packages(workflow: dict[str, Any]) -> 
 @pytest.mark.parametrize(
     ("event", "ref", "expected"),
     [
-        ("push", "refs/tags/v2.1.1", True),
+        ("push", "refs/tags/v2.2.0", True),
         ("push", "refs/heads/main", False),
         ("workflow_dispatch", "refs/heads/main", False),
-        ("workflow_dispatch", "refs/tags/v2.1.1", False),
+        ("workflow_dispatch", "refs/tags/v2.2.0", False),
     ],
 )
 def test_publication_requires_a_tag_push(
@@ -170,7 +170,7 @@ class Runner:
             "PATH": f"{fake_bin}:/usr/bin:/bin",
             "HOME": str(tmp_path / "home"),
             "RUNNER_TEMP": str(tmp_path / "temp"),
-            "GITHUB_REF_NAME": "v2.1.1",
+            "GITHUB_REF_NAME": "v2.2.0",
             "GITHUB_ACTOR": "octo-cat",
             "GITHUB_TOKEN": TOKEN,
             "FAKE_LOG": str(self.log),
@@ -208,7 +208,7 @@ def test_the_publish_script_sends_the_token_on_stdin_and_pushes_both_tags(
     assert done.returncode == 0, done.stderr
     assert [call for call, _ in runner.calls()] == [
         "registry login --username octo-cat --password-stdin oras://ghcr.io",
-        f"push gvclass.sif {ADDRESS}:2.1.1",
+        f"push gvclass.sif {ADDRESS}:2.2.0",
         f"push gvclass.sif {ADDRESS}:latest",
         "registry logout oras://ghcr.io",
     ]
@@ -231,7 +231,7 @@ def test_the_check_passes_when_the_anonymous_pull_has_the_bytes_of_the_built_fil
     assert logout[0] == "registry logout oras://ghcr.io"
     command, config_dir = pull
     assert command.startswith("pull ")
-    assert command.endswith(f" {ADDRESS}:2.1.1")
+    assert command.endswith(f" {ADDRESS}:2.2.0")
     assert command.split()[1].startswith(str(runner.tmp / "temp"))
     assert config_dir.startswith(str(runner.tmp / "temp"))
     assert not (runner.tmp / "home").exists()

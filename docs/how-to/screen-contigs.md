@@ -173,8 +173,8 @@ see [Run with Apptainer](#run-with-apptainer).
 Select a local SIF image and install the optional resources in the host cache:
 
 ```bash
-./gvclass screen --install --image "$PWD/gvclass_2.1.1.sif"
-./gvclass screen bins/ -o bins_screen -t 4 --image "$PWD/gvclass_2.1.1.sif"
+./gvclass screen --install --image "$PWD/gvclass_2.2.0.sif"
+./gvclass screen bins/ -o bins_screen -t 4 --image "$PWD/gvclass_2.2.0.sif"
 ```
 
 With `GVCLASS_DB` unset, the installer writes to
@@ -269,9 +269,8 @@ from a fresh metadata process, before CLI per-task thread limits.
 These records support runtime comparisons; they do not establish the cause of a
 previous numerical difference.
 
-The SIF classification results are also resumed through three launcher routes:
-`gvclass --apptainer --image IMAGE`, `gvclass --image=IMAGE`, and the standalone
-`gvclass` script outside a checkout. Each must skip all three queries without
+The SIF classification results are also resumed through two launcher routes:
+`gvclass --apptainer --image IMAGE` and `gvclass --image=IMAGE`. Each must skip all three queries without
 starting scientific processing. The checks compare the TSV and CSV bytes and
 archive member contents after each route, ignoring gzip and tar header metadata. The original
 query execution timestamps must stay unchanged. Each route must have a fresh run

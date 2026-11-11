@@ -84,7 +84,7 @@ pixi run gvclass --help
 pixi run gvclass --version
 ```
 
-`--version` reports software version 2.1.1 and the installed database version. Database setup installs v2.1.0.
+`--version` reports software version 2.2.0 and the installed database version. Database setup installs v2.1.0.
 
 ## Contig screen
 
@@ -147,7 +147,7 @@ select the configuration file and the database directory, as for `gvclass`.
 
 | Option | Argument/default | Description |
 | --- | --- | --- |
-| `--apptainer` | flag | Execute inside the Apptainer SIF image (`oras://ghcr.io/nelli-team/gvclass:2.1.1` by default). |
+| `--apptainer` | flag | Execute inside the Apptainer SIF image (`oras://ghcr.io/nelli-team/gvclass:2.2.0` by default). |
 | `--image` | path or address | Local `.sif` path, or an `oras://`, `docker://`, `library://` or `https://` address (implies `--apptainer`). A `library://` address needs a library endpoint that Apptainer knows. |
 | `--resource-cache-dir` | path; `~/.cache/gvclass/resource-cache/v2.1.0` | Classification: writable materialization cache mounted at `/resource-cache`. Screen: host add-on cache used when neither `-d` nor `GVCLASS_DB` is set; writable during installation and mounted read-only during screening. |
 

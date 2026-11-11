@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.1.1-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/version-2.2.0-blue.svg" alt="Version">
   <img src="https://img.shields.io/badge/license-non--commercial-orange.svg" alt="License: non-commercial use only">
 </p>
 
@@ -76,7 +76,7 @@ The v2.1.0 runtime resource bundle is archived on Zenodo:
 https://doi.org/10.5281/zenodo.23381313
 (v2.0.0: https://doi.org/10.5281/zenodo.21225457; all versions: https://doi.org/10.5281/zenodo.18662445).
 
-Database setup downloads the v2.1.0 archive. The 2.1.1 Apptainer image is `oras://ghcr.io/nelli-team/gvclass:2.1.1`.
+Database setup downloads the v2.1.0 archive. The 2.2.0 Apptainer image is `oras://ghcr.io/nelli-team/gvclass:2.2.0`.
 
 Reference data sources:
 

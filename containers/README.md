@@ -1,6 +1,6 @@
 # GVClass Container Images
 
-This directory contains container definitions prepared for the GVClass `2.1.1` release image.
+This directory contains container definitions prepared for the GVClass `2.2.0` release image.
 
 ## Directory Structure
 
@@ -28,8 +28,8 @@ bash containers/build.sh
 apptainer build gvclass.sif containers/apptainer/gvclass.def
 
 # If direct def-file builds are unavailable, build Docker then convert
-docker build -t gvclass:2.1.1 -f containers/docker/Dockerfile .
-apptainer build --force gvclass_2.1.1.sif docker-daemon://gvclass:2.1.1
+docker build -t gvclass:2.2.0 -f containers/docker/Dockerfile .
+apptainer build --force gvclass_2.2.0.sif docker-daemon://gvclass:2.2.0
 ```
 
 The public recipes currently create a self-contained review image including:
@@ -78,7 +78,7 @@ After the v2.1.0 resource and model checks pass, the workflow publishes the
 approved image to GHCR when a release tag is pushed, as the version and as `latest`:
 
 ```text
-oras://ghcr.io/nelli-team/gvclass:2.1.1
+oras://ghcr.io/nelli-team/gvclass:2.2.0
 ```
 
 It embeds the resources approved for the release. Running `./gvclass --apptainer` (or standalone `./gvclass` downloaded without a repo checkout) downloads this address into
@@ -107,7 +107,7 @@ printf '%s' "$GHCR_TOKEN" | apptainer registry login \
     --username "$GITHUB_USER" --password-stdin oras://ghcr.io
 
 # Push the image
-apptainer push gvclass.sif oras://ghcr.io/nelli-team/gvclass:2.1.1
+apptainer push gvclass.sif oras://ghcr.io/nelli-team/gvclass:2.2.0
 ```
 
 ## Alternative: Docker
@@ -117,12 +117,12 @@ Docker images are available but less suitable for HPC clusters.
 ### Build
 ```bash
 # From project root
-docker build -t gvclass:2.1.1 -f containers/docker/Dockerfile .
+docker build -t gvclass:2.2.0 -f containers/docker/Dockerfile .
 ```
 
 ### Usage
 ```bash
-docker run -v /path/to/data:/data gvclass:2.1.1 /data -t 32
+docker run -v /path/to/data:/data gvclass:2.2.0 /data -t 32
 ```
 
 ## Container Features

@@ -14,8 +14,8 @@ SIF_LIST = (
     "2 |1 |NONE |49152-50000 |FS (Squashfs/*System/amd64)\n"
 )
 IMAGE = "https://example.org/gvclass_test.sif"
-GHCR_IMAGE = "oras://ghcr.io/nelli-team/gvclass:2.1.1"
-CUSTOM_LIBRARY_IMAGE = "library://sylabs.example.org/team/collection/gvclass:2.1.1"
+GHCR_IMAGE = "oras://ghcr.io/nelli-team/gvclass:2.2.0"
+CUSTOM_LIBRARY_IMAGE = "library://sylabs.example.org/team/collection/gvclass:2.2.0"
 
 
 @pytest.fixture
@@ -61,7 +61,7 @@ def test_the_launcher_has_no_sylabs_constants(launcher: ModuleType) -> None:
     [
         IMAGE,
         GHCR_IMAGE,
-        "docker://ghcr.io/nelli-team/gvclass:2.1.1",
+        "docker://ghcr.io/nelli-team/gvclass:2.2.0",
         CUSTOM_LIBRARY_IMAGE,
     ],
     ids=["https", "oras", "docker", "library"],

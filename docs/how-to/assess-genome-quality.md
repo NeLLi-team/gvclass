@@ -47,7 +47,8 @@ estimators and their limits.
   that is, `screen_status` is `ok`, or `partial` with a number in
   `screen_cellular_pct`.
 - `extra_trees_v1`: the prediction of the marker model. It applies to every other
-  bin.
+  bin with enough evidence.
+- `unavailable`: neither source gave an estimate, and the value is `NaN`.
 
 The type label summarises the detected signal:
 
