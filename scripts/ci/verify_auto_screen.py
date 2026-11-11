@@ -17,6 +17,15 @@ SCREEN_FIELDS = {
     "screen_giant_virus_pct",
     "screen_flagged_pct",
 }
+# A bin that the cellular screen scored takes these from the screen; every other
+# column of a screened run equals the row that the query wrote before the screen.
+CONTAMINATION_FIELDS = {
+    "estimated_contamination",
+    "estimated_contamination_strategy",
+    "contamination_query_support",
+    "contamination_model_reliability",
+    "contamination_type",
+}
 QUERY = "GVMAG-S-1096109-37"
 
 
@@ -91,10 +100,25 @@ def verify_summary(path, baseline, standalone, expected_status):
     row = rows[0]
     assert row["query"] == QUERY, row
     assert {key for key in row if key.startswith("screen_")} == SCREEN_FIELDS
-    assert {key: value for key, value in row.items() if key not in SCREEN_FIELDS} == {
-        key: value for key, value in baseline.items() if key not in SCREEN_FIELDS
+    screen_set = SCREEN_FIELDS | CONTAMINATION_FIELDS
+    assert {key: value for key, value in row.items() if key not in screen_set} == {
+        key: value for key, value in baseline.items() if key not in screen_set
     }, "Automatic screening changed classification fields"
     assert row["screen_status"] == expected_status, row
+    contamination = {key: row[key] for key in CONTAMINATION_FIELDS}
+    if expected_status == "disabled":
+        assert contamination == {key: baseline[key] for key in CONTAMINATION_FIELDS}
+    else:
+        # verify_screen_totals pins this bin as all-negative, so the cellular share
+        # is 0 and the type is clean.
+        estimate = float(contamination.pop("estimated_contamination"))
+        assert math.isclose(estimate, float(standalone["cellular_pct"]), abs_tol=0.005)
+        assert contamination == {
+            "estimated_contamination_strategy": "contig_screen_cellular_v1",
+            "contamination_query_support": "supported",
+            "contamination_model_reliability": "simulated_benchmark",
+            "contamination_type": "clean",
+        }, contamination
     for field in sorted(SCREEN_FIELDS - {"screen_status"}):
         observed = float(row[field])
         if expected_status == "disabled":

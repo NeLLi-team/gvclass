@@ -31,8 +31,9 @@ pipeline:
   # Sensitive mode - enabled by default, uses E-value 1e-5 instead of GA cutoffs
   sensitive_mode: true
   # Screen each nucleotide bin for contaminating contigs after the queries finish,
-  # when the add-on is installed (gvclass screen --install). Turn off per run with
-  # --no-screen.
+  # when the add-on is installed (gvclass screen --install). A bin that the cellular
+  # screen scores takes the cellular share as estimated_contamination. Turn off per
+  # run with --no-screen.
   contig_screen: true
   # Minimum contig length (bp) used in --contigs mode when splitting files.
   # Override per run with --contigs-min-length.

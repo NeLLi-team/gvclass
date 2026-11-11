@@ -28,6 +28,15 @@ from tests.fake_screen import INPUT_DIGEST, install_fake_screen, seed_summary
 
 MANIFEST_DIGEST = hashlib.sha256(b"{}").hexdigest()
 LOGGER = logging.getLogger("test_contig_screen_step")
+NAN = math.nan
+#: What the marker model leaves in the summary row of every query before the screen.
+MARKER_MODEL = {
+    "estimated_contamination": 41.5,
+    "estimated_contamination_strategy": "extra_trees_v1",
+    "contamination_query_support": "limited_support",
+    "contamination_model_reliability": "unvalidated_legacy",
+    "contamination_type": "phage",
+}
 
 
 @pytest.fixture(autouse=True)
@@ -68,7 +77,11 @@ def make_queries(
         path.write_text(">c1\nACGT\n", encoding="utf-8")
         files[name] = path
         results.append(
-            {"query": name, "status": "complete", "summary_data": {"query": name}}
+            {
+                "query": name,
+                "status": "complete",
+                "summary_data": {"query": name, **MARKER_MODEL},
+            }
         )
     return results, files
 
@@ -89,6 +102,11 @@ def run_step(
 def screen_columns(result: dict[str, Any]) -> dict[str, Any]:
     data = result["summary_data"]
     return {key: data[key] for key in data if key.startswith("screen_")}
+
+
+def contamination_columns(result: dict[str, Any]) -> dict[str, Any]:
+    data = result["summary_data"]
+    return {key: data[key] for key in MARKER_MODEL}
 
 
 def test_a_completed_screen_adds_its_numbers_to_the_summary_row(
@@ -1090,3 +1108,126 @@ def test_resume_screens_again_when_a_saved_count_does_not_parse(
 
     assert screen_columns(results[0])["screen_flagged_pct"] == 25.0
     assert (folder / "args.json").exists()
+
+
+@pytest.mark.parametrize(
+    ("cellular", "giant_virus", "estimate", "contamination_type"),
+    [
+        (10.0, 0.0, 10.0, "cellular"),
+        (55.5, 80.0, 55.5, "cellular"),
+        (100.0, 100.0, 100.0, "cellular"),
+        (9.99, 10.0, 9.99, "mixed_viral"),
+        (0.0, 42.0, 0.0, "mixed_viral"),
+        (9.99, 9.99, 9.99, "clean"),
+        (0.0, 0.0, 0.0, "clean"),
+        (4.0, NAN, 4.0, "clean"),
+        (12.5, NAN, 12.5, "cellular"),
+        (12.3456, 0.0, 12.35, "cellular"),
+    ],
+)
+def test_a_cellular_share_becomes_the_contamination_estimate_of_the_bin(
+    cellular: float, giant_virus: float, estimate: float, contamination_type: str
+) -> None:
+    result = step.ScreenResult("ok", cellular, giant_virus, NAN)
+
+    assert result.contamination_columns() == {
+        "estimated_contamination": estimate,
+        "estimated_contamination_strategy": "contig_screen_cellular_v1",
+        "contamination_query_support": "supported",
+        "contamination_model_reliability": "simulated_benchmark",
+        "contamination_type": contamination_type,
+    }
+
+
+@pytest.mark.parametrize(
+    "result",
+    [
+        step.ScreenResult("disabled"),
+        step.ScreenResult("not_installed"),
+        step.ScreenResult("not_applicable"),
+        step.ScreenResult("failed"),
+        step.ScreenResult("partial", giant_virus_pct=20.0),
+        step.ScreenResult("partial", NAN, 0.0, NAN),
+    ],
+)
+def test_a_bin_without_a_cellular_share_has_no_screen_contamination_columns(
+    result: step.ScreenResult,
+) -> None:
+    assert result.contamination_columns() == {}
+
+
+def test_a_scored_bin_replaces_all_five_marker_model_fields(
+    tmp_path: Path, database: Path
+) -> None:
+    results = run_step(tmp_path, database, ["ok_a"])
+
+    assert contamination_columns(results[0]) == {
+        "estimated_contamination": 10.0,
+        "estimated_contamination_strategy": "contig_screen_cellular_v1",
+        "contamination_query_support": "supported",
+        "contamination_model_reliability": "simulated_benchmark",
+        "contamination_type": "cellular",
+    }
+
+
+@pytest.mark.parametrize(
+    ("row", "estimate", "contamination_type"),
+    [
+        ("ok_a\tok\tok\t1000\t70\t7.00\t150\t15.00\t200\t20.00\n", 7.0, "mixed_viral"),
+        ("ok_a\tok\tok\t1000\t70\t7.00\t80\t8.00\t90\t9.00\n", 7.0, "clean"),
+        ("ok_a\tok\tnot_scored\t1000\t70\t7.00\tNaN\tNaN\tNaN\tNaN\n", 7.0, "clean"),
+        (
+            "ok_a\tok\tnot_scored\t1000\t300\t30.00\tNaN\tNaN\tNaN\tNaN\n",
+            30.0,
+            "cellular",
+        ),
+    ],
+)
+def test_a_reused_screen_result_sets_the_contamination_of_the_bin_too(
+    tmp_path: Path, database: Path, row: str, estimate: float, contamination_type: str
+) -> None:
+    folder = tmp_path / "out" / "contig_screen" / "ok_a"
+    seed_summary(folder, row, MANIFEST_DIGEST)
+
+    results = run_step(tmp_path, database, ["ok_a"], resume=True)
+
+    assert not (folder / "args.json").exists()
+    columns = contamination_columns(results[0])
+    assert columns["estimated_contamination"] == estimate
+    assert columns["contamination_type"] == contamination_type
+    assert columns["estimated_contamination_strategy"] == "contig_screen_cellular_v1"
+
+
+@pytest.mark.parametrize("name", ["crash_a", "dead_a", "short_a", "prot_a"])
+def test_a_bin_without_a_cellular_share_keeps_the_marker_model_values(
+    tmp_path: Path, database: Path, name: str
+) -> None:
+    results = run_step(tmp_path, database, [name])
+
+    assert contamination_columns(results[0]) == MARKER_MODEL
+
+
+def test_a_disabled_screen_keeps_the_marker_model_values(
+    tmp_path: Path, database: Path
+) -> None:
+    results = run_step(tmp_path, database, ["ok_a"], enabled=False)
+
+    assert contamination_columns(results[0]) == MARKER_MODEL
+
+
+def test_a_missing_addon_keeps_the_marker_model_values(tmp_path: Path) -> None:
+    results = run_step(tmp_path, tmp_path / "db", ["ok_a"])
+
+    assert contamination_columns(results[0]) == MARKER_MODEL
+
+
+def test_the_bins_of_one_run_take_their_own_contamination(
+    tmp_path: Path, database: Path
+) -> None:
+    results = run_step(tmp_path, database, ["ok_a", "crash_b", "single_c"])
+
+    assert [r["summary_data"]["estimated_contamination"] for r in results] == [
+        10.0,
+        41.5,
+        10.0,
+    ]

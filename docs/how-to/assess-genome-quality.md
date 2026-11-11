@@ -31,7 +31,7 @@ Two fields describe the support for an estimate:
 | Field | What it describes |
 | --- | --- |
 | `completeness_query_support`, `contamination_query_support` | The evidence in this query. Treat an unavailable estimate (`NaN`) as unknown, not zero. |
-| `completeness_model_reliability`, `contamination_model_reliability` | The validation of the model. Bundled models report `unvalidated_legacy`, which marks an exploratory estimate. A historical model score is not a claim of independent accuracy. |
+| `completeness_model_reliability`, `contamination_model_reliability` | The validation of the model. Bundled models report `unvalidated_legacy`, which marks an exploratory estimate. A historical model score is not a claim of independent accuracy. A contamination estimate from the contig screen reports `simulated_benchmark`: its error was measured on simulated bins. |
 
 Use `completeness_model_group`, `estimated_completeness_strategy`, and
 `estimated_contamination_strategy` to identify the reference group and the
@@ -40,23 +40,33 @@ estimators and their limits.
 
 ## 2. Review the contamination evidence
 
-`estimated_contamination` is the trained model's estimate. The type label
-summarises the detected signal:
+`estimated_contamination_strategy` names the source of `estimated_contamination`:
+
+- `contig_screen_cellular_v1`: the percent of base pairs that the cellular
+  screen calls cellular. It applies when the contig-screen add-on scored the bin,
+  that is, `screen_status` is `ok`, or `partial` with a number in
+  `screen_cellular_pct`.
+- `extra_trees_v1`: the prediction of the marker model. It applies to every other
+  bin.
+
+The type label summarises the detected signal:
 
 | `contamination_type` | Signal to review |
 | --- | --- |
-| `clean` | Estimate below the reporting threshold; not proof that contamination is absent. |
-| `cellular` | Cellular marker or contig evidence. |
-| `mixed_viral` | Marker placements suggest more than one viral lineage. |
-| `phage` | Phage markers or matches to phage, PPV, PLV or virophage references. |
-| `duplication` | Excess marker copies. |
-| `uncertain` | Unresolved signal or an unavailable numeric estimate. |
+| `clean` | Screen: cellular share below 10, and `screen_giant_virus_pct` below 10 or unavailable. Marker model: estimate below the reporting threshold. Neither is proof that contamination is absent. |
+| `cellular` | Screen: cellular share of at least 10. Marker model: cellular marker or contig evidence. |
+| `mixed_viral` | Screen: cellular share below 10 and `screen_giant_virus_pct` of at least 10. The estimate does not count the second giant virus. Marker model: marker placements suggest more than one viral lineage. |
+| `phage` | Marker model only. Phage markers or matches to phage, PPV, PLV or virophage references. |
+| `duplication` | Marker model only. Excess marker copies. |
+| `uncertain` | Marker model only. Unresolved signal or an unavailable numeric estimate. |
 
-The reporting threshold is at least 10 and can be higher if the model specifies
-a higher threshold. Interpret a missing estimate as unavailable, not zero. Do not
-use a low numeric score to dismiss strong conflicting evidence: the bundled
-contamination model cannot predict above about 58.20%, so it can underestimate
-heavily contaminated inputs.
+The reporting threshold of the marker model is at least 10 and can be higher if
+the model specifies a higher threshold. Interpret a missing estimate as
+unavailable, not zero. Do not use a low marker-model score to dismiss strong
+conflicting evidence: the bundled contamination model cannot predict above about
+58.20%, so it can underestimate heavily contaminated inputs. The screen estimate
+has no such ceiling. Either estimate is a review aid, and a call is not a rule to
+delete a contig.
 
 Inspect marker counts and duplication alongside the estimate:
 
@@ -100,16 +110,20 @@ tar -tzf example_results/GVMAG-S-1096109-37.tar.gz
 
 For flagged queries, the archive can contain
 `<query>/stats/<query>.contamination_candidates.tsv`. This file is written when
-the estimate reaches the reporting threshold, the type is interpretable, and
-candidate contigs are found. Review those contigs against gene annotations,
-coverage, and assembly context before removing them. The absence of a candidate
-file does not prove that a bin is clean.
+the marker-model estimate reaches the reporting threshold, the type is
+interpretable, and candidate contigs are found. Review those contigs against gene
+annotations, coverage, and assembly context before removing them. The absence of a
+candidate file does not prove that a bin is clean.
 
 The archive can also contain `<query>/stats/<query>.contamination_review.tsv`.
 This file lists contigs with mixed viral and coherent cellular evidence. It is
 written whenever that evidence exists, even when the estimate is low or
 unavailable. Inspect the contig boundaries and the `length_basis`. Do not remove
 a whole contig solely because it has a review or candidate label.
+
+The archive files are written before the screen runs. They hold the marker-model
+estimate and type, also for a bin whose `gvclass_summary.tsv` row carries the screen
+estimate.
 
 Keep the scores, support fields, marker evidence, and the reason for each
 curation decision. If the evidence is insufficient, record the quality as

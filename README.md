@@ -44,7 +44,7 @@ pixi run gvclass query_genomes -o species_tree_results -t 8 --species-tree-combi
 
 ## Screen bins for contaminating contigs
 
-With the optional screen add-on installed (a 3.2 GB download), a run also reports the share of each bin that a cellular screen or a giant-virus screen flags. The shares are the last four columns of `gvclass_summary.tsv`. They are review flags, and they do not change `estimated_completeness` or `estimated_contamination`.
+With the optional screen add-on installed (a 3.2 GB download), a run also reports the share of each bin that a cellular screen or a giant-virus screen flags. The shares are the last four columns of `gvclass_summary.tsv`. The cellular share is also the `estimated_contamination` of a bin that the cellular screen scored; the other shares are review flags. `estimated_completeness` does not change.
 
 ```bash
 pixi run setup-db --with-screen

@@ -41,6 +41,9 @@ software version. The archive must exist with the recorded size. The log names t
 field that differed for every query that runs again. Thread counts, `--screen` and
 `--contigs` do not change results and do not stop a skip. The combined summary tables
 are built from the queries processed now and from the `summary` of the skipped ones.
+The screen also covers the skipped queries and sets the five contamination columns of the
+combined tables from its result, so a run with the screen and a run without it differ in
+those columns.
 
 ### Per-query files
 
@@ -53,6 +56,8 @@ Each `<query>.tar.gz` archive contains the summary and diagnostic files below.
 | `<query>/<query>.summary.tab` | Per-query summary table, tab-delimited. |
 | `<query>/stats/<query>.contamination_candidates.tsv` | Suspicious contigs; written when contamination reaches the reporting threshold (at least 10), its type is interpretable, and candidates are found. |
 | `<query>/stats/<query>.contamination_review.tsv` | Contigs with mixed viral and coherent cellular evidence; written whenever this evidence exists, even for a low or unavailable estimate. |
+
+The per-query files are written before the screen runs. Their contamination columns hold the marker-model values, also for a bin whose row in `gvclass_summary.tsv` carries the screen estimate. This applies to `<query>.final_summary.tsv`, `<query>.summary.tab`, the two contamination tables in `stats/`, and the `summary` field of `results.jsonl`.
 
 A running query keeps its working files in `.gvclass_work/<query>/`, never in a folder
 named like the query, so a query name cannot collide with `contig_screen/`,
@@ -105,11 +110,11 @@ The four `species_tree_*` summary columns describe per-query trees. Combined-tre
 | `estimated_completeness_strategy` | Calculation used: fixed-panel ratio, novelty-aware regression, tier fallback, or `unavailable`. |
 | `completeness_model_group` | Resource group used for completeness; `MIRUS` is the Mirusviricota resource group, not an order assignment. `unavailable` means no usable group. |
 | `completeness_model_reliability` | Validation status. Models report `unvalidated_legacy`; unavailable estimates can report `unavailable`. Resources validated by marker dropout only can report `advisory_only`. |
-| `estimated_contamination` | Selected contamination amount estimate. The method is `extra_trees_v1`. Unsupported inputs or missing evidence produce `NaN`. |
-| `contamination_query_support` | Query evidence status. Supported evidence does not establish model calibration. |
-| `estimated_contamination_strategy` | `extra_trees_v1` or `unavailable`. |
-| `contamination_model_reliability` | `unvalidated_legacy` for the model and its corrected feature definitions. |
-| `contamination_type` | `clean` below the reporting threshold (at least 10); otherwise `cellular`, `mixed_viral`, `phage`, `duplication`, or `uncertain`. `clean` is a threshold result, not proof of absence. Missing estimates and evidence limited to mixed contigs are `uncertain`. |
+| `estimated_contamination` | Contamination estimate (%). A bin that the cellular screen scored takes `screen_cellular_pct`. Every other bin takes the prediction of the marker model (`extra_trees_v1`), and unsupported inputs or missing evidence produce `NaN`. |
+| `contamination_query_support` | Query evidence status. `supported` for a screen estimate. For the marker model, supported evidence does not establish model calibration. |
+| `estimated_contamination_strategy` | `contig_screen_cellular_v1` when the cellular screen scored the bin. Otherwise `extra_trees_v1` or `unavailable`. |
+| `contamination_model_reliability` | `simulated_benchmark` for a screen estimate: its error was measured on simulated bins. `unvalidated_legacy` for the marker model and its corrected feature definitions. |
+| `contamination_type` | Screen estimate: `cellular` if the cellular share is at least 10, `mixed_viral` if it is below 10 and `screen_giant_virus_pct` is at least 10, otherwise `clean`. Marker model: `clean` below the reporting threshold (at least 10); otherwise `cellular`, `mixed_viral`, `phage`, `duplication`, or `uncertain`. `clean` is a threshold result, not proof of absence. Marker-model estimates that are missing, or that rest on mixed contigs alone, are `uncertain`. |
 | `gvog4_completeness` | Distinct core NCLDV GVOG4 markers present, as `n/4`. |
 | `gvog4_dup` | GVOG4 duplication factor (total marker hits / distinct markers present). |
 | `gvog8_completeness` | Distinct core NCLDV GVOG8 markers present, as `n/8`. |
@@ -150,7 +155,9 @@ not produce the number.
 | `screen_giant_virus_pct` | Percent of base pairs in contigs of 5 kb or more that the giant-virus screen calls foreign. |
 | `screen_flagged_pct` | Percent of base pairs called by either screen. `NaN` unless both screens scored the bin. |
 
-A flag is a review flag. See [How the contig screen works](../explanation/contig-screen.md#what-the-summary-columns-report).
+`screen_cellular_pct` is also the contamination estimate. A bin with `screen_status` `ok`, or `partial` with a number in `screen_cellular_pct`, takes it as `estimated_contamination` and also sets `contamination_query_support`, `estimated_contamination_strategy`, `contamination_model_reliability` and `contamination_type`. For every other status, these five columns keep the marker-model values. A `NaN` share is never read as 0.
+
+`screen_giant_virus_pct` and `screen_flagged_pct` are review flags, not estimates. See [How the contig screen works](../explanation/contig-screen.md#what-the-summary-columns-report).
 A failed query has no row in the summary, so it has no screen columns.
 
 ## Contig screen files
@@ -182,8 +189,10 @@ The table inside `gvclass_summary.extended.tar.gz` contains the query ID and the
 | `viral_bearing_contig_count`, `mixed_evidence_contig_count`, `mixed_evidence_status` | Viral and mixed cellular/viral contig evidence. Mixed contigs require review. |
 | `ambiguous_eve_contig_count`, `ambiguous_eve_protein_count`, `ambiguous_eve_evidence_status` | Putative endogenous viral element evidence, kept separate from ordinary cellular evidence. |
 | `contig_length_basis`, `protein_estimated_contig_count`, `contig_attribution_mode` | Whether lengths come from DNA or protein estimates, and whether protein headers support contig assignment. |
-| `contamination_model_applicability`, `contamination_feature_version`, `contamination_feature_contract` | Target and search applicability, and the runtime model-input definition. |
-| `contamination_prediction_range_status`, `contamination_model_prediction_upper_bound` | Model range status and fitted upper bound. The bundled ensemble has an upper bound of `58.200481`. |
+| `contamination_model_applicability`, `contamination_feature_version`, `contamination_feature_contract` | Target and search applicability, and the runtime model-input definition of the marker model. |
+| `contamination_prediction_range_status`, `contamination_model_prediction_upper_bound` | Range status and fitted upper bound of the marker model. The bundled ensemble has an upper bound of `58.200481`. |
+
+The contamination fields in this table describe the marker model, also for a bin whose `estimated_contamination` comes from the screen.
 
 ## Taxonomy label namespaces
 

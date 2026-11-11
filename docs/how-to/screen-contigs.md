@@ -3,7 +3,8 @@
 A plain `gvclass` run screens every bin for sequence that does not belong to the
 giant virus when the screen add-on is installed. The shares of base pairs flagged
 appear in four columns of `gvclass_summary.tsv`, and the tables of each bin are
-written to `contig_screen/<bin>/` in the output directory. `gvclass screen` runs the
+written to `contig_screen/<bin>/` in the output directory. The cellular share is
+also the contamination estimate of the bin. `gvclass screen` runs the
 same screens outside a classification run.
 
 Two models run on each bin:
@@ -11,10 +12,13 @@ Two models run on each bin:
 - the **cellular screen** marks bacterial, archaeal and eukaryotic sequence;
 - the **giant-virus screen** marks contigs of a second giant virus.
 
-A flag is a review flag, not a contamination estimate, and not a rule to delete a
+A bin that the cellular screen scored takes its cellular share as
+`estimated_contamination`, with `estimated_contamination_strategy`
+`contig_screen_cellular_v1`. `screen_giant_virus_pct` and `screen_flagged_pct` are
+review flags, not contamination estimates, and no call is a rule to delete a
 contig. Read [How the contig screen works](../explanation/contig-screen.md) for the
-methods and the limits before you act on a call. `estimated_completeness` and
-`estimated_contamination` do not depend on the screen.
+methods and the limits before you act on a call. `estimated_completeness` does not
+depend on the screen.
 
 ## Install the add-on
 
@@ -88,6 +92,21 @@ A percentage that could not be computed reads `NaN`. Missing evidence is not a c
 bin: `NaN` means the screen did not score it. [Output files](../reference/output.md#screen-columns)
 lists what each status means.
 
+When the cellular screen scored the bin (`screen_status` is `ok`, or `partial` with a
+number in `screen_cellular_pct`), these columns change as well:
+
+| Column | Value |
+| --- | --- |
+| `estimated_contamination` | `screen_cellular_pct`. |
+| `estimated_contamination_strategy` | `contig_screen_cellular_v1`. |
+| `contamination_query_support` | `supported`. |
+| `contamination_model_reliability` | `simulated_benchmark`. |
+| `contamination_type` | `cellular` if the cellular share is at least 10; `mixed_viral` if it is below 10 and `screen_giant_virus_pct` is at least 10; otherwise `clean`. |
+
+For any other status the five columns keep the values of the marker model. See
+[Completeness and contamination](../explanation/quality-metrics.md#contamination)
+for the error of each estimate.
+
 A bin of 176 kb takes about 2 minutes on 8 threads. DIAMOND searches against the
 reference take nearly all of that time; loading the models takes seconds. The screen
 runs one process per bin, as many at once as the worker plan allows.
@@ -108,7 +127,8 @@ is not repeated. If all 3 runs hit the limit, the screen fails and its message n
 the 30-minute limit.
 
 Without the add-on, `screen_status` is `not_installed`, the three percentages are
-`NaN`, and the classification columns are the same as before.
+`NaN`, and the classification, completeness and contamination columns are the same
+as before.
 
 ### Turn the screen off
 
@@ -116,7 +136,8 @@ Without the add-on, `screen_status` is `not_installed`, the three percentages ar
 ./gvclass bins -o results -t 8 --no-screen
 ```
 
-`screen_status` is then `disabled`. To turn it off for every run, set
+`screen_status` is then `disabled` and the contamination columns hold the marker-model
+values. To turn it off for every run, set
 `pipeline.contig_screen: false` in the [configuration file](../reference/configuration.md).
 
 ### Resume

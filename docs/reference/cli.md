@@ -90,7 +90,7 @@ pixi run gvclass --version
 
 | Option | Argument/default | Description |
 | --- | --- | --- |
-| `--no-screen` | flag | Skip the contig screen. `screen_status` is `disabled`. Overrides `pipeline.contig_screen`. With `--resume`, saved screen results stay in place. |
+| `--no-screen` | flag | Skip the contig screen. `screen_status` is `disabled`, and the contamination columns hold the marker-model values. Overrides `pipeline.contig_screen`. With `--resume`, saved screen results stay in place. |
 
 The screen runs after the queries when the add-on is installed. See
 [Screen bins for contaminating contigs](../how-to/screen-contigs.md).

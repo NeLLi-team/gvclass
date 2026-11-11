@@ -36,7 +36,17 @@ Strategy and support fields are recorded in `<query>/<query>.summary.tab` inside
 
 ## Contamination
 
-`estimated_contamination` is the prediction of the bundled ExtraTrees regressor (`extra_trees_v1`). The model uses 21 features. These include cellular and phage marker counts, duplicated viral markers, disagreement among viral taxonomic hits, suspicious contig lengths, completeness, and contig-level cellular evidence. The archived per-query summary records the model identifier in `estimated_contamination_strategy`.
+`estimated_contamination` has two sources. When the [contig screen](contig-screen.md) add-on is installed and its cellular screen scored the bin, the estimate is `screen_cellular_pct`, the percent of the input base pairs that the cellular screen calls cellular. The bin then reports `estimated_contamination_strategy` `contig_screen_cellular_v1`, `contamination_query_support` `supported` and `contamination_model_reliability` `simulated_benchmark`. A bin has a cellular share when `screen_status` is `ok`, or `partial` with a number in `screen_cellular_pct`. Every other bin takes the prediction of the marker model described [below](#the-marker-model). A missing share is never read as 0.
+
+On 3,010 simulated bins (bacterial, archaeal, eukaryotic and second-giant-virus additions; 164 new target genomes plus the development panel of the screen), the cellular share had a mean absolute error of 3.1 to 4.4 percentage points in the five groups of more than 100 bins, and 6.6 in one group of 12 bins. The marker model had 14.1 to 16.1 points on the same bins. The cellular share does not count a second giant virus. `screen_giant_virus_pct` and the `mixed_viral` type report it. The `phage` and `duplication` types occur only with the marker model.
+
+For a screen estimate, `contamination_type` is `cellular` when the share is at least 10, `mixed_viral` when the share is below 10 and `screen_giant_virus_pct` is at least 10, and `clean` otherwise. A call is a review flag, not a rule to delete a contig; see [Screen bins for contaminating contigs](../how-to/screen-contigs.md).
+
+The archived per-query summary (`<query>/<query>.final_summary.tsv` inside `<query>.tar.gz`) is written before the screen and keeps the marker-model values. The same holds for `<query>.summary.tab` and the contamination tables in `stats/`.
+
+### The marker model
+
+The marker model is the bundled ExtraTrees regressor (`extra_trees_v1`). It supplies `estimated_contamination` for every bin that the cellular screen did not score. The model uses 21 features. These include cellular and phage marker counts, duplicated viral markers, disagreement among viral taxonomic hits, suspicious contig lengths, completeness, and contig-level cellular evidence. `estimated_contamination_strategy` records the model identifier.
 
 Giant viruses can carry genes acquired from cellular organisms. A cellular-like protein or a BUSCO/UNI56 hit alone is insufficient to identify a contaminating contig. Six marker groups hold both cellular and viral models, for example `grp_COG0085`, which holds the cellular RNA polymerase subunit and a giant-virus homolog. The category of a protein in such a group is the category of its best-scoring model in the group, and a tie between categories counts as viral. BUSCO and UNI56 hits contribute to the cellular signal but are not its only source. Reference matches from other marker searches can also contribute. GVClass combines these signals with contig-level lineage evidence, but it cannot guarantee that it separates all horizontally transferred genes from contamination. Inspect the implicated contigs before removing DNA from a bin.
 
@@ -46,7 +56,7 @@ The contig classifier checks whether several cellular matches agree on a lineage
 
 For nucleotide input, contig fractions use the supplied DNA lengths. For protein-only input, length and contig assignment can require estimates from protein headers. Check `contig_attribution_mode` before interpreting those fractions.
 
-`contamination_type` is `clean` below the reporting threshold, normally 10. At or above that threshold it reports a likely source:
+For the marker model, `contamination_type` is `clean` below the reporting threshold, normally 10. At or above that threshold it reports a likely source:
 
 | Value | Evidence |
 | --- | --- |
@@ -60,7 +70,7 @@ For nucleotide input, contig fractions use the supplied DNA lengths. For protein
 
 ### Limits of the bundled contamination model
 
-`contamination_model_reliability` and `contamination_query_support` expose the limits of the bundled model. Its training record describes NCLDV examples with sensitive-mode features. This record does not establish calibration for Mirusviricota, PPV, other search modes, or the corrected feature definitions. An exploratory model value is not a validated contamination percentage.
+For the marker model, `contamination_model_reliability` and `contamination_query_support` expose the limits of the bundled model. Its training record describes NCLDV examples with sensitive-mode features. This record does not establish calibration for Mirusviricota, PPV, other search modes, or the corrected feature definitions. An exploratory model value is not a validated contamination percentage.
 
 The mean of the maximum leaf value in each bundled tree is 58.20%. The ensemble cannot predict above that value, even if most of the input is contamination. Clipping the output at 100% does not remove this limit.
 

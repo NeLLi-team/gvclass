@@ -76,7 +76,9 @@ Expected output:
 `taxonomy_confidence` describes its marker support. The three example queries
 have `high` taxonomy confidence and a sub-threshold `clean` contamination label.
 Their bundled quality models report `unvalidated_legacy` reliability, so the
-numeric estimates do not certify genome quality. Read the query-support fields as
+numeric estimates do not certify genome quality. (With the optional screen add-on
+installed, the contamination columns come from the screen and report
+`simulated_benchmark`.) Read the query-support fields as
 well. For completeness and contamination estimates, see
 [Assess genome quality](../how-to/assess-genome-quality.md).
 

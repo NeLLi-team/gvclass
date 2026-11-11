@@ -1,8 +1,9 @@
 # How the contig screen works
 
 The contig screen answers one question about a giant-virus bin: which parts of it
-are not from the giant virus. It combines two models. Neither replaces the
-marker-based contamination estimate of GVClass; both are research-grade review aids.
+are not from the giant virus. It combines two models. The cellular share is the
+`estimated_contamination` of a bin that the cellular screen scored. The giant-virus
+share and the union of both calls are review aids. All numbers are research-grade.
 
 ## Cellular screen
 
@@ -47,12 +48,17 @@ cellular screen. `screen_giant_virus_pct` is the share in contigs of 5 kb or mor
 the giant-virus screen calls foreign. `screen_flagged_pct` is the share called by
 either screen; a base pair called by both counts once.
 
-The three numbers are not contamination estimates. `estimated_contamination` comes
-from marker genes and the quality models of GVClass; the screen shares come from
-windows and contigs. The two do not feed each other, and neither changes
-`estimated_completeness` or `estimated_contamination`. Horizontally transferred
-genes and endogenous viral elements can fall inside flagged sequence, so a share
-is evidence for review, not a rule to delete.
+`screen_cellular_pct` is the contamination estimate. When the cellular screen scores
+a bin, GVClass copies it to `estimated_contamination` and sets
+`estimated_contamination_strategy` to `contig_screen_cellular_v1`; see
+[Completeness and contamination](quality-metrics.md#contamination) for the other
+columns and the measured error. `screen_giant_virus_pct` and `screen_flagged_pct`
+are not estimates: the first counts only contigs of a second giant virus, and the
+second is the union of both calls. A bin that the cellular screen did not score keeps
+the estimate of the marker model. The screen does not feed the marker model, and it
+does not change `estimated_completeness`. Horizontally transferred genes and
+endogenous viral elements can fall inside flagged sequence, so a share is evidence
+for review, not a rule to delete.
 
 A screen that cannot score a bin leaves its number empty (`NaN`), never zero. The
 cellular screen scores no bin without a contig of 3 kb or more. The giant-virus
@@ -96,4 +102,6 @@ describe the 10% reference that ships with GVClass 2.1.0.
 - The 10% reference flags 3 to 4 points fewer verified cellular contigs of 3 to 20 kb
   than the full reference, and fewer cellular contigs in bins that are cellular
   throughout (stage 2: 1,543 against 2,069 of 2,981).
-- The bundled completeness and contamination models of GVClass are unchanged.
+- The bundled completeness and contamination models of GVClass are unchanged. The
+  marker model still supplies `estimated_contamination` for a bin that the cellular
+  screen did not score.

@@ -14,6 +14,11 @@ outside the query folder, because query folders are archived into a tar. Under
 ``--resume`` a saved result is reused only if no screen failed, it names the same
 bin, and it carries the SHA-256 of the bin file and of the manifest of the add-on
 that is installed now.
+
+A bin that the cellular screen scored also takes the cellular share as its
+``estimated_contamination``, with the strategy ``contig_screen_cellular_v1`` (see
+``ScreenResult.contamination_columns``). Every other bin keeps the values of the
+marker model, because missing evidence is not zero.
 """
 
 from __future__ import annotations
@@ -76,6 +81,15 @@ DISABLED = "disabled"
 NOT_INSTALLED = "not_installed"
 NOT_APPLICABLE = "not_applicable"
 
+#: A cellular or giant-virus share at or above this percent is a contamination call.
+CONTAMINATION_CALL_PCT = 10.0
+CONTAMINATION_STRATEGY = "contig_screen_cellular_v1"
+CONTAMINATION_SUPPORT = "supported"
+CONTAMINATION_RELIABILITY = "simulated_benchmark"
+CONTAMINATION_CELLULAR = "cellular"
+CONTAMINATION_MIXED_VIRAL = "mixed_viral"
+CONTAMINATION_CLEAN = "clean"
+
 
 #: Maps the number of bins to screen to (bins at once, threads for each).
 WorkerPlan = Callable[[int], tuple[int, int]]
@@ -111,6 +125,33 @@ class ScreenResult:
             "screen_cellular_pct": self.cellular_pct,
             "screen_giant_virus_pct": self.giant_virus_pct,
             "screen_flagged_pct": self.flagged_pct,
+        }
+
+    def contamination_columns(self) -> dict[str, str | float]:
+        """Return the contamination columns that the cellular share sets.
+
+        The cellular share is the contamination estimate; it counts no second giant
+        virus, so a share of the giant-virus screen at the call threshold gives the type
+        ``mixed_viral`` when the cellular share is below it. The result is empty when
+        the cellular screen did not score the bin: missing evidence is not zero, so the
+        caller keeps the values of the marker model.
+        """
+        if not math.isfinite(self.cellular_pct):
+            return {}
+        estimate = round(self.cellular_pct, 2)
+        # A NaN share of the giant-virus screen compares false, so it is not mixed.
+        if estimate >= CONTAMINATION_CALL_PCT:
+            contamination_type = CONTAMINATION_CELLULAR
+        elif self.giant_virus_pct >= CONTAMINATION_CALL_PCT:
+            contamination_type = CONTAMINATION_MIXED_VIRAL
+        else:
+            contamination_type = CONTAMINATION_CLEAN
+        return {
+            "estimated_contamination": estimate,
+            "estimated_contamination_strategy": CONTAMINATION_STRATEGY,
+            "contamination_query_support": CONTAMINATION_SUPPORT,
+            "contamination_model_reliability": CONTAMINATION_RELIABILITY,
+            "contamination_type": contamination_type,
         }
 
 
@@ -174,7 +215,8 @@ def add_screen_columns(
 ) -> None:
     """Set the ``screen_*`` columns in the summary data of every completed query.
 
-    A failed query has no summary row and is not screened.
+    A bin that the cellular screen scored also gets its contamination columns from the
+    screen. A failed query has no summary row and is not screened.
     """
     rows = [r for r in results if r.get("status") == "complete" and "summary_data" in r]
     if not rows:
@@ -214,7 +256,9 @@ def add_screen_columns(
     if pending:
         outcomes.update(_run_pending(pending, context))
     for row in rows:
-        row["summary_data"].update(outcomes[row["query"]].columns())
+        outcome = outcomes[row["query"]]
+        row["summary_data"].update(outcome.columns())
+        row["summary_data"].update(outcome.contamination_columns())
 
 
 def _read_manifest_digest(database: Path) -> tuple[str | None, str | None]:
