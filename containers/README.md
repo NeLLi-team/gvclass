@@ -136,5 +136,4 @@ docker run -v /path/to/data:/data gvclass:2.2.0 /data -t 32
 - No sudo/root required to run the published Apptainer image on a normal HPC Apptainer installation
 - Building from `containers/apptainer/gvclass.def` may require setuid/fakeroot support; Docker-to-SIF conversion is the fallback
 - The final image embeds the runtime database, but the repo checkout keeps `resources/` local-only
-- Compatible with HPC schedulers (SLURM, PBS, SGE)
 - The `.dockerignore` file must remain in project root for Docker builds
