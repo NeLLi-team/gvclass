@@ -348,6 +348,9 @@ jobs:
           image: ./gvclass.sif
           format: spdx-json
           output-file: gvclass.sbom.json
+          # The job has contents: read. Without this the action fails when a
+          # published release exists for the tag.
+          upload-release-assets: false
 
       - name: Upload SIF and SBOM artifacts
         uses: actions/upload-artifact@v4
