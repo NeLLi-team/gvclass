@@ -3,7 +3,7 @@
 The contig screen answers one question about a giant-virus bin: which parts of it
 are not from the giant virus. It combines two models. The cellular share is the
 `estimated_contamination` of a bin that the cellular screen scored. The giant-virus
-share and the union of both calls are review aids. All numbers are research-grade.
+share and the union of both calls are review aids.
 
 ## Cellular screen
 
@@ -48,9 +48,9 @@ cellular screen. `screen_giant_virus_pct` is the share in contigs of 5 kb or mor
 the giant-virus screen calls foreign. `screen_flagged_pct` is the share called by
 either screen; a base pair called by both counts once.
 
-`screen_cellular_pct` is the contamination estimate. When the cellular screen scores
-a bin, GVClass copies it to `estimated_contamination` and sets
-`estimated_contamination_strategy` to `contig_screen_cellular_v1`; see
+When the cellular screen scores a bin, GVClass copies `screen_cellular_pct` to
+`estimated_contamination` and sets `estimated_contamination_strategy` to
+`contig_screen_cellular_v1`; see
 [Completeness and contamination](quality-metrics.md#contamination) for the other
 columns and the measured error. `screen_giant_virus_pct` and `screen_flagged_pct`
 are not estimates: the first counts only contigs of a second giant virus, and the
@@ -74,10 +74,10 @@ cut, and a single contig has no bin to compare against.
 
 Numbers in this section are from the research record of the models (cross-validation
 with the family of the test genome held out, and samples that no fit used). They
-describe the 10% reference that ships with GVClass 2.1.0.
+describe the 10% reference of the screen add-on v2.1.0.
 
 - **Unseen cellular genomes**, share of windows flagged at the stage 1 threshold, at
-  3, 5, 10 and 20 kb: eukaryotes 0.96, 0.96, 0.98 and 0.99 (round 8 genomes); bacteria
+  3, 5, 10 and 20 kb: eukaryotes 0.96, 0.96, 0.98 and 0.99; bacteria
   0.98, 0.99, 0.99 and 0.99; archaea 0.99, 0.99, 1.00 and 1.00.
 - **Real bins**, contigs with a cellular origin verified by nucleotide alignment
   (2,981 contigs of 543 bins): stage 1 flags 214 of 232 contigs of 3 to 5 kb, 2,035
@@ -102,6 +102,3 @@ describe the 10% reference that ships with GVClass 2.1.0.
 - The 10% reference flags 3 to 4 points fewer verified cellular contigs of 3 to 20 kb
   than the full reference, and fewer cellular contigs in bins that are cellular
   throughout (stage 2: 1,543 against 2,069 of 2,981).
-- The bundled completeness and contamination models of GVClass are unchanged. The
-  marker model still supplies `estimated_contamination` for a bin that the cellular
-  screen did not score.

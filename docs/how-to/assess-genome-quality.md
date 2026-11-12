@@ -62,9 +62,8 @@ The type label summarises the detected signal:
 | `uncertain` | Marker model only. Unresolved signal or an unavailable numeric estimate. |
 
 The reporting threshold of the marker model is at least 10 and can be higher if
-the model specifies a higher threshold. Interpret a missing estimate as
-unavailable, not zero. Do not use a low marker-model score to dismiss strong
-conflicting evidence: the bundled contamination model cannot predict above about
+the model specifies a higher threshold. Do not use a low marker-model score to
+dismiss strong conflicting evidence: the bundled contamination model cannot predict above about
 58.20%, so it can underestimate heavily contaminated inputs. The screen estimate
 has no such ceiling. Either estimate is a review aid, and a call is not a rule to
 delete a contig.
@@ -123,7 +122,7 @@ unavailable. Inspect the contig boundaries and the `length_basis`. Do not remove
 a whole contig solely because it has a review or candidate label.
 
 The archive files are written before the screen runs. They hold the marker-model
-estimate and type, also for a bin whose `gvclass_summary.tsv` row carries the screen
+estimate and type, even for a bin whose `gvclass_summary.tsv` row carries the screen
 estimate.
 
 Keep the scores, support fields, marker evidence, and the reason for each

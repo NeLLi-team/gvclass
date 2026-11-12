@@ -38,7 +38,7 @@ input file (a rename from `.faa` to `.fna` runs the query again), the
 result settings (`tree_method`, `iqtree_mode`, `mode_fast`, `completeness_mode`,
 `sensitive_mode`, `species_tree`, `species_tree_trim`), the database version and the
 software version. The archive must exist with the recorded size. The log names the
-field that differed for every query that runs again. Thread counts, `--screen` and
+field that differed for every query that runs again. Thread counts, `--no-screen` and
 `--contigs` do not change the per-query results and do not stop a skip. The combined summary tables
 are built from the queries processed now and from the `summary` of the skipped ones.
 The screen also covers the skipped queries and sets the five contamination columns of the
@@ -144,9 +144,9 @@ The four `species_tree_*` summary columns describe per-query trees. Combined-tre
 
 ## Screen columns
 
-The last four columns of `gvclass_summary.tsv` report the contig screen. They are
-percentages of the input base pairs with two decimals, and `NaN` when the screen did
-not produce the number.
+The last four columns of `gvclass_summary.tsv` report the contig screen. The three
+`_pct` columns are percentages of the input base pairs with two decimals, and `NaN`
+when the screen did not produce the number.
 
 | Column | Meaning |
 | --- | --- |

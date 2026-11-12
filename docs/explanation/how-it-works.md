@@ -14,7 +14,7 @@ Protein input (`.faa`) skips gene prediction and reports `ttable=no_fna`.
 
 ## Marker detection and gene trees
 
-PyHMMER searches the predicted or supplied proteins against viral and cellular marker HMMs. Sensitive mode is the default, with sequence and domain E-value thresholds of `1e-5`. Disabling sensitive mode uses the curated gathering thresholds of each model, and `1e-5` for a model without them. Hits and domains that fail the thresholds are discarded.
+PyHMMER searches the predicted or supplied proteins against viral and cellular marker HMMs. Sensitive mode is the default, with sequence and domain E-value thresholds of `1e-5`. Disabling sensitive mode uses the curated gathering thresholds of each model, and `1e-5` for a model without them.
 
 For each detected marker group, GVClass selects reference proteins with pyswrd, aligns them with the query proteins using pyfamsa, and trims the alignment with pytrimal. VeryFastTree builds the gene tree by default. `--tree-method iqtree` uses IQ-TREE with the `Q.pfam+R10+F` model and a `--fast` search for these marker trees. A marker without a reference set is an error.
 
@@ -34,7 +34,7 @@ The search of each marker is written to `blastp_out/<marker>.m8`, which the cont
 
 GVClass assigns each query protein the taxonomy of its nearest reference in a marker tree. Marker votes are combined from domain to species, with lower ranks restricted to the selected parent lineage. Assignments without enough distinct markers are withheld. [Taxonomy and classification](taxonomy.md) describes the support thresholds and confidence flags.
 
-Marker recovery, duplication, reference matches, and contig-level evidence contribute to the [completeness and contamination estimates](quality-metrics.md). When the optional contig screen scores a bin, its cellular share replaces the marker-based contamination estimate. Quality scoring uses the accepted consensus lineage. BUSCO and UNI56 are not the only cellular inputs to the contamination model; other marker reference matches can contribute. Gene transfer and endogenous viral elements can complicate the interpretation. Interpret the estimates with the taxonomic assignment, the query-support fields, and model reliability, because the support fields keep missing evidence from looking like a clean genome.
+Marker recovery, duplication, reference matches, and contig-level evidence contribute to the [completeness and contamination estimates](quality-metrics.md). Quality scoring uses the accepted consensus lineage. BUSCO and UNI56 are not the only cellular inputs to the contamination model; other marker reference matches can contribute. When the optional contig screen scores a bin, its cellular share replaces the marker-based contamination estimate. Gene transfer and endogenous viral elements can complicate the interpretation. Interpret the estimates with the taxonomic assignment, the query-support fields, and model reliability, because the support fields keep missing evidence from looking like a clean genome.
 
 The optional [species-tree analysis](species-tree.md) concatenates a viral marker panel to place each genome among references. `--species-tree-combined` also places eligible queries together in one tree per viral panel.
 

@@ -32,11 +32,10 @@ docker build -t gvclass:2.2.0 -f containers/docker/Dockerfile .
 apptainer build --force gvclass_2.2.0.sif docker-daemon://gvclass:2.2.0
 ```
 
-The public recipes currently create a self-contained review image including:
+The recipes build a self-contained image that includes:
 
-- Complete Pixi environment
-- All Python dependencies
-- Compact v2.1.0 reference database downloaded during the image build
+- The Pixi environment with all Python dependencies (pyhmmer, pyrodigal, veryfasttree and others)
+- The compact v2.1.0 reference database, downloaded during the image build
 - GVClass source code, including the contig-screen code (the screen add-on is not in the image)
 
 ### Usage
@@ -81,9 +80,8 @@ approved image to GHCR when a release tag is pushed, as the version and as `late
 oras://ghcr.io/nelli-team/gvclass:2.2.0
 ```
 
-It embeds the resources approved for the release. Running `./gvclass --apptainer` (or standalone `./gvclass` downloaded without a repo checkout) downloads this address into
-`~/.cache/gvclass/images/` and
-reuses it on later runs. The address is unavailable until publication completes.
+Running `./gvclass --apptainer` (or a standalone `./gvclass` downloaded without a repo checkout) pulls the image from this address into
+`~/.cache/gvclass/images/` and reuses it on later runs. The address is unavailable until publication completes.
 Sylabs retired its library on 2026-10-22, so older `library://` addresses no longer work.
 
 The workflow then pulls the version back without credentials and compares its
@@ -125,14 +123,6 @@ docker build -t gvclass:2.2.0 -f containers/docker/Dockerfile .
 docker run -v /path/to/data:/data gvclass:2.2.0 /data -t 32
 ```
 
-## Container Features
-
-Both formats include:
-- **Database**: compact v2.1.0 reference database embedded in the final image; fetched during image creation rather than tracked in git
-- **Dependencies**: All tools installed via Pixi
-- **Python packages**: pyhmmer, pyrodigal, veryfasttree, etc.
-- **Workflow**: direct GVClass pipeline execution with multi-threaded query parallelism
-
 ## Container Sizes
 
 - **Apptainer**: ~2.1GB compressed SIF, recommended for HPC
@@ -146,6 +136,5 @@ Both formats include:
 - No sudo/root required to run the published Apptainer image on a normal HPC Apptainer installation
 - Building from `containers/apptainer/gvclass.def` may require setuid/fakeroot support; Docker-to-SIF conversion is the fallback
 - The final image embeds the runtime database, but the repo checkout keeps `resources/` local-only
-- Supports bind mounting for input/output
 - Compatible with HPC schedulers (SLURM, PBS, SGE)
 - The `.dockerignore` file must remain in project root for Docker builds

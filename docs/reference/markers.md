@@ -52,7 +52,7 @@ Code `0` is the baseline. A nonzero code replaces it only if it has at least one
 - at least 2 more complete hits than code `0`;
 - at least as many complete hits as code `0` and an average best-hit score at least 10% above that of code `0`.
 
-If several codes qualify, the code with the most complete hits wins, then the highest average best-hit score, then the preference order 11, 1, 4, 6, 15, 29, 106, 129. Coding density is reported but never decides. If no code has a complete hit, code `0` is retained. The code panel is fixed.
+If several codes qualify, the code with the most complete hits wins, then the highest average best-hit score, then the preference order 11, 1, 4, 6, 15, 29, 106, 129. Coding density is reported but never decides. The code panel is fixed.
 
 An input shorter than 20,000 bp in total is gene-called with code `0` only, because pyrodigal cannot train a single-genome model on less sequence.
 

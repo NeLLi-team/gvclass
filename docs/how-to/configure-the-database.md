@@ -19,8 +19,9 @@ named like the archive next to the database. The bundle is about 1.5 GB and is
 published on [Zenodo](https://doi.org/10.5281/zenodo.23381313) as 24 parts of 64 MiB.
 Setup checks each part and the joined archive. A network error, an HTTP 5xx
 answer or a checksum mismatch repeats the download of that part up to three times,
-after 2, 8 and 30 seconds. Each request times out after 60 seconds. `DB_VERSION`
-records the installed version.
+after 2, 8 and 30 seconds. Each request times out after 60 seconds.
+
+`DB_VERSION` records the installed version.
 Setup preserves this file exactly as archived and checks that its version matches
 the selected source before replacing an existing database. An archive without
 `DB_VERSION` receives a marker containing the source version and a final newline.
@@ -30,8 +31,8 @@ of the database while it installs or updates. Array jobs that start together are
 safe: the second process waits, checks the database again and skips the download
 when the first process has installed it.
 
-Setup uses one exact source. An explicit environment URL has precedence over the
-configuration block, which has precedence over the built-in v2.1.0 source. GVClass
+Setup uses one exact source. An explicit environment URL overrides the
+configuration block, which overrides the built-in v2.1.0 source. GVClass
 does not follow Zenodo's latest release or fall back to an older bundle. See the
 [configuration reference](../reference/configuration.md#database-keys) for the
 environment variables and checksum rules.
@@ -117,7 +118,7 @@ This variable overrides `database.cache_path` in the configuration. A relative
 GVClass never replaces a complete database without your consent. Normal runs and
 `pixi run setup-db` compare the installed `DB_VERSION` with the effective download
 source: the environment override, the configured source, or the built-in v2.1.0
-default. A newer Zenodo release does not matter.
+default.
 
 | Situation | Behavior |
 | --- | --- |

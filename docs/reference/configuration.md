@@ -49,7 +49,7 @@ quality:
 
 Database path precedence is `--database`, then `GVCLASS_DB`, then `database.path`.
 
-Setup uses one download source, chosen in this order: the `GVCLASS_DB_URL` environment variable, the `database.download_*` keys, then the built-in v2.1.0 source. An environment URL requires `GVCLASS_DB_SHA256`. The optional `GVCLASS_DB_VERSION` value describes the same archive. Setup uses only the selected source. It does not follow Zenodo's latest link or fall back to an older bundle. A Zenodo archive that GVClass finds automatically must have a valid SHA-256 sidecar. Set `GVCLASS_DB_ALLOW_UNVERIFIED=1` to opt in to an unverified environment archive.
+Setup uses one download source, chosen in this order: the `GVCLASS_DB_URL` environment variable, the `database.download_*` keys, then the built-in v2.1.0 source. An environment URL requires `GVCLASS_DB_SHA256`. The optional `GVCLASS_DB_VERSION` value describes the same archive. Setup does not follow Zenodo's latest link or fall back to an older bundle. A Zenodo archive that GVClass finds automatically must have a valid SHA-256 sidecar. Set `GVCLASS_DB_ALLOW_UNVERIFIED=1` to opt in to an unverified environment archive.
 
 Compact resource bundles can store labels and reference proteins as Parquet (`parquet/labels/labels.parquet` and `parquet/faa.parquet`). Validation accepts reference proteins from `parquet/faa.parquet` or from nonempty legacy `database/faa/*.faa` files.
 

@@ -15,7 +15,7 @@ pixi run gvclass example -o example_results -t 8
 head -n 4 example_results/gvclass_summary.tsv
 ```
 
-The example contains two nucleotide assemblies and one protein set. Follow [Getting started](tutorials/getting-started.md) for input preparation and output interpretation. For clusters, use the [Apptainer and Slurm instructions](how-to/run-on-hpc.md).
+The example contains two nucleotide assemblies and one protein set. Follow [Getting started](tutorials/getting-started.md) for installation details and output interpretation. For clusters, use the [Apptainer and Slurm instructions](how-to/run-on-hpc.md).
 
 ## Run your genomes
 

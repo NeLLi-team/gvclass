@@ -42,6 +42,5 @@ Each successfully processed contig has its own row. Completeness and
 contamination estimates describe that contig; they do not describe the full
 assembly. Contigs without sufficient marker evidence can remain unclassified.
 
-GVClass removes temporary split files after the run. Results remain in
-`contig_results/`. See [Assess genome quality](assess-genome-quality.md) for
+GVClass removes temporary split files after the run. See [Assess genome quality](assess-genome-quality.md) for
 interpretation and the [output reference](../reference/output.md) for all files.

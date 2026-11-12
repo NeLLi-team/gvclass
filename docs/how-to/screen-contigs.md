@@ -3,9 +3,8 @@
 A plain `gvclass` run screens every bin for sequence that does not belong to the
 giant virus when the screen add-on is installed. The shares of base pairs flagged
 appear in four columns of `gvclass_summary.tsv`, and the tables of each bin are
-written to `contig_screen/<bin>/` in the output directory. The cellular share is
-also the contamination estimate of the bin. `gvclass screen` runs the
-same screens outside a classification run.
+written to `contig_screen/<bin>/` in the output directory. `gvclass screen` runs
+the same screens outside a classification run.
 
 Two models run on each bin:
 
@@ -13,8 +12,7 @@ Two models run on each bin:
 - the **giant-virus screen** marks contigs of a second giant virus.
 
 A bin that the cellular screen scored takes its cellular share as
-`estimated_contamination`, with `estimated_contamination_strategy`
-`contig_screen_cellular_v1`. `screen_giant_virus_pct` and `screen_flagged_pct` are
+`estimated_contamination`. `screen_giant_virus_pct` and `screen_flagged_pct` are
 review flags, not contamination estimates, and no call is a rule to delete a
 contig. Read [How the contig screen works](../explanation/contig-screen.md) for the
 methods and the limits before you act on a call. `estimated_completeness` does not
@@ -127,8 +125,7 @@ is not repeated. If all 3 runs hit the limit, the screen fails and its message n
 the 30-minute limit.
 
 Without the add-on, `screen_status` is `not_installed`, the three percentages are
-`NaN`, and the classification, completeness and contamination columns are the same
-as before.
+`NaN`, and the contamination columns hold the marker-model values.
 
 ### Turn the screen off
 

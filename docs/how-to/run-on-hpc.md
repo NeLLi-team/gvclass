@@ -49,11 +49,9 @@ cat hpc_results/run.log
 
 To include a shared species tree, add `--species-tree-combined` to the GVClass line in the script. See [Build a species tree](build-a-species-tree.md).
 
-GVClass runs on the machine where it starts and does not submit jobs. Configure the scheduler through the batch script and `sbatch`.
-
 ## Use the Apptainer image
 
-The image includes GVClass, its dependencies and database. The 2.2.0 image carries the v2.1.0 resources. The `gvclass` entrypoint requires Apptainer and Python 3.10 or later on the host when used in container mode. If your cluster uses environment modules, load Apptainer before running `gvclass`.
+The image includes GVClass, its dependencies and database. The 2.2.0 image carries the v2.1.0 resources. In container mode, the `gvclass` launcher needs Apptainer and Python 3.10 or later on the host. If your cluster uses environment modules, load Apptainer before running `gvclass`.
 
 ### 1. Download the launcher and image
 
@@ -102,7 +100,7 @@ Add `--no-screen` to skip the screen in a run. See
 
 ### 3. Set the cache location if needed
 
-The database cache is `~/.cache/gvclass/resource-cache/v2.1.0/`. To put it on your allocated scratch space, set `--resource-cache-dir` to that directory.
+The default cache directory is `~/.cache/gvclass/resource-cache/v2.1.0/`. To put it on your allocated scratch space, set `--resource-cache-dir` to a directory there.
 
 | Option | Purpose |
 | --- | --- |

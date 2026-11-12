@@ -40,7 +40,7 @@ The [species-tree analysis](species-tree.md) adds a nearest-reference placement 
 
 ## Viral panels and pEVE references
 
-GVClass has species-tree panels for NCLDV (Nucleocytoviricota), PPV (Preplasmiviricota), and MIRUS (Mirusviricota). Classification also reports cellular and other reference lineages when supported; the species-tree panels do not define all possible classification results.
+GVClass has species-tree panels for NCLDV (Nucleocytoviricota), PPV (Preplasmiviricota), and MIRUS (Mirusviricota). Classification also reports cellular and other reference lineages when supported.
 
 Some bundles include putative endogenous viral element (pEVE) references. Their identifiers start with `EUK-pEVE__`, and their taxonomy retains the eukaryotic source lineage with `-pEVE` labels. A source genome can supply both ordinary `EUK__` and pEVE proteins because this distinction is made per marker hit.
 

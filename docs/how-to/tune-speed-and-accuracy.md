@@ -54,7 +54,7 @@ GVClass uses HMM gathering (GA) cutoffs where available. The `--sensitive` flag
 overrides that setting for one run.
 
 Use separate output directories when comparing settings. `--resume` recomputes a
-query when a setting that changes results differs from the one of its saved result,
+query when a setting that changes results differs from the saved value,
 and skips it when only thread counts differ. See the
 [CLI reference](../reference/cli.md) for all flags and the
 [configuration reference](../reference/configuration.md) for persistent settings.

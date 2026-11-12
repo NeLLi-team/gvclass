@@ -51,7 +51,9 @@ pixi run setup-db --with-screen
 pixi run gvclass query_genomes -o results -t 8
 ```
 
-A bin of 176 kb takes about 2 minutes to screen on 8 threads. In a run of `example/`, two bins (176 and 241 kb) screened at once with 4 threads each added 5 to 8 minutes in three runs and raised peak memory from 4 GB to 16 GB, so request memory for the number of bins that run at once. A screen that runs for more than 4 hours is stopped and reads `failed`. Add `--no-screen` to skip the screen. Without the add-on, `screen_status` is `not_installed`. `gvclass screen --install` installs the add-on in a repository checkout, in the standalone launcher and in the Apptainer image; see [Screen bins](https://NeLLi-team.github.io/gvclass/how-to/screen-contigs/).
+A bin of 176 kb takes about 2 minutes to screen on 8 threads. In a run of `example/`, two bins (176 and 241 kb) screened at once with 4 threads each added 5 to 8 minutes in three runs and raised peak memory from 4 GB to 16 GB, so request memory for the number of bins that run at once. A screen that runs for more than 4 hours is stopped, and `screen_status` is `failed`.
+
+Add `--no-screen` to skip the screen. Without the add-on, `screen_status` is `not_installed`. `gvclass screen --install` installs the add-on in a repository checkout, in the standalone launcher and in the Apptainer image; see [Screen bins](https://NeLLi-team.github.io/gvclass/how-to/screen-contigs/).
 
 ## Documentation
 

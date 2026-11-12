@@ -10,7 +10,7 @@ CLI flags override [configuration values](configuration.md), which override buil
 
 The command resolves the options and the configuration file into one run configuration, writes it to `<output>/run_config.json` and starts the runner on that file. The runner writes its log to `<output>/gvclass.log`. The exit status is 0 only if the runner exits 0 and the output validation finds no issue; the validation issues are printed before a non-zero exit. In the default mode the command keeps the last 200 lines of runner output (progress lines excluded) and prints them when the run fails; `--verbose` prints the runner output as it comes. Ctrl-C or SIGTERM stops the runner and its child processes and removes the temporary contig files.
 
-The `gvclass` script starts itself again in the Python of the repository (`.pixi/envs/default/bin/python`), or under `pixi run` when that environment does not exist, so the Python on your `PATH` needs no GVClass packages. It sets `GVCLASS_RUNTIME_SELECTED=1` for the new process so that this happens once. The same applies to the copy that `pixi run install-cli` puts in `~/bin`.
+The `gvclass` script starts itself again in the Python of the repository (`.pixi/envs/default/bin/python`), or under `pixi run` when that environment does not exist, so the Python on `PATH` needs no GVClass packages. It sets `GVCLASS_RUNTIME_SELECTED=1` for the new process so that this happens once. The same applies to the copy that `pixi run install-cli` puts in `~/bin`.
 
 ## Input and output
 
@@ -41,7 +41,7 @@ The worker count never exceeds the number of queries to process, and the threads
 | `--mode-fast` | flag; enabled by default | Skip order-level marker trees; order-level HMM searches still run. |
 | `-e`, `--extended` | flag | Include order-level marker trees. Overrides `--mode-fast` regardless of argument order, natively and in container mode. |
 | `--sensitive` | flag; enabled by default | Use `E=1e-5` and `domE=1e-5` instead of GA cutoffs. |
-| `--no-sensitive` | flag | Disable sensitive HMM mode and use model GA cutoffs when available. Overrides `--sensitive` and configuration regardless of argument order. |
+| `--no-sensitive` | flag | Disable sensitive HMM mode and use model GA cutoffs when available. Overrides `--sensitive` and configuration regardless of argument order, natively and in container mode. |
 | `--completeness-mode` | `legacy`, `novelty-aware`; `novelty-aware` | Estimator used for `estimated_completeness`. |
 
 See [speed and tree settings](../how-to/tune-speed-and-accuracy.md) for examples.
@@ -143,7 +143,7 @@ select the configuration file and the database directory, as for `gvclass`.
 
 ## Apptainer container mode
 
-`gvclass` supports running inside the published Apptainer SIF container via `--apptainer` or `--image` (or automatically when `gvclass` is downloaded as a standalone script without a repository checkout). The launcher reads only the options that it needs for the mounts: the input path, `-o`/`--output-dir`, `-C`/`--contigs`, `--image`, `--resource-cache-dir`, and for `screen` also `-d` and `--install`. It passes every other option to GVClass in the container unchanged and sets no default of its own, so the thread count, the output directory (`<name>_results` in the current directory) and all other defaults are those of a native run. A missing input path is an error (exit code 2).
+`gvclass` runs inside the published Apptainer SIF container with `--apptainer` or `--image`, or automatically when `gvclass` is downloaded as a standalone script without a repository checkout. The launcher reads only the options that it needs for the mounts: the input path, `-o`/`--output-dir`, `-C`/`--contigs`, `--image`, `--resource-cache-dir`, and for `screen` also `-d` and `--install`. It passes every other option to GVClass in the container unchanged and sets no default of its own, so the thread count, the output directory (`<name>_results` in the current directory) and all other defaults are those of a native run. A missing input path is an error (exit code 2).
 
 | Option | Argument/default | Description |
 | --- | --- | --- |
@@ -162,9 +162,7 @@ truncated files; they do not authenticate the publisher or verify every payload
 byte. The cache filesystem must support hard links for atomic installation.
 An explicit local image path is passed directly to Apptainer.
 
-All other pipeline, species-tree and resume options (`-t`, `-j`, `--threads-per-worker`, `--tree-method`, `--iqtree-mode`, `--mode-fast`, `-e`/`--extended`, `--sensitive`, `--no-sensitive`, `--completeness-mode`, `--species-tree`, `--species-tree-combined`, `--species-tree-trim`, `--min-length`, `--contigs-min-length`, `--allow-short`, `--no-screen`, `--resume`, `--plain-output`, `-v`/`--verbose`) go to the container as typed. For classification, `--config` and `--database` are native-only and the launcher rejects them: the container uses the database of the image. When both `--sensitive` and `--no-sensitive` are given, `--no-sensitive` wins in both modes. A classification run also mounts the add-on read-only into the database of the image, from the
+All other pipeline, species-tree and resume options (`-t`, `-j`, `--threads-per-worker`, `--tree-method`, `--iqtree-mode`, `--mode-fast`, `-e`/`--extended`, `--sensitive`, `--no-sensitive`, `--completeness-mode`, `--species-tree`, `--species-tree-combined`, `--species-tree-trim`, `--min-length`, `--contigs-min-length`, `--allow-short`, `--no-screen`, `--resume`, `--plain-output`, `-v`/`--verbose`) go to the container as typed. For classification, `--config` and `--database` are native-only and the launcher rejects them: the container uses the database of the image. A classification run also mounts the add-on read-only into the database of the image, from the
 same place that `screen` uses (`GVCLASS_DB` if set, else the resource cache), so that the contig
 screen runs in the container. Without an installed add-on, `screen_status` is `not_installed`.
-Inside the container the database is always the one in the image, whatever `GVCLASS_DB` the
-host has: that variable selects only where the add-on comes from.
 See [run on HPC](../how-to/run-on-hpc.md) for container commands.

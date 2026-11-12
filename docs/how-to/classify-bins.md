@@ -68,10 +68,10 @@ The full TSV and CSV summaries include quality estimates. Each query's files
 are stored in a `<query>.tar.gz` archive inside `bin_results/`.
 
 A file that fails validation (for example an empty file, a repeated sequence ID,
-or a total length below the minimum) does not stop the other files. It is
-reported as a failed query with status `invalid_input`, the remaining files are
-processed, and the run ends with a non-zero exit code. If no file is valid, the
-run stops before it processes anything.
+or a total length below the minimum) is reported as a failed query with status
+`invalid_input`. GVClass processes the remaining files and ends the run with a
+non-zero exit code. If no file is valid, the run stops before it processes
+anything.
 
 If a query fails, inspect `bin_results/gvclass_failed_queries.tsv` and
 `bin_results/run.log`. After correcting the cause, repeat the command with
@@ -83,8 +83,9 @@ pixi run gvclass query_genomes -o bin_results -t 8 --resume
 
 `--resume` reads `bin_results/results.jsonl`, the record of finished queries. It
 skips a query only if its input file, the settings that change results, the database
-version and the GVClass version equal those of the saved result and its archive is
-still there; otherwise it runs the query again and the log says which field differed.
-Changing only the number of threads does not stop a skip. For quality
-interpretation, follow [Assess genome quality](assess-genome-quality.md); for
-all output paths, see the [output reference](../reference/output.md).
+version and the GVClass version equal those of the saved result, and its archive is
+still there. Otherwise it runs the query again, and the log says which field differed.
+Changing only the number of threads does not stop a skip.
+
+For quality interpretation, follow [Assess genome quality](assess-genome-quality.md).
+For all output paths, see the [output reference](../reference/output.md).
